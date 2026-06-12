@@ -1,0 +1,589 @@
+/* ============================================================================
+   萌游 MoeGame · 设计系统 v5
+   Switch 主界面 + PS5 大屏共用的暗色令牌；克制玫瑰强调。
+   ============================================================================ */
+
+/* ---- Fonts ---- */
+:root {
+  --font-ui: "Outfit","Geist","Noto Sans SC","Microsoft YaHei UI","PingFang SC",system-ui,sans-serif;
+  --font-display: "Outfit","Geist","M PLUS Rounded 1c","Noto Sans SC","Microsoft YaHei UI",sans-serif;
+  --font-mono: "JetBrains Mono","Cascadia Code","Consolas",monospace;
+  --font-jp: "M PLUS Rounded 1c","Noto Sans SC","Microsoft YaHei UI","PingFang SC",sans-serif;
+}
+
+/* ==== DARK THEME (default) ==== */
+:root, [data-theme="dark"] {
+  --bg-void:    #07090F;
+  --bg-deep:    #0B0E14;
+  --bg:         #11151F;
+  --bg-base:    var(--bg);
+  --bg-surface: #11151F;
+  --bg-secondary: #151A26;
+  --bg-elev:    #161B27;
+  --bg-card:    #1A2030;
+  --bg-hover:   #1E2433;
+  --bg-active:  rgba(232, 85, 127, 0.14);
+
+  /* Text */
+  --text-primary:   #F2F4F8;
+  --text-secondary: #AEB6C6;
+  --text-muted:     #6B7488;
+  --text-dim:       #4E586B;
+
+  /* Accent — single subdued rose */
+  --accent:      #E8557F;
+  --accent-hi:   #F07A9B;
+  --accent-lo:   rgba(232, 85, 127, 0.14);
+  --accent-ring: rgba(232, 85, 127, 0.45);
+  --accent-pink: var(--accent);
+  --accent-pink-hi: var(--accent-hi);
+  --accent-pink-lo: var(--accent-lo);
+  --accent-pink-ring: var(--accent-ring);
+
+  /* Semantic */
+  --color-success: #4ADE80;
+  --color-warning: #FBBF24;
+  --color-error:   #F87171;
+  --color-info:    #60A5FA;
+
+  /* Border */
+  --border:       rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.14);
+  --border-glass: rgba(255, 255, 255, 0.10);
+
+  /* Radius */
+  --radius-sm:   8px;
+  --radius-md:   12px;
+  --radius-lg:   16px;
+  --radius-xl:   24px;
+  --radius-full: 9999px;
+
+  /* Shadows — spatial, not neon */
+  --shadow-xs:    0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm:    0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md:    0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-lg:    0 8px 30px rgba(0, 0, 0, 0.6);
+  --shadow-card:  0 8px 24px -12px rgba(0, 0, 0, 0.5);
+  --shadow-hover: 0 16px 34px -18px rgba(0, 0, 0, 0.72);
+  --shadow-accent: 0 10px 26px -18px rgba(232, 85, 127, 0.75);
+  --shadow-glass: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+  /* Liquid glass */
+  --glass-bg: rgba(17, 21, 31, 0.68);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --glass-blur: blur(18px);
+
+  /* Scrollbar */
+  --scrollbar-thumb: rgba(232, 85, 127, 0.28);
+  --scrollbar-thumb-hover: rgba(232, 85, 127, 0.48);
+
+  /* —— v5 双主机外壳（Switch 主界面 / PS5 大屏，恒暗色） —— */
+  --ring-switch:   0 0 0 3px rgba(255, 255, 255, 0.92);
+  --ring-ps5:      0 0 0 3px #fff, 0 12px 40px -8px rgba(0, 0, 0, 0.7);
+  --focus-ring:    0 0 0 2px var(--accent);
+  --shadow-tile:   0 8px 24px -14px rgba(0, 0, 0, 0.7);
+  --shadow-lift:   0 18px 40px -18px rgba(0, 0, 0, 0.78);
+  --sw-bg:         var(--bg-void);
+  --sw-tile-radius: var(--radius-lg);
+  --sw-tile-width: clamp(118px, 11.2vw, 156px);
+  --sw-tile-selected-width: clamp(174px, 18vw, 300px);
+  --sw-tile-idle-bright: 0.82;
+  --sw-dock-icon:  44px;
+  --sw-dock-hover: rgba(255, 255, 255, 0.08);
+  --ps-scrim: linear-gradient(180deg, transparent 0%, transparent 42%,
+              rgba(7, 9, 15, 0.55) 66%, rgba(7, 9, 15, 0.92) 86%, var(--bg-void) 100%);
+  --ps-crossfade: 0.6s;
+}
+
+/* ==== LIGHT THEME ==== */
+[data-theme="light"] {
+  --bg-deep:    #F5F3FF;
+  --bg-base:    #FAFAFE;
+  --bg-surface: #F0ECFD;
+  --bg-secondary: #F4F0FC;
+  --bg-elev:    #E8E2FA;
+  --bg-card:    rgba(255, 255, 255, 0.88);
+  --bg-hover:   rgba(240, 236, 253, 0.7);
+  --bg-active:  rgba(232, 226, 250, 0.6);
+
+  --text-primary:   #1E1B4B;
+  --text-secondary: rgba(30, 27, 75, 0.65);
+  --text-muted:     rgba(30, 27, 75, 0.4);
+
+  --accent:     #D84670;
+  --accent-hi:  #E76F91;
+  --accent-lo:  rgba(216, 70, 112, 0.10);
+  --accent-pink: var(--accent);
+  --accent-pink-hi: var(--accent-hi);
+  --accent-pink-lo: var(--accent-lo);
+
+  --border:       rgba(0, 0, 0, 0.08);
+  --border-hover: rgba(0, 0, 0, 0.14);
+  --border-glass: rgba(0, 0, 0, 0.06);
+
+  --shadow-hover:  0 12px 28px -18px rgba(0, 0, 0, 0.45);
+  --shadow-accent: 0 10px 24px -18px rgba(216, 70, 112, 0.65);
+
+  --glass-bg: rgba(255, 255, 255, 0.65);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+
+  --scrollbar-thumb: rgba(216, 70, 112, 0.24);
+  --scrollbar-thumb-hover: rgba(216, 70, 112, 0.42);
+}
+
+/* ============================================================================
+   Base
+   ============================================================================ */
+
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-ui);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+#app {
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+}
+
+/* ---- Scrollbar ---- */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+::selection {
+  background: var(--accent-lo);
+  color: var(--accent);
+}
+
+/* ============================================================================
+   Liquid Glass utility
+   ============================================================================ */
+
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight);
+}
+
+.glass-card {
+  background: var(--bg-card);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-glass);
+  box-shadow: var(--glass-highlight), var(--shadow-sm);
+  border-radius: var(--radius-lg);
+}
+
+/* ============================================================================
+   Animations (transform + opacity only)
+   ============================================================================ */
+
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInScale {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-card) 0%, var(--bg-hover) 40%, var(--bg-card) 80%) 0 0 / 800px 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+
+/* ============================================================================
+   Interactive
+   ============================================================================ */
+
+.card-hover {
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.28s ease;
+}
+.card-hover:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-hover);
+}
+
+/* Status badge — running dot */
+.status-dot {
+  width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+.status-dot.running { background: var(--color-success); }
+.status-dot.stopped  { background: var(--text-muted); }
+
+/* ============================================================================
+   Utility classes
+   ============================================================================ */
+
+.text-mono   { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.text-muted  { color: var(--text-muted); }
+.text-accent { color: var(--accent); }
+.flex-center  { display: flex; align-items: center; justify-content: center; }
+.flex-between { display: flex; align-items: center; justify-content: space-between; }
+.gap-sm { gap: 6px; }
+.gap-md { gap: 12px; }
+.gap-lg { gap: 20px; }
+
+/* ============================================================================
+   Aura shell for tool pages only
+   ============================================================================ */
+
+:root, [data-theme="dark"] {
+  --aura-bg: #0B0E14;
+  --aura-pool-rose: radial-gradient(1200px 800px at 84% -12%, rgba(232, 85, 127, 0.08), transparent 62%);
+  --aura-pool-moon: radial-gradient(1000px 700px at -10% 110%, rgba(174, 186, 211, 0.05), transparent 58%);
+  --aura-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.5'/></svg>");
+  --aura-grain-opacity: 0.03;
+  --aura-panel-bg: rgba(17, 21, 31, 0.58);
+  --aura-panel-border: rgba(255, 255, 255, 0.09);
+  --aura-panel-blur: blur(20px) saturate(1.15);
+  --aura-panel-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --aura-inset-bg: rgba(7, 9, 15, 0.55);
+  --aura-tick: linear-gradient(180deg, var(--accent), var(--accent-hi));
+  --aura-bevel: 14px;
+  --aura-data-1: var(--accent);
+  --aura-data-2: rgba(232, 85, 127, 0.62);
+  --aura-data-3: rgba(232, 85, 127, 0.34);
+  --aura-data-4: rgba(174, 186, 211, 0.45);
+  --aura-track: rgba(255, 255, 255, 0.06);
+  --aura-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --aura-stagger: 40ms;
+  --aura-surface: rgba(21, 26, 38, 0.74);
+  --aura-surface-strong: rgba(26, 32, 48, 0.9);
+  --aura-inset: rgba(7, 9, 15, 0.44);
+  --aura-border: rgba(255, 255, 255, 0.1);
+  --aura-border-strong: rgba(255, 255, 255, 0.18);
+  --aura-line: rgba(255, 255, 255, 0.06);
+  --aura-glow: rgba(232, 85, 127, 0.16);
+  --aura-data-a: var(--accent);
+  --aura-data-b: rgba(232, 85, 127, 0.62);
+  --aura-data-c: rgba(174, 186, 211, 0.45);
+  --aura-echo: rgba(255, 255, 255, 0.035);
+  --spotlight-x: 50%;
+  --spotlight-y: 0%;
+  --spotlight-radius: 520px;
+}
+
+.aura-page {
+  position: relative;
+  isolation: isolate;
+  min-width: 0;
+  min-height: 100%;
+  color: var(--text-primary);
+  background:
+    radial-gradient(circle var(--spotlight-radius) at var(--spotlight-x) var(--spotlight-y), rgba(232, 85, 127, 0.06), transparent 64%),
+    var(--aura-pool-rose),
+    var(--aura-pool-moon),
+    var(--aura-bg);
+}
+
+.aura-page::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    var(--aura-grain),
+    linear-gradient(90deg, var(--aura-line) 1px, transparent 1px),
+    linear-gradient(180deg, var(--aura-line) 1px, transparent 1px);
+  background-size: 160px 160px, 48px 48px, 48px 48px;
+  opacity: var(--aura-grain-opacity);
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.5), transparent 72%);
+}
+
+.aura-page::after {
+  content: attr(data-aura-echo);
+  position: absolute;
+  right: clamp(18px, 4vw, 56px);
+  bottom: clamp(16px, 3vw, 42px);
+  z-index: -1;
+  color: var(--aura-echo);
+  font-family: var(--font-display);
+  font-size: clamp(44px, 10vw, 132px);
+  font-weight: 800;
+  line-height: 0.85;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.aura-page header,
+.aura-page .page-head,
+.aura-page .tool-head,
+.aura-page .toolbar,
+.aura-page .panel,
+.aura-page .stat-tile,
+.aura-page .metric-card,
+.aura-page .task,
+.aura-page .source,
+.aura-page .result-card,
+.aura-page .rec-card,
+.aura-page .facet-card,
+.aura-page .data-row,
+.aura-page .glass,
+.aura-page .glass-card,
+.aura-panel {
+  border: 1px solid var(--aura-panel-border);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.018)), var(--aura-panel-bg);
+  box-shadow: var(--aura-panel-highlight), var(--shadow-card);
+  backdrop-filter: var(--aura-panel-blur);
+  -webkit-backdrop-filter: var(--aura-panel-blur);
+}
+
+.aura-page .panel,
+.aura-page .metric-card,
+.aura-page .stat-tile,
+.aura-page .task,
+.aura-page .result-card,
+.aura-page .rec-card,
+.aura-page .facet-card,
+.aura-page .glass,
+.aura-page .glass-card,
+.aura-panel {
+  border-radius: 8px;
+}
+
+.aura-page .page-head,
+.aura-page .tool-head,
+.aura-page header,
+.aura-page .toolbar {
+  border-radius: 8px;
+}
+
+.aura-page h1,
+.aura-page h2,
+.aura-page h3 {
+  letter-spacing: 0;
+}
+
+.aura-page h1 {
+  font-family: var(--font-display);
+  font-size: clamp(22px, 2.2vw, 26px);
+  line-height: 1.12;
+}
+
+.aura-head {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  padding: 28px 0 18px;
+}
+
+.aura-head .echo {
+  position: absolute;
+  right: 0;
+  top: -6px;
+  z-index: 0;
+  color: var(--aura-echo);
+  font-family: var(--font-display);
+  font-size: clamp(72px, 11vw, 136px);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  user-select: none;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.aura-head > :not(.echo) {
+  position: relative;
+  z-index: 1;
+}
+
+.aura-kicker {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.aura-title {
+  position: relative;
+  padding-left: 14px;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 750;
+  line-height: 1.15;
+  letter-spacing: 0;
+}
+
+.aura-title::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12%;
+  bottom: 12%;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--aura-tick);
+}
+
+.aura-page .eyebrow,
+.aura-page .label,
+.aura-page .pill,
+.aura-page .status-badge,
+.aura-page .tag,
+.aura-page .tag-chip {
+  letter-spacing: 0;
+}
+
+.aura-page input,
+.aura-page select,
+.aura-page textarea {
+  background: var(--aura-inset);
+  border-color: var(--aura-border);
+}
+
+.aura-page input:focus-visible,
+.aura-page select:focus-visible,
+.aura-page textarea:focus-visible,
+.aura-page button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.aura-page .primary,
+.aura-page .primary-action,
+.aura-page .btn-search,
+.aura-page .act-btn.primary {
+  box-shadow: 0 12px 28px -20px var(--accent);
+}
+
+.aura-page .bar,
+.aura-page .status-fill,
+.aura-page .heat-cell,
+.aura-track {
+  background: linear-gradient(90deg, var(--aura-data-1), var(--aura-data-2));
+}
+
+.aura-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+}
+
+.aura-page .ui-card--glass {
+  border-color: var(--aura-panel-border);
+  background: var(--aura-panel-bg);
+  box-shadow: var(--aura-panel-highlight), var(--shadow-card);
+  backdrop-filter: var(--aura-panel-blur);
+  -webkit-backdrop-filter: var(--aura-panel-blur);
+}
+
+.aura-page .ui-card--elevated,
+.aura-page .ui-stat {
+  border-color: var(--border);
+  background: var(--bg-card);
+}
+
+.aura-page .ui-button:active:not(:disabled),
+.aura-page button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.aura-inset {
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-md);
+  background: var(--aura-inset-bg);
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.aura-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.aura-divider {
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.aura-bevel {
+  clip-path: polygon(0 0, calc(100% - var(--aura-bevel)) 0, 100% var(--aura-bevel), 100% 100%, 0 100%);
+}
+
+.aura-enter {
+  animation: fadeInUp 0.4s var(--aura-ease) both;
+  animation-delay: calc(var(--i, 0) * var(--aura-stagger));
+}
+
+.aura-panel--spot {
+  position: relative;
+}
+
+.aura-panel--spot::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: radial-gradient(220px circle at var(--mx, var(--spotlight-x, 50%)) var(--my, var(--spotlight-y, 0%)), rgba(255, 255, 255, 0.22), transparent 70%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s var(--aura-ease);
+}
+
+.aura-panel--spot:hover::before {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aura-enter {
+    animation: none;
+  }
+
+  .aura-page::before {
+    display: none;
+  }
+
+  .aura-page {
+    --spotlight-radius: 0px;
+    background: var(--aura-bg);
+  }
+}

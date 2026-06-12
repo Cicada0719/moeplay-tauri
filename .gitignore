@@ -1,0 +1,28 @@
+# 构建产物
+dist/
+node_modules/
+target/
+src-tauri/target/
+src-tauri/gen/
+test-results/
+playwright-report/
+.codegraph/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 运行时数据（用户数据不应提交）
+*.db
+*.db-shm
+*.db-wal
+
+# Env
+.env
+.env.local

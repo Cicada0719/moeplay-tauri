@@ -1,0 +1,50 @@
+[package]
+name = "moeplay"
+version = "0.1.1"
+description = "萌游 MoeGame - 可爱的游戏管理器"
+authors = ["you"]
+edition = "2021"
+autobins = false
+default-run = "moeplay"
+
+[lib]
+name = "moeplay_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "moeplay"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.11", features = ["json", "stream"] }
+futures-util = "0.3"
+log = "0.4"
+zip = "2"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5"
+rfd = "0.15"
+open = "5"
+urlencoding = "2"
+regex = "1"
+encoding_rs = "0.8"
+notify = "6"
+thiserror = "2.0.18"
+rusqlite = { version = "0.32", features = ["bundled"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+sysinfo = "0.33"
+url = "2"
+serde_yaml = "0.9"
+winreg = "0.52"
