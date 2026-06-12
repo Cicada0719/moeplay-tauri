@@ -149,7 +149,7 @@ pub async fn scrape_game(
         None
     };
 
-    Ok(scraper::scrape_game(
+    let mut results = scraper::scrape_game(
         &query,
         vndb,
         bangumi,
@@ -162,7 +162,23 @@ pub async fn scrape_game(
         pcgw,
         ai_config.as_ref(),
     )
-    .await)
+    .await;
+
+    // 预下载封面到本地
+    for r in &mut results {
+        if let Some(ref url) = r.cover {
+            if url.starts_with("http") {
+                r.cover = Some(crate::commands::fetch_cover_to_local(url, &r.source_id).await);
+            }
+        }
+        if let Some(ref url) = r.background {
+            if url.starts_with("http") {
+                r.background = Some(crate::commands::fetch_cover_to_local(url, &format!("{}_bg", r.source_id)).await);
+            }
+        }
+    }
+
+    Ok(results)
 }
 
 /// 鎼存梻鏁ら崚顔煎缂佹挻鐏夐敍鍫熸＋閻楀牆鍚嬬€圭櫢绱濋崘娆忓弳閺冄呭鐎涙顔岄敍?
@@ -252,13 +268,13 @@ pub async fn scrape_game_merged(
         &query,
         settings.vndb_enabled,
         settings.bangumi_enabled,
-        true, // dlsite
-        true, // touchgal
-        true, // erogamescape
-        true, // ymgal
-        true, // kungal
-        true, // steam
-        true, // pcgw
+        settings.dlsite_enabled,
+        settings.touchgal_enabled,
+        settings.erogamescape_enabled,
+        settings.ymgal_enabled,
+        settings.kungal_enabled,
+        settings.steam_enabled,
+        settings.pcgw_enabled,
     )
     .await;
 
@@ -293,6 +309,22 @@ pub async fn scrape_game_merged(
                         mr.result.tags.push(tag);
                     }
                 }
+            }
+        }
+    }
+
+    // 预下载封面到本地，避免 CDN 被墙后裂图
+    for mr in &mut result {
+        if let Some(ref url) = mr.result.cover {
+            if url.starts_with("http") {
+                let local = crate::commands::fetch_cover_to_local(url, &mr.result.source_id).await;
+                mr.result.cover = Some(local);
+            }
+        }
+        if let Some(ref url) = mr.result.background {
+            if url.starts_with("http") {
+                let local = crate::commands::fetch_cover_to_local(url, &format!("{}_bg", mr.result.source_id)).await;
+                mr.result.background = Some(local);
             }
         }
     }

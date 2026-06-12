@@ -278,6 +278,96 @@ fn extract_acf_value(content: &str, key: &str) -> Option<String> {
 }
 
 // ============================================================================
+// Steam: 本地库中按名称查找封面（AI-only 回退）
+// ============================================================================
+
+/// 从本地 Steam 安装中按游戏名称模糊匹配 appmanifest，返回 librarycache 封面路径。
+/// 当远程刮削全部被墙时，用作 AI 刮削的封面兜底。
+pub fn find_local_steam_cover_by_name(query: &str) -> Option<String> {
+    let steam_path = find_steam_install_path()?;
+    let libraries = parse_library_folders(&steam_path);
+
+    let q = query.to_lowercase();
+    let mut best_path: Option<String> = None;
+    let mut best_score = 0.0;
+
+    for lib in &libraries {
+        let manifest_dir = lib;
+        if let Ok(entries) = std::fs::read_dir(manifest_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if !fname.starts_with("appmanifest_") || !fname.ends_with(".acf") {
+                    continue;
+                }
+                let content = std::fs::read_to_string(&path).ok()?;
+                let name = extract_acf_value(&content, "name")?;
+                let name_lower = name.to_lowercase();
+
+                // 简单模糊匹配
+                let score = if name_lower == q {
+                    1.0
+                } else if name_lower.contains(&q) || q.contains(&name_lower) {
+                    0.7
+                } else {
+                    // Levenshtein 容错
+                    let dist = levenshtein_distance(&name_lower, &q);
+                    let max_len = name_lower.len().max(q.len()) as f64;
+                    if max_len > 0.0 {
+                        1.0 - (dist as f64 / max_len)
+                    } else {
+                        0.0
+                    }
+                };
+
+                if score > best_score && score >= 0.5 {
+                    let appid = extract_acf_value(&content, "appid")?;
+                    let cache = steam_path.join("appcache").join("librarycache");
+                    // 新版布局
+                    let nested = cache.join(&appid).join("library_600x900.jpg");
+                    if nested.is_file() {
+                        best_path = Some(nested.to_string_lossy().to_string());
+                        best_score = score;
+                        continue;
+                    }
+                    // 旧版扁平布局
+                    let flat = cache.join(format!("{appid}_library_600x900.jpg"));
+                    if flat.is_file() {
+                        best_path = Some(flat.to_string_lossy().to_string());
+                        best_score = score;
+                    }
+                }
+            }
+        }
+    }
+
+    best_path
+}
+
+fn levenshtein_distance(a: &str, b: &str) -> usize {
+    let a_chars: Vec<char> = a.chars().collect();
+    let b_chars: Vec<char> = b.chars().collect();
+    let n = a_chars.len();
+    let m = b_chars.len();
+    let mut dp = vec![vec![0usize; m + 1]; n + 1];
+    for (i, row) in dp.iter_mut().enumerate().take(n + 1) {
+        row[0] = i;
+    }
+    for (j, cell) in dp[0].iter_mut().enumerate().take(m + 1) {
+        *cell = j;
+    }
+    for i in 1..=n {
+        for j in 1..=m {
+            let cost = if a_chars[i - 1] == b_chars[j - 1] { 0 } else { 1 };
+            dp[i][j] = (dp[i - 1][j] + 1)
+                .min(dp[i][j - 1] + 1)
+                .min(dp[i - 1][j - 1] + cost);
+        }
+    }
+    dp[n][m]
+}
+
+// ============================================================================
 // Epic Games
 // ============================================================================
 

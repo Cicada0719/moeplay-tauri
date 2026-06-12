@@ -393,13 +393,13 @@ fn process_archive(app_handle: &tauri::AppHandle, archive_path: &Path) {
                                     &gname,
                                     s.vndb_enabled,
                                     s.bangumi_enabled,
-                                    true,
-                                    true,
-                                    true,
-                                    true,
-                                    true,
-                                    true,
-                                    true,
+                                    s.dlsite_enabled,
+                                    s.touchgal_enabled,
+                                    s.erogamescape_enabled,
+                                    s.ymgal_enabled,
+                                    s.kungal_enabled,
+                                    s.steam_enabled,
+                                    s.pcgw_enabled,
                                 )
                                 .await;
                                 if !raw.is_empty() {
@@ -411,12 +411,22 @@ fn process_archive(app_handle: &tauri::AppHandle, archive_path: &Path) {
                                         },
                                     );
                                     if let Some(best) = merged.first() {
+                                        let cover = if let Some(ref url) = best.result.cover {
+                                            Some(crate::commands::fetch_cover_to_local(url, &gid).await)
+                                        } else {
+                                            None
+                                        };
+                                        let background = if let Some(ref url) = best.result.background {
+                                            Some(crate::commands::fetch_cover_to_local(url, &format!("{gid}_bg")).await)
+                                        } else {
+                                            None
+                                        };
                                         let _ = db2.apply_scrape_result_ext(
                                             &gid,
                                             Some(best.result.title.clone()),
                                             best.result.description.clone(),
-                                            best.result.cover.clone(),
-                                            best.result.background.clone(),
+                                            cover,
+                                            background,
                                             Some(best.result.tags.clone()),
                                             best.result.rating,
                                             best.result.release_year,

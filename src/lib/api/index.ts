@@ -287,6 +287,13 @@ export interface Settings {
   minimize_to_tray: boolean;
   vndb_enabled: boolean;
   bangumi_enabled: boolean;
+  dlsite_enabled?: boolean;
+  touchgal_enabled?: boolean;
+  erogamescape_enabled?: boolean;
+  ymgal_enabled?: boolean;
+  kungal_enabled?: boolean;
+  steam_enabled?: boolean;
+  pcgw_enabled?: boolean;
   ai_enabled: boolean;
   ai_api_url: string;
   ai_api_key: string;
@@ -1544,6 +1551,17 @@ export async function importSteamSessionGames(
   games: SteamSessionGame[],
 ): Promise<PlatformImportResult> {
   return invoke("import_steam_session_games", { games });
+}
+
+export interface SyncAchievementsResult {
+  synced: number;
+  skipped: number;
+  failed: number;
+  errors: string[];
+}
+
+export async function syncSteamAchievements(): Promise<SyncAchievementsResult> {
+  return invoke("sync_steam_achievements");
 }
 
 /// 发现本地 Steam 安装路径

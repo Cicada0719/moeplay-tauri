@@ -12,6 +12,8 @@ let _pendingDownloadUrl = $state<string | null>(null);
 let _pendingDownloadName = $state<string | null>(null);
 let _bigPictureActive = $state(false);
 let _libraryMode = $state<"home" | "all">("home");
+let _drawerOpen = $state(false);
+let _drawerView = $state<string | null>(null);
 
 export const uiStore = {
   get currentView() { return _currentView; },
@@ -60,6 +62,17 @@ export const uiStore = {
   closeScrapeDialog() {
     _showScrapeDialog = false;
     _scrapeTargetGameId = null;
+  },
+
+  get drawerOpen() { return _drawerOpen; },
+  get drawerView() { return _drawerView; },
+  openDrawer(view: string) {
+    _drawerView = view;
+    _drawerOpen = true;
+  },
+  closeDrawer() {
+    _drawerOpen = false;
+    _drawerView = null;
   },
 
   get pendingDownloadUrl() { return _pendingDownloadUrl; },

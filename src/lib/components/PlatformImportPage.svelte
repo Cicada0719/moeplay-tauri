@@ -10,12 +10,14 @@
     scanPlatformLibrary,
     steamDetectLocal,
     steamLoginOpenid,
+    syncSteamAchievements,
     validateSteamApiKey,
     type PlatformGameCandidate,
     type PlatformImportResult,
     type PlatformImportStatus,
     type PlatformScanResult,
     type SteamSessionGame,
+    type SyncAchievementsResult,
   } from "../api";
   import { gameStore } from "../stores/games.svelte";
   import { settingsStore } from "../stores/settings.svelte";
@@ -83,6 +85,10 @@
   let epicSelected = $state<Set<string>>(new Set());
   let epicImport = $state<PlatformImportResult | null>(null);
   let epicError = $state("");
+
+  let syncingAchievements = $state(false);
+  let achievementResult = $state<SyncAchievementsResult | null>(null);
+  let achievementError = $state("");
 
   const steamConnectionLabel = $derived.by(() => {
     if (syncingSteam) return "同步中";
@@ -532,6 +538,20 @@
     uiStore.currentView = "home";
   }
 
+  async function handleSyncAchievements() {
+    syncingAchievements = true;
+    achievementError = "";
+    achievementResult = null;
+    try {
+      achievementResult = await syncSteamAchievements();
+      await gameStore.load();
+    } catch (e: any) {
+      achievementError = e?.message ?? String(e);
+    } finally {
+      syncingAchievements = false;
+    }
+  }
+
   function formatPlaytime(minutes: number | null | undefined) {
     if (!minutes) return "未记录";
     if (minutes < 60) return `${minutes} 分钟`;
@@ -595,6 +615,27 @@
   {#if allImportSummary}
     <div class="banner ok aggregate-banner">
       {allImportSummary.sections.join(" / ")} 完成：共处理 {allImportSummary.total}，新增 {allImportSummary.imported}，更新 {allImportSummary.updated}，跳过 {allImportSummary.skipped}，失败 {allImportSummary.failed}
+    </div>
+  {/if}
+
+  <section class="aggregate-bar">
+    <div>
+      <strong>Steam 成就同步</strong>
+      <span>从 Steam Web API 拉取所有 Steam 游戏的成就数据（需要 API Key + SteamID）。</span>
+    </div>
+    <div class="aggregate-actions">
+      <Button variant="secondary" onclick={handleSyncAchievements} disabled={syncingAchievements}>
+        <Icon name="star" size={16} />{syncingAchievements ? "同步中..." : "同步成就数据"}
+      </Button>
+    </div>
+  </section>
+
+  {#if achievementError}
+    <div class="banner error aggregate-banner">{achievementError}</div>
+  {/if}
+  {#if achievementResult}
+    <div class="banner ok aggregate-banner">
+      成就同步完成：已同步 {achievementResult.synced}，跳过 {achievementResult.skipped}，失败 {achievementResult.failed}
     </div>
   {/if}
 

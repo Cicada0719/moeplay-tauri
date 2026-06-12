@@ -8,6 +8,10 @@ test-results/
 playwright-report/
 .codegraph/
 
+# 日志
+*.log
+*.err.log
+
 # IDE
 .vscode/
 .idea/

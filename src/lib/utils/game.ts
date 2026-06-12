@@ -122,6 +122,10 @@ export function heroImageOf(game: GameLike | null | undefined): string | null {
   );
 }
 
+export function hasHeroBackground(game: GameLike | null | undefined): boolean {
+  return !!(game?.metadata?.background ?? game?.background ?? game?.screenshots?.[0]);
+}
+
 export function screenshotsOf(game: GameLike | null | undefined): string[] {
   const shots = (game?.screenshots ?? []).filter(Boolean);
   if (shots.length > 0) return shots;

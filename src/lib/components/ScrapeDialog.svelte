@@ -34,10 +34,20 @@
     try {
       const useAi = settingsStore.settings.ai_enabled && settingsStore.settings.ai_api_key;
       const searchFn = useAi ? scrapeGame : scrapeGames;
+      const s = settingsStore.settings;
       results = await searchFn(
         query,
-        settingsStore.settings.vndb_enabled,
-        settingsStore.settings.bangumi_enabled
+        s.vndb_enabled,
+        s.bangumi_enabled,
+        {
+          dlsite: s.dlsite_enabled ?? true,
+          touchgal: s.touchgal_enabled ?? true,
+          erogamescape: s.erogamescape_enabled ?? true,
+          ymgal: s.ymgal_enabled ?? true,
+          kungal: s.kungal_enabled ?? true,
+          steam: s.steam_enabled ?? true,
+          pcgw: s.pcgw_enabled ?? true,
+        }
       );
       if (results.length === 0) {
         error = "未找到匹配结果";
@@ -99,14 +109,17 @@
         </div>
         <div class="source-info">
           数据源:
-          {#if settingsStore.settings.vndb_enabled}
-            <span class="source-tag vndb">VNDB</span>
-          {/if}
-          {#if settingsStore.settings.bangumi_enabled}
-            <span class="source-tag bangumi">Bangumi</span>
-          {/if}
+          {#if settingsStore.settings.vndb_enabled}<span class="source-tag vndb">VNDB</span>{/if}
+          {#if settingsStore.settings.bangumi_enabled}<span class="source-tag bangumi">Bangumi</span>{/if}
+          {#if settingsStore.settings.dlsite_enabled ?? true}<span class="source-tag">DLsite</span>{/if}
+          {#if settingsStore.settings.touchgal_enabled ?? true}<span class="source-tag">TouchGAL</span>{/if}
+          {#if settingsStore.settings.erogamescape_enabled ?? true}<span class="source-tag">EGS</span>{/if}
+          {#if settingsStore.settings.ymgal_enabled ?? true}<span class="source-tag">Ymgal</span>{/if}
+          {#if settingsStore.settings.kungal_enabled ?? true}<span class="source-tag">Kungal</span>{/if}
+          {#if settingsStore.settings.steam_enabled ?? true}<span class="source-tag">Steam</span>{/if}
+          {#if settingsStore.settings.pcgw_enabled ?? true}<span class="source-tag">PCGW</span>{/if}
           {#if settingsStore.settings.ai_enabled && settingsStore.settings.ai_api_key}
-            <span class="source-tag ai"><Icon name="lightbulb" size={14} /> AI 增强</span>
+            <span class="source-tag ai"><Icon name="lightbulb" size={14} /> AI</span>
           {/if}
         </div>
       </div>

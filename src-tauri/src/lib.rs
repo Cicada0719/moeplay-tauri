@@ -287,6 +287,7 @@ pub fn run() {
             commands::scan_platform_library,
             commands::import_platform_library,
             commands::import_steam_session_games,
+            commands::sync_steam_achievements,
             // ---- M6 云存档 + 诊断 ----
             commands::backup_snapshot_local,
             commands::test_webdav_connection,

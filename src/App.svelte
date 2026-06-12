@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { fly } from "svelte/transition";
   import { quintOut } from "svelte/easing";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { gameStore } from "./lib/stores/games.svelte";
   import { settingsStore } from "./lib/stores/settings.svelte";
   import { uiStore } from "./lib/stores/ui.svelte";
@@ -20,12 +21,12 @@
   let DiscoveryPage: any = $state(null);
   let DiagnosticsPage: any = $state(null);
   let SettingsPage: any = $state(null);
-  let SettingsView: any = $state(null);
   let GameDetailPage: any = $state(null);
   let SteamImportDialog: any = $state(null);
   let MigrationPage: any = $state(null);
   let EmulatorImportDialog: any = $state(null);
   let FirstRunWizard: any = $state(null);
+  let CommandDrawer: any = $state(null);
 
   const isBigPicture = $derived(uiStore.bigPictureActive);
   const showSidebar = $derived(!isBigPicture && uiStore.currentView !== "home");
@@ -38,7 +39,6 @@
     if (uiStore.currentView === "discovery" && !DiscoveryPage) import("./lib/components/DiscoveryPage.svelte").then(m => DiscoveryPage = m.default);
     if (uiStore.currentView === "diagnostics" && !DiagnosticsPage) import("./lib/components/DiagnosticsPage.svelte").then(m => DiagnosticsPage = m.default);
     if (uiStore.currentView === "settings" && !SettingsPage) import("./lib/components/SettingsPage.svelte").then(m => SettingsPage = m.default);
-    if (uiStore.currentView === "legacy-settings" && !SettingsView) import("./lib/components/SettingsView.svelte").then(m => SettingsView = m.default);
     if (uiStore.currentView === "game-detail" && !GameDetailPage) import("./lib/components/GameDetailPage.svelte").then(m => GameDetailPage = m.default);
     if (uiStore.currentView === "game-detail" && !gameStore.selectedGame && gameStore.games[0]) gameStore.selectGame(gameStore.games[0].id);
     if (uiStore.currentView === "steam-import" && !SteamImportDialog) import("./lib/components/SteamImportDialog.svelte").then(m => SteamImportDialog = m.default);
@@ -48,6 +48,10 @@
 
   $effect(() => {
     if (uiStore.showFirstRunWizard && !FirstRunWizard) import("./lib/components/FirstRunWizard.svelte").then(m => FirstRunWizard = m.default);
+  });
+
+  $effect(() => {
+    if (uiStore.drawerOpen && !CommandDrawer) import("./lib/components/CommandDrawer.svelte").then(m => CommandDrawer = m.default);
   });
 
   $effect(() => {
@@ -64,19 +68,29 @@
     settingsStore.load();
   });
 
-  // 开机自启：根据 startup_mode 切换初始视图
+  // 开机自启：根据 startup_mode 切换初始视图 + 窗口模式
+  let _startupApplied = false;
   $effect(() => {
     const settings = settingsStore.settings;
-    if (!settings?.autostart_enabled) return;
-    if (settings.startup_mode === "big-picture") {
+    if (!settings || _startupApplied) return;
+    _startupApplied = true;
+
+    const mode = settings.startup_mode ?? "dashboard";
+    if (mode === "big-picture") {
       uiStore.setBigPicture(true);
+      getCurrentWindow().setFullscreen(true).catch(() => {});
+    } else if (mode === "fullscreen") {
+      getCurrentWindow().setFullscreen(true).catch(() => {});
+    } else {
+      getCurrentWindow().maximize().catch(() => {});
     }
   });
 
-  // First-run wizard: show once only
+  // First-run wizard: show once only (dev: ?skip_wizard 跳过)
+  const _skipWizard = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("skip_wizard");
   let _firstRunWizardShown = $state(false);
   $effect(() => {
-    if (_firstRunWizardShown) return;
+    if (_skipWizard || _firstRunWizardShown) return;
     if (!booted || gameStore.loading || settingsStore.loading) return;
     if (settingsStore.settings && gameStore.games.length === 0 && !(settingsStore.settings.watch_dirs?.length)) {
       _firstRunWizardShown = true;
@@ -131,8 +145,6 @@
             <DiagnosticsPage />
           {:else if uiStore.currentView === "settings" && SettingsPage}
             <SettingsPage />
-          {:else if uiStore.currentView === "legacy-settings" && SettingsView}
-            <SettingsView />
           {:else if uiStore.currentView === "game-detail" && GameDetailPage}
             <GameDetailPage />
           {:else if uiStore.currentView === "steam-import" && SteamImportDialog}
@@ -158,6 +170,10 @@
 
 {#if uiStore.showScrapeDialog && ScrapeDialog}
   <ScrapeDialog />
+{/if}
+
+{#if uiStore.drawerOpen && CommandDrawer}
+  <CommandDrawer />
 {/if}
 
 {#if uiStore.showFirstRunWizard && FirstRunWizard}

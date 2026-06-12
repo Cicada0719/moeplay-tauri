@@ -748,6 +748,27 @@ pub struct Settings {
     pub vndb_enabled: bool,
     /// 启用 Bangumi 刮削
     pub bangumi_enabled: bool,
+    /// 启用 DLsite 刮削
+    #[serde(default = "Settings::default_true")]
+    pub dlsite_enabled: bool,
+    /// 启用 TouchGAL 刮削
+    #[serde(default = "Settings::default_true")]
+    pub touchgal_enabled: bool,
+    /// 启用 批评空间 (ErogameScape) 刮削
+    #[serde(default = "Settings::default_true")]
+    pub erogamescape_enabled: bool,
+    /// 启用 月幕 Ymgal 刮削
+    #[serde(default = "Settings::default_true")]
+    pub ymgal_enabled: bool,
+    /// 启用 Kungal 刮削
+    #[serde(default = "Settings::default_true")]
+    pub kungal_enabled: bool,
+    /// 启用 Steam 商店刮削
+    #[serde(default = "Settings::default_true")]
+    pub steam_enabled: bool,
+    /// 启用 PCGamingWiki 刮削
+    #[serde(default = "Settings::default_true")]
+    pub pcgw_enabled: bool,
     /// 启用 AI 增强刮削
     pub ai_enabled: bool,
     /// AI API 地址
@@ -783,6 +804,13 @@ impl Default for Settings {
             minimize_to_tray: false,
             vndb_enabled: true,
             bangumi_enabled: true,
+            dlsite_enabled: true,
+            touchgal_enabled: true,
+            erogamescape_enabled: true,
+            ymgal_enabled: true,
+            kungal_enabled: true,
+            steam_enabled: true,
+            pcgw_enabled: true,
             ai_enabled: false,
             ai_api_url: "https://api.openai.com/v1/chat/completions".to_string(),
             ai_api_key: String::new(),
@@ -802,6 +830,9 @@ impl Settings {
     }
     fn default_startup_mode() -> String {
         "dashboard".to_string()
+    }
+    fn default_true() -> bool {
+        true
     }
 }
 

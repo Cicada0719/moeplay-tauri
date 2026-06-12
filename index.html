@@ -9,6 +9,29 @@
   </head>
   <body>
     <div id="app"></div>
+    <script>
+      // Dev mock: 无 Tauri 后端时提供假数据（必须在 module 脚本前同步执行）
+      if (!window.__TAURI_INTERNALS__) {
+        var _devGames = [
+          { id:"d0", name:"星空列车与白的旅行", exe_path:"C:\\g\\0.exe", description:"星空列车 demo", developer:"Studioツキ", genres:["ADV"], tags:["剧情","恋爱"], platform:"pc", play_time_seconds:3600, rating:8.5, release_year:2023, favorite:false, metadata:{genres:["ADV"],platform:"pc",developer:"Studioツキ"}, play_tracker:{total_seconds:3600,sessions:[],completion_status:"not_started",achievements_total:0,achievements_unlocked:0}, save_data:{}, aliases:[], screenshots:[], cover:null, background:null },
+          { id:"d1", name:"Summer Pockets", exe_path:"C:\\g\\1.exe", description:"Key 社夏日物语", developer:"Key", genres:["ADV"], tags:["剧情","校园","夏日"], platform:"pc", play_time_seconds:72000, rating:9.2, release_year:2018, favorite:true, metadata:{genres:["ADV"],platform:"pc",developer:"Key"}, play_tracker:{total_seconds:72000,sessions:[],completion_status:"completed",achievements_total:32,achievements_unlocked:20}, save_data:{}, aliases:[], screenshots:[], cover:null, background:null },
+          { id:"d2", name:"千恋万花", exe_path:"C:\\g\\2.exe", description:"柚子社恋爱名作", developer:"ゆずソフト", genres:["ADV"], tags:["恋爱","和风"], platform:"pc", play_time_seconds:14400, rating:8.8, release_year:2020, favorite:false, metadata:{genres:["ADV"],platform:"pc",developer:"ゆずソフト"}, play_tracker:{total_seconds:14400,sessions:[],completion_status:"playing",achievements_total:15,achievements_unlocked:10}, save_data:{}, aliases:[], screenshots:[], cover:null, background:null },
+          { id:"d3", name:"魔女的夜宴", exe_path:"C:\\g\\3.exe", description:"暗黑风格 AVG", developer:"柚子社", genres:["ADV"], tags:["奇幻","暗黑"], platform:"pc", play_time_seconds:0, rating:7.5, release_year:2019, favorite:false, metadata:{genres:["ADV"],platform:"pc",developer:"柚子社"}, play_tracker:{total_seconds:0,sessions:[],completion_status:"not_started",achievements_total:0,achievements_unlocked:0}, save_data:{}, aliases:[], screenshots:[], cover:null, background:null },
+          { id:"d4", name:"ATRI -My Dear Moments-", exe_path:"C:\\g\\4.exe", description:"ANIPLEX 近未来少女 AI 物语", developer:"ANIPLEX", genres:["ADV"], tags:["科幻","治愈"], platform:"pc", play_time_seconds:28800, rating:9.0, release_year:2020, favorite:false, metadata:{genres:["ADV"],platform:"pc",developer:"ANIPLEX"}, play_tracker:{total_seconds:28800,sessions:[],completion_status:"completed",achievements_total:8,achievements_unlocked:5}, save_data:{}, aliases:[], screenshots:[], cover:null, background:null },
+          { id:"d5", name:"Muv-Luv Alternative", exe_path:"C:\\g\\5.exe", description:"âge 经典战争群像剧", developer:"âge", genres:["ADV"], tags:["科幻","战争","热血"], platform:"pc", play_time_seconds:50000, rating:8.0, release_year:2006, favorite:false, metadata:{genres:["ADV"],platform:"pc",developer:"âge"}, play_tracker:{total_seconds:50000,sessions:[],completion_status:"completed",achievements_total:50,achievements_unlocked:42}, save_data:{}, aliases:[], screenshots:[], cover:null, background:null }
+        ];
+        window.__TAURI_INTERNALS__ = {
+          invoke: function(cmd) {
+            if (cmd === "get_games") return Promise.resolve(_devGames);
+            if (cmd === "get_settings") return Promise.resolve({ startup_mode:"dashboard", watch_dirs:["/dev"], vndb_enabled:true, bangumi_enabled:true, dlsite_enabled:true, touchgal_enabled:true, erogamescape_enabled:true, ymgal_enabled:true, kungal_enabled:true, steam_enabled:true, pcgw_enabled:true, ai_enabled:false, auto_scrape:false, scrape_sources:[] });
+            if (cmd === "get_schema_version") return Promise.resolve(1);
+            if (cmd === "get_game_count") return Promise.resolve(_devGames.length);
+            return Promise.resolve(null);
+          },
+          transformCallback: function() { return 0; }
+        };
+      }
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -65,6 +65,12 @@
     if (focusIndex < items.length) onlaunch(items[focusIndex].id);
   }
 
+  function onWheel(e: WheelEvent) {
+    if (Math.abs(e.deltaY) < 1 && Math.abs(e.deltaX) < 1) return;
+    e.preventDefault();
+    move(e.deltaY > 0 || e.deltaX > 0 ? 1 : -1);
+  }
+
   function onKeydown(e: KeyboardEvent) {
     switch (e.key) {
       case "ArrowRight": move(1); e.preventDefault(); break;
@@ -126,6 +132,7 @@
   tabindex="0"
   role="listbox"
   aria-label="游戏库"
+  onwheel={onWheel}
   onkeydown={onKeydown}
 >
   {#each items as game, i (game.id)}

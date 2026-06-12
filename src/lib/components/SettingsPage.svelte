@@ -2,6 +2,8 @@
   import { settingsStore } from "../stores/settings.svelte";
   import { uiStore } from "../stores/ui.svelte";
   import { updateNsfwDisplayMode, setAutostart, type NsfwDisplayMode } from "../api";
+  import Button from "./ui/Button.svelte";
+  import Icon from "./Icon.svelte";
 
   const modes: { id: NsfwDisplayMode; label: string }[] = [
     { id: "blur", label: "模糊" },
@@ -9,7 +11,30 @@
     { id: "hide", label: "隐藏" },
   ];
 
+  const themes = [
+    { id: "dark", label: "深色", icon: "home" },
+    { id: "light", label: "浅色", icon: "lightbulb" },
+    { id: "sakura", label: "樱夜", icon: "heart" },
+  ];
+
+  const scrapeSources = [
+    { key: "vndb_enabled" as const, label: "VNDB", desc: "视觉小说数据库，获取 VN 元数据" },
+    { key: "bangumi_enabled" as const, label: "Bangumi", desc: "番组计划，获取游戏/动漫元数据" },
+    { key: "dlsite_enabled" as const, label: "DLsite", desc: "同人/商业游戏销售平台" },
+    { key: "kungal_enabled" as const, label: "Kungal", desc: "中文 Galgame 信息聚合站" },
+    { key: "steam_enabled" as const, label: "Steam", desc: "Steam 商店页面元数据" },
+    { key: "pcgw_enabled" as const, label: "PCGamingWiki", desc: "PC 游戏技术资料百科" },
+    { key: "erogamescape_enabled" as const, label: "批评空间", desc: "ErogameScape 日本玩家评分" },
+    { key: "ymgal_enabled" as const, label: "月幕 Ymgal", desc: "Galgame 中文社区平台" },
+    { key: "touchgal_enabled" as const, label: "TouchGAL", desc: "中文触控 Galgame 信息" },
+  ];
+
   let savingAutostart = $state(false);
+  let activeAnchor = $state("settings-basic");
+
+  function isSourceEnabled(key: string): boolean {
+    return !!(settingsStore.settings as any)[key];
+  }
 
   async function save() {
     await settingsStore.save(settingsStore.settings);
@@ -37,16 +62,40 @@
   async function setStartupMode(mode: string) {
     await settingsStore.save({ ...settingsStore.settings, startup_mode: mode });
     if (settingsStore.settings.autostart_enabled) {
-      try {
-        await setAutostart(true, mode);
-      } catch { /* ignore */ }
+      try { await setAutostart(true, mode); } catch { /* ignore */ }
     }
   }
 
-  async function toggleScrapeSetting(key: "vndb_enabled" | "bangumi_enabled" | "auto_scrape") {
-    await settingsStore.save({ ...settingsStore.settings, [key]: !settingsStore.settings[key] });
+  async function toggleScrapeSetting(key: string) {
+    await settingsStore.save({ ...settingsStore.settings, [key]: !isSourceEnabled(key) });
     uiStore.notify("设置已保存", "success");
   }
+
+  async function setAllSources(enabled: boolean) {
+    const patch: Record<string, boolean> = {};
+    for (const src of scrapeSources) patch[src.key] = enabled;
+    await settingsStore.save({ ...settingsStore.settings, ...patch });
+    uiStore.notify(enabled ? "已启用全部数据源" : "已关闭全部数据源", "success");
+  }
+
+  async function handleThemeChange(theme: string) {
+    await settingsStore.save({ ...settingsStore.settings, theme });
+    uiStore.notify(`主题已切换`, "success");
+  }
+
+  function onAnchorClick(id: string) {
+    activeAnchor = id;
+  }
+
+  const anchorItems = [
+    { id: "settings-basic", idx: "01", label: "基础" },
+    { id: "settings-scrape", idx: "02", label: "刮削" },
+    { id: "settings-startup", idx: "03", label: "启动" },
+    { id: "settings-ai", idx: "04", label: "AI API" },
+    { id: "settings-library", idx: "05", label: "库目录" },
+    { id: "settings-import", idx: "06", label: "库务入口" },
+    { id: "settings-about", idx: "07", label: "关于" },
+  ];
 </script>
 
 <section class="page aura-page settings-page" data-aura-echo="SETTINGS">
@@ -60,16 +109,20 @@
 
   <div class="settings-layout">
     <aside class="settings-anchors aura-panel" aria-label="设置分组目录">
-      <a href="#settings-basic"><span class="anchor-index">01</span><span>基础</span></a>
-      <a href="#settings-scrape"><span class="anchor-index">02</span><span>刮削</span></a>
-      <a href="#settings-startup"><span class="anchor-index">03</span><span>启动</span></a>
-      <a href="#settings-ai"><span class="anchor-index">04</span><span>AI API</span></a>
-      <a href="#settings-library"><span class="anchor-index">05</span><span>库目录</span></a>
-      <a href="#settings-import"><span class="anchor-index">06</span><span>库务入口</span></a>
+      {#each anchorItems as anchor}
+        <a
+          href="#{anchor.id}"
+          class:active={activeAnchor === anchor.id}
+          onclick={() => onAnchorClick(anchor.id)}
+        >
+          <span class="anchor-index">{anchor.idx}</span><span>{anchor.label}</span>
+        </a>
+      {/each}
     </aside>
 
     <main class="settings-groups">
-      <section id="settings-basic" class="panel aura-panel setting-group">
+      <!-- 01 基础 -->
+      <section id="settings-basic" class="panel aura-panel setting-group aura-enter">
         <div class="panel-head">
           <div>
             <span class="group-kicker">Display</span>
@@ -79,7 +132,17 @@
         <div class="setting-row">
           <div class="setting-info">
             <span class="setting-label">主题</span>
-            <span class="setting-desc">深色模式（固定）</span>
+            <span class="setting-desc">选择界面色彩方案</span>
+          </div>
+          <div class="segmented theme-seg">
+            {#each themes as theme}
+              <button
+                class:active={settingsStore.settings.theme === theme.id}
+                onclick={() => handleThemeChange(theme.id)}
+              >
+                <Icon name={theme.icon} size={14} />{theme.label}
+              </button>
+            {/each}
           </div>
         </div>
         <div class="setting-row">
@@ -95,7 +158,8 @@
         </div>
       </section>
 
-      <section id="settings-scrape" class="panel aura-panel setting-group">
+      <!-- 02 刮削 -->
+      <section id="settings-scrape" class="panel aura-panel setting-group aura-enter">
         <div class="panel-head">
           <div>
             <span class="group-kicker">Metadata</span>
@@ -103,41 +167,38 @@
           </div>
           <p class="desc">选择从哪些数据库抓取游戏元数据（封面、简介、标签等）。</p>
         </div>
-        <div class="toggle-list">
-          <div class="toggle-row">
-            <div class="toggle-info">
-              <span class="toggle-label">VNDB</span>
-              <span class="toggle-sub">视觉小说数据库，获取 VN 元数据</span>
+        <div class="source-actions">
+          <Button variant="secondary" size="sm" onclick={() => setAllSources(true)}>全开</Button>
+          <Button variant="secondary" size="sm" onclick={() => setAllSources(false)}>全关</Button>
+        </div>
+        <div class="toggle-grid">
+          {#each scrapeSources as src}
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <span class="toggle-label">{src.label}</span>
+                <span class="toggle-sub">{src.desc}</span>
+              </div>
+              <label class="sw">
+                <input type="checkbox" checked={isSourceEnabled(src.key)} onchange={() => toggleScrapeSetting(src.key)} />
+                <span class="sw-track"><span class="sw-thumb"></span></span>
+              </label>
             </div>
-            <label class="sw">
-              <input type="checkbox" checked={settingsStore.settings.vndb_enabled} onchange={() => toggleScrapeSetting("vndb_enabled")} />
-              <span class="sw-track"><span class="sw-thumb"></span></span>
-            </label>
+          {/each}
+        </div>
+        <div class="toggle-row auto-row">
+          <div class="toggle-info">
+            <span class="toggle-label">自动刮削</span>
+            <span class="toggle-sub">添加游戏时自动搜索并填充元数据</span>
           </div>
-          <div class="toggle-row">
-            <div class="toggle-info">
-              <span class="toggle-label">Bangumi</span>
-              <span class="toggle-sub">番组计划，获取游戏/动漫元数据</span>
-            </div>
-            <label class="sw">
-              <input type="checkbox" checked={settingsStore.settings.bangumi_enabled} onchange={() => toggleScrapeSetting("bangumi_enabled")} />
-              <span class="sw-track"><span class="sw-thumb"></span></span>
-            </label>
-          </div>
-          <div class="toggle-row">
-            <div class="toggle-info">
-              <span class="toggle-label">自动刮削</span>
-              <span class="toggle-sub">添加游戏时自动搜索并填充元数据</span>
-            </div>
-            <label class="sw">
-              <input type="checkbox" checked={settingsStore.settings.auto_scrape} onchange={() => toggleScrapeSetting("auto_scrape")} />
-              <span class="sw-track"><span class="sw-thumb"></span></span>
-            </label>
-          </div>
+          <label class="sw">
+            <input type="checkbox" checked={settingsStore.settings.auto_scrape} onchange={() => toggleScrapeSetting("auto_scrape")} />
+            <span class="sw-track"><span class="sw-thumb"></span></span>
+          </label>
         </div>
       </section>
 
-      <section id="settings-startup" class="panel aura-panel setting-group">
+      <!-- 03 启动 -->
+      <section id="settings-startup" class="panel aura-panel setting-group aura-enter">
         <div class="panel-head">
           <div>
             <span class="group-kicker">Startup</span>
@@ -178,7 +239,8 @@
         </div>
       </section>
 
-      <section id="settings-ai" class="panel aura-panel setting-group">
+      <!-- 04 AI API -->
+      <section id="settings-ai" class="panel aura-panel setting-group aura-enter">
         <div class="panel-head">
           <div>
             <span class="group-kicker">Assistant</span>
@@ -204,7 +266,8 @@
         </div>
       </section>
 
-      <section id="settings-library" class="panel aura-panel setting-group">
+      <!-- 05 库目录 -->
+      <section id="settings-library" class="panel aura-panel setting-group aura-enter">
         <div class="panel-head">
           <div>
             <span class="group-kicker">Library</span>
@@ -219,10 +282,11 @@
             </article>
           {/each}
         </div>
-        <button class="primary" onclick={() => settingsStore.addWatchDir()}>添加目录</button>
+        <Button variant="primary" onclick={() => settingsStore.addWatchDir()}>添加目录</Button>
       </section>
 
-      <section id="settings-import" class="panel aura-panel setting-group">
+      <!-- 06 库务入口 -->
+      <section id="settings-import" class="panel aura-panel setting-group aura-enter">
         <div class="panel-head">
           <div>
             <span class="group-kicker">Operations</span>
@@ -235,19 +299,30 @@
               <span class="setting-label">Steam / Epic 导入</span>
               <span class="setting-desc">扫描本机 Steam / Epic 已安装游戏；需要完整 Steam 账户库时可继续使用登录和 Web API 同步。</span>
             </div>
-            <button class="primary" onclick={() => uiStore.currentView = "steam-import"}>
-              打开导入
-            </button>
+            <Button variant="primary" onclick={() => uiStore.currentView = "steam-import"}>打开导入</Button>
           </div>
           <div class="setting-row">
             <div class="setting-info">
               <span class="setting-label">从旧版萌游迁移</span>
               <span class="setting-desc">如果你使用过 C# 版萌游，可以一键迁移游戏库和元数据。</span>
             </div>
-            <button class="primary" onclick={() => uiStore.currentView = "migration"}>
-              开始迁移
-            </button>
+            <Button variant="primary" onclick={() => uiStore.currentView = "migration"}>开始迁移</Button>
           </div>
+        </div>
+      </section>
+
+      <!-- 07 关于 -->
+      <section id="settings-about" class="panel aura-panel setting-group aura-enter">
+        <div class="panel-head">
+          <div>
+            <span class="group-kicker">About</span>
+            <h2>关于</h2>
+          </div>
+        </div>
+        <div class="about-info">
+          <p><strong>萌游 MoeGame</strong> v0.1.1</p>
+          <p>可爱的游戏管理器</p>
+          <p class="tech-stack">Tauri v2 + Svelte 5 + Rust</p>
         </div>
       </section>
     </main>
@@ -278,7 +353,7 @@
     letter-spacing: 0;
     text-transform: uppercase;
   }
-  .aura-title { color: var(--text-primary); font-size: 28px; font-weight: 780; line-height: 1.1; }
+  .aura-title { color: var(--text-primary); font-size: 28px; font-weight: 700; line-height: 1.1; }
   .aura-head p { color: var(--text-secondary); line-height: 1.55; }
   .settings-layout {
     min-width: 0;
@@ -299,7 +374,7 @@
   .settings-anchors a {
     min-width: 0;
     min-height: 38px;
-    border-radius: 8px;
+    border-radius: var(--radius-full);
     padding: 0 10px;
     display: grid;
     grid-template-columns: 34px minmax(0, 1fr);
@@ -308,10 +383,27 @@
     color: var(--text-secondary);
     text-decoration: none;
     font-size: 13px;
+    position: relative;
+  }
+  .settings-anchors a::before {
+    content: "";
+    position: absolute;
+    inset: 6px auto 6px 0;
+    width: 3px;
+    border-radius: 3px;
+    background: transparent;
+    transition: background 0.2s ease;
   }
   .settings-anchors a:hover {
     color: var(--text-primary);
-    background: var(--aura-inset);
+    background: var(--bg-elev);
+  }
+  .settings-anchors a.active {
+    color: var(--text-primary);
+    background: var(--bg-elev);
+  }
+  .settings-anchors a.active::before {
+    background: var(--accent);
   }
   .settings-groups {
     min-width: 0;
@@ -341,8 +433,8 @@
   }
   .setting-row:last-child,
   .toggle-row:last-child { border-bottom: 0; padding-bottom: 0; }
-  .panel-head + .setting-row,
-  .panel-head + .toggle-list { margin-top: 2px; }
+  .auto-row { border-top: 1px solid var(--aura-line); margin-top: 4px; padding-top: 16px; }
+  .panel-head + .source-actions { margin-top: 2px; }
   .setting-info,
   .toggle-info { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
   .setting-label,
@@ -350,27 +442,33 @@
   .setting-desc,
   .toggle-sub { font-size: 12px; color: var(--text-muted); line-height: 1.45; overflow-wrap: anywhere; }
   .segmented { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .theme-seg button { display: inline-flex; align-items: center; gap: 5px; }
   button {
     min-width: 0;
     border: 1px solid var(--aura-border);
-    border-radius: 8px;
+    border-radius: var(--radius-full);
     padding: 9px 13px;
     color: var(--text-secondary);
-    background: var(--aura-inset);
+    background: var(--bg-elev);
     cursor: pointer;
     font: inherit;
     font-size: 13px;
     font-weight: 700;
     transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
   }
-  button:hover { border-color: var(--aura-border-strong); color: var(--text-primary); }
+  button:hover { border-color: var(--border-hover); color: var(--text-primary); background: var(--bg-hover); }
   button:active { transform: translateY(1px); }
-  button.active, .primary {
+  button.active {
     border-color: var(--accent-ring);
     color: #fff;
     background: var(--accent);
   }
-  button.active:hover, .primary:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
+  button.active:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
+
+  .source-actions { display: flex; gap: 8px; margin-bottom: 2px; }
+  .toggle-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 16px; }
+  .toggle-grid .toggle-row { grid-template-columns: minmax(0, 1fr) auto; }
+
   .form { display: grid; padding-top: 2px; }
   .form-row {
     min-width: 0;
@@ -393,7 +491,7 @@
     background: var(--aura-inset);
     color: var(--text-primary);
     border: 1px solid var(--aura-border);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     padding: 12px 14px;
     font-family: var(--font-mono);
     font-size: 0.85rem;
@@ -436,7 +534,6 @@
   .toggle input:checked + .toggle-slider::before { transform: translateX(22px); }
   .toggle input:disabled + .toggle-slider { opacity: 0.5; cursor: not-allowed; }
 
-  .toggle-list { display: grid; }
   .sw { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; cursor: pointer; }
   .sw input { opacity: 0; width: 0; height: 0; position: absolute; }
   .sw-track { display: block; width: 44px; height: 24px; background: var(--bg-hover); border: 1px solid var(--border); border-radius: 24px; transition: background 0.2s, border-color 0.2s; position: relative; }
@@ -444,9 +541,32 @@
   .sw input:checked ~ .sw-track { background: var(--accent-lo); border-color: var(--accent-ring); }
   .sw input:checked ~ .sw-track .sw-thumb { transform: translateX(20px); background: var(--accent); }
 
+  .about-info { padding: 12px 0; }
+  .about-info p { margin-bottom: 4px; font-size: 14px; color: var(--text-secondary); }
+  .about-info strong { color: var(--text-primary); }
+  .tech-stack { color: var(--text-muted) !important; font-size: 12px !important; margin-top: 8px !important; }
+
+  /* Entry animations */
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .aura-enter {
+    opacity: 0;
+    animation: fadeInUp 0.4s var(--aura-ease, ease) forwards;
+  }
+  .setting-group:nth-child(1) { animation-delay: 0.05s; }
+  .setting-group:nth-child(2) { animation-delay: 0.10s; }
+  .setting-group:nth-child(3) { animation-delay: 0.15s; }
+  .setting-group:nth-child(4) { animation-delay: 0.20s; }
+  .setting-group:nth-child(5) { animation-delay: 0.25s; }
+  .setting-group:nth-child(6) { animation-delay: 0.30s; }
+  .setting-group:nth-child(7) { animation-delay: 0.35s; }
+
   @media (max-width: 900px) {
     .settings-layout { grid-template-columns: 1fr; }
     .settings-anchors { position: static; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .toggle-grid { grid-template-columns: minmax(0, 1fr); }
     .panel-head,
     .form-row,
     .setting-row,
@@ -458,6 +578,5 @@
     .page { padding: 18px; }
     .settings-anchors { grid-template-columns: 1fr; }
     .dirs article { grid-template-columns: 1fr; }
-    .primary { width: 100%; }
   }
 </style>

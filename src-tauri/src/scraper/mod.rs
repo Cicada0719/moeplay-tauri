@@ -127,16 +127,35 @@ pub async fn scrape_game(
     if results.is_empty() {
         if let Some(config) = ai_config {
             if let Ok(ai_meta) = ai::enhance(config, query, None, &[]).await {
+                // 尝试从本地 Steam librarycache 匹配封面（远程源全部被墙时的兜底）
+                let cover = crate::integration::find_local_steam_cover_by_name(query);
                 results.push(ScrapeResult {
                     title: query.to_string(),
                     description: ai_meta.description,
-                    cover: None,
+                    cover,
                     background: ai_meta.background,
                     tags: ai_meta.tags,
                     rating: None,
                     release_year: None,
                     source: "ai".to_string(),
                     source_id: format!("ai:{}", query),
+                    detail: None,
+                });
+            }
+        }
+        // 所有远程源失败且无 AI：尝试仅从本地 Steam librarycache 返回封面
+        if results.is_empty() {
+            if let Some(local_cover) = crate::integration::find_local_steam_cover_by_name(query) {
+                results.push(ScrapeResult {
+                    title: query.to_string(),
+                    description: None,
+                    cover: Some(local_cover),
+                    background: None,
+                    tags: vec![],
+                    rating: None,
+                    release_year: None,
+                    source: "local".to_string(),
+                    source_id: query.to_string(),
                     detail: None,
                 });
             }
@@ -184,5 +203,13 @@ pub async fn scrape_game(
         enhanced.extend(results[enhance_count..].iter().cloned());
         results = enhanced;
     }
+
+    // 补缺封面：远程源有结果但无封面的，尝试本地 Steam librarycache
+    for r in &mut results {
+        if r.cover.is_none() {
+            r.cover = crate::integration::find_local_steam_cover_by_name(&r.title);
+        }
+    }
+
     results
 }

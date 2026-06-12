@@ -238,7 +238,76 @@ fn should_copy_file(src: &Path, dst: &Path) -> bool {
             .modified()
             .ok()
             .zip(dst_meta.modified().ok())
-            .map_or(true, |(src_mtime, dst_mtime)| src_mtime > dst_mtime)
+            .is_none_or(|(src_mtime, dst_mtime)| src_mtime > dst_mtime)
+}
+
+/// 将远程封面 URL 下载到本地 covers/ 目录，返回本地文件路径。
+/// 已存在则跳过下载直接返回。失败时返回原始 URL 兜底。
+pub(crate) async fn fetch_cover_to_local(url: &str, game_id: &str) -> String {
+    if url.is_empty() || (!url.starts_with("http://") && !url.starts_with("https://")) {
+        return url.to_string();
+    }
+
+    let Some(data_dir) = dirs::data_dir() else {
+        return url.to_string();
+    };
+    let covers_dir = data_dir.join("moeplay").join("covers");
+    if std::fs::create_dir_all(&covers_dir).is_err() {
+        return url.to_string();
+    }
+
+    let ext = if url.contains(".jpg") || url.contains(".jpeg") {
+        "jpg"
+    } else if url.contains(".png") {
+        "png"
+    } else if url.contains(".webp") {
+        "webp"
+    } else {
+        "jpg"
+    };
+
+    let dst = covers_dir.join(format!("{}.{}", game_id, ext));
+
+    // 已缓存 → 直接用
+    if dst.is_file() && dst.metadata().map(|m| m.len()).unwrap_or(0) > 512 {
+        return dst.to_string_lossy().to_string();
+    }
+
+    // 下载
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return url.to_string(),
+    };
+
+    let resp = match client.get(url).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(url, error = %e, "Cover download failed, keeping remote URL");
+            return url.to_string();
+        }
+    };
+
+    let bytes = match resp.bytes().await {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(url, error = %e, "Cover read failed");
+            return url.to_string();
+        }
+    };
+
+    if bytes.len() < 512 {
+        return url.to_string();
+    }
+
+    if std::fs::write(&dst, &bytes).is_err() {
+        return url.to_string();
+    }
+
+    tracing::info!(url, local = %dst.display(), "Cover cached locally");
+    dst.to_string_lossy().to_string()
 }
 
 fn session_game_to_candidate(game: SessionScrapedGame) -> PlatformGameCandidate {
@@ -437,7 +506,7 @@ fn read_steam_localconfig_candidates(
             }
         })
         .collect::<Vec<_>>();
-    candidates.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    candidates.sort_by_key(|a| a.name.to_lowercase());
     Some(candidates)
 }
 
@@ -874,7 +943,74 @@ pub fn import_platform_library(
             Ok((game, created)) => {
                 if created {
                     result.imported += 1;
-                    result.imported_ids.push(game.id);
+                    result.imported_ids.push(game.id.clone());
+                    // 自动刮削：新游戏入库 + 用户开启 auto_scrape 时异步搜索元数据
+                    let settings = db.get_settings();
+                    if settings.auto_scrape {
+                        let gid = game.id.clone();
+                        let gname = game.name.clone();
+                        tokio::spawn(async move {
+                            let db2 = crate::db::Database::new();
+                            let s = db2.get_settings();
+                            let raw = crate::scraper::search_all(
+                                &gname,
+                                s.vndb_enabled,
+                                s.bangumi_enabled,
+                                s.dlsite_enabled,
+                                s.touchgal_enabled,
+                                s.erogamescape_enabled,
+                                s.ymgal_enabled,
+                                s.kungal_enabled,
+                                s.steam_enabled,
+                                s.pcgw_enabled,
+                            ).await;
+                            if !raw.is_empty() {
+                                let merged = crate::scraper::merge::merge_results(
+                                    raw,
+                                    &crate::scraper::merge::MergeConfig {
+                                        max_results: 1,
+                                        ..Default::default()
+                                    },
+                                );
+                                if let Some(best) = merged.first() {
+                                    let cover = if let Some(ref url) = best.result.cover {
+                                        Some(fetch_cover_to_local(url, &gid).await)
+                                    } else {
+                                        None
+                                    };
+                                    let background = if let Some(ref url) = best.result.background {
+                                        Some(fetch_cover_to_local(url, &format!("{gid}_bg")).await)
+                                    } else {
+                                        None
+                                    };
+                                    let _ = db2.apply_scrape_result_ext(
+                                        &gid,
+                                        Some(best.result.title.clone()),
+                                        best.result.description.clone(),
+                                        cover,
+                                        background,
+                                        Some(best.result.tags.clone()),
+                                        best.result.rating,
+                                        best.result.release_year,
+                                        Some(&best.result.source),
+                                        Some(best.result.source_id.clone()),
+                                        best.result.detail.as_ref().and_then(|d| d.developer.clone()),
+                                        best.result.detail.as_ref().and_then(|d| d.publisher.clone()),
+                                        best.result.detail.as_ref().map(|d| d.genres.clone()),
+                                        best.result.detail.as_ref().map(|d| d.languages.clone()),
+                                        best.result.detail.as_ref().and_then(|d| d.engine.clone()),
+                                        best.result.detail.as_ref().and_then(|d| d.age_rating.clone()),
+                                        best.result.detail.as_ref().and_then(|d| d.series.clone()),
+                                        best.result.detail.as_ref().and_then(|d| d.release_date.clone()),
+                                        best.result.detail.as_ref().map(|d| d.voice_languages.clone()),
+                                        best.result.detail.as_ref().map(|d| d.aliases.clone()),
+                                        best.result.detail.as_ref().map(|d| d.screenshots.clone()),
+                                        best.result.detail.as_ref().and_then(|d| d.homepage.clone()),
+                                    );
+                                }
+                            }
+                        });
+                    }
                 } else {
                     result.updated += 1;
                     result.updated_ids.push(game.id);
@@ -1422,6 +1558,81 @@ fn apply_platform_import_fields(
     game.sync_to_legacy();
     game.sync_tracker_to_legacy();
     game.touch_updated();
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncAchievementsResult {
+    pub synced: usize,
+    pub skipped: usize,
+    pub failed: usize,
+    pub errors: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn sync_steam_achievements(
+    db: State<'_, Database>,
+) -> Result<SyncAchievementsResult, String> {
+    let settings = db.get_settings();
+    let steam_id = settings
+        .steam_id
+        .clone()
+        .or_else(crate::steam_openid::detect_local_steam_id)
+        .ok_or_else(|| "缺少 SteamID64，请先设置 Steam 账号".to_string())?;
+    let api_key = settings
+        .steam_api_key
+        .clone()
+        .filter(|k| !k.trim().is_empty())
+        .ok_or_else(|| "缺少 Steam Web API Key".to_string())?;
+
+    let games = db.get_games();
+    let steam_games: Vec<(String, u32)> = games
+        .iter()
+        .filter_map(|g| {
+            if g.library_source.as_deref() != Some("steam") {
+                return None;
+            }
+            let appid = g.library_id.as_deref()?.trim().parse::<u32>().ok()?;
+            Some((g.id.clone(), appid))
+        })
+        .collect();
+
+    let mut result = SyncAchievementsResult {
+        synced: 0,
+        skipped: 0,
+        failed: 0,
+        errors: Vec::new(),
+    };
+
+    for (game_id, appid) in &steam_games {
+        match crate::steam_openid::fetch_achievement_summary(&steam_id, &api_key, *appid).await {
+            Ok(summary) => {
+                if summary.total == 0 {
+                    result.skipped += 1;
+                    continue;
+                }
+                match db.update_achievements(game_id, summary.total, summary.unlocked) {
+                    Ok(_) => result.synced += 1,
+                    Err(e) => {
+                        result.failed += 1;
+                        result.errors.push(format!("appid {}: {}", appid, e));
+                    }
+                }
+            }
+            Err(_) => {
+                result.skipped += 1;
+            }
+        }
+        // Rate limit: Steam API has ~100k calls/day but be polite
+        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+    }
+
+    tracing::info!(
+        synced = result.synced,
+        skipped = result.skipped,
+        failed = result.failed,
+        "Steam achievements sync complete"
+    );
+    Ok(result)
 }
 
 fn replace_cached_game(games: &mut Vec<Game>, updated: Game) {

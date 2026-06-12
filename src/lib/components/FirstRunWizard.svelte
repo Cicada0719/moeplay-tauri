@@ -20,15 +20,15 @@
   let aiModel = $state(settingsStore.settings?.ai_model ?? "gpt-4o-mini");
 
   // Step 2: sources
-  let srcVndb = $state(true);
-  let srcBangumi = $state(true);
-  let srcDlsite = $state(false);
-  let srcTouchgal = $state(true);
-  let srcErogescape = $state(false);
-  let srcYmgal = $state(true);
-  let srcKungal = $state(true);
-  let srcSteam = $state(false);
-  let srcPcgw = $state(false);
+  let srcVndb = $state(settingsStore.settings?.vndb_enabled ?? true);
+  let srcBangumi = $state(settingsStore.settings?.bangumi_enabled ?? true);
+  let srcDlsite = $state(settingsStore.settings?.dlsite_enabled ?? true);
+  let srcTouchgal = $state(settingsStore.settings?.touchgal_enabled ?? true);
+  let srcErogescape = $state(settingsStore.settings?.erogamescape_enabled ?? true);
+  let srcYmgal = $state(settingsStore.settings?.ymgal_enabled ?? true);
+  let srcKungal = $state(settingsStore.settings?.kungal_enabled ?? true);
+  let srcSteam = $state(settingsStore.settings?.steam_enabled ?? true);
+  let srcPcgw = $state(settingsStore.settings?.pcgw_enabled ?? true);
 
   const steps = [
     { icon: "folder", title: "欢迎使用萌游", desc: "选择包含 galgame 的文件夹，我们会自动扫描并导入游戏库。" },
@@ -90,7 +90,14 @@
       s.ai_model = aiModel;
       s.vndb_enabled = srcVndb;
       s.bangumi_enabled = srcBangumi;
-      // Save all source toggles into watch settings
+      s.dlsite_enabled = srcDlsite;
+      s.touchgal_enabled = srcTouchgal;
+      s.erogamescape_enabled = srcErogescape;
+      s.ymgal_enabled = srcYmgal;
+      s.kungal_enabled = srcKungal;
+      s.steam_enabled = srcSteam;
+      s.pcgw_enabled = srcPcgw;
+      // Save all source toggles into settings
       await settingsStore.save(s);
 
       // Add scanned dirs as watch dirs

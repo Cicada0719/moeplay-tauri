@@ -15,6 +15,7 @@
     gameLastPlayed,
     gameRating,
     gameTotalSeconds,
+    hasHeroBackground,
     heroImageOf as gameHeroImageOf,
     releaseYearOf,
     tagsOf as gameTagsOf,
@@ -44,6 +45,7 @@
   const focusGame = $derived(filteredGames[focusIdx] ?? null);
 
   const backgroundArt = $derived(pickBackgroundArt(focusGame));
+  const isHeroBg = $derived(hasHeroBackground(focusGame));
   const scoreValue = $derived(
     focusGame ? Math.round(Math.min(10, Math.max(0, rating(focusGame))) * 10) : 0
   );
@@ -166,7 +168,7 @@
     if (showDetail || filteredGames.length === 0) return;
     if (Math.abs(e.deltaY) < 1 && Math.abs(e.deltaX) < 1) return;
     e.preventDefault();
-    move(e.deltaY > 0 || e.deltaX > 0 ? 1 : -1);
+    move(e.deltaY > 0 ? 1 : e.deltaY < 0 ? -1 : e.deltaX > 0 ? 1 : -1);
   }
   function onKeydown(e: KeyboardEvent) {
     switch (e.key) {
@@ -218,120 +220,123 @@
 <section class="bp" onwheel={onWheel}>
   <div class="bp-bg">
     {#if bgPrevious}
-      <div class="bp-bg-layer bp-bg-layer-prev" class:fade-out={bgFading} style={`background-image: url("${bgPrevious}")`}></div>
+      <div class="bp-bg-layer bp-bg-layer-prev" class:fade-out={bgFading} class:cover-blur={!isHeroBg} style={`background-image: url("${bgPrevious}")`}></div>
     {/if}
-    <div class="bp-bg-layer bp-bg-layer-current" class:fade-in={bgFading} style={`background-image: url("${bgCurrent}")`}></div>
+    <div class="bp-bg-layer bp-bg-layer-current" class:fade-in={bgFading} class:cover-blur={!isHeroBg} style={`background-image: url("${bgCurrent}")`}></div>
   </div>
   <div class="bp-scrim"></div>
 
-  <header class="bp-top">
-    <nav class="bp-nav">
-      <span class="active">游戏</span>
-      <span>媒体</span>
-    </nav>
-    <div class="bp-top-right">
-      <span class="bp-count">{filteredGames.length} 款</span>
-      <button class="bp-chip" onclick={toggleFilter}>{filterAll ? "全部" : "已安装"}</button>
-      <span class="bp-clock">{clock}</span>
-    </div>
-  </header>
-
-  <div class="bp-stage">
-    {#if focusGame}
-      <div class="bp-hero">
-        {#if focusGame.metadata?.original_name}
-          <p class="bp-jp">{focusGame.metadata.original_name}</p>
+  <div class="bp-layout">
+    <div class="bp-sidebar">
+      <header class="bp-sidebar-head">
+        <span class="bp-sidebar-count">{filteredGames.length} 款</span>
+        <button class="bp-chip" onclick={toggleFilter}>{filterAll ? "全部" : "已安装"}</button>
+      </header>
+      <div class="bp-rail" bind:this={railEl} role="listbox" aria-label="大屏游戏列表">
+        {#each filteredGames as g, i (g.id)}
+          <button
+            class="bp-card"
+            class:focus={i === focusIdx}
+            data-idx={i}
+            role="option"
+            aria-selected={i === focusIdx}
+            onclick={() => setFocus(i)}
+            ondblclick={() => { setFocus(i); openDetail(); }}
+            onfocus={() => setFocus(i)}
+            aria-label={g.name}
+            aria-current={i === focusIdx ? "true" : undefined}
+            tabindex={i === focusIdx ? 0 : -1}
+          >
+            {#if fileSrc(gameCoverOf(g))}
+              <img src={fileSrc(gameCoverOf(g))!} alt={g.name} draggable="false" loading="lazy" />
+            {:else}
+              <span class="bp-mono">{monogram(g)}</span>
+            {/if}
+          </button>
+        {/each}
+        {#if filteredGames.length === 0}
+          <div class="bp-empty">
+            <p>暂无游戏</p>
+            <button class="bp-empty-action" onclick={openImport}><Icon name="download" size={16} /> Steam / Epic 导入</button>
+          </div>
         {/if}
-        <h1 class="bp-title">{focusGame.name}</h1>
-        <p class="bp-meta">{metaLine(focusGame) || "未知社团"}</p>
+      </div>
+    </div>
 
-        <div class="bp-actions">
-          <button class="bp-play" onclick={launchFocus}>
-            <Icon name="play" size={22} /><span>开始游戏</span>
-          </button>
-          <button class="bp-secondary" class:active={focusGame.favorite} onclick={toggleFav}>
-            <Icon name={focusGame.favorite ? "heartFill" : "heart"} size={18} />
-            <span>{focusGame.favorite ? "已收藏" : "收藏"}</span>
-          </button>
-          <button class="bp-secondary" onclick={openDetail}>
-            <Icon name="database" size={18} /><span>详情</span>
-          </button>
-        </div>
+    <div class="bp-main">
+      <header class="bp-top">
+        <nav class="bp-nav">
+          <span class="active">游戏</span>
+          <span>媒体</span>
+        </nav>
+        <span class="bp-clock">{clock}</span>
+      </header>
 
-        <div class="bp-tags">
-          {#each allTags(focusGame).slice(0, 7) as t}
-            <span class="bp-tag">{t}</span>
-          {/each}
-        </div>
-        <p class="bp-desc">{trimmedDesc}</p>
+      <div class="bp-stage">
+        {#if focusGame}
+          <div class="bp-hero">
+            {#if focusGame.metadata?.original_name}
+              <p class="bp-jp">{focusGame.metadata.original_name}</p>
+            {/if}
+            <h1 class="bp-title">{focusGame.name}</h1>
+            <p class="bp-meta">{metaLine(focusGame) || "未知社团"}</p>
+
+            <div class="bp-actions">
+              <button class="bp-play" onclick={launchFocus}>
+                <Icon name="play" size={22} /><span>开始游戏</span>
+              </button>
+              <button class="bp-secondary" class:active={focusGame.favorite} onclick={toggleFav}>
+                <Icon name={focusGame.favorite ? "heartFill" : "heart"} size={18} />
+                <span>{focusGame.favorite ? "已收藏" : "收藏"}</span>
+              </button>
+              <button class="bp-secondary" onclick={openDetail}>
+                <Icon name="database" size={18} /><span>详情</span>
+              </button>
+            </div>
+
+            <div class="bp-tags">
+              {#each allTags(focusGame).slice(0, 7) as t}
+                <span class="bp-tag">{t}</span>
+              {/each}
+            </div>
+            <p class="bp-desc">{trimmedDesc}</p>
+
+            <div class="bp-stats-row">
+              <div class="bp-stat">
+                <RatingRing value={scoreValue} max={100} size={52} />
+              </div>
+              <div class="bp-stat">
+                <strong>{achTotal > 0 ? `${achDone}/${achTotal}` : "—"}</strong>
+                <span>成就</span>
+              </div>
+              <div class="bp-stat">
+                <strong>{formatPlayTime(gameTotalSeconds(focusGame))}</strong>
+                <span>时长</span>
+              </div>
+              <div class="bp-stat">
+                <strong>{timeAgo(gameLastPlayed(focusGame))}</strong>
+                <span>最后</span>
+              </div>
+              <div class="bp-stat">
+                <strong>{weekHours}h</strong>
+                <span>本周</span>
+              </div>
+            </div>
+          </div>
+        {/if}
       </div>
 
-      <aside class="bp-cards">
-        <div class="bp-card-stat bp-rating">
-          <RatingRing value={scoreValue} max={100} size={92} />
-          <span>评分</span>
-        </div>
-        <div class="bp-card-stat">
-          <strong>{achTotal > 0 ? `${achDone}/${achTotal}` : "—"}</strong>
-          <span>成就</span>
-        </div>
-        <div class="bp-card-stat">
-          <strong>{formatPlayTime(gameTotalSeconds(focusGame))}</strong>
-          <span>游玩时长</span>
-        </div>
-        <div class="bp-card-stat">
-          <strong>{timeAgo(gameLastPlayed(focusGame))}</strong>
-          <span>最后游玩</span>
-        </div>
-        <div class="bp-card-stat">
-          <strong>{weekHours}h</strong>
-          <span>本周</span>
-        </div>
-      </aside>
-    {/if}
-  </div>
-
-  <div class="bp-rail-wrap">
-    <div class="bp-rail" bind:this={railEl} role="listbox" aria-label="大屏游戏列表">
-      {#each filteredGames as g, i (g.id)}
-        <button
-          class="bp-card"
-          class:focus={i === focusIdx}
-          data-idx={i}
-          role="option"
-          aria-selected={i === focusIdx}
-          onclick={() => setFocus(i)}
-          ondblclick={() => { setFocus(i); openDetail(); }}
-          onfocus={() => setFocus(i)}
-          aria-label={g.name}
-          aria-current={i === focusIdx ? "true" : undefined}
-          tabindex={i === focusIdx ? 0 : -1}
-        >
-          {#if fileSrc(gameCoverOf(g))}
-            <img src={fileSrc(gameCoverOf(g))!} alt={g.name} draggable="false" loading="lazy" />
-          {:else}
-            <span class="bp-mono">{monogram(g)}</span>
-          {/if}
-        </button>
-      {/each}
-      {#if filteredGames.length === 0}
-        <div class="bp-empty">
-          <p>暂无游戏</p>
-          <button class="bp-empty-action" onclick={openImport}><Icon name="download" size={16} /> Steam / Epic 导入</button>
-        </div>
-      {/if}
+      <footer class="bp-hints">
+        <span><b>A</b> 启动</span>
+        <span><b>B</b> 返回</span>
+        <span><b>X</b> 收藏</span>
+        <span><b>Y</b> 刮削</span>
+        <span><b>Enter</b> 详情</span>
+        <span><b>F</b> {filterAll ? "已安装" : "全部"}</span>
+        <span class="bp-pos">{filteredGames.length ? focusIdx + 1 : 0} / {filteredGames.length}</span>
+      </footer>
     </div>
   </div>
-
-  <footer class="bp-hints">
-    <span><b>A</b> 启动</span>
-    <span><b>B</b> 返回</span>
-    <span><b>X</b> 收藏</span>
-    <span><b>Y</b> 刮削</span>
-    <span><b>Enter</b> 详情</span>
-    <span><b>F</b> {filterAll ? "已安装" : "全部"}</span>
-    <span class="bp-pos">{filteredGames.length ? focusIdx + 1 : 0} / {filteredGames.length}</span>
-  </footer>
 
   {#if showDetail && focusGame}
     <BigPictureDetail game={focusGame} onClose={closeDetail} />
@@ -355,6 +360,7 @@
     user-select: none;
   }
 
+  /* ── Background ── */
   .bp-bg { position: absolute; inset: 0; z-index: 0; }
   .bp-bg-layer {
     position: absolute; inset: 0;
@@ -363,68 +369,165 @@
     opacity: 1;
     will-change: opacity;
   }
+  .bp-bg-layer.cover-blur {
+    background-size: 140%; background-position: center 20%;
+    filter: blur(28px) saturate(1.3) brightness(0.7);
+  }
   .bp-bg-layer-current.fade-in {
     animation: bpBgIn 0.6s cubic-bezier(0.45, 0, 0.2, 1) both;
   }
   .bp-bg-layer-prev.fade-out {
     animation: bpBgOut 0.6s cubic-bezier(0.45, 0, 0.2, 1) both;
   }
-  @keyframes bpBgIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-  @keyframes bpBgOut {
-    from { opacity: 1; }
-    to { opacity: 0; }
-  }
+  @keyframes bpBgIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes bpBgOut { from { opacity: 1; } to { opacity: 0; } }
+
   .bp-scrim {
     position: absolute; inset: 0; z-index: 1; pointer-events: none;
     background:
-      linear-gradient(90deg, rgba(7,9,15,0.92) 0%, rgba(7,9,15,0.74) 28%, rgba(7,9,15,0.20) 60%, rgba(7,9,15,0.55) 100%),
-      linear-gradient(180deg, rgba(7,9,15,0.55) 0%, rgba(7,9,15,0.05) 32%, rgba(7,9,15,0.72) 78%, var(--bg-void) 100%);
+      linear-gradient(90deg, rgba(7,9,15,0.94) 0%, rgba(7,9,15,0.60) 22%, rgba(7,9,15,0.12) 55%, rgba(7,9,15,0.40) 100%),
+      linear-gradient(180deg, rgba(7,9,15,0.40) 0%, rgba(7,9,15,0.02) 40%, rgba(7,9,15,0.70) 82%, var(--bg-void) 100%);
+  }
+
+  /* ── Layout: left sidebar + right main ── */
+  .bp-layout {
+    position: relative; z-index: 2;
+    display: flex;
+    flex: 1; min-height: 0;
+    width: 100%; height: 100%;
+  }
+
+  /* ── Left sidebar — vertical game list ── */
+  .bp-sidebar {
+    width: 172px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    background: rgba(7, 9, 15, 0.55);
+    backdrop-filter: blur(16px);
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .bp-sidebar-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 14px 10px;
+    flex-shrink: 0;
+  }
+
+  .bp-sidebar-count {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-family: var(--font-mono);
+  }
+
+  .bp-chip {
+    border: 1px solid var(--border); background: rgba(7,9,15,0.4);
+    color: var(--text-secondary); border-radius: var(--radius-full);
+    padding: 4px 12px; font-size: 11px; cursor: pointer;
+  }
+
+  .bp-rail {
+    flex: 1; min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 6px 14px 18px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.08) transparent;
+  }
+  .bp-rail::-webkit-scrollbar { width: 3px; }
+  .bp-rail::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+  .bp-card {
+    flex: 0 0 auto;
+    width: 100%;
+    aspect-ratio: 3 / 4;
+    border: none; padding: 0; cursor: pointer;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    background: var(--bg-elev);
+    box-shadow: var(--shadow-tile);
+    outline: 0;
+    transition: transform 0.24s cubic-bezier(0.22,1,0.36,1), box-shadow 0.24s cubic-bezier(0.22,1,0.36,1), opacity 0.2s ease;
+    will-change: transform;
+    opacity: 0.6;
+  }
+  .bp-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .bp-mono {
+    width: 100%; height: 100%; display: grid; place-items: center;
+    font-family: var(--font-display); font-size: 26px; font-weight: 700;
+    color: var(--text-muted);
+    background: linear-gradient(135deg, rgba(232,85,127,0.18), rgba(110,120,160,0.14));
+  }
+  .bp-card.focus {
+    transform: scale(1.04);
+    box-shadow: var(--ring-switch), var(--shadow-lift);
+    opacity: 1;
+    z-index: 2;
+  }
+  .bp-card:hover { opacity: 0.85; }
+  .bp-card:focus-visible { box-shadow: var(--ring-switch); }
+
+  .bp-empty {
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+    padding: 28px 8px; color: var(--text-muted); text-align: center;
+  }
+  .bp-empty-action {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: none; cursor: pointer; background: var(--accent); color: #fff;
+    padding: 9px 14px; border-radius: var(--radius-full); font-weight: 700; font-size: 12px;
+  }
+
+  /* ── Right main area ── */
+  .bp-main {
+    flex: 1; min-width: 0;
+    display: flex;
+    flex-direction: column;
   }
 
   .bp-top {
-    position: relative; z-index: 3;
     display: flex; align-items: center; justify-content: space-between;
-    padding: 22px 40px 0;
+    padding: 18px 36px 0;
+    flex-shrink: 0;
   }
   .bp-nav { display: flex; gap: 22px; font-size: 16px; }
   .bp-nav span { color: var(--text-muted); cursor: default; }
   .bp-nav .active { color: var(--text-primary); font-weight: 700; }
-  .bp-top-right { display: flex; align-items: center; gap: 16px; }
-  .bp-count { color: var(--text-muted); font-size: 13px; }
-  .bp-chip {
-    border: 1px solid var(--border); background: rgba(7,9,15,0.4);
-    color: var(--text-secondary); border-radius: var(--radius-full);
-    padding: 5px 14px; font-size: 12px; cursor: pointer;
-  }
   .bp-clock { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-secondary); }
 
+  /* ── Stage: info pinned to bottom-right ── */
   .bp-stage {
-    position: relative; z-index: 2;
     flex: 1; min-height: 0;
-    display: flex; align-items: flex-end; justify-content: space-between;
-    gap: 32px; padding: 0 40px 8px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+    padding: 0 36px 12px;
   }
 
-  .bp-hero { max-width: 56%; padding-bottom: 8px; }
-  .bp-jp { color: var(--text-muted); font-size: 15px; margin: 0 0 6px; }
+  .bp-hero {
+    max-width: 64%;
+    text-align: left;
+  }
+  .bp-jp { color: var(--text-muted); font-size: 14px; margin: 0 0 4px; }
   .bp-title {
     font-family: var(--font-display);
-    font-size: clamp(38px, 5.4vw, 66px);
-    font-weight: 800; line-height: 1.05; margin: 0 0 10px;
+    font-size: clamp(32px, 4.4vw, 56px);
+    font-weight: 800; line-height: 1.08; margin: 0 0 8px;
     text-shadow: 0 2px 24px rgba(0,0,0,0.5);
   }
-  .bp-meta { color: var(--text-secondary); font-size: 15px; margin: 0 0 18px; }
+  .bp-meta { color: var(--text-secondary); font-size: 14px; margin: 0 0 14px; }
 
-  .bp-actions { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .bp-actions { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
   .bp-play {
     display: inline-flex; align-items: center; gap: 10px;
     border: none; cursor: pointer;
     background: var(--accent); color: #fff;
-    font-size: 16px; font-weight: 700;
-    padding: 13px 28px; border-radius: var(--radius-full);
+    font-size: 15px; font-weight: 700;
+    padding: 12px 24px; border-radius: var(--radius-full);
     transition: transform 0.15s ease, background 0.18s ease;
   }
   .bp-play:hover { background: var(--accent-hi); transform: translateY(-1px); }
@@ -432,113 +535,60 @@
     display: inline-flex; align-items: center; gap: 8px;
     border: 1px solid var(--border-hover); cursor: pointer;
     background: rgba(7,9,15,0.45); color: var(--text-secondary);
-    font-size: 14px; font-weight: 600;
-    padding: 13px 20px; border-radius: var(--radius-full);
+    font-size: 13px; font-weight: 600;
+    padding: 12px 18px; border-radius: var(--radius-full);
     backdrop-filter: blur(6px);
     transition: color 0.18s ease, border-color 0.18s ease;
   }
   .bp-secondary:hover { color: var(--text-primary); border-color: var(--text-muted); }
   .bp-secondary.active { color: var(--accent); }
 
-  .bp-tags { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; max-width: 640px; }
+  .bp-tags { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 10px; max-width: 580px; }
   .bp-tag {
-    font-size: 12px; padding: 4px 11px; border-radius: var(--radius-full);
+    font-size: 11px; padding: 3px 10px; border-radius: var(--radius-full);
     background: rgba(255,255,255,0.08); color: var(--text-secondary);
   }
   .bp-desc {
-    max-width: 620px; color: var(--text-secondary);
-    font-size: 14px; line-height: 1.7; margin: 0;
+    max-width: 560px; color: var(--text-secondary);
+    font-size: 13px; line-height: 1.65; margin: 0 0 14px;
   }
 
-  .bp-cards {
-    display: flex; flex-direction: column; gap: 10px;
-    flex-shrink: 0; width: 188px;
-  }
-  .bp-card-stat {
-    background: rgba(15,19,28,0.66);
+  /* ── Inline stats row ── */
+  .bp-stats-row {
+    display: flex; gap: 16px; align-items: center;
+    padding: 10px 16px;
+    background: rgba(15,19,28,0.55);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    backdrop-filter: blur(12px);
-    padding: 14px 16px;
-    display: flex; flex-direction: column; gap: 2px;
+    backdrop-filter: blur(10px);
+    max-width: fit-content;
   }
-  .bp-card-stat strong { font-size: 18px; font-weight: 700; color: var(--text-primary); }
-  .bp-card-stat span { font-size: 12px; color: var(--text-muted); }
-  .bp-rating { flex-direction: row; align-items: center; gap: 12px; }
-  .bp-rating span { font-size: 13px; }
+  .bp-stat {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    min-width: 52px;
+  }
+  .bp-stat strong { font-size: 15px; font-weight: 700; color: var(--text-primary); }
+  .bp-stat span { font-size: 11px; color: var(--text-muted); }
 
-  .bp-rail-wrap { position: relative; z-index: 2; padding: 6px 0 4px; }
-  .bp-rail {
-    display: flex; gap: 14px; align-items: flex-end;
-    overflow-x: auto; overflow-y: hidden;
-    padding: 16px 40px 18px;
-    scrollbar-width: none;
-  }
-  .bp-rail::-webkit-scrollbar { display: none; }
-  .bp-card {
-    flex: 0 0 auto;
-    width: 116px; height: 155px;
-    border: none; padding: 0; cursor: pointer;
-    border-radius: var(--radius-md);
-    overflow: hidden;
-    background: var(--bg-elev);
-    box-shadow: var(--shadow-tile);
-    outline: 0;
-    transition: transform 0.24s cubic-bezier(0.22,1,0.36,1), box-shadow 0.24s cubic-bezier(0.22,1,0.36,1);
-    will-change: transform;
-  }
-  .bp-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .bp-mono {
-    width: 100%; height: 100%; display: grid; place-items: center;
-    font-family: var(--font-display); font-size: 32px; font-weight: 700;
-    color: var(--text-muted);
-    background: linear-gradient(135deg, rgba(232,85,127,0.18), rgba(110,120,160,0.14));
-  }
-  .bp-card.focus {
-    transform: translateY(-6px) scale(1.06);
-    box-shadow: var(--ring-ps5);
-    z-index: 2;
-  }
-  .bp-card:focus-visible {
-    box-shadow: var(--ring-ps5);
-  }
-
-  .bp-empty {
-    display: flex; flex-direction: column; align-items: center; gap: 12px;
-    width: 100%; padding: 28px; color: var(--text-muted);
-  }
-  .bp-empty-action {
-    display: inline-flex; align-items: center; gap: 6px;
-    border: none; cursor: pointer; background: var(--accent); color: #fff;
-    padding: 9px 18px; border-radius: var(--radius-full); font-weight: 700; font-size: 13px;
-  }
-
+  /* ── Footer hints ── */
   .bp-hints {
-    position: relative; z-index: 3;
-    display: flex; align-items: center; gap: 22px;
-    padding: 8px 40px 18px;
-    color: var(--text-muted); font-size: 13px;
+    display: flex; align-items: center; gap: 18px;
+    padding: 8px 36px 14px;
+    color: var(--text-muted); font-size: 12px;
+    flex-shrink: 0;
   }
   .bp-hints b {
-    display: inline-grid; place-items: center; min-width: 20px; height: 20px;
-    margin-right: 6px; padding: 0 5px;
-    border: 1px solid var(--border-hover); border-radius: 5px;
-    font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono);
+    display: inline-grid; place-items: center; min-width: 18px; height: 18px;
+    margin-right: 5px; padding: 0 4px;
+    border: 1px solid var(--border-hover); border-radius: 4px;
+    font-size: 10px; color: var(--text-secondary); font-family: var(--font-mono);
   }
   .bp-pos { margin-left: auto; font-family: var(--font-mono); }
 
   @media (prefers-reduced-motion: reduce) {
     .bp-bg-layer-current.fade-in,
-    .bp-bg-layer-prev.fade-out {
-      animation: none;
-    }
-    .bp-card,
-    .bp-play,
-    .bp-secondary {
-      transition: none;
-    }
-    .bp-card.focus {
-      transform: none;
-    }
+    .bp-bg-layer-prev.fade-out { animation: none; }
+    .bp-card, .bp-play, .bp-secondary { transition: none; }
+    .bp-card.focus { transform: none; }
   }
 </style>

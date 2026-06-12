@@ -140,7 +140,7 @@
   function onfavorite() { if (selected) gameStore.toggleFavorite(selected.id); }
   function pickDock(view: string) {
     if (view === "__bigpicture") uiStore.setBigPicture(true);
-    else uiStore.currentView = view;
+    else uiStore.openDrawer(view);
   }
   function focusSearch() {
     searchInput?.focus();

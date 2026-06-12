@@ -79,7 +79,7 @@
   --scrollbar-thumb-hover: rgba(232, 85, 127, 0.48);
 
   /* —— v5 双主机外壳（Switch 主界面 / PS5 大屏，恒暗色） —— */
-  --ring-switch:   0 0 0 3px rgba(255, 255, 255, 0.92);
+  --ring-switch:   0 0 0 2px rgba(232, 85, 127, 0.55), 0 0 18px -4px rgba(232, 85, 127, 0.35);
   --ring-ps5:      0 0 0 3px #fff, 0 12px 40px -8px rgba(0, 0, 0, 0.7);
   --focus-ring:    0 0 0 2px var(--accent);
   --shadow-tile:   0 8px 24px -14px rgba(0, 0, 0, 0.7);

@@ -2,51 +2,56 @@
   import EmptyState from "./EmptyState.svelte";
   import { spotlight } from "../actions/spotlight";
   import { scrapeGame, type ScrapeResult, type ScrapeSourceOptions } from "../api";
+  import { settingsStore } from "../stores/settings.svelte";
+  import { uiStore } from "../stores/ui.svelte";
 
-  const sources: { key: keyof ScrapeSourceOptions | "vndb" | "bangumi"; label: string }[] = [
-    { key: "vndb", label: "VNDB" },
-    { key: "bangumi", label: "Bangumi" },
-    { key: "dlsite", label: "DLsite" },
-    { key: "kungal", label: "Kungal" },
-    { key: "steam", label: "Steam" },
-    { key: "pcgw", label: "PCGW" },
-    { key: "erogamescape", label: "ErogameScape" },
-    { key: "ymgal", label: "Ymgal" },
+  const sources: { key: keyof ScrapeSourceOptions | "vndb" | "bangumi"; label: string; settingKey: string }[] = [
+    { key: "vndb", label: "VNDB", settingKey: "vndb_enabled" },
+    { key: "bangumi", label: "Bangumi", settingKey: "bangumi_enabled" },
+    { key: "dlsite", label: "DLsite", settingKey: "dlsite_enabled" },
+    { key: "kungal", label: "Kungal", settingKey: "kungal_enabled" },
+    { key: "steam", label: "Steam", settingKey: "steam_enabled" },
+    { key: "pcgw", label: "PCGW", settingKey: "pcgw_enabled" },
+    { key: "erogamescape", label: "ErogameScape", settingKey: "erogamescape_enabled" },
+    { key: "ymgal", label: "Ymgal", settingKey: "ymgal_enabled" },
   ];
 
   let query = $state("");
   let strategy = $state("full");
-  let enabled = $state<Record<string, boolean>>({
-    vndb: true,
-    bangumi: true,
-    dlsite: false,
-    kungal: true,
-    steam: false,
-    pcgw: false,
-    erogamescape: false,
-    ymgal: false,
-  });
   let loading = $state(false);
   let results = $state<ScrapeResult[]>([]);
   let progress = $state<string[]>([]);
   let selectedIndex = $state(0);
   const selectedResult = $derived(results[selectedIndex] ?? null);
 
+  function isEnabled(key: string): boolean {
+    return !!(settingsStore.settings as any)[key];
+  }
+
+  async function toggleSource(settingKey: string) {
+    const s = settingsStore.settings as any;
+    await settingsStore.save({ ...s, [settingKey]: !s[settingKey] });
+    uiStore.notify("设置已保存", "success");
+  }
+
+  const enabledCount = $derived(sources.filter(s => isEnabled(s.settingKey)).length);
+
   async function runScrape() {
     if (!query.trim()) return;
     loading = true;
     progress = [`${strategyLabel(strategy)}：${query}`];
     try {
+      const s = settingsStore.settings;
       const opts: ScrapeSourceOptions = {
-        dlsite: enabled.dlsite,
-        touchgal: false,
-        erogamescape: enabled.erogamescape,
-        ymgal: enabled.ymgal,
-        kungal: enabled.kungal,
-        steam: enabled.steam,
-        pcgw: enabled.pcgw,
+        dlsite: s.dlsite_enabled ?? true,
+        touchgal: s.touchgal_enabled ?? true,
+        erogamescape: s.erogamescape_enabled ?? true,
+        ymgal: s.ymgal_enabled ?? true,
+        kungal: s.kungal_enabled ?? true,
+        steam: s.steam_enabled ?? true,
+        pcgw: s.pcgw_enabled ?? true,
       };
-      results = await scrapeGame(query, enabled.vndb, enabled.bangumi, opts);
+      results = await scrapeGame(query, s.vndb_enabled, s.bangumi_enabled, opts);
       selectedIndex = 0;
       progress = [...progress, `完成：${results.length} 条结果`];
     } catch (error) {
@@ -74,7 +79,7 @@
       <p>聚合 Galgame 数据源，按策略补齐标题、封面、简介、标签和技术资料。</p>
     </div>
     <div class="head-stats">
-      <span><strong class="aura-num">{Object.values(enabled).filter(Boolean).length}</strong> 数据源</span>
+      <span><strong class="aura-num">{enabledCount}</strong> 数据源</span>
       <span><strong class="aura-num">{results.length}</strong> 结果</span>
     </div>
     <button class="primary" disabled={loading} onclick={runScrape}>
@@ -98,15 +103,15 @@
           <p class="aura-kicker">Candidates</p>
           <h2>候选与进度</h2>
         </div>
-        <span class="aura-num">{Object.values(enabled).filter(Boolean).length}/{sources.length}</span>
+        <span class="aura-num">{enabledCount}/{sources.length}</span>
       </div>
 
       <div class="source-list">
         {#each sources as source}
-          <label class="source" class:enabled={enabled[source.key]}>
-            <input type="checkbox" bind:checked={enabled[source.key]} />
+          <label class="source" class:enabled={isEnabled(source.settingKey)}>
+            <input type="checkbox" checked={isEnabled(source.settingKey)} onchange={() => toggleSource(source.settingKey)} />
             <span>{source.label}</span>
-            <em>{enabled[source.key] ? "ON" : "OFF"}</em>
+            <em>{isEnabled(source.settingKey) ? "ON" : "OFF"}</em>
           </label>
         {/each}
       </div>
