@@ -1058,6 +1058,15 @@ export async function applyScrapeResult(
   return invoke("apply_scrape_result", { gameId, result });
 }
 
+/** 取某条搜索结果的全量详情（截图/开发商/发行商/流派/别名/发行日期等）。
+ *  搜索只回浅层结果，落库前先用它把富字段补全。 */
+export async function fetchFullDetail(
+  source: string,
+  sourceId: string
+): Promise<ScrapeResult> {
+  return invoke("fetch_full_detail", { source, sourceId });
+}
+
 // ===== 存档（文件系统扫描） =====
 
 export async function getGameSaves(gameId: string): Promise<SaveInfo[]> {
@@ -1388,6 +1397,82 @@ export async function setDownloadSpeedLimit(bytesPerSec: number): Promise<void> 
 
 export async function getDownloadSpeedLimit(): Promise<number> {
   return invoke("get_download_speed_limit");
+}
+
+// ===== 番剧下载管理 =====
+
+export type AnimeDownloadStatus =
+  | "Pending"
+  | "Parsing"
+  | "Downloading"
+  | "Merging"
+  | "Completed"
+  | "Failed"
+  | "Paused"
+  | "Cancelled";
+
+export interface AnimeDownloadTask {
+  id: string;
+  url: string;
+  filename: string;
+  output_path: string;
+  status: AnimeDownloadStatus;
+  progress: number;
+  total_segments: number;
+  downloaded_segments: number;
+  total_size: number;
+  downloaded_size: number;
+  speed: number;
+  error?: string;
+  is_m3u8: boolean;
+  anime_name?: string;
+  episode_name?: string;
+}
+
+export async function animeDownloadEpisode(
+  url: string,
+  filename: string,
+  outputDir?: string,
+  animeName?: string,
+  episodeName?: string,
+  referer?: string
+): Promise<AnimeDownloadTask> {
+  return invoke("anime_download_episode", {
+    url,
+    filename,
+    outputDir,
+    animeName,
+    episodeName,
+    referer,
+  });
+}
+
+export async function animeGetDownloads(): Promise<AnimeDownloadTask[]> {
+  return invoke("anime_get_downloads");
+}
+
+export async function animeCancelDownload(downloadId: string): Promise<void> {
+  return invoke("anime_cancel_download", { downloadId });
+}
+
+export async function animePauseDownload(downloadId: string): Promise<void> {
+  return invoke("anime_pause_download", { downloadId });
+}
+
+export async function animeResumeDownload(downloadId: string): Promise<void> {
+  return invoke("anime_resume_download", { downloadId });
+}
+
+export async function animeRemoveDownload(downloadId: string): Promise<void> {
+  return invoke("anime_remove_download", { downloadId });
+}
+
+export async function animeClearFinishedDownloads(): Promise<void> {
+  return invoke("anime_clear_finished_downloads");
+}
+
+export async function animeOpenDownloadFolder(downloadId: string): Promise<void> {
+  return invoke("anime_open_download_folder", { downloadId });
 }
 
 // ===== 工具函数 =====

@@ -30,3 +30,22 @@ Thumbs.db
 # Env
 .env
 .env.local
+
+# 开发临时文件
+_dev/
+.mimocode/
+_*.png
+_*.py
+_*.txt
+_*.log
+
+# 测试
+tests/
+playwright.config.ts
+vitest.config.ts
+
+# 计划文档
+ANIME_FLOW_PLAN.md
+ANIME_PLAYER_PLAN.md
+KAZUMI_PARITY_PLAN.md
+ROADMAP.md

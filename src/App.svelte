@@ -1,92 +1,114 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { fly } from "svelte/transition";
-  import { quintOut } from "svelte/easing";
+  import { fly, fade, scale } from "svelte/transition";
+  import { quintOut, cubicOut } from "svelte/easing";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { gameStore } from "./lib/stores/games.svelte";
   import { settingsStore } from "./lib/stores/settings.svelte";
   import { uiStore } from "./lib/stores/ui.svelte";
   import SwitchHome from "./lib/components/switch/SwitchHome.svelte";
-  import Sidebar from "./lib/components/Sidebar.svelte";
+  import SystemDock from "./lib/components/switch/SystemDock.svelte";
   import Notifications from "./lib/components/Notifications.svelte";
-  import BigPictureToggle from "./lib/components/BigPictureToggle.svelte";
   import BigPicturePage from "./lib/components/BigPicturePage.svelte";
   import Icon from "./lib/components/Icon.svelte";
-
-  let ScrapeDialog: any = $state(null);
-  let ScraperPage: any = $state(null);
-  let DownloadPage: any = $state(null);
-  let BackupPage: any = $state(null);
-  let StatsPage: any = $state(null);
-  let DiscoveryPage: any = $state(null);
-  let DiagnosticsPage: any = $state(null);
-  let SettingsPage: any = $state(null);
-  let GameDetailPage: any = $state(null);
-  let SteamImportDialog: any = $state(null);
-  let MigrationPage: any = $state(null);
-  let EmulatorImportDialog: any = $state(null);
-  let FirstRunWizard: any = $state(null);
-  let CommandDrawer: any = $state(null);
+  import { attachGamepad } from "./lib/components/switch/useGamepad.svelte";
+  import { DOCK_ITEMS, TOOL_ITEMS } from "./lib/nav";
 
   const isBigPicture = $derived(uiStore.bigPictureActive);
-  const showSidebar = $derived(!isBigPicture && uiStore.currentView !== "home");
+  let toolsDrawerOpen = $state(false);
 
-  $effect(() => {
-    if (uiStore.currentView === "scraper" && !ScraperPage) import("./lib/components/ScraperPage.svelte").then(m => ScraperPage = m.default);
-    if (uiStore.currentView === "downloads" && !DownloadPage) import("./lib/components/DownloadPage.svelte").then(m => DownloadPage = m.default);
-    if (uiStore.currentView === "backup" && !BackupPage) import("./lib/components/BackupPage.svelte").then(m => BackupPage = m.default);
-    if (uiStore.currentView === "stats" && !StatsPage) import("./lib/components/StatsPage.svelte").then(m => StatsPage = m.default);
-    if (uiStore.currentView === "discovery" && !DiscoveryPage) import("./lib/components/DiscoveryPage.svelte").then(m => DiscoveryPage = m.default);
-    if (uiStore.currentView === "diagnostics" && !DiagnosticsPage) import("./lib/components/DiagnosticsPage.svelte").then(m => DiagnosticsPage = m.default);
-    if (uiStore.currentView === "settings" && !SettingsPage) import("./lib/components/SettingsPage.svelte").then(m => SettingsPage = m.default);
-    if (uiStore.currentView === "game-detail" && !GameDetailPage) import("./lib/components/GameDetailPage.svelte").then(m => GameDetailPage = m.default);
-    if (uiStore.currentView === "game-detail" && !gameStore.selectedGame && gameStore.games[0]) gameStore.selectGame(gameStore.games[0].id);
-    if (uiStore.currentView === "steam-import" && !SteamImportDialog) import("./lib/components/SteamImportDialog.svelte").then(m => SteamImportDialog = m.default);
-    if (uiStore.currentView === "migration" && !MigrationPage) import("./lib/components/MigrationPage.svelte").then(m => MigrationPage = m.default);
-    if (uiStore.currentView === "emulator" && !EmulatorImportDialog) import("./lib/components/EmulatorImportDialog.svelte").then(m => EmulatorImportDialog = m.default);
-  });
+  // tool drawer contains these views — used to highlight "工具" in dock
+  const TOOL_VIEWS = new Set(TOOL_ITEMS.map(t => t.view));
+  const isToolView = $derived(TOOL_VIEWS.has(uiStore.currentView));
 
-  $effect(() => {
-    if (uiStore.showFirstRunWizard && !FirstRunWizard) import("./lib/components/FirstRunWizard.svelte").then(m => FirstRunWizard = m.default);
-  });
-
-  $effect(() => {
-    if (uiStore.drawerOpen && !CommandDrawer) import("./lib/components/CommandDrawer.svelte").then(m => CommandDrawer = m.default);
-  });
-
-  $effect(() => {
-    if (uiStore.showScrapeDialog && !ScrapeDialog) {
-      import("./lib/components/ScrapeDialog.svelte").then(m => ScrapeDialog = m.default);
+  function pickDock(view: string) {
+    if (view === "__bigpicture") {
+      toolsDrawerOpen = false;
+      uiStore.setBigPicture(true);
+      return;
     }
+    if (view === "__tools") {
+      toolsDrawerOpen = !toolsDrawerOpen;
+      return;
+    }
+    toolsDrawerOpen = false;
+    if (view === "home") gameStore.quickFilter = null;
+    uiStore.currentView = view;
+  }
+
+  function pickTool(view: string) {
+    toolsDrawerOpen = false;
+    uiStore.currentView = view;
+  }
+
+  function goHome() {
+    toolsDrawerOpen = false;
+    gameStore.quickFilter = null;
+    uiStore.currentView = "home";
+  }
+
+  function exitable(): boolean {
+    return !isBigPicture
+      && uiStore.currentView !== "home"
+      && !uiStore.showScrapeDialog
+      && !uiStore.showFirstRunWizard
+      && !toolsDrawerOpen;
+  }
+
+  function onKeydown(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      if (toolsDrawerOpen) {
+        e.preventDefault();
+        toolsDrawerOpen = false;
+        return;
+      }
+      if (exitable()) {
+        e.preventDefault();
+        goHome();
+      }
+    }
+  }
+
+  $effect(() => {
+    if (uiStore.currentView === "game-detail" && !gameStore.selectedGame && gameStore.games[0]) gameStore.selectGame(gameStore.games[0].id);
   });
 
   let booted = $state(false);
+  let _detachGamepad = () => {};
   onMount(() => {
-    if (booted) return;
-    booted = true;
-    gameStore.load();
-    settingsStore.load();
+    if (!booted) {
+      booted = true;
+      gameStore.load();
+      settingsStore.load();
+    }
+    window.addEventListener("keydown", onKeydown);
+    _detachGamepad = attachGamepad({ back: () => {
+      if (toolsDrawerOpen) { toolsDrawerOpen = false; return; }
+      if (exitable()) goHome();
+    }});
+    return () => {
+      window.removeEventListener("keydown", onKeydown);
+      _detachGamepad();
+    };
   });
 
-  // 开机自启：根据 startup_mode 切换初始视图 + 窗口模式
   let _startupApplied = false;
   $effect(() => {
-    const settings = settingsStore.settings;
-    if (!settings || _startupApplied) return;
+    if (_startupApplied) return;
+    if (!settingsStore.loaded) return;
     _startupApplied = true;
 
-    const mode = settings.startup_mode ?? "dashboard";
+    const mode = settingsStore.settings.startup_mode ?? "fullscreen";
+    const win = getCurrentWindow();
     if (mode === "big-picture") {
       uiStore.setBigPicture(true);
-      getCurrentWindow().setFullscreen(true).catch(() => {});
     } else if (mode === "fullscreen") {
-      getCurrentWindow().setFullscreen(true).catch(() => {});
+      // 已由 tauri.conf.json fullscreen:true 原生全屏，无需处理
     } else {
-      getCurrentWindow().maximize().catch(() => {});
+      win.setFullscreen(false).then(() => win.maximize()).catch(() => {});
     }
   });
 
-  // First-run wizard: show once only (dev: ?skip_wizard 跳过)
   const _skipWizard = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("skip_wizard");
   let _firstRunWizardShown = $state(false);
   $effect(() => {
@@ -102,89 +124,126 @@
 <div
   class="app-container"
   class:fullscreen={isBigPicture}
-  class:console-home={!isBigPicture && uiStore.currentView === "home"}
-  class:sidebar-open={showSidebar && !uiStore.sidebarCollapsed}
   data-testid="app-shell"
 >
   {#if !isBigPicture}
-    <!-- PS5-style restrained depth background -->
     <div class="bg-layers">
       <div class="bg-gradient"></div>
       <div class="bg-scrim"></div>
     </div>
 
-    {#if showSidebar}
-      <!-- 侧边栏（工具页保留，主页使用主机式全屏布局） -->
-      <Sidebar />
-
-      <!-- 侧边栏切换钮 -->
-      <button
-        class="sidebar-toggle"
-        onclick={() => uiStore.sidebarCollapsed = !uiStore.sidebarCollapsed}
-        title={uiStore.sidebarCollapsed ? "展开侧边栏" : "收起侧边栏"}
-        aria-label="切换侧边栏"
-      >
-        <Icon name={uiStore.sidebarCollapsed ? "chevronRight" : "chevronLeft"} size={14} />
-      </button>
-    {/if}
-
     <main class="main-content" data-testid="main-content">
       {#key uiStore.currentView}
-        <div class="view-wrapper" in:fly={{ y: 12, duration: 320, easing: quintOut }} out:fly={{ y: -12, duration: 200, easing: quintOut }}>
-          {#if uiStore.currentView === "scraper" && ScraperPage}
-            <ScraperPage />
-          {:else if uiStore.currentView === "downloads" && DownloadPage}
-            <DownloadPage />
-          {:else if uiStore.currentView === "backup" && BackupPage}
-            <BackupPage />
-          {:else if uiStore.currentView === "stats" && StatsPage}
-            <StatsPage />
-          {:else if uiStore.currentView === "discovery" && DiscoveryPage}
-            <DiscoveryPage />
-          {:else if uiStore.currentView === "diagnostics" && DiagnosticsPage}
-            <DiagnosticsPage />
-          {:else if uiStore.currentView === "settings" && SettingsPage}
-            <SettingsPage />
-          {:else if uiStore.currentView === "game-detail" && GameDetailPage}
-            <GameDetailPage />
-          {:else if uiStore.currentView === "steam-import" && SteamImportDialog}
-            <SteamImportDialog />
-          {:else if uiStore.currentView === "migration" && MigrationPage}
-            <MigrationPage />
-          {:else if uiStore.currentView === "emulator" && EmulatorImportDialog}
-            <EmulatorImportDialog />
+        <div class="view-wrapper" in:fade={{ duration: 240, easing: cubicOut }} out:fade={{ duration: 160 }}>
+          {#if uiStore.currentView === "scraper"}
+            {#await import("./lib/components/ScraperPage.svelte") then { default: Comp }}
+              <Comp />
+            {/await}
+          {:else if uiStore.currentView === "downloads"}
+            {#await import("./lib/components/DownloadPage.svelte") then { default: Comp }}
+              <Comp />
+            {/await}
+          {:else if uiStore.currentView === "backup"}
+            {#await import("./lib/components/BackupPage.svelte") then { default: Comp }}
+              <Comp />
+            {/await}
+          {:else if uiStore.currentView === "stats"}
+            {#await import("./lib/components/StatsPage.svelte") then { default: Comp }}
+              <Comp />
+            {/await}
+          {:else if uiStore.currentView === "discovery"}
+            {#await import("./lib/components/DiscoveryPage.svelte") then { default: Comp }}
+              <Comp />
+            {/await}
+          {:else if uiStore.currentView === "anime"}
+            {#await import("./lib/components/AnimePage.svelte") then { default: Comp }}
+              <Comp />
+            {/await}
+          {:else if uiStore.currentView === "comic"}
+            {#await import("./lib/components/ComicPage.svelte") then { default: Comp }}
+              <Comp />
+            {/await}
+          {:else if uiStore.currentView === "diagnostics"}
+            {#await import("./lib/components/DiagnosticsPage.svelte") then { default: Comp }}
+              <Comp />
+            {/await}
+          {:else if uiStore.currentView === "settings"}
+            {#await import("./lib/components/SettingsPage.svelte") then { default: Comp }}
+              <Comp />
+            {/await}
+          {:else if uiStore.currentView === "game-detail"}
+            {#await import("./lib/components/GameDetailPage.svelte") then { default: Comp }}
+              <Comp />
+            {/await}
+          {:else if uiStore.currentView === "steam-import"}
+            {#await import("./lib/components/SteamImportDialog.svelte") then { default: Comp }}
+              <Comp />
+            {/await}
+          {:else if uiStore.currentView === "migration"}
+            {#await import("./lib/components/MigrationPage.svelte") then { default: Comp }}
+              <Comp />
+            {/await}
+          {:else if uiStore.currentView === "emulator"}
+            {#await import("./lib/components/EmulatorImportDialog.svelte") then { default: Comp }}
+              <Comp />
+            {/await}
           {:else}
             <SwitchHome />
           {/if}
         </div>
       {/key}
     </main>
+
+    <!-- Tools drawer overlay -->
+    {#if toolsDrawerOpen}
+      <button class="drawer-backdrop" transition:fade={{ duration: 200 }} onclick={() => (toolsDrawerOpen = false)} aria-label="关闭工具面板"></button>
+      <div class="tools-drawer" transition:fly={{ y: 60, duration: 300, easing: quintOut }}>
+        <div class="tools-grid">
+          {#each TOOL_ITEMS as tool, idx (tool.id)}
+            <button
+              class="tool-cell"
+              class:active={uiStore.currentView === tool.view}
+              style="animation-delay: {idx * 35}ms"
+              onclick={() => pickTool(tool.view)}
+            >
+              <span class="tool-icon tool-icon--{tool.group}"><Icon name={tool.icon} size={22} /></span>
+              <span class="tool-label">{tool.label}</span>
+            </button>
+          {/each}
+        </div>
+      </div>
+    {/if}
+
+    <div class="global-dock">
+      <SystemDock
+        items={DOCK_ITEMS}
+        current={isToolView ? "__tools" : uiStore.currentView}
+        toolsOpen={toolsDrawerOpen}
+        onpick={pickDock}
+      />
+    </div>
   {:else}
     <BigPicturePage />
   {/if}
 </div>
 
-{#if !isBigPicture}
-  <BigPictureToggle />
+{#if uiStore.showScrapeDialog}
+  {#await import("./lib/components/ScrapeDialog.svelte") then { default: Comp }}
+    <Comp />
+  {/await}
 {/if}
 
-{#if uiStore.showScrapeDialog && ScrapeDialog}
-  <ScrapeDialog />
-{/if}
-
-{#if uiStore.drawerOpen && CommandDrawer}
-  <CommandDrawer />
-{/if}
-
-{#if uiStore.showFirstRunWizard && FirstRunWizard}
-  <FirstRunWizard />
+{#if uiStore.showFirstRunWizard}
+  {#await import("./lib/components/FirstRunWizard.svelte") then { default: Comp }}
+    <Comp />
+  {/await}
 {/if}
 
 <Notifications />
 
 <style>
   .app-container {
-    display: flex; flex-direction: row; height: 100vh; width: 100vw;
+    display: flex; flex-direction: column; height: 100vh; width: 100vw;
     background: var(--bg-deep);
     position: relative; overflow: hidden;
   }
@@ -192,32 +251,11 @@
     background: #050914;
   }
 
-  /* ── 侧边栏切换按钮（紧随sidebar右侧边缘） ── */
-  .sidebar-toggle {
-    position: absolute; top: 14px; left: 210px; z-index: 30;
-    width: 22px; height: 38px;
-    display: grid; place-items: center;
-    border: 1px solid var(--border); border-left: none;
-    background: rgba(17, 24, 39, 0.78);
-    color: var(--text-muted);
-    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-    cursor: pointer;
-    backdrop-filter: blur(10px);
-    transition: color 0.2s, left 0.3s cubic-bezier(0.22, 1, 0.36, 1);
-  }
-  .sidebar-toggle:hover { color: var(--accent-pink); }
-
-  /* 侧边栏收起时，按钮回到左边缘 */
-  .app-container:not(.sidebar-open) .sidebar-toggle { left: 0; }
-
-  /* ── 原版 WPF 背景叠层 ── */
   .bg-layers { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
-
   .bg-gradient {
     position: absolute; inset: 0;
     background: linear-gradient(135deg, var(--bg-deep) 0%, var(--bg) 50%, var(--bg-deep) 100%);
   }
-
   .bg-scrim {
     position: absolute; inset: 0;
     background: rgba(11, 14, 20, 0.36);
@@ -225,11 +263,112 @@
 
   .main-content {
     flex: 1; display: flex; flex-direction: column; overflow: hidden;
-    min-width: 0; position: relative; z-index: 40;
+    min-width: 0; position: relative; z-index: 1;
   }
 
   .view-wrapper {
     flex: 1; display: flex; flex-direction: column; overflow: hidden;
     position: relative; z-index: 1;
+  }
+
+  /* ── Tools drawer ── */
+  .drawer-backdrop {
+    position: fixed; inset: 0; z-index: 80;
+    background: rgba(5, 8, 14, 0.45);
+    border: none; cursor: default;
+  }
+
+  .tools-drawer {
+    position: fixed;
+    bottom: 70px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 81;
+    width: min(520px, calc(100vw - 32px));
+    padding: 18px 20px;
+    background: var(--bg-elev, rgba(22, 26, 36, 0.95));
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    backdrop-filter: blur(24px) saturate(1.15);
+    -webkit-backdrop-filter: blur(24px) saturate(1.15);
+    box-shadow: 0 -8px 40px rgba(0,0,0,0.35);
+  }
+
+  .tools-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+  }
+
+  @keyframes toolCellIn {
+    from { opacity: 0; transform: translateY(8px) scale(0.95); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  .tool-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 14px 8px;
+    border: none;
+    border-radius: 14px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+    animation: toolCellIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  .tool-cell:hover {
+    background: rgba(255,255,255,0.06);
+    color: var(--text-primary);
+    transform: translateY(-2px);
+  }
+  .tool-cell:active {
+    transform: scale(0.96);
+  }
+  .tool-cell.active {
+    color: var(--accent);
+    background: var(--accent-lo);
+  }
+  .tool-icon {
+    width: 44px; height: 44px;
+    display: grid; place-items: center;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.06);
+    transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+  }
+  .tool-icon--tools { color: rgba(139,166,245,0.85); }
+  .tool-icon--import { color: rgba(94,211,172,0.85); }
+  .tool-icon--system { color: rgba(245,179,100,0.85); }
+  .tool-cell:hover .tool-icon {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.1);
+    box-shadow: 0 2px 8px -2px rgba(0,0,0,0.2);
+  }
+  .tool-cell.active .tool-icon {
+    background: var(--accent-lo);
+    border-color: var(--accent-ring, rgba(232,85,127,0.3));
+    color: var(--accent);
+  }
+  .tool-label {
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  /* ── Global dock ── */
+  .global-dock {
+    flex-shrink: 0;
+    position: relative; z-index: 90;
+    border-top: 1px solid var(--border);
+    background: rgba(10, 13, 20, 0.72);
+    backdrop-filter: blur(16px) saturate(1.1);
+    -webkit-backdrop-filter: blur(16px) saturate(1.1);
+  }
+
+  @media (max-width: 520px) {
+    .tools-grid { grid-template-columns: repeat(3, 1fr); }
+    .tools-drawer { bottom: 62px; padding: 14px 12px; border-radius: 14px; }
   }
 </style>

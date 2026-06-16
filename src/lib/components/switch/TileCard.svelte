@@ -20,6 +20,10 @@
   const monogram = $derived((game?.name?.trim()?.[0] ?? "?").toUpperCase());
   let tileEl = $state<HTMLButtonElement>();
   let clickTimer: number | undefined;
+  // 封面加载失败（路径存在但图裂）时退回首字母占位，避免整块黑卡
+  let coverFailed = $state(false);
+  // game 变了要重置失败态（TileCard 按 id keyed，正常每番一份实例，这里防御性兜底）
+  $effect(() => { void game?.id; coverFailed = false; });
 
   function handleClick() {
     if (clickTimer) window.clearTimeout(clickTimer);
@@ -75,8 +79,14 @@
         <Icon name="collection" size={26} />
         <small>全部游戏</small>
       </span>
-    {:else if cover}
-      <CachedImage source={cover} cacheKey={`sw-tile-${game!.id}`} alt={game!.name} loading="lazy" />
+    {:else if cover && !coverFailed}
+      <CachedImage
+        source={cover}
+        cacheKey={`sw-tile-${game!.id}`}
+        alt={game!.name}
+        loading="lazy"
+        onfail={() => (coverFailed = true)}
+      />
     {:else}
       <span class="mono">{monogram}</span>
     {/if}

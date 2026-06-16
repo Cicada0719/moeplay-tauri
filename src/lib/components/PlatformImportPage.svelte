@@ -143,6 +143,7 @@
           await refreshLibrary();
           steamLoginMessage = `Steam 全库已导入：新增 ${result.imported}，更新 ${result.updated}`;
           uiStore.notify(`Steam 导入完成：新增 ${result.imported}，更新 ${result.updated}（共 ${result.total}）`, "success");
+          autoSyncAchievementsQuietly();
         } catch (e) {
           steamAccountError = String(e);
           uiStore.notify("Steam 导入失败：" + String(e), "error");
@@ -514,6 +515,7 @@
         `平台同步完成：新增 ${allImportSummary.imported}，更新 ${allImportSummary.updated}，跳过 ${allImportSummary.skipped}`,
         "success",
       );
+      autoSyncAchievementsQuietly();
     } catch (e) {
       allImportError = String(e);
     } finally {
@@ -550,6 +552,19 @@
     } finally {
       syncingAchievements = false;
     }
+  }
+
+  function autoSyncAchievementsQuietly() {
+    const s = settingsStore.settings;
+    if (!s.steam_api_key?.trim() || !s.steam_id?.trim()) return;
+    syncSteamAchievements()
+      .then(r => {
+        if (r.synced > 0) {
+          uiStore.notify(`成就已同步 ${r.synced} 款游戏`, "success");
+          gameStore.load();
+        }
+      })
+      .catch(() => {});
   }
 
   function formatPlaytime(minutes: number | null | undefined) {

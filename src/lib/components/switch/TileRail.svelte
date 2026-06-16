@@ -172,8 +172,13 @@
   }
   .rail::-webkit-scrollbar { display: none; }
   .slot { flex: 0 0 auto; }
+  /* 不在 rail 上画 focus 环：rail 是常驻获得焦点的滚动容器，inset 焦点环会变成一条
+     横跨整条卡带的大红框（用键盘/手柄导航时尤其明显）。选中态由放大的卡片自身的
+     ring 表达即可，这里的 rail 级焦点环纯属冗余。 */
+  .rail:focus,
   .rail:focus-visible {
-    box-shadow: inset var(--focus-ring);
+    box-shadow: none;
+    outline: none;
   }
 
   @media (max-width: 760px) {

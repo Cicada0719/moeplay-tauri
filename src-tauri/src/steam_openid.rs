@@ -724,6 +724,9 @@ pub fn open_login_webview(app_handle: &tauri::AppHandle) -> Result<(), String> {
     use std::sync::Arc;
     use tauri::Manager;
 
+    tracing::info!("open_login_webview: START");
+    crate::crash_log("open_login_webview: START");
+
     // 重复点击「网页登录」：聚焦已有窗口而非报错
     if let Some(existing) = app_handle.get_webview_window("steam-login") {
         let _ = existing.set_focus();
@@ -745,6 +748,7 @@ pub fn open_login_webview(app_handle: &tauri::AppHandle) -> Result<(), String> {
     // 直接进 /my/profile：已登录 → Steam 302 到 /profiles/{id}（或 /id/{vanity}）即可解析；
     // 未登录 → Steam 跳到 /login/home?goto=my/profile（仍带二维码），扫码后再回跳 /my/profile。
     // 比起从 /login/home 起步，能正确处理「默认已登录」这种识别不到 SteamID 的情况。
+    tracing::info!("open_login_webview: creating webview...");
     let window = tauri::WebviewWindowBuilder::new(
         app_handle,
         "steam-login",
@@ -813,6 +817,8 @@ pub fn open_login_webview(app_handle: &tauri::AppHandle) -> Result<(), String> {
     })
     .build()
     .map_err(|e| format!("创建 Steam 登录窗口失败: {}", e))?;
+
+    tracing::info!("open_login_webview: webview created, starting background poll");
 
     let wc = window.clone();
     let ac = app_handle.clone();

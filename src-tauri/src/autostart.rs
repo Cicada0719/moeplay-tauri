@@ -25,7 +25,7 @@ fn current_exe_path() -> Result<String, String> {
 }
 
 /// 设置开机自启
-/// `startup_mode`: "dashboard" | "big-picture"
+/// `startup_mode`: "dashboard" | "fullscreen" | "big-picture"
 pub fn set_autostart(enabled: bool, startup_mode: &str) -> Result<(), String> {
     #[cfg(windows)]
     {
@@ -47,7 +47,7 @@ pub fn get_autostart_status() -> Result<AutostartStatus, String> {
         // Can't easily read the startup mode from registry key — just return default
         Ok(AutostartStatus {
             enabled,
-            startup_mode: "dashboard".to_string(),
+            startup_mode: "fullscreen".to_string(),
             exe_path: exe,
         })
     }
@@ -56,7 +56,7 @@ pub fn get_autostart_status() -> Result<AutostartStatus, String> {
         let enabled = is_autostart_enabled_unix();
         Ok(AutostartStatus {
             enabled,
-            startup_mode: "dashboard".to_string(),
+            startup_mode: "fullscreen".to_string(),
             exe_path: exe,
         })
     }

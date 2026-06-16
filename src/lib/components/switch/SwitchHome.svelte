@@ -13,28 +13,17 @@
   } from "../../utils/game";
   import type { Game } from "../../stores/games.svelte";
   import Icon from "../Icon.svelte";
+  import { fileSrc } from "../../utils";
+  import { heroImageOf as gameHeroImageOf, hasHeroBackground } from "../../utils/game";
+  import defaultLibraryBackdrop from "../../assets/default-library-backdrop.png";
   import EmptyState from "../EmptyState.svelte";
   import GameGrid from "../GameGrid.svelte";
   import TileRail from "./TileRail.svelte";
-  import SystemDock from "./SystemDock.svelte";
 
   const STATUS: Record<string, string> = {
     not_started: "未开始", playing: "游玩中", completed: "已通关",
     on_hold: "搁置", dropped: "已弃坑", plan_to_play: "计划中", replaying: "重温中",
   };
-
-  const dock = [
-    { id: "discovery", label: "发现",   icon: "compass",  view: "discovery" },
-    { id: "scraper",   label: "刮削",   icon: "star",     view: "scraper" },
-    { id: "downloads", label: "下载",   icon: "download", view: "downloads" },
-    { id: "backup",    label: "存档",   icon: "save",     view: "backup" },
-    { id: "stats",     label: "统计",   icon: "chart",    view: "stats" },
-    { id: "import",    label: "导入",   icon: "database", view: "steam-import" },
-    { id: "emulator",  label: "模拟器", icon: "gamepad",  view: "emulator" },
-    { id: "diag",      label: "诊断",   icon: "toolbox",  view: "diagnostics" },
-    { id: "settings",  label: "设置",   icon: "gear",     view: "settings" },
-    { id: "bigpic",    label: "大屏",   icon: "tv",       view: "__bigpicture" },
-  ];
 
   const quickFilters = [
     { id: "", label: "全部" },
@@ -102,6 +91,12 @@
   const selected = $derived(gameStore.selectedGame ?? recent[0] ?? null);
   const clock = $derived(now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }));
 
+  // 背景艺术：跟随选中游戏，与大屏模式一致
+  const bgArt = $derived(
+    selected ? (fileSrc(gameHeroImageOf(selected)) ?? defaultLibraryBackdrop) : defaultLibraryBackdrop
+  );
+  const bgIsCover = $derived(!hasHeroBackground(selected));
+
   function metaLine(g: Game | null): string {
     if (!g) return "";
     const parts: string[] = [];
@@ -138,10 +133,6 @@
     uiStore.notify(`正在启动 ${g?.name ?? "游戏"}…`);
   }
   function onfavorite() { if (selected) gameStore.toggleFavorite(selected.id); }
-  function pickDock(view: string) {
-    if (view === "__bigpicture") uiStore.setBigPicture(true);
-    else uiStore.openDrawer(view);
-  }
   function focusSearch() {
     searchInput?.focus();
   }
@@ -161,6 +152,10 @@
 </script>
 
 <div class="switch-home" data-testid="switch-home">
+  <div class="sw-bg" aria-hidden="true">
+    <div class="sw-bg-layer" class:cover={bgIsCover} style={`background-image:url("${bgArt}")`}></div>
+    <div class="sw-bg-scrim"></div>
+  </div>
   <header class="topbar">
     <div class="brand">
       <span class="avatar">萌</span>
@@ -313,12 +308,11 @@
       </div>
     </section>
   {/if}
-
-  <SystemDock items={dock} current={uiStore.currentView} onpick={pickDock} />
 </div>
 
 <style>
   .switch-home {
+    position: relative;
     height: 100%;
     display: flex;
     flex-direction: column;
@@ -328,6 +322,25 @@
     color: var(--text-primary);
     overflow: hidden;
   }
+
+  /* ── 动态背景层（与大屏模式一致）── */
+  .sw-bg { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+  .sw-bg-layer {
+    position: absolute; inset: 0;
+    background-size: cover; background-position: center 28%;
+    transition: background-image 0.4s ease;
+  }
+  .sw-bg-layer.cover {
+    background-size: 140%; background-position: center 20%;
+    filter: blur(20px) brightness(0.7);
+  }
+  .sw-bg-scrim {
+    position: absolute; inset: 0;
+    background:
+      linear-gradient(180deg, rgba(7,9,15,0.35) 0%, rgba(7,9,15,0.08) 28%, rgba(7,9,15,0.45) 78%, var(--sw-bg) 100%);
+  }
+
+  .topbar, .stage, .all-panel, .all-grid, .empty-wrap, .rail-skel { position: relative; z-index: 1; }
 
   .topbar {
     display: flex;
@@ -380,7 +393,7 @@
   }
   .icon-btn:hover { color: var(--text-primary); }
 
-  .error-banner {
+  .error-banner { position: relative; z-index: 1;
     display: flex; align-items: center; gap: 10px;
     margin: 0 28px 8px;
     padding: 10px 14px;

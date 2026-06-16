@@ -39,6 +39,17 @@
   const topSpacer = $derived(paddingTop + firstRow * (rowHeight + gap));
   const totalHeight = $derived(paddingTop + paddingBottom + Math.max(0, rowCount * rowHeight + Math.max(0, rowCount - 1) * gap));
 
+  // 筛选 / 排序 / 搜索变化时回到顶部：虚拟滚动若停在旧的大 scrollTop，
+  // 切到更小的结果集会算出越界的可见区间而显示空白（看起来像「筛选结果不对」）。
+  $effect(() => {
+    void gameStore.quickFilter;
+    void gameStore.filterTag;
+    void gameStore.sortBy;
+    void gameStore.searchQuery;
+    if (gridEl) gridEl.scrollTop = 0;
+    scrollTop = 0;
+  });
+
   onMount(() => {
     if (!gridEl) return;
     const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;

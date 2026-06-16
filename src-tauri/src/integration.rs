@@ -13,6 +13,7 @@
 use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 // ============================================================================
 // 数据模型
@@ -40,75 +41,87 @@ pub struct ImportResult {
 // Steam: 发现 Steam 安装路径
 // ============================================================================
 
-/// 发现 Steam 安装路径。
-/// Windows: 读注册表 → PATH 查找 → 常见路径。
-/// 非 Windows: ~/.steam 或 ~/.local/share/Steam。
-pub fn find_steam_install_path() -> Option<PathBuf> {
-    // 方法1: 尝试读取注册表（通过 PowerShell，零依赖）
+/// Steam 安装路径缓存——避免每次导入/同步时反复读注册表。
+/// 之前用 PowerShell 读取（per-game 触发时会不停弹窗→闪退），现改为 winreg 直接读。
+static STEAM_PATH_CACHE: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+fn find_steam_from_registry() -> Option<PathBuf> {
     #[cfg(windows)]
     {
-        let output = std::process::Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                "Get-ItemProperty -Path 'HKLM:\\SOFTWARE\\WOW6432Node\\Valve\\Steam' -Name 'InstallPath' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty InstallPath",
-            ])
-            .output()
-            .ok();
-        if let Some(output) = output {
-            if output.status.success() {
-                let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !s.is_empty() {
-                    let p = PathBuf::from(&s);
-                    if p.exists() {
+        use winreg::enums::*;
+        let hklm = winreg::RegKey::predef(HKEY_LOCAL_MACHINE);
+        if let Ok(key) = hklm.open_subkey_with_flags(
+            r"SOFTWARE\WOW6432Node\Valve\Steam",
+            KEY_READ,
+        ) {
+            if let Ok(path) = key.get_value::<String, _>("InstallPath") {
+                let p = PathBuf::from(&path);
+                if p.exists() {
+                    return Some(p);
+                }
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = ();
+    None
+}
+
+/// 发现 Steam 安装路径（带缓存，不再弹 PowerShell 窗口）。
+/// Windows: 读注册表 → 环境变量 → 常见路径。
+/// 非 Windows: ~/.steam 或 ~/.local/share/Steam。
+pub fn find_steam_install_path() -> Option<PathBuf> {
+    STEAM_PATH_CACHE
+        .get_or_init(|| {
+            // 方法1: 读注册表（winreg 直接读，不弹窗）
+            if let Some(p) = find_steam_from_registry() {
+                tracing::info!(path = %p.display(), "Steam path found via registry");
+                return Some(p);
+            }
+
+            // 方法2: 环境变量
+            for env_var in &["STEAM_HOME", "STEAM_PATH"] {
+                if let Ok(val) = std::env::var(env_var) {
+                    let p = PathBuf::from(&val);
+                    if p.join("steamapps").exists() {
                         return Some(p);
                     }
                 }
             }
-        }
-    }
 
-    // 方法2: 环境变量
-    for env_var in &["STEAM_HOME", "STEAM_PATH"] {
-        if let Ok(val) = std::env::var(env_var) {
-            let p = PathBuf::from(&val);
-            if p.join("steamapps").exists() {
-                return Some(p);
-            }
-        }
-    }
+            // 方法3: 常见路径
+            #[cfg(windows)]
+            let common_paths: &[&str] = &[
+                r"C:\Program Files (x86)\Steam",
+                r"C:\Program Files\Steam",
+                r"D:\Steam",
+                r"E:\Steam",
+            ];
+            #[cfg(not(windows))]
+            let common_paths: &[&str] = &[];
 
-    // 方法3: 常见路径
-    #[cfg(windows)]
-    let common_paths: &[&str] = &[
-        r"C:\Program Files (x86)\Steam",
-        r"C:\Program Files\Steam",
-        r"D:\Steam",
-        r"E:\Steam",
-    ];
-    #[cfg(not(windows))]
-    let common_paths: &[&str] = &[];
-
-    for p in common_paths {
-        let pb = PathBuf::from(p);
-        if pb.join("steamapps").exists() {
-            return Some(pb);
-        }
-    }
-
-    #[cfg(not(windows))]
-    {
-        for p in &[".steam/steam", ".local/share/Steam"] {
-            if let Some(home) = dirs::home_dir() {
-                let pb = home.join(p);
+            for p in common_paths {
+                let pb = PathBuf::from(p);
                 if pb.join("steamapps").exists() {
                     return Some(pb);
                 }
             }
-        }
-    }
 
-    None
+            #[cfg(not(windows))]
+            {
+                for p in &[".steam/steam", ".local/share/Steam"] {
+                    if let Some(home) = dirs::home_dir() {
+                        let pb = home.join(p);
+                        if pb.join("steamapps").exists() {
+                            return Some(pb);
+                        }
+                    }
+                }
+            }
+
+            None
+        })
+        .clone()
 }
 
 // ============================================================================

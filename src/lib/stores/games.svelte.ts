@@ -12,13 +12,14 @@ import {
   type Game as ApiGame,
 } from "../api";
 import {
+  coverOf,
   developerOf,
   gameCompletionStatus,
   gameLastPlayed,
   normalizeGame,
   gameRating,
   gameTotalSeconds,
-  hasMissingCoreMetadata,
+  isInstalled,
   originalNameOf,
   publisherOf,
   tagsOf,
@@ -103,9 +104,11 @@ function applyLocalFilter() {
       const st = gameCompletionStatus(g);
       if (st !== "not_started" && st !== "plan_to_play") return false;
     }
-    if (f === "installed" && !g.exe_path) return false;
+    if (f === "installed" && !isInstalled(g)) return false;
     if (f === "missing_metadata") {
-      if (!hasMissingCoreMetadata(g)) return false;
+      // 待补全 = 缺封面 / 简介 / 标签 之一（不强制要求 vndb+bangumi ID，否则全部平台游戏都被算进来）
+      const complete = !!coverOf(g) && !!g.description?.trim() && tagsOf(g).length > 0;
+      if (complete) return false;
     }
     if (f === "recent" && !gameLastPlayed(g)) return false;
     // filterTag
@@ -137,7 +140,7 @@ export const gameStore = {
   get games() { return _games; },
   get allGames() { return _allGames; },
   get installedGames() {
-    return _allGames.filter(g => !!g.exe_path);
+    return _allGames.filter(isInstalled);
   },
   get loading() { return _loading; },
   get loadError() { return _loadError; },

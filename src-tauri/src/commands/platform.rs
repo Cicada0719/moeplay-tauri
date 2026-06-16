@@ -55,6 +55,9 @@ pub struct PlatformGameCandidate {
     pub achievements_total: Option<u32>,
     pub achievements_unlocked: Option<u32>,
     pub installed: bool,
+    /// 是否来自 Steam 家庭共享库（Steam Families）。导入后会打"家庭共享"标签。
+    #[serde(default)]
+    pub shared: bool,
     pub selected: bool,
     pub skip_reason: Option<String>,
 }
@@ -118,6 +121,7 @@ fn imported_game_to_candidate(
         achievements_total: None,
         achievements_unlocked: None,
         installed: true,
+        shared: false,
         selected: true,
         skip_reason: None,
     })
@@ -139,6 +143,7 @@ fn owned_game_to_candidate(game: crate::steam_openid::SteamOwnedGame) -> Platfor
         achievements_total: game.achievements_total,
         achievements_unlocked: game.achievements_unlocked,
         installed: false,
+        shared: false,
         selected: true,
         skip_reason: None,
     }
@@ -157,6 +162,9 @@ pub struct SessionScrapedGame {
     /// 最后游玩 unix 秒；0 视为无。
     #[serde(default)]
     pub last_played: u64,
+    /// 是否来自家庭共享库（Steam Families）。注入脚本对共享批次置 true。
+    #[serde(default)]
+    pub shared: bool,
 }
 
 /// 竖封面优先用本机 Steam `librarycache` 已缓存的图（被墙网络也能显示），否则回退 CDN URL。
@@ -213,6 +221,39 @@ fn copy_steam_cached_cover_to_data(steam_path: &Path, appid: &str) -> Option<Str
     }
 
     let dst = data_dir.join(format!("{appid}_library_600x900.jpg"));
+    if should_copy_file(&src, &dst) && std::fs::copy(&src, &dst).is_err() {
+        return None;
+    }
+    Some(dst.to_string_lossy().to_string())
+}
+
+/// 本机 Steam librarycache 里的横版 hero 背景图（library_hero.jpg）。
+fn steam_cached_hero_path(steam_path: &Path, appid: &str) -> Option<PathBuf> {
+    let cache = steam_path.join("appcache").join("librarycache");
+    let nested = cache.join(appid).join("library_hero.jpg");
+    if nested.is_file() {
+        return Some(nested);
+    }
+    let flat = cache.join(format!("{appid}_library_hero.jpg"));
+    if flat.is_file() {
+        return Some(flat);
+    }
+    None
+}
+
+/// 把本机缓存的 hero 横版图复制到 data 目录（资产协议作用域内），返回本地路径。
+/// 仅在本机确有该缓存图时返回 Some——避免持久化可能 404 的 CDN URL，CDN 兜底交给前端按 appid 派生。
+fn steam_preferred_hero_local(appid: &str) -> Option<String> {
+    let steam = crate::integration::find_steam_install_path()?;
+    let src = steam_cached_hero_path(&steam, appid)?;
+    let data_dir = dirs::data_dir()?
+        .join("moeplay")
+        .join("covers")
+        .join("steam");
+    if std::fs::create_dir_all(&data_dir).is_err() {
+        return None;
+    }
+    let dst = data_dir.join(format!("{appid}_library_hero.jpg"));
     if should_copy_file(&src, &dst) && std::fs::copy(&src, &dst).is_err() {
         return None;
     }
@@ -331,6 +372,7 @@ fn session_game_to_candidate(game: SessionScrapedGame) -> PlatformGameCandidate 
         achievements_total: None,
         achievements_unlocked: None,
         installed: false,
+        shared: game.shared,
         selected: true,
         skip_reason: None,
     }
@@ -343,12 +385,35 @@ pub fn import_steam_session_games(
     db: State<'_, Database>,
     games: Vec<SessionScrapedGame>,
 ) -> PlatformImportResult {
-    let candidates: Vec<PlatformGameCandidate> = games
+    crate::crash_log(&format!("import_steam_session_games: START ({} games)", games.len()));
+    // 账号自有库（rgGames 网页会话抓取）
+    let owned: Vec<PlatformGameCandidate> = games
         .into_iter()
         .filter(|g| g.appid != 0)
         .map(session_game_to_candidate)
         .collect();
-    import_platform_library(db, PlatformImportSource::Steam, candidates)
+    let owned_ids: std::collections::HashSet<String> =
+        owned.iter().map(|c| c.library_id.clone()).collect();
+
+    // 与 Playnite 同思路：合并本机 appmanifest 扫描（已安装游戏，含家庭共享已下载的）。
+    // 已安装但不在自有库里的 = 家庭共享（borrowed）→ 标 shared，导入时打"家庭共享"标签。
+    let mut local = scan_local_platform_candidates("steam").candidates;
+    let mut shared_count = 0usize;
+    for c in local.iter_mut() {
+        if !owned_ids.contains(&c.library_id) {
+            c.shared = true;
+            shared_count += 1;
+        }
+    }
+    tracing::info!(
+        owned = owned.len(),
+        local = local.len(),
+        shared = shared_count,
+        "Steam session import: merging owned library with local-installed (incl. family-shared)"
+    );
+
+    let merged = merge_platform_candidates(local, owned);
+    import_platform_library(db, PlatformImportSource::Steam, merged)
 }
 
 fn merge_platform_candidates(
@@ -501,6 +566,7 @@ fn read_steam_localconfig_candidates(
                 achievements_total: None,
                 achievements_unlocked: None,
                 installed: false,
+                shared: false,
                 selected: true,
                 skip_reason: None,
             }
@@ -729,6 +795,9 @@ fn import_platform_candidate(
         if game.name.trim().is_empty() || game.name.starts_with("steam_") {
             game.name = candidate.name.clone();
         }
+        if candidate.shared && !game.tags.iter().any(|t| t == "家庭共享") {
+            game.tags.push("家庭共享".to_string());
+        }
         let updated = db.update_game(game)?;
         return Ok((updated, before.is_empty()));
     }
@@ -749,6 +818,9 @@ fn import_platform_candidate(
         candidate.achievements_total,
         candidate.achievements_unlocked,
     );
+    if candidate.shared && !game.tags.iter().any(|t| t == "家庭共享") {
+        game.tags.push("家庭共享".to_string());
+    }
     let created = db.add_game(game)?;
     Ok((created, true))
 }
@@ -757,6 +829,7 @@ fn import_platform_candidate(
 pub async fn get_platform_import_status(
     db: State<'_, Database>,
 ) -> Result<PlatformImportStatus, String> {
+    crate::crash_log("get_platform_import_status: START");
     let settings = db.get_settings();
     let steam_path =
         crate::integration::find_steam_install_path().map(|p| p.to_string_lossy().to_string());
@@ -949,7 +1022,9 @@ pub fn import_platform_library(
                     if settings.auto_scrape {
                         let gid = game.id.clone();
                         let gname = game.name.clone();
-                        tokio::spawn(async move {
+                        // 必须用 tauri::async_runtime::spawn：本命令是同步 #[tauri::command]，
+                        // 运行线程没有 Tokio reactor，直接 tokio::spawn 会 panic→abort 闪退。
+                        tauri::async_runtime::spawn(async move {
                             let db2 = crate::db::Database::new();
                             let s = db2.get_settings();
                             let raw = crate::scraper::search_all(
@@ -1531,6 +1606,24 @@ fn apply_platform_import_fields(
         }
     }
 
+    // Steam 横版 hero 背景（大屏 / 详情全屏背景）。尚无背景且本机缓存存在时填入本地图；
+    // 其余情况（无本地缓存 / 存量游戏）由前端按 appid 兜底官方 library_hero。
+    if source == "steam" {
+        if let Some(id) = library_id.filter(|id| !id.trim().is_empty()) {
+            let has_bg = game
+                .metadata
+                .background
+                .as_deref()
+                .map(|b| !b.trim().is_empty())
+                .unwrap_or(false);
+            if !has_bg {
+                if let Some(hero) = steam_preferred_hero_local(id.trim()) {
+                    game.metadata.background = Some(hero);
+                }
+            }
+        }
+    }
+
     if let Some(icon) = icon_url.filter(|icon| !icon.trim().is_empty()) {
         if game.icon.is_none() {
             game.icon = Some(icon.to_string());
@@ -1572,6 +1665,8 @@ pub struct SyncAchievementsResult {
 pub async fn sync_steam_achievements(
     db: State<'_, Database>,
 ) -> Result<SyncAchievementsResult, String> {
+    tracing::info!("sync_steam_achievements: START");
+    crate::crash_log("sync_steam_achievements: START");
     let settings = db.get_settings();
     let steam_id = settings
         .steam_id
@@ -1630,7 +1725,7 @@ pub async fn sync_steam_achievements(
         synced = result.synced,
         skipped = result.skipped,
         failed = result.failed,
-        "Steam achievements sync complete"
+        "sync_steam_achievements: COMPLETE"
     );
     Ok(result)
 }

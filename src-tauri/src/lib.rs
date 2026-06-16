@@ -1,6 +1,8 @@
 // 萌游 MoeGame - 库入口
 #![allow(clippy::field_reassign_with_default, clippy::too_many_arguments)]
 
+pub mod anime;
+pub mod comic;
 pub mod archive;
 pub mod auto_scrape;
 pub mod autostart;
@@ -34,8 +36,13 @@ pub mod thumbnail;
 pub mod translator;
 pub mod utils;
 
+pub mod video_extractor;
+pub mod video_proxy;
+pub mod external_player;
+pub mod anime_download;
 use db::Database;
 use downloader::Downloader;
+use anime_download::AnimeDownloader;
 use import::ImportWatcher;
 use locale::LocaleEmulatorManager;
 use process_monitor::ProcessMonitor;
@@ -44,9 +51,25 @@ use task_queue::TaskQueue;
 use tauri::Manager;
 
 /// 启动 Tauri 应用（桌面入口）
+pub fn crash_log(msg: &str) {
+    use std::io::Write;
+    let dir = dirs::data_dir().unwrap_or_else(|| std::path::PathBuf::from(".")).join("moeplay").join("logs");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("crash.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let ts = chrono::Local::now().format("%H:%M:%S%.3f");
+        let _ = writeln!(f, "[{}] {}", ts, msg);
+        let _ = f.flush();
+    }
+}
+
 pub fn run() {
+    crash_log("run() START");
     // 初始化结构化日志
     logging::init();
+    crash_log("logging::init() done");
+
+    tracing::info!("=== MoeGame v{} starting ===", env!("CARGO_PKG_VERSION"));
 
     // 启动时清理过期缓存（同步）
     let pruned = scraper::global_cache().prune();
@@ -59,6 +82,13 @@ pub fn run() {
         .unwrap_or_else(|| PathBuf::from("."))
         .join("萌游下载");
 
+    // 番剧下载目录
+    let anime_download_dir = dirs::download_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("萌游下载")
+        .join("番剧");
+
+    crash_log("Building Tauri app...");
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -69,7 +99,10 @@ pub fn run() {
             }
         }))
         .manage(Database::new())
+        .manage(anime::AnimeState::default())
+        .manage(comic::ComicState::default())
         .manage(Downloader::new(download_dir, 3))
+        .manage(AnimeDownloader::new(anime_download_dir))
         .manage(TaskQueue::new())
         .manage(LocaleEmulatorManager::new())
         .manage(ProcessMonitor::new())
@@ -190,6 +223,7 @@ pub fn run() {
             commands::apply_scrape_result,
             commands::fetch_vndb_detail,
             commands::fetch_bangumi_detail,
+            commands::fetch_full_detail,
             // ---- M3 刮削增强 ----
             commands::scrape_game_merged,
             commands::get_ai_providers,
@@ -311,15 +345,107 @@ pub fn run() {
             // ---- 开机自启 ----
             commands::set_autostart,
             commands::get_autostart_status,
+            // ---- 哔咔漫画 ----
+            commands::comic_set_token,
+            commands::comic_login,
+            commands::comic_profile,
+            commands::comic_categories,
+            commands::comic_list,
+            commands::comic_search,
+            commands::comic_detail,
+            commands::comic_chapters,
+            commands::comic_chapter_images,
+            commands::comic_ranking,
+            commands::comic_random,
+            commands::comic_favorites,
+            commands::comic_toggle_favourite,
+            commands::comic_like,
+            commands::comic_comments,
+            commands::comic_post_comment,
+            commands::comic_comment_like,
+            commands::comic_comment_children,
+            commands::comic_recommendation,
+            commands::comic_punch_in,
+            commands::comic_knight_leaderboard,
+            commands::comic_my_comments,
+            // ---- 番剧规则引擎 ----
+            commands::anime_get_rules,
+            commands::anime_set_rules,
+            commands::anime_add_rule,
+            commands::anime_remove_rule,
+            commands::anime_import_rules,
+            commands::anime_search,
+            commands::anime_search_all,
+            commands::anime_fetch_roads,
+            commands::anime_build_url,
+            commands::anime_fetch_page,
+            // ---- 番剧 GitHub 规则仓库 + Bangumi ----
+            commands::anime_github_rules_index,
+            commands::anime_install_github_rule,
+            commands::anime_install_all_github_rules,
+            commands::anime_bangumi_calendar,
+            commands::anime_bangumi_search,
+            commands::anime_proxy_image,
+            commands::anime_proxy_images_batch,
+            // ---- Bangumi 详情 ----
+            commands::anime_bangumi_detail,
+            commands::anime_bangumi_rating,
+            commands::anime_bangumi_characters,
+            commands::anime_bangumi_persons,
+            commands::anime_bangumi_comments,
+            commands::anime_bangumi_episodes_list,
+            commands::anime_get_proxy_url,
+            commands::anime_image_search,
+            commands::anime_bangumi_episode_comments,
+            // ---- Bangumi 收藏同步 ----
+            commands::anime_bangumi_get_username,
+            commands::anime_bangumi_get_user_collection,
+            commands::anime_bangumi_get_all_collections,
+            commands::anime_bangumi_update_collection,
+            // ---- 视频提取 ----
+            video_extractor::extract_video_url,
+            video_extractor::anime_extract_video_url,
+            // ---- DanDanPlay 弹幕 ----
+            commands::anime_danmaku_search,
+            commands::anime_danmaku_get_episodes,
+            commands::anime_danmaku_get_comments,
+            // ---- 外部播放器 ----
+            commands::anime_get_external_players,
+            commands::anime_launch_external_player,
+            // ---- 番剧下载 ----
+            commands::anime_download_episode,
+            commands::anime_get_downloads,
+            commands::anime_cancel_download,
+            commands::anime_pause_download,
+            commands::anime_resume_download,
+            commands::anime_remove_download,
+            commands::anime_clear_finished_downloads,
+            commands::anime_open_download_folder,
         ])
-        .setup(|_app| {
+        .setup(|app| {
+            crash_log("setup() ENTER");
+            // 启动时按持久化的 startup_mode 原生设定窗口模式。
+            // 直接 set_fullscreen(true) 在 Windows 上可能因窗口尚未完全初始化而静默失败。
+            // 因此：先在 setup 内试一次（大多数情况有效），再延迟 200ms 重试一次（兜底）。
+            // 启动窗口模式：不在 .setup() 里读数据库/调全屏——
+            //   Tauri setup 阶段 WebView2 状态不稳定，任何非平凡操作都可能触发
+            //   栈溢出 (0xc0000409)。全屏交给前端 $effect 安全处理。
+            if app.get_webview_window("main").is_some() {
+                crash_log("setup() main window ready — fullscreen via config, mode via frontend");
+            }
+
             // 仅清理超过 30 天未更新的缩略图，而不是每次启动全清。
             // 之前调用 clear_thumbnail_cache() 会清空整盘缓存，导致 500+ 封面每次启动全部重生成、首屏变慢。
             tauri::async_runtime::spawn(async {
                 let _ = thumbnail::prune_thumbnails(30);
             });
+
+            // 启动视频流代理服务器（解决 CORS / 防盗链 Referer 问题）
+            video_proxy::start_proxy_server(app.handle().clone());
+            crash_log("setup() DONE");
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+    crash_log("run() EXIT — this should never be reached!");
 }

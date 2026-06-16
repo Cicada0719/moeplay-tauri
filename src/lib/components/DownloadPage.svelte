@@ -13,16 +13,27 @@
     formatFileSize,
     getDownloads,
     type DownloadTask,
+    animeGetDownloads,
+    animeCancelDownload,
+    animePauseDownload,
+    animeResumeDownload,
+    animeRemoveDownload,
+    animeClearFinishedDownloads,
+    animeOpenDownloadFolder,
+    type AnimeDownloadTask,
   } from "../api";
 
   let url = $state("");
   let filename = $state("");
   let downloads = $state<DownloadTask[]>([]);
+  let animeDownloads = $state<AnimeDownloadTask[]>([]);
+  let activeTab = $state<"general" | "anime">("general");
   let loading = $state(false);
   let urlInput = $state<HTMLInputElement>();
 
   async function refresh() {
     downloads = await getDownloads();
+    try { animeDownloads = await animeGetDownloads(); } catch { animeDownloads = []; }
   }
 
   async function start() {
@@ -69,6 +80,23 @@
     return (bytesPerSec / 1048576).toFixed(1) + " MB/s";
   }
 
+  function animeStatusLabel(s: string): string {
+    const m: Record<string,string> = {
+      Pending: "等待中", Parsing: "解析中", Downloading: "下载中",
+      Merging: "合并中", Completed: "已完成", Failed: "失败",
+      Paused: "已暂停", Cancelled: "已取消",
+    };
+    return m[s] ?? s;
+  }
+
+  function animeStatusClass(s: string): string {
+    const m: Record<string,string> = {
+      Downloading: "active", Parsing: "active", Merging: "active",
+      Completed: "done", Failed: "fail", Paused: "paused",
+    };
+    return m[s] ?? "";
+  }
+
   function etaStr(task: DownloadTask): string {
     if (!task.speed || !task.total_size || task.progress >= 1) return "";
     const remaining = task.total_size - task.downloaded_size;
@@ -80,6 +108,8 @@
 
   const activeCount = $derived(downloads.filter(d => d.status === "Downloading").length);
   const doneCount = $derived(downloads.filter(d => d.status === "Completed").length);
+  const animeActiveCount = $derived(animeDownloads.filter(d => d.status === "Downloading" || d.status === "Parsing" || d.status === "Merging").length);
+  const animeDoneCount = $derived(animeDownloads.filter(d => d.status === "Completed").length);
 </script>
 
 <section class="page aura-page" data-aura-echo="DOWNLOADS">
@@ -96,12 +126,28 @@
       {#if doneCount > 0}
         <span class="pill done">{doneCount} 已完成</span>
       {/if}
+      {#if animeActiveCount > 0}
+        <span class="pill active">番剧 {animeActiveCount} 下载中</span>
+      {/if}
       <button class="ghost" onclick={() => downloadClearFinished().then(refresh)} title="清除已完成">
         <Icon name="trash" size={14} /> 清除
       </button>
     </div>
   </header>
 
+  <div class="tabs">
+    <button class="tab-btn" class:active={activeTab === "general"} onclick={() => activeTab = "general"}>
+      <Icon name="download" size={14} /> 通用下载
+    </button>
+    <button class="tab-btn" class:active={activeTab === "anime"} onclick={() => activeTab = "anime"}>
+      <span class="tab-icon">▶</span> 番剧下载
+      {#if animeDownloads.length > 0}
+        <span class="tab-badge">{animeDownloads.length}</span>
+      {/if}
+    </button>
+  </div>
+
+  {#if activeTab === "general"}
   <div class="toolbar">
     <div class="search-box">
       <Icon name="download" size={16} />
@@ -175,6 +221,83 @@
       />
     {/if}
   </section>
+  {:else}
+  <!-- 番剧下载 Tab -->
+  <div class="panel aura-panel">
+    {#if animeDownloads.length}
+      <div class="downloads">
+        {#each animeDownloads as task}
+          <article class="task" class:done={task.status === "Completed"} class:fail={task.status === "Failed"}>
+            <div class="task-head">
+              <div class="task-info">
+                <strong class="task-fname">{task.episode_name || task.filename}</strong>
+                {#if task.anime_name}
+                  <span class="task-anime-name">{task.anime_name}</span>
+                {/if}
+              </div>
+              <div class="task-badges">
+                {#if task.is_m3u8}
+                  <span class="badge m3u8">HLS</span>
+                {/if}
+                <span class="status-badge {animeStatusClass(task.status)}">{animeStatusLabel(task.status)}</span>
+              </div>
+            </div>
+
+            <div class="bar-wrap">
+              <div class="bar aura-track" style="--p:{Math.min(1, Math.max(0, task.progress || 0))}"></div>
+            </div>
+
+            <div class="task-meta">
+              <span class="size-info">
+                {#if task.is_m3u8 && task.total_segments > 0}
+                  分片 {task.downloaded_segments}/{task.total_segments}
+                {:else}
+                  {formatFileSize(task.downloaded_size)} / {formatFileSize(task.total_size || 0)}
+                {/if}
+                <span class="pct aura-num">({Math.round(task.progress * 100)}%)</span>
+              </span>
+              <span class="speed-info aura-num">
+                {#if task.status === "Downloading"}
+                  <Icon name="download" size={12} /> {speedStr(task.speed)}
+                {/if}
+                {#if task.status === "Merging"}
+                  <Icon name="download" size={12} /> 合并分片中...
+                {/if}
+              </span>
+            </div>
+
+            {#if task.error}
+              <div class="task-error">{task.error}</div>
+            {/if}
+
+            <div class="task-actions">
+              {#if task.status === "Downloading" || task.status === "Parsing"}
+                <button class="act" onclick={() => animePauseDownload(task.id).then(refresh)}><Icon name="chevronDown" size={14} /> 暂停</button>
+              {/if}
+              {#if task.status === "Paused"}
+                <button class="act" onclick={() => animeResumeDownload(task.id).then(refresh)}><Icon name="play" size={14} /> 继续</button>
+              {/if}
+              {#if task.status === "Completed"}
+                <button class="act" onclick={() => animeOpenDownloadFolder(task.id)}><Icon name="externalLink" size={14} /> 打开目录</button>
+              {/if}
+              {#if task.status !== "Downloading" && task.status !== "Parsing" && task.status !== "Merging"}
+                <button class="act danger" onclick={() => animeRemoveDownload(task.id).then(refresh)}><Icon name="trash" size={14} /> 移除</button>
+              {/if}
+              {#if task.status === "Downloading" || task.status === "Parsing" || task.status === "Paused"}
+                <button class="act danger" onclick={() => animeCancelDownload(task.id).then(refresh)}><Icon name="x" size={14} /> 取消</button>
+              {/if}
+            </div>
+          </article>
+        {/each}
+      </div>
+    {:else}
+      <EmptyState
+        title="暂无番剧下载"
+        description="在播放器中点击「下载」按钮即可下载当前剧集。支持 m3u8/HLS 分片下载。"
+      />
+    {/if}
+  </div>
+  {/if}
 </section>
 
 <style>
@@ -192,6 +315,58 @@
     background: transparent; color: var(--text-secondary); cursor: pointer; font-size: 0.8rem;
   }
   .ghost:hover { border-color: var(--accent); color: var(--text-primary); }
+
+  .tabs {
+    display: flex;
+    gap: 4px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px;
+  }
+  .tab-btn {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .tab-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .tab-btn.active {
+    background: var(--accent-lo);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .tab-icon { font-size: 11px; }
+  .tab-badge {
+    padding: 1px 7px;
+    border-radius: 10px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .task-info { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .task-anime-name { font-size: 0.75rem; color: var(--text-muted); }
+  .task-badges { display: flex; align-items: center; gap: 6px; }
+  .badge {
+    padding: 1px 8px;
+    border-radius: var(--radius-full);
+    font-size: 0.65rem;
+    font-weight: 700;
+    background: rgba(99,102,241,0.15);
+    color: #818cf8;
+  }
 
   .toolbar { min-width: 0; display: flex; gap: 10px; align-items: center; }
   .search-box {

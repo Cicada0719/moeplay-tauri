@@ -386,7 +386,9 @@ fn process_archive(app_handle: &tauri::AppHandle, archive_path: &Path) {
                             let handle = app_handle.clone();
                             let gid = game.id.clone();
                             let gname = game.name.clone();
-                            tokio::spawn(async move {
+                            // tauri::async_runtime::spawn：监视器回调跑在 notify 自己的非 Tokio
+                            // 线程上，tokio::spawn 会因无 reactor 而 panic→abort 闪退。
+                            tauri::async_runtime::spawn(async move {
                                 let db2 = handle.state::<Database>();
                                 let s = db2.get_settings();
                                 let raw = crate::scraper::search_all(

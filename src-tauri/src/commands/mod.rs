@@ -46,3 +46,9 @@ pub use system::*;
 
 mod scrape;
 pub use scrape::*;
+
+mod comic;
+pub use comic::*;
+
+mod anime;
+pub use anime::*;

@@ -30,16 +30,11 @@
     platformOf,
     publisherOf,
     releaseYearOf,
-    screenshotsOf,
     tagsOf,
   } from "../utils/game";
 
   let game = $derived(gameStore.selectedGame);
-  let bgA = $state<HTMLDivElement>();
-  let bgB = $state<HTMLDivElement>();
-  let activeBg = $state(0);
-  let lastBg = "";
-  let coverflowEl = $state<HTMLDivElement>();
+  let galleryEl = $state<HTMLDivElement>();
   let saveCandidates = $state<SaveCandidateDir[]>([]);
   let saveSnapshots = $state<SaveSnapshot[]>([]);
   let savesLoading = $state(false);
@@ -50,8 +45,14 @@
   const coverSource = $derived(coverOf(game));
   const screenshots = $derived.by(() => {
     if (!game) return [];
-    const raw = screenshotsOf(game);
-    return raw.map(s => fileSrc(s) ?? s);
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const s of game.screenshots ?? []) {
+      if (!s) continue;
+      const u = fileSrc(s) ?? s;
+      if (u && !seen.has(u)) { seen.add(u); out.push(u); }
+    }
+    return out;
   });
   const originalName = $derived(originalNameOf(game));
   const developer = $derived(developerOf(game));
@@ -80,7 +81,7 @@
 
   onMount(() => {
     const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
-    const node = coverflowEl;
+    const node = galleryEl;
     if (reduce || !node) return;
     const ctx = gsap.context(() => {
       gsap.from(node.querySelectorAll(".shot"), {
@@ -93,26 +94,6 @@
       });
     }, node);
     return () => ctx.revert();
-  });
-
-  $effect(() => {
-    if (!currentArt || currentArt === lastBg || !bgA || !bgB) return;
-    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
-    const incoming = activeBg === 0 ? bgB : bgA;
-    const outgoing = activeBg === 0 ? bgA : bgB;
-    incoming.style.backgroundImage = `url("${currentArt}")`;
-    if (reduce) {
-      incoming.style.opacity = "1";
-      outgoing.style.opacity = "0";
-    } else {
-      const ctx = gsap.context(() => {
-        gsap.to(incoming, { opacity: 1, duration: 0.45, ease: "power2.out" });
-        gsap.to(outgoing, { opacity: 0, duration: 0.45, ease: "power2.out" });
-      });
-      setTimeout(() => ctx.revert(), 520);
-    }
-    activeBg = activeBg === 0 ? 1 : 0;
-    lastBg = currentArt;
   });
 
   $effect(() => {
@@ -221,153 +202,171 @@
 
 {#if game}
   <section class="detail-page" data-testid="game-detail-page">
-    <div class="bg-layer" bind:this={bgA}></div>
-    <div class="bg-layer" bind:this={bgB}></div>
-    <div class="shade"></div>
+    <!-- Hero -->
+    <div class="hero">
+      {#if currentArt}
+        <div class="bg-layer" style={`background-image: url("${currentArt}")`}></div>
+      {/if}
+      <div class="hero-scrim"></div>
 
-    <button class="back" onclick={() => uiStore.currentView = "home"} aria-label="返回游戏库">
-      <Icon name="arrowLeft" size={18} /> 返回游戏库
-    </button>
+      <button class="back-btn" onclick={() => uiStore.currentView = "home"} aria-label="返回游戏库">
+        <Icon name="arrowLeft" size={16} />
+      </button>
 
-    <div class="content">
-      <aside class="poster-card" aria-label="游戏封面">
-        <div class="poster-frame">
-          {#if coverSource}
-            <CachedImage source={coverSource} cacheKey={`detail-cover-${game.id}`} alt={`${game.name} 封面`} loading="eager" />
-          {:else}
-            <span class="poster-mono">{game.name?.trim()?.[0]?.toUpperCase() ?? "?"}</span>
-          {/if}
-        </div>
-        <div class="poster-meta">
-          <span>{platform}</span>
-          <strong>{releaseYear}</strong>
-        </div>
-      </aside>
-
-      <article class="info glass-card">
-        {#if originalName}<p class="jp-name">{originalName}</p>{/if}
-        <h1>{game.name}</h1>
-        <p class="cn-name">{developer}</p>
-
-        <div class="tags">
-          {#if detailTags.length}
-            {#each detailTags.slice(0, 6) as tag, index}
-              <TagPill label={tag} active={index === 0} />
-            {/each}
-          {:else}
-            <span class="tag-empty">待补全标签</span>
-          {/if}
-        </div>
-
-        <div class="score-row">
-          <RatingRing value={rating} max={10} size={78} />
-          <div class="meta-line">
-            <span><b>{releaseYear}</b> 年份</span>
-            <span><b>{playTime}</b> 时长</span>
-            <span><b>{platform}</b> 平台</span>
-            <span><b>{publisher}</b> 发行</span>
+      <div class="hero-floor">
+        <div class="poster">
+          <div class="poster-frame">
+            {#if coverSource}
+              <CachedImage source={coverSource} cacheKey={`detail-cover-${game.id}`} alt={`${game.name} 封面`} loading="eager" />
+            {:else}
+              <span class="poster-letter">{game.name?.trim()?.[0]?.toUpperCase() ?? "?"}</span>
+            {/if}
           </div>
         </div>
 
-        <p class="description">{game.description || "暂无简介。可使用 AI 刮削补全剧情简介、角色图、标签与截图。"}</p>
+        <div class="hero-info">
+          {#if originalName}<p class="orig-name">{originalName}</p>{/if}
+          <h1>{game.name}</h1>
+          <div class="byline">
+            {#if developer && developer !== '未知社团'}
+              <span>{developer}</span>
+            {/if}
+            {#if publisher && publisher !== developer}
+              <span class="sep-dot"></span>
+              <span>{publisher}</span>
+            {/if}
+          </div>
 
-        <div class="action-bar">
-          <Button onclick={handleLaunch}>启动游戏</Button>
-          <Button variant="secondary" onclick={handleLaunchJP}>日区启动</Button>
-          <Button variant="secondary" onclick={handleScrape}>AI 刮削</Button>
-          <Button variant="ghost" onclick={handleBackup}>存档</Button>
-          <Button variant="ghost" onclick={openEdit}>编辑</Button>
+          <div class="meta-row">
+            <span class="chip"><b>{releaseYear}</b></span>
+            <span class="chip"><b>{playTime}</b></span>
+            <span class="chip"><b>{platform}</b></span>
+          </div>
+
+          <div class="tags">
+            {#if detailTags.length}
+              {#each detailTags.slice(0, 6) as tag, index}
+                <TagPill label={tag} active={index === 0} />
+              {/each}
+            {/if}
+          </div>
+
+          <div class="actions">
+            <Button onclick={handleLaunch}>启动游戏</Button>
+            <Button variant="secondary" onclick={handleLaunchJP}>日区启动</Button>
+            <Button variant="secondary" onclick={handleScrape}>刮削</Button>
+            <Button variant="ghost" onclick={openEdit}>编辑</Button>
+          </div>
         </div>
-      </article>
 
-      <div class="coverflow" bind:this={coverflowEl} aria-label="截图画廊">
-        {#if screenshots.length}
-          {#each screenshots.slice(0, 5) as shot, index}
-            <figure class="shot" class:focus={index === Math.min(1, screenshots.length - 1)} style={`--i:${index}; --center:${Math.min(1, screenshots.length - 1)}`}>
-              <img src={shot} alt={`${game.name} 截图 ${index + 1}`} />
-            </figure>
-          {/each}
-        {:else}
-          <div class="shot-empty glass-card">暂无截图</div>
+        {#if rating > 0}
+          <div class="hero-rating">
+            <RatingRing value={rating} max={10} size={68} />
+          </div>
         {/if}
       </div>
     </div>
 
-    <section class="detail-panels" aria-label="存档与成就">
-      <article class="info-panel glass-card">
-        <header>
-          <span>Save Data</span>
-          <strong>存档</strong>
-        </header>
-        <div class="panel-grid">
-          <div>
-            <span>目录</span>
-            <b title={saveDirOf(game)}>{saveDirOf(game) || saveCandidates[0]?.path || "未配置"}</b>
-          </div>
-          <div>
-            <span>候选</span>
-            <b>{savesLoading ? "扫描中" : `${saveCandidates.length} 个`}</b>
-          </div>
-          <div>
-            <span>快照</span>
-            <b>{saveSnapshots.length} 份</b>
-          </div>
-        </div>
-        {#if latestSnapshot}
-          <p class="panel-note">最近快照：{latestSnapshot.file_name} / {latestSnapshot.created_at}</p>
-        {:else if savesError}
-          <p class="panel-note error">{savesError}</p>
-        {:else}
-          <p class="panel-note">可从候选目录创建第一份安全快照。</p>
-        {/if}
-        <div class="panel-actions">
-          <Button variant="secondary" onclick={() => createSnapshot(saveCandidates[0]?.path)}>创建快照</Button>
-          <Button variant="ghost" onclick={() => latestSnapshot && restoreSnapshot(latestSnapshot)} disabled={!latestSnapshot}>恢复最近</Button>
-          <Button variant="ghost" onclick={handleBackup}>打开存档页</Button>
-        </div>
-      </article>
+    <!-- Body -->
+    <div class="body">
+      <p class="desc">{game.description || "暂无简介。可使用刮削补全剧情简介、标签与截图。"}</p>
 
-      <article class="info-panel glass-card">
-        <header>
-          <span>Achievements</span>
-          <strong>成就</strong>
-        </header>
-        <div class="achievement-ring" style={`--achievement:${achievementPercent}%`}>
-          <strong>{achievementTotal ? `${achievementPercent}%` : "--"}</strong>
-          <span>{achievementUnlocked} / {achievementTotal}</span>
-        </div>
-        <div class="achievement-bar" aria-label="成就进度">
-          <i style={`width:${achievementPercent}%`}></i>
-        </div>
-        <p class="panel-note">
-          {achievementTotal ? "来自平台同步的成就数据；重新同步 Steam 可刷新进度。" : "当前没有成就数据，Steam 全库同步后会自动填充。"}
-        </p>
-      </article>
-
-      <article class="info-panel glass-card">
-        <header>
-          <span>Recent Play</span>
-          <strong>最近会话</strong>
-        </header>
-        {#if recentSessions.length}
-          <div class="session-list">
-            {#each recentSessions as session}
-              <div class="session-row">
-                <span>{sessionDate(session.start_time)}</span>
-                <b>{formatPlayTime(session.duration_seconds)}</b>
-                <small>{session.notes || (session.end_time ? "已结束" : "进行中")}</small>
-              </div>
+      {#if screenshots.length}
+        <section class="gallery" bind:this={galleryEl} aria-label="截图画廊">
+          <div class="gallery-track">
+            {#each screenshots.slice(0, 8) as shot, index}
+              <figure class="shot">
+                <img src={shot} alt={`${game.name} 截图 ${index + 1}`} loading="lazy" />
+              </figure>
             {/each}
           </div>
-        {:else}
-          <p class="panel-note">还没有游玩记录；启动一次游戏后这里会显示最近会话。</p>
-        {/if}
-      </article>
-    </section>
+        </section>
+      {/if}
+
+      <section class="panels" aria-label="存档与成就">
+        <article class="panel">
+          <div class="panel-head">
+            <span class="panel-label">Save Data</span>
+            <h3>存档</h3>
+          </div>
+          <div class="panel-body">
+            <div class="kv-grid">
+              <div class="kv">
+                <span>目录</span>
+                <b title={saveDirOf(game)}>{saveDirOf(game) || saveCandidates[0]?.path || "未配置"}</b>
+              </div>
+              <div class="kv">
+                <span>候选</span>
+                <b>{savesLoading ? "扫描中" : `${saveCandidates.length} 个`}</b>
+              </div>
+              <div class="kv">
+                <span>快照</span>
+                <b>{saveSnapshots.length} 份</b>
+              </div>
+            </div>
+            {#if latestSnapshot}
+              <p class="panel-note">最近快照：{latestSnapshot.file_name} / {latestSnapshot.created_at}</p>
+            {:else if savesError}
+              <p class="panel-note panel-error">{savesError}</p>
+            {:else}
+              <p class="panel-note">可从候选目录创建第一份安全快照。</p>
+            {/if}
+            <div class="panel-actions">
+              <Button variant="secondary" onclick={() => createSnapshot(saveCandidates[0]?.path)}>创建快照</Button>
+              <Button variant="ghost" onclick={() => latestSnapshot && restoreSnapshot(latestSnapshot)} disabled={!latestSnapshot}>恢复最近</Button>
+              <Button variant="ghost" onclick={handleBackup}>打开存档页</Button>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <span class="panel-label">Achievements</span>
+            <h3>成就</h3>
+          </div>
+          <div class="panel-body">
+            <div class="achieve-row">
+              <div class="achieve-nums">
+                <b>{achievementTotal ? `${achievementPercent}%` : "--"}</b>
+                <span>{achievementUnlocked} / {achievementTotal}</span>
+              </div>
+            </div>
+            <div class="achieve-bar" aria-label="成就进度">
+              <i style={`width:${achievementPercent}%`}></i>
+            </div>
+            <p class="panel-note">
+              {achievementTotal ? "来自平台同步的成就数据。" : "暂无成就数据，Steam 同步后自动填充。"}
+            </p>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <span class="panel-label">Recent Play</span>
+            <h3>最近会话</h3>
+          </div>
+          <div class="panel-body">
+            {#if recentSessions.length}
+              <div class="session-list">
+                {#each recentSessions as session}
+                  <div class="session-row">
+                    <span class="session-date">{sessionDate(session.start_time)}</span>
+                    <b class="session-dur">{formatPlayTime(session.duration_seconds)}</b>
+                    <small>{session.notes || (session.end_time ? "已结束" : "进行中")}</small>
+                  </div>
+                {/each}
+              </div>
+            {:else}
+              <p class="panel-note">还没有游玩记录。</p>
+            {/if}
+          </div>
+        </article>
+      </section>
+    </div>
 
     {#if isEditing}
       <div class="edit-overlay" role="dialog" aria-modal="true" aria-label="编辑游戏">
-        <div class="edit-panel glass-card">
+        <div class="edit-panel">
           <header class="edit-header">
             <h3>编辑：{game.name}</h3>
             <button class="edit-close" onclick={() => isEditing = false} aria-label="关闭">
@@ -399,307 +398,557 @@
 {/if}
 
 <style>
-  .detail-page { position: relative; flex: 1; min-height: 0; overflow: auto; background: var(--bg-primary); }
-  .bg-layer { position: absolute; inset: 0; opacity: 0; background-size: cover; background-position: center right; filter: blur(6px); transform: scale(1.04); }
-  .shade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(9,9,11,.96) 0%, rgba(9,9,11,.76) 43%, rgba(9,9,11,.34) 100%), linear-gradient(180deg, rgba(9,9,11,.18), rgba(9,9,11,.72)); }
-
-  .back { position: absolute; top: 22px; left: 26px; z-index: 2; display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--border); background: rgba(16,19,26,.62); color: var(--text-secondary); border-radius: var(--radius-full); padding: 8px 13px; cursor: pointer; backdrop-filter: blur(14px); }
-  .back:hover { color: var(--accent); border-color: var(--accent-ring); }
-
-  .content { position: relative; z-index: 1; min-height: min(720px, 100%); display: grid; grid-template-columns: minmax(180px, 0.38fr) minmax(340px, 0.78fr) minmax(420px, 1fr); align-items: center; gap: 24px; padding: 78px 44px 24px; }
-  .poster-card { display: grid; gap: 12px; justify-items: center; align-self: center; }
-  .poster-frame {
-    width: min(240px, 18vw);
-    min-width: 172px;
-    aspect-ratio: 3 / 4;
-    overflow: hidden;
-    border-radius: var(--radius-lg);
-    border: 1px solid var(--border-hover);
-    background: var(--bg-elev);
-    box-shadow: var(--ring-switch), var(--shadow-lift);
+  /* ── Page scaffold ── */
+  .detail-page {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    background: var(--bg-deep);
   }
+
+  /* ── Background art ── */
+  .bg-layer {
+    position: absolute;
+    inset: 0;
+    opacity: 1;
+    background-size: cover;
+    background-position: center 25%;
+    animation: detailBgIn 0.45s ease both;
+  }
+  @keyframes detailBgIn { from { opacity: 0; } to { opacity: 1; } }
+
+  /* ── Hero ── */
+  .hero {
+    position: relative;
+    min-height: max(62vh, 460px);
+    display: flex;
+    align-items: flex-end;
+  }
+
+  .hero-scrim {
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(180deg,
+        rgba(8,10,16,0.06) 0%,
+        rgba(8,10,16,0.12) 35%,
+        rgba(8,10,16,0.50) 65%,
+        var(--bg-deep) 100%
+      ),
+      linear-gradient(90deg,
+        rgba(8,10,16,0.40) 0%,
+        transparent 55%
+      );
+    pointer-events: none;
+  }
+
+  .back-btn {
+    position: absolute;
+    top: 20px;
+    left: 24px;
+    z-index: 4;
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 50%;
+    background: rgba(10,12,18,0.50);
+    color: var(--text-secondary);
+    cursor: pointer;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    transition: color 0.2s, border-color 0.2s, background 0.2s;
+  }
+  .back-btn:hover {
+    color: var(--text-primary);
+    border-color: rgba(255,255,255,0.22);
+    background: rgba(10,12,18,0.7);
+  }
+
+  .hero-floor {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: flex-end;
+    gap: 32px;
+    width: 100%;
+    padding: 0 48px 36px;
+  }
+
+  /* ── Poster ── */
+  .poster { flex-shrink: 0; }
+
+  .poster-frame {
+    width: 190px;
+    aspect-ratio: 3 / 4;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.10);
+    box-shadow:
+      0 8px 32px rgba(0,0,0,0.40),
+      0 2px 8px rgba(0,0,0,0.20);
+    background: var(--bg-elev);
+    transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.35s ease;
+  }
+  .poster-frame:hover {
+    transform: translateY(-4px) scale(1.02);
+    box-shadow:
+      0 14px 44px rgba(0,0,0,0.50),
+      0 4px 12px rgba(0,0,0,0.25);
+  }
+
   .poster-frame :global(.cached-image) {
     width: 100%;
     height: 100%;
     object-fit: cover;
   }
-  .poster-mono {
+
+  .poster-letter {
     width: 100%;
     height: 100%;
     display: grid;
     place-items: center;
     color: var(--text-muted);
     font-family: var(--font-display);
-    font-size: 54px;
+    font-size: 50px;
     font-weight: 800;
-    background: linear-gradient(135deg, rgba(232,85,127,.2), rgba(174,186,211,.08));
+    background: linear-gradient(145deg, rgba(232,85,127,0.14), rgba(174,186,211,0.06));
   }
-  .poster-meta {
+
+  /* ── Hero info ── */
+  .hero-info {
+    flex: 1;
+    min-width: 0;
+    padding-bottom: 2px;
+  }
+
+  .orig-name {
+    font-family: var(--font-jp);
+    color: rgba(255,255,255,0.40);
+    font-size: 13px;
+    margin-bottom: 4px;
+    line-height: 1.3;
+  }
+
+  h1 {
+    font-size: clamp(26px, 3.2vw, 42px);
+    font-weight: 800;
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    color: var(--text-primary);
+    margin: 0;
+  }
+
+  .byline {
     display: flex;
     align-items: center;
     gap: 8px;
-    color: var(--text-muted);
-    font-size: 12px;
+    margin-top: 8px;
+    color: var(--text-secondary);
+    font-size: 14px;
   }
-  .poster-meta strong {
-    color: var(--text-primary);
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
+
+  .sep-dot {
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
   }
-  .info { padding: 28px; max-width: 560px; }
-  .jp-name { font-family: var(--font-jp); color: var(--text-muted); font-size: 16px; margin-bottom: 8px; }
-  h1 { font-size: clamp(30px, 4vw, 48px); line-height: 1.05; letter-spacing: 0; margin: 0; }
-  .cn-name { margin-top: 10px; color: var(--text-secondary); }
-  .tags { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0; }
-  .tag-empty {
+
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 16px;
+  }
+
+  .chip {
     display: inline-flex;
     align-items: center;
-    min-height: 26px;
-    border: 1px dashed var(--border-hover);
-    border-radius: var(--radius-full);
-    padding: 4px 10px;
-    color: var(--text-muted);
+    padding: 5px 11px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.08);
     font-size: 12px;
-    font-weight: 700;
+    color: var(--text-secondary);
+    transition: background 0.15s, border-color 0.15s;
   }
-  .score-row { display: flex; align-items: center; gap: 20px; margin-bottom: 22px; }
-  .meta-line { display: flex; flex-wrap: wrap; gap: 10px; }
-  .meta-line span { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 9px 11px; color: var(--text-muted); font-size: 12px; background: rgba(255,255,255,.035); }
-  .meta-line b { font-family: var(--font-mono); color: var(--text-primary); font-variant-numeric: tabular-nums; margin-right: 4px; }
-  .description { color: var(--text-secondary); font-size: 14px; line-height: 1.75; max-width: 58ch; }
-  .action-bar { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+  .chip:hover {
+    background: rgba(255,255,255,0.09);
+    border-color: rgba(255,255,255,0.14);
+  }
 
-  .coverflow { min-height: 360px; display: flex; align-items: center; justify-content: center; perspective: 1200px; }
-  .shot { width: min(42vw, 520px); aspect-ratio: 16 / 9; border-radius: var(--radius-xl); overflow: hidden; border: 1px solid var(--border); box-shadow: var(--shadow-lg); margin-left: -18%; transform: translateX(calc((var(--i) - var(--center)) * 34px)) rotateY(calc((var(--center) - var(--i)) * 12deg)) scale(.82); opacity: .58; }
-  .shot:first-child { margin-left: 0; }
-  .shot.focus { transform: translateY(-8px) scale(1); opacity: 1; border-color: var(--accent-ring); box-shadow: var(--shadow-focus, 0 0 0 2px var(--accent-ring)); z-index: 2; }
-  .shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .shot-empty { padding: 40px; color: var(--text-muted); }
+  .chip b {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+  }
 
-  .detail-panels {
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 14px;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 18px;
+  }
+
+  /* ── Hero rating ── */
+  .hero-rating {
+    flex-shrink: 0;
+    align-self: flex-end;
+    margin-bottom: 2px;
+  }
+
+  /* ── Body ── */
+  .body {
     position: relative;
     z-index: 1;
+    padding: 0 48px 48px;
+    background: var(--bg-deep);
+  }
+
+  .desc {
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1.8;
+    max-width: 68ch;
+    margin: 0 0 28px;
+  }
+
+  /* ── Screenshot gallery ── */
+  .gallery { margin-bottom: 32px; }
+
+  .gallery-track {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    padding-bottom: 6px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.10) transparent;
+  }
+  .gallery-track::-webkit-scrollbar { height: 5px; }
+  .gallery-track::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 3px; }
+  .gallery-track::-webkit-scrollbar-track { background: transparent; }
+
+  .shot {
+    flex-shrink: 0;
+    width: min(46vw, 520px);
+    aspect-ratio: 16 / 9;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.07);
+    scroll-snap-align: start;
+    margin: 0;
+    transition: border-color 0.2s, box-shadow 0.3s;
+  }
+  .shot:hover {
+    border-color: rgba(255,255,255,0.16);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  }
+
+  .shot img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  /* ── Panels ── */
+  .panels {
     display: grid;
-    grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.72fr) minmax(260px, 0.82fr);
-    gap: 16px;
-    padding: 0 44px 42px;
+    grid-template-columns: 1.2fr 0.8fr 1fr;
+    gap: 12px;
   }
 
-  .info-panel {
-    padding: 18px;
-    border-radius: 8px;
+  .panel {
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.025);
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+  .panel:hover {
+    border-color: rgba(255,255,255,0.10);
   }
 
-  .info-panel header {
+  .panel-head {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 14px;
+    padding: 16px 18px 0;
   }
 
-  .info-panel header span,
-  .panel-grid span {
-    color: var(--text-muted);
-    font-size: 11px;
+  .panel-label {
+    font-size: 10px;
     font-weight: 800;
     text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
   }
 
-  .info-panel header strong {
+  .panel-head h3 {
+    font-size: 15px;
+    font-weight: 700;
     color: var(--text-primary);
-    font-size: 18px;
+    margin: 0;
   }
 
-  .panel-grid {
+  .panel-body { padding: 12px 18px 18px; }
+
+  .kv-grid {
     display: grid;
-    grid-template-columns: 1.4fr 0.6fr 0.6fr;
-    gap: 10px;
+    grid-template-columns: 2fr 1fr 1fr;
+    gap: 8px;
   }
 
-  .panel-grid div {
-    min-width: 0;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px;
-    background: rgba(255,255,255,.04);
+  .kv {
+    padding: 9px 10px;
+    border-radius: 7px;
+    background: rgba(255,255,255,0.035);
+    border: 1px solid rgba(255,255,255,0.05);
   }
 
-  .panel-grid b {
+  .kv span {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+  }
+
+  .kv b {
     display: block;
-    margin-top: 5px;
+    margin-top: 4px;
+    font-size: 12px;
     color: var(--text-primary);
-    font-size: 13px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .panel-note {
-    margin: 12px 0 0;
-    color: var(--text-secondary);
+    margin: 10px 0 0;
     font-size: 12px;
-    line-height: 1.55;
+    line-height: 1.5;
+    color: var(--text-muted);
   }
 
-  .panel-note.error {
-    color: #fecaca;
-  }
+  .panel-error { color: #fca5a5; }
 
   .panel-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 14px;
+    gap: 6px;
+    margin-top: 12px;
   }
 
-  .achievement-ring {
-    width: 112px;
-    height: 112px;
-    display: grid;
-    place-items: center;
-    align-content: center;
-    gap: 4px;
-    margin: 2px 0 14px;
-    border-radius: 50%;
-    background:
-      conic-gradient(var(--accent) var(--achievement), rgba(255,255,255,.09) 0),
-      rgba(255,255,255,.04);
-    border: 1px solid var(--border);
+  /* ── Achievement ── */
+  .achieve-row {
+    margin-bottom: 10px;
   }
 
-  .achievement-ring strong {
-    color: var(--text-primary);
+  .achieve-nums b {
+    display: block;
     font-family: var(--font-mono);
-    font-size: 24px;
+    font-variant-numeric: tabular-nums;
+    font-size: 28px;
+    color: var(--text-primary);
     line-height: 1;
   }
 
-  .achievement-ring span {
-    color: var(--text-muted);
+  .achieve-nums span {
+    display: block;
     font-family: var(--font-mono);
     font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
   }
 
-  .achievement-bar {
-    height: 8px;
+  .achieve-bar {
+    height: 5px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.07);
     overflow: hidden;
-    border-radius: 999px;
-    background: rgba(255,255,255,.1);
   }
 
-  .achievement-bar i {
+  .achieve-bar i {
     display: block;
     height: 100%;
     border-radius: inherit;
     background: var(--accent);
+    transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
-  .session-list {
-    display: grid;
-    gap: 8px;
-  }
+  /* ── Sessions ── */
+  .session-list { display: grid; gap: 6px; }
 
   .session-row {
     display: grid;
-    grid-template-columns: 58px minmax(72px, auto) minmax(0, 1fr);
+    grid-template-columns: 50px auto 1fr;
     align-items: center;
     gap: 10px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: rgba(255,255,255,.04);
-    padding: 10px;
+    padding: 8px 10px;
+    border-radius: 7px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.04);
+    transition: border-color 0.15s;
   }
+  .session-row:hover { border-color: rgba(255,255,255,0.10); }
 
-  .session-row span,
-  .session-row b {
+  .session-date {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
-  }
-
-  .session-row span {
-    color: var(--text-muted);
     font-size: 11px;
+    color: var(--text-muted);
   }
 
-  .session-row b {
-    color: var(--text-primary);
+  .session-dur {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
     font-size: 12px;
+    color: var(--text-primary);
   }
 
   .session-row small {
-    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--text-secondary);
+    font-size: 11px;
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 960px) {
+    .hero-floor {
+      flex-direction: column;
+      align-items: flex-start;
+      padding: 0 24px 28px;
+      gap: 20px;
+    }
+    .poster-frame { width: 150px; }
+    .hero-rating { align-self: flex-start; }
+    .body { padding: 0 24px 36px; }
+    .panels { grid-template-columns: 1fr; }
+    .shot { width: min(72vw, 380px); }
+  }
+
+  /* ── Edit overlay ── */
+  .edit-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(8,10,16,0.72);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+
+  .edit-panel {
+    width: min(520px, 90vw);
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    background: rgba(13,17,28,0.96);
+    box-shadow: 0 24px 64px rgba(0,0,0,0.40);
+  }
+
+  .edit-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+
+  .edit-header h3 {
+    font-size: 16px;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 400px;
+    margin: 0;
+  }
+
+  .edit-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    padding: 4px;
+    border-radius: 6px;
+    flex-shrink: 0;
+    transition: color 0.15s;
+  }
+  .edit-close:hover { color: var(--text-primary); }
+
+  .edit-body {
+    flex: 1;
+    padding: 20px 24px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .edit-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .edit-field label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .edit-field input,
+  .edit-field textarea {
+    background: rgba(255,255,255,0.05);
+    color: var(--text-primary);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 14px;
+    font-family: var(--font-ui);
+    outline: none;
+    resize: vertical;
+    transition: border-color 0.2s;
+  }
+
+  .edit-field input:focus,
+  .edit-field textarea:focus { border-color: var(--accent); }
+
+  .edit-field input.mono {
+    font-family: var(--font-mono);
     font-size: 12px;
   }
 
-  @media (max-width: 1100px) {
-    .content { grid-template-columns: 1fr; overflow: auto; align-items: start; }
-    .poster-card { justify-self: center; }
-    .poster-frame { width: min(220px, 46vw); }
-    .detail-panels { grid-template-columns: 1fr; }
-    .coverflow { min-height: 260px; }
-  }
-
-  /* ── Inline edit overlay ── */
-  .edit-overlay {
-    position: absolute; inset: 0; z-index: 20;
-    display: flex; align-items: center; justify-content: center;
-    background: rgba(9, 9, 11, 0.72);
-    backdrop-filter: blur(4px);
-  }
-  .edit-panel {
-    width: min(540px, 90vw);
-    max-height: 80vh;
-    display: flex; flex-direction: column;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-xl);
-    background: rgba(13, 17, 30, 0.96);
-  }
-  .edit-header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 20px 24px 16px;
-    border-bottom: 1px solid var(--border);
-  }
-  .edit-header h3 {
-    font-size: 17px; font-weight: 700;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px;
-  }
-  .edit-close {
-    background: none; border: none; color: var(--text-muted);
-    cursor: pointer; display: flex; padding: 4px; border-radius: var(--radius-sm);
-    flex-shrink: 0;
-  }
-  .edit-close:hover { color: var(--text-primary); }
-  .edit-body {
-    flex: 1; padding: 20px 24px; overflow-y: auto;
-    display: flex; flex-direction: column; gap: 18px;
-  }
-  .edit-field { display: flex; flex-direction: column; gap: 6px; }
-  .edit-field label {
-    font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
-    color: var(--text-muted);
-  }
-  .edit-field input,
-  .edit-field textarea {
-    background: rgba(255,255,255,.06);
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: 10px 14px;
-    font-size: 14px; font-family: var(--font-ui);
-    outline: none; resize: vertical;
-    transition: border-color 0.2s;
-  }
-  .edit-field input:focus,
-  .edit-field textarea:focus { border-color: var(--accent-pink-ring); }
-  .edit-field input.mono { font-family: var(--font-mono); font-size: 12px; }
   .edit-footer {
-    display: flex; gap: 10px; justify-content: flex-end;
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
     padding: 14px 24px;
-    border-top: 1px solid var(--border);
+    border-top: 1px solid rgba(255,255,255,0.06);
   }
 </style>

@@ -51,8 +51,9 @@ pub async fn get_detail(game_id: &str) -> Result<ScrapeResult, ScrapeError> {
     if detail.get("code").and_then(|v| v.as_i64()) == Some(233) {
         return Err(ScrapeError::NotFound);
     }
-
-    Ok(parse_detail(&detail, game_id))
+    // 现行 API 把字段包在 data 下：{"code":0,"data":{...}}；兼容直接返回对象的旧形态。
+    let data = detail.get("data").filter(|d| d.is_object()).unwrap_or(&detail);
+    Ok(parse_detail(data, game_id))
 }
 
 /// 简易搜索接口（返回 `Result<Vec<ScrapeResult>, String>`）。
@@ -71,13 +72,16 @@ async fn search_api(query: &str) -> Result<Vec<Value>, ScrapeError> {
     let token: Value =
         serde_json::from_str(&text).map_err(|e| ScrapeError::Parse(e.to_string()))?;
 
-    if let Some(arr) = token.as_array() {
-        Ok(arr.clone())
-    } else if let Some(arr) = token.get("data").and_then(|v| v.as_array()) {
-        Ok(arr.clone())
-    } else {
-        Ok(vec![])
-    }
+    // 现行 API: {"code":0,"data":{"items":[...],"total":N}}
+    // 兼容旧形态: {"data":[...]} 或顶层数组。
+    let items = token
+        .pointer("/data/items")
+        .and_then(|v| v.as_array())
+        .or_else(|| token.get("data").and_then(|v| v.as_array()))
+        .or_else(|| token.as_array())
+        .cloned()
+        .unwrap_or_default();
+    Ok(items)
 }
 
 async fn fetch_detail_json(game_id: &str) -> Result<Value, ScrapeError> {
@@ -212,10 +216,12 @@ fn parse_detail(detail_json: &Value, fallback_id: &str) -> ScrapeResult {
         .map(|id| id.to_string())
         .unwrap_or_else(|| fallback_id.to_string());
     let release_date = detail_json
-        .get("created")
+        .get("releaseDate")
+        .or_else(|| detail_json.get("created"))
         .or_else(|| detail_json.get("released"))
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+        .map(|s| s.to_string())
+        .filter(|s| !s.trim().is_empty());
 
     let mut detail = ScrapeDetail::default();
     detail.aliases = aliases;
@@ -223,6 +229,19 @@ fn parse_detail(detail_json: &Value, fallback_id: &str) -> ScrapeResult {
     detail.homepage = Some(format!("{}/galgame/{}", BASE_URL, id));
     detail.release_date.clone_from(&release_date);
     detail.age_rating = extract_age_rating(detail_json);
+    detail.genres = tags.clone();
+    detail.languages = extract_str_array(detail_json, "language");
+    // 截图：screenshots + covers（去重）
+    detail.screenshots = extract_image_array(detail_json, "screenshots");
+    for c in extract_image_array(detail_json, "covers") {
+        if !detail.screenshots.contains(&c) {
+            detail.screenshots.push(c);
+        }
+    }
+    let engines = extract_str_array(detail_json, "engine");
+    if !engines.is_empty() {
+        detail.engine = Some(engines.join("/"));
+    }
 
     ScrapeResult {
         title,
@@ -294,6 +313,44 @@ fn extract_names(value: Option<&Value>) -> Vec<String> {
     }
 
     names
+}
+
+/// 提取字符串数组字段（language / engine / platform 等）。
+fn extract_str_array(value: &Value, key: &str) -> Vec<String> {
+    value
+        .get(key)
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// 提取图片数组（screenshots/covers）。元素可能是字符串 URL，也可能是 {url/src/...} 对象。
+fn extract_image_array(value: &Value, key: &str) -> Vec<String> {
+    let Some(arr) = value.get(key).and_then(|v| v.as_array()) else {
+        return vec![];
+    };
+    arr.iter()
+        .filter_map(|item| {
+            if let Some(s) = item.as_str() {
+                return Some(s.to_string());
+            }
+            for k in ["url", "src", "image", "cover", "full", "mini"] {
+                if let Some(s) = item.get(k).and_then(|v| v.as_str()) {
+                    return Some(s.to_string());
+                }
+            }
+            None
+        })
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 fn extract_developer(value: &Value) -> Option<String> {

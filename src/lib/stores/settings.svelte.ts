@@ -6,6 +6,7 @@ import {
   updateSettings,
   type Settings,
 } from "../api";
+import { STARTUP_MIGRATED_KEY, shouldMigrateStartupMode } from "./startup-migration";
 
 const defaultSettings: Settings = {
   theme: localStorage.getItem("moegame-theme") || "dark",
@@ -28,13 +29,14 @@ const defaultSettings: Settings = {
   ai_model: "gpt-4o-mini",
   nsfw_display_mode: "blur",
   autostart_enabled: false,
-  startup_mode: "dashboard",
+  startup_mode: "fullscreen",
   steam_id: undefined,
   steam_api_key: undefined,
 };
 
 let _settings = $state<Settings>({ ...defaultSettings });
 let _loading = $state(false);
+let _loaded = $state(false);
 
 function applyTheme(theme: string) {
   localStorage.setItem("moegame-theme", theme);
@@ -44,6 +46,7 @@ function applyTheme(theme: string) {
 export const settingsStore = {
   get settings() { return _settings; },
   get loading() { return _loading; },
+  get loaded() { return _loaded; },
   get theme() { return _settings.theme; },
   get language() { return _settings.language; },
 
@@ -52,6 +55,15 @@ export const settingsStore = {
     try {
       _settings = { ...defaultSettings, ...(await getSettings()) };
       applyTheme(_settings.theme);
+      // 一次性迁移：仅历史默认 dashboard 的老用户迁到 fullscreen 一次；
+      // 之后无条件尊重用户选择（避免"普通模式存不住"）。
+      const migrated = !!localStorage.getItem(STARTUP_MIGRATED_KEY);
+      if (shouldMigrateStartupMode(_settings.startup_mode, migrated)) {
+        _settings.startup_mode = "fullscreen";
+        updateSettings(_settings).catch(() => {});
+      }
+      if (!migrated) localStorage.setItem(STARTUP_MIGRATED_KEY, "1");
+      _loaded = true;
     } finally {
       _loading = false;
     }

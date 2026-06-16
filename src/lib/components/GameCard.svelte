@@ -101,7 +101,9 @@
 
   <div class="info">
     <h3 class="title">{game.name}</h3>
-    <p class="developer">{developer}</p>
+    {#if developer && developer !== '未知社团'}
+      <p class="developer">{developer}</p>
+    {/if}
     <div class="meta">
       {#if rating > 0}
         <span class="rating">

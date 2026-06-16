@@ -829,7 +829,7 @@ impl Settings {
         "blur".to_string()
     }
     fn default_startup_mode() -> String {
-        "dashboard".to_string()
+        "fullscreen".to_string()
     }
     fn default_true() -> bool {
         true

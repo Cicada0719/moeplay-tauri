@@ -1,4 +1,4 @@
-let _currentView = $state("home");
+let _currentView = $state(new URLSearchParams(window.location.search).get("view") || "home");
 let _viewMode = $state<"grid" | "list" | "compact">("grid");
 let _sortBy = $state("recent");
 let _sidebarCollapsed = $state(false);

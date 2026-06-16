@@ -244,6 +244,95 @@ pub async fn fetch_bangumi_detail(id: String) -> Result<ScrapeResult, String> {
     scraper::bangumi::detail(&id).await
 }
 
+/// VNDB 富详情 → 统一 ScrapeResult（含 ScrapeDetail.screenshots/developer/...）。
+fn vndb_detail_to_scrape_result(d: scraper::VndbDetail) -> ScrapeResult {
+    // 只取内容标签（cont），去掉色情/技术分类，避免标签噪音
+    let tags: Vec<String> = d
+        .tags
+        .iter()
+        .filter(|t| t.category == "cont")
+        .map(|t| t.name.clone())
+        .take(20)
+        .collect();
+    let background = d.screenshots.first().cloned();
+    let homepage = d
+        .links
+        .iter()
+        .find(|l| {
+            let lab = l.label.to_lowercase();
+            lab.contains("official") || l.label.contains("官方") || lab.contains("home")
+        })
+        .map(|l| l.url.clone());
+    let mut detail = crate::models::ScrapeDetail::default();
+    detail.developer = d.developers.first().cloned();
+    detail.aliases = d.aliases;
+    detail.languages = d.languages;
+    detail.screenshots = d.screenshots;
+    detail.release_date = d.released;
+    detail.homepage = homepage;
+    ScrapeResult {
+        title: d.title,
+        description: d.description,
+        cover: d.cover_url,
+        background,
+        tags,
+        rating: d.rating,
+        release_year: d.release_year,
+        source: "vndb".to_string(),
+        source_id: d.id,
+        detail: Some(detail),
+    }
+}
+
+/// 取某条搜索结果的「全量详情」（截图/开发商/发行商/流派/别名/发行日期/官网等），
+/// 按 source 分派到各源已有的详情接口。供 ScrapeDialog 点选后补全用——
+/// 搜索只回浅层结果，真正的富字段在各源独立详情接口里。
+#[tauri::command]
+pub async fn fetch_full_detail(source: String, source_id: String) -> Result<ScrapeResult, String> {
+    let lower = source.to_lowercase();
+    let s = lower.strip_suffix("+ai").unwrap_or(lower.as_str()).trim();
+    tracing::info!(source = %s, %source_id, "fetch_full_detail: START");
+    let result: Result<ScrapeResult, String> = match s {
+        "vndb" => scraper::vndb::detail(&source_id)
+            .await
+            .map(vndb_detail_to_scrape_result)
+            .map_err(|e| e.to_string()),
+        "bangumi" => scraper::bangumi::detail(&source_id).await,
+        "kungal" | "touchgal" => scraper::kungal::get_detail(&source_id)
+            .await
+            .map_err(|e| e.to_string()),
+        "ymgal" => scraper::ymgal::get_detail(&source_id)
+            .await
+            .map_err(|e| e.to_string()),
+        "dlsite" => scraper::dlsite::get_product(&source_id)
+            .await
+            .map_err(|e| e.to_string()),
+        "erogamescape" | "egs" => scraper::erogamescape::get_game(&source_id)
+            .await
+            .map_err(|e| e.to_string()),
+        "steam" => scraper::steam::get_app_details(&source_id)
+            .await
+            .map_err(|e| e.to_string()),
+        "pcgw" => scraper::pcgw::get_summary(&source_id)
+            .await
+            .map_err(|e| e.to_string()),
+        other => Err(format!("不支持的详情源: {}", other)),
+    };
+    match &result {
+        Ok(r) => {
+            let n_ss = r.detail.as_ref().map(|d| d.screenshots.len()).unwrap_or(0);
+            let has_dev = r
+                .detail
+                .as_ref()
+                .and_then(|d| d.developer.as_ref())
+                .is_some();
+            tracing::info!(source = %s, screenshots = n_ss, has_dev, "fetch_full_detail: OK");
+        }
+        Err(e) => tracing::warn!(source = %s, error = %e, "fetch_full_detail: FAILED"),
+    }
+    result
+}
+
 // ===== M3 閸掝喖澧涙晶鐐插繁 =====
 
 /// M3 缂佺喍绔撮崚顔煎閿涙碍鎮崇槐?閳?閸氬牆鑻熼崢濠氬櫢 閳?AI 婢х偛宸?閳?閹搭亜娴樻稉瀣祰閵?

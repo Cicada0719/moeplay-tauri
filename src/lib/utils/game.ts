@@ -21,6 +21,10 @@ export type GameLike = Partial<
     | "tags"
     | "vndb_id"
     | "bangumi_id"
+    | "library_source"
+    | "library_id"
+    | "exe_path"
+    | "install_dir"
   >
 > & {
   aliases?: Partial<Game["aliases"][number]>[] | null;
@@ -113,17 +117,44 @@ export function coverOf(game: GameLike | null | undefined): string | null {
   return game?.metadata?.cover ?? game?.cover ?? game?.icon ?? null;
 }
 
+/** Steam 游戏官方横版 hero 背景图（library_hero.jpg）。让仅有竖封面的 Steam 游戏
+ *  也能像 Playnite 那样在大屏 / 详情显示宽幅横版背景（按 appid 直接派生，存量游戏也立即生效）。 */
+export function steamHeroUrl(game: GameLike | null | undefined): string | null {
+  const source = (game?.library_source ?? "").toLowerCase();
+  const id = game?.library_id;
+  if (source === "steam" && id && /^\d+$/.test(id)) {
+    return `https://cdn.cloudflare.steamstatic.com/steam/apps/${id}/library_hero.jpg`;
+  }
+  return null;
+}
+
 export function heroImageOf(game: GameLike | null | undefined): string | null {
   return (
     game?.metadata?.background ??
     game?.background ??
     game?.screenshots?.[0] ??
+    steamHeroUrl(game) ??
     coverOf(game)
   );
 }
 
 export function hasHeroBackground(game: GameLike | null | undefined): boolean {
-  return !!(game?.metadata?.background ?? game?.background ?? game?.screenshots?.[0]);
+  return !!(
+    game?.metadata?.background ??
+    game?.background ??
+    game?.screenshots?.[0] ??
+    steamHeroUrl(game)
+  );
+}
+
+/** 是否本地已安装：有安装目录，或 exe_path 是真实文件路径。
+ *  注意：Steam/Epic 游戏导入时 exe_path 被写成启动 URI（steam://…），
+ *  那不代表已安装，必须排除（否则「已安装」筛选会把全部平台游戏都算进来）。 */
+export function isInstalled(game: GameLike | null | undefined): boolean {
+  const dir = game?.install_dir;
+  if (typeof dir === "string" && dir.trim() !== "") return true;
+  const exe = game?.exe_path;
+  return typeof exe === "string" && exe.trim() !== "" && !exe.includes("://");
 }
 
 export function screenshotsOf(game: GameLike | null | undefined): string[] {
@@ -138,7 +169,7 @@ export function developerOf(game: GameLike | null | undefined): string {
     game?.developer ??
     game?.metadata?.publisher ??
     game?.publisher ??
-    "未知社团"
+    ""
   );
 }
 

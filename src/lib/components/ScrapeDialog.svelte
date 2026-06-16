@@ -2,7 +2,7 @@
   import { uiStore } from "../stores/ui.svelte";
   import { gameStore } from "../stores/games.svelte";
   import { settingsStore } from "../stores/settings.svelte";
-  import { scrapeGames, scrapeGame } from "../api";
+  import { scrapeGames, scrapeGame, fetchFullDetail } from "../api";
   import type { ScrapeResult } from "../api";
   import Icon from "./Icon.svelte";
 
@@ -10,6 +10,7 @@
   let results = $state<ScrapeResult[]>([]);
   let isSearching = $state(false);
   let selectedResult = $state<ScrapeResult | null>(null);
+  let applying = $state(false);
   let error = $state("");
 
   // 自动填充游戏名
@@ -62,12 +63,38 @@
   async function handleApply() {
     if (!selectedResult || !uiStore.scrapeTargetGameId) return;
 
+    applying = true;
+    error = "";
     try {
-      await gameStore.scrape(uiStore.scrapeTargetGameId, selectedResult);
-      uiStore.notify("刮削信息已应用！", "success");
+      // 搜索结果是浅层的；落库前先取「全量详情」（截图/开发商/发行商/流派/别名…）
+      let full: ScrapeResult = selectedResult;
+      const baseSource = (selectedResult.source || "").replace("+ai", "").trim();
+      if (baseSource && selectedResult.source_id) {
+        try {
+          const detailed = await fetchFullDetail(baseSource, selectedResult.source_id);
+          // 全量详情为主，缺的用搜索结果兜底（封面/简介/评分常在搜索结果里更全）
+          full = {
+            ...detailed,
+            cover: detailed.cover ?? selectedResult.cover,
+            background: detailed.background ?? selectedResult.background,
+            description: detailed.description ?? selectedResult.description,
+            rating: detailed.rating ?? selectedResult.rating,
+            release_year: detailed.release_year ?? selectedResult.release_year,
+            tags: detailed.tags?.length ? detailed.tags : selectedResult.tags,
+          };
+        } catch (e) {
+          // 详情接口失败 → 用搜索结果兜底，不阻断
+          console.warn("fetch_full_detail failed, applying shallow result:", e);
+        }
+      }
+      await gameStore.scrape(uiStore.scrapeTargetGameId, full);
+      const n = full.detail?.screenshots?.length ?? 0;
+      uiStore.notify(n > 0 ? `详情已补全并应用（含 ${n} 张截图）` : "刮削信息已应用！", "success");
       handleClose();
     } catch (e) {
       error = `应用失败: ${e}`;
+    } finally {
+      applying = false;
     }
   }
 
@@ -190,10 +217,10 @@
         <button class="cancel-btn" onclick={handleClose}>取消</button>
         <button
           class="apply-btn"
-          disabled={!selectedResult}
+          disabled={!selectedResult || applying}
           onclick={handleApply}
         >
-          应用选中结果
+          {applying ? "补全详情中…" : "应用选中结果"}
         </button>
       </div>
     </div>

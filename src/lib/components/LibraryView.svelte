@@ -178,7 +178,7 @@
   }
 
   function developerOf(game: Game | null): string {
-    if (!game) return "未知社团";
+    if (!game) return "";
     return gameDeveloperOf(game);
   }
 

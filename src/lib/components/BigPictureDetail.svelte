@@ -198,7 +198,7 @@
         <Icon name="play" size={14} /> 启动
       </Button>
       <Button variant="secondary" onclick={handleRevealInstall} disabled={!installDir || busy !== null}>
-        <Icon name="folder" size={14} /> 设置（安装目录）
+        <Icon name="folder" size={14} /> 安装目录
       </Button>
       <Button variant="secondary" onclick={handleRevealSave} disabled={!saveDir || busy !== null}>
         <Icon name="save" size={14} /> 存档位置
@@ -360,9 +360,16 @@
     display: flex; flex-direction: column; gap: 10px;
     background: rgba(11, 14, 21, .55);
   }
-  .d-actions-main, .d-actions-sub {
-    display: flex; flex-wrap: wrap; gap: 8px;
+  .d-actions-main {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
   }
-  .d-actions-main :global(.btn) { flex: 1 1 0; min-width: 0; padding: 10px 12px; font-size: 13px; }
-  .d-actions-sub :global(.btn) { flex: 1 1 0; min-width: 0; padding: 8px 10px; font-size: 12px; }
+  .d-actions-sub {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  }
+  .d-actions-main :global(.btn),
+  .d-actions-sub :global(.btn) {
+    width: 100%; min-width: 0;
+    padding: 10px 8px; font-size: 12.5px;
+    white-space: nowrap; overflow: hidden;
+  }
 </style>
