@@ -70,8 +70,7 @@
   function onKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") {
       if (animeStore.view === "player") {
-        e.stopImmediatePropagation();
-        animeStore.closePlayer();
+        return; // 让播放器自己处理 Escape（先退出全屏，再关闭）
       } else if (animeStore.view === "detail") {
         e.stopImmediatePropagation();
         animeStore.closeDetail();

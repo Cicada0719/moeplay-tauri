@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.3 - 2026-06-17
+
+### Bug 修复
+- 修复退出番剧播放器后窗口自动退出全屏的问题
+  - 播放器全屏切换改为纯 CSS 实现，不再使用 DOM Fullscreen API 以避免影响 Tauri 窗口状态
+  - 原生 video controls 触发的 DOM 全屏退出时自动恢复 Tauri 窗口全屏
+  - 修复 AnimePage Escape 键捕获阶段拦截导致播放器无法先退出全屏再关闭的问题
+
 ## 0.10.2 - 2026-06-17
 
 ### Bug 修复

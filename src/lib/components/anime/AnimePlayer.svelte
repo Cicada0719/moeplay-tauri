@@ -1,6 +1,7 @@
 <script lang="ts">
   import Hls from "hls.js";
   import { invoke } from "@tauri-apps/api/core";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onDestroy, onMount } from "svelte";
   import { animeStore } from "../../stores/anime.svelte";
   import Icon from "../Icon.svelte";
@@ -98,8 +99,10 @@
   // ── PiP (画中画) ────────────────────────────────────────────────────────
   let isPipSupported = $state(false);
   let isPipActive = $state(false);
+  let savedWindowFullscreen = false;
 
-  onMount(() => {
+  onMount(async () => {
+    try { savedWindowFullscreen = await getCurrentWindow().isFullscreen(); } catch {}
     document.addEventListener('fullscreenchange', onFullscreenChange);
     document.addEventListener('keydown', onKeyDown);
     isPipSupported = !!document.pictureInPictureEnabled;
@@ -160,15 +163,17 @@
     }
   }
 
-  // 全屏切换
-  async function toggleFullscreen() {
-    if (!overlayEl) return;
-    try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      else await overlayEl.requestFullscreen();
-    } catch {}
+  // 全屏切换（纯 CSS，不使用 DOM Fullscreen API 以避免影响 Tauri 窗口状态）
+  function toggleFullscreen() {
+    isFullscreen = !isFullscreen;
   }
-  function onFullscreenChange() { isFullscreen = !!document.fullscreenElement; }
+  async function onFullscreenChange() {
+    // 用户可能通过原生 <video controls> 全屏按钮触发 DOM 全屏
+    // 当 DOM 全屏退出时，恢复 Tauri 窗口的全屏状态
+    if (!document.fullscreenElement && savedWindowFullscreen) {
+      try { await getCurrentWindow().setFullscreen(true); } catch {}
+    }
+  }
 
   // HLS.js ↔ 原生双模兜底：15s 看门狗，一种方式超时就自动换另一种
   $effect(() => {
