@@ -21,7 +21,7 @@ pub mod ymgal;
 pub use ai::AiScrapeConfig;
 pub use vndb::VndbDetail;
 
-use crate::models::ScrapeResult;
+use crate::models::{ScrapeResult, ScrapeSourceStatus};
 use cache::ScrapeCache;
 
 /// 全局刮削缓存（1h TTL）
@@ -33,6 +33,7 @@ pub fn global_cache() -> &'static ScrapeCache {
 }
 
 /// 并发搜索所有已启用的数据源（带缓存 + 超时优化）
+/// 返回 (搜索结果, 各源状态) 以便前端展示哪些源成功/失败
 pub async fn search_all(
     query: &str,
     vndb_enabled: bool,
@@ -44,28 +45,35 @@ pub async fn search_all(
     kungal_enabled: bool,
     steam_enabled: bool,
     pcgw_enabled: bool,
-) -> Vec<ScrapeResult> {
+) -> (Vec<ScrapeResult>, Vec<ScrapeSourceStatus>) {
     let cache = global_cache();
-    let mut handles: Vec<tokio::task::JoinHandle<Result<Vec<ScrapeResult>, String>>> = vec![];
+    let mut handles: Vec<(String, tokio::task::JoinHandle<Result<Vec<ScrapeResult>, String>>)> = vec![];
     let mut cached_results: Vec<ScrapeResult> = vec![];
+    let mut statuses: Vec<ScrapeSourceStatus> = vec![];
 
     macro_rules! spawn_source {
         ($enabled:expr, $name:expr, $search_fn:expr) => {
             if $enabled {
                 let q = query.to_string();
-                // 先查缓存
                 if let Some(cached) = cache.get(&q, $name) {
+                    let count = cached.len();
                     cached_results.extend(cached);
+                    statuses.push(ScrapeSourceStatus {
+                        source: $name.to_string(),
+                        ok: true,
+                        count,
+                        error: None,
+                    });
                 } else {
                     let q2 = q.clone();
-                    let name = $name.to_string();
-                    handles.push(tokio::spawn(async move {
+                    let src_name = $name.to_string();
+                    handles.push((src_name, tokio::spawn(async move {
                         let r = $search_fn(&q2).await;
                         if let Ok(ref results) = r {
-                            cache.set(&q2, &name, results.clone());
+                            cache.set(&q2, $name, results.clone());
                         }
                         r
-                    }));
+                    })));
                 }
             }
         };
@@ -85,15 +93,25 @@ pub async fn search_all(
     spawn_source!(steam_enabled, "steam", steam::search_simple);
     spawn_source!(pcgw_enabled, "pcgw", pcgw::search_simple);
 
-    for h in handles {
+    for (name, h) in handles {
         match h.await {
-            Ok(Ok(mut r)) => cached_results.append(&mut r),
-            Ok(Err(e)) => tracing::warn!(error = %e, "Scrape source failed"),
-            Err(e) => tracing::warn!(error = %e, "Scrape task panicked"),
+            Ok(Ok(mut r)) => {
+                let count = r.len();
+                cached_results.append(&mut r);
+                statuses.push(ScrapeSourceStatus { source: name, ok: true, count, error: None });
+            }
+            Ok(Err(e)) => {
+                tracing::warn!(source = %name, error = %e, "Scrape source failed");
+                statuses.push(ScrapeSourceStatus { source: name, ok: false, count: 0, error: Some(e) });
+            }
+            Err(e) => {
+                tracing::warn!(source = %name, error = %e, "Scrape task panicked");
+                statuses.push(ScrapeSourceStatus { source: name, ok: false, count: 0, error: Some(e.to_string()) });
+            }
         }
     }
 
-    cached_results
+    (cached_results, statuses)
 }
 
 /// AI 增强刮削
@@ -109,8 +127,8 @@ pub async fn scrape_game(
     steam_enabled: bool,
     pcgw_enabled: bool,
     ai_config: Option<&AiScrapeConfig>,
-) -> Vec<ScrapeResult> {
-    let mut results = search_all(
+) -> (Vec<ScrapeResult>, Vec<ScrapeSourceStatus>) {
+    let (mut results, statuses) = search_all(
         query,
         vndb_enabled,
         bangumi_enabled,
@@ -160,7 +178,7 @@ pub async fn scrape_game(
                 });
             }
         }
-        return results;
+        return (results, statuses);
     }
 
     if let Some(config) = ai_config {
@@ -211,5 +229,5 @@ pub async fn scrape_game(
         }
     }
 
-    results
+    (results, statuses)
 }

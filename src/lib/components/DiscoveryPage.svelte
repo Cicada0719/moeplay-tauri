@@ -39,9 +39,10 @@
     searching = true;
     searchError = null;
     try {
-      results = await scrapeGames(query, true, true, {
+      const resp = await scrapeGames(query, true, true, {
         kungal: true, steam: true, pcgw: true, erogamescape: true, ymgal: true, touchgal: true,
       });
+      results = resp.results;
     } catch (e) {
       searchError = String(e);
       console.error("Search failed:", e);

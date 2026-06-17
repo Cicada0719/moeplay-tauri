@@ -201,6 +201,18 @@ export interface ScrapeResult {
   detail?: ScrapeDetail;
 }
 
+export interface ScrapeSourceStatus {
+  source: string;
+  ok: boolean;
+  count: number;
+  error?: string;
+}
+
+export interface ScrapeResponse {
+  results: ScrapeResult[];
+  source_status: ScrapeSourceStatus[];
+}
+
 export interface ScrapeDetail {
   developer?: string;
   publisher?: string;
@@ -294,6 +306,7 @@ export interface Settings {
   kungal_enabled?: boolean;
   steam_enabled?: boolean;
   pcgw_enabled?: boolean;
+  scraper_proxy?: string;
   ai_enabled: boolean;
   ai_api_url: string;
   ai_api_key: string;
@@ -967,7 +980,7 @@ export async function scrapeGames(
   vndb: boolean,
   bangumi: boolean,
   sources: ScrapeSourceOptions = {}
-): Promise<ScrapeResult[]> {
+): Promise<ScrapeResponse> {
   return invoke("scrape_games", { query, vndb, bangumi, ...sources });
 }
 
@@ -976,7 +989,7 @@ export async function scrapeGame(
   vndb: boolean,
   bangumi: boolean,
   sources: ScrapeSourceOptions = {}
-): Promise<ScrapeResult[]> {
+): Promise<ScrapeResponse> {
   return invoke("scrape_game", { query, vndb, bangumi, ...sources });
 }
 

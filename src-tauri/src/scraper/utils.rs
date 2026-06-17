@@ -9,24 +9,42 @@ use tokio::time::{sleep, Duration};
 use super::error::ScrapeError;
 
 /// 请求重试配置
-const MAX_RETRIES: u32 = 1;
-const RETRY_DELAY_MS: u64 = 500;
+const MAX_RETRIES: u32 = 3;
+const RETRY_DELAY_MS: u64 = 800;
+
+/// 全局代理设置（由 settings 写入，build_client 读取）
+static SCRAPER_PROXY: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
+
+pub fn set_proxy(proxy: Option<String>) {
+    *SCRAPER_PROXY.write().unwrap() = proxy;
+}
+
+fn apply_proxy(builder: reqwest::ClientBuilder) -> Result<reqwest::ClientBuilder, ScrapeError> {
+    let guard = SCRAPER_PROXY.read().unwrap();
+    if let Some(url) = guard.as_ref().filter(|u| !u.trim().is_empty()) {
+        let proxy = reqwest::Proxy::all(url).map_err(|e| ScrapeError::Network(format!("proxy config error: {e}")))?;
+        Ok(builder.proxy(proxy))
+    } else {
+        Ok(builder)
+    }
+}
 
 /// 创建带 User-Agent 和超时的 HTTP 客户端
 pub fn build_client() -> Result<Client, ScrapeError> {
-    Client::builder()
-        .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(10))
-        .user_agent("MoeGame/1.0 (Galgame Manager)")
+    let builder = Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
+        .user_agent("MoeGame/1.0 (Galgame Manager)");
+    apply_proxy(builder)?
         .build()
         .map_err(|e| ScrapeError::Network(e.to_string()))
 }
 
 /// 创建带日语 Accept-Language 的 HTTP 客户端
 pub fn build_client_ja() -> Result<Client, ScrapeError> {
-    Client::builder()
-        .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(10))
+    let builder = Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
         .user_agent("MoeGame/1.0 (Galgame Manager)")
         .default_headers({
             let mut headers = reqwest::header::HeaderMap::new();
@@ -35,7 +53,8 @@ pub fn build_client_ja() -> Result<Client, ScrapeError> {
                 reqwest::header::HeaderValue::from_static("ja,en;q=0.9,zh;q=0.8"),
             );
             headers
-        })
+        });
+    apply_proxy(builder)?
         .build()
         .map_err(|e| ScrapeError::Network(e.to_string()))
 }

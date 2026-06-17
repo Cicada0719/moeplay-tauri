@@ -685,6 +685,22 @@ pub struct ScrapeResult {
     pub detail: Option<ScrapeDetail>,
 }
 
+/// 单个数据源的刮削状态
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ScrapeSourceStatus {
+    pub source: String,
+    pub ok: bool,
+    pub count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ScrapeResponse {
+    pub results: Vec<ScrapeResult>,
+    pub source_status: Vec<ScrapeSourceStatus>,
+}
+
 /// 刮削详细信息
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ScrapeDetail {
@@ -769,6 +785,9 @@ pub struct Settings {
     /// 启用 PCGamingWiki 刮削
     #[serde(default = "Settings::default_true")]
     pub pcgw_enabled: bool,
+    /// 刮削 HTTP 代理（空=系统代理，如 http://127.0.0.1:7890）
+    #[serde(default)]
+    pub scraper_proxy: String,
     /// 启用 AI 增强刮削
     pub ai_enabled: bool,
     /// AI API 地址
@@ -811,6 +830,7 @@ impl Default for Settings {
             kungal_enabled: true,
             steam_enabled: true,
             pcgw_enabled: true,
+            scraper_proxy: String::new(),
             ai_enabled: false,
             ai_api_url: "https://api.openai.com/v1/chat/completions".to_string(),
             ai_api_key: String::new(),

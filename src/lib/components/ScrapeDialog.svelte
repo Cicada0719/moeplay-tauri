@@ -3,11 +3,12 @@
   import { gameStore } from "../stores/games.svelte";
   import { settingsStore } from "../stores/settings.svelte";
   import { scrapeGames, scrapeGame, fetchFullDetail } from "../api";
-  import type { ScrapeResult } from "../api";
+  import type { ScrapeResult, ScrapeSourceStatus } from "../api";
   import Icon from "./Icon.svelte";
 
   let query = $state("");
   let results = $state<ScrapeResult[]>([]);
+  let sourceStatus = $state<ScrapeSourceStatus[]>([]);
   let isSearching = $state(false);
   let selectedResult = $state<ScrapeResult | null>(null);
   let applying = $state(false);
@@ -31,12 +32,13 @@
     isSearching = true;
     error = "";
     results = [];
+    sourceStatus = [];
 
     try {
       const useAi = settingsStore.settings.ai_enabled && settingsStore.settings.ai_api_key;
       const searchFn = useAi ? scrapeGame : scrapeGames;
       const s = settingsStore.settings;
-      results = await searchFn(
+      const resp = await searchFn(
         query,
         s.vndb_enabled,
         s.bangumi_enabled,
@@ -50,8 +52,15 @@
           pcgw: s.pcgw_enabled ?? true,
         }
       );
+      results = resp.results;
+      sourceStatus = resp.source_status;
       if (results.length === 0) {
-        error = "未找到匹配结果";
+        const failedSources = sourceStatus.filter(s => !s.ok);
+        if (failedSources.length > 0) {
+          error = `未找到匹配结果（${failedSources.length} 个数据源连接失败，可在设置中配置代理）`;
+        } else {
+          error = "未找到匹配结果";
+        }
       }
     } catch (e) {
       error = `搜索失败: ${e}`;
@@ -102,6 +111,7 @@
     uiStore.closeScrapeDialog();
     query = "";
     results = [];
+    sourceStatus = [];
     selectedResult = null;
     error = "";
   }
@@ -150,6 +160,21 @@
           {/if}
         </div>
       </div>
+
+      {#if sourceStatus.length > 0}
+        <div class="source-status-bar">
+          {#each sourceStatus as st}
+            <span class="src-st" class:ok={st.ok} class:fail={!st.ok} title={st.error ?? `${st.count} 条结果`}>
+              {st.source.toUpperCase()}
+              {#if st.ok}
+                <span class="src-count">{st.count}</span>
+              {:else}
+                <span class="src-fail-mark">!</span>
+              {/if}
+            </span>
+          {/each}
+        </div>
+      {/if}
 
       {#if error}
         <div class="error-msg">{error}</div>
@@ -351,6 +376,44 @@
   .source-tag.ai {
     background: rgba(255, 193, 7, 0.2);
     color: #ffd54f;
+  }
+
+  .source-status-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 0 24px 12px;
+  }
+
+  .src-st {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-family: var(--font-mono, monospace);
+  }
+
+  .src-st.ok {
+    background: rgba(76, 175, 80, 0.15);
+    color: #81c784;
+  }
+
+  .src-st.fail {
+    background: rgba(255, 80, 80, 0.15);
+    color: #ff6b6b;
+    cursor: help;
+  }
+
+  .src-count {
+    font-size: 9px;
+    opacity: 0.8;
+  }
+
+  .src-fail-mark {
+    font-size: 10px;
   }
 
   .error-msg {

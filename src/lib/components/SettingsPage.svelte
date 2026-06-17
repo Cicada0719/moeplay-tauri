@@ -299,6 +299,19 @@
           <span class="sw-track"><span class="sw-knob"></span></span>
         </div>
       </label>
+      <div class="s-divider"></div>
+      <div class="s-row" style="flex-direction: column; align-items: stretch; gap: 6px;">
+        <div class="s-info">
+          <span class="s-label">HTTP 代理</span>
+          <span class="s-desc">刮削数据源时使用的代理地址，留空则使用系统代理</span>
+        </div>
+        <input
+          class="ai-input"
+          bind:value={settingsStore.settings.scraper_proxy}
+          onblur={save}
+          placeholder="如 http://127.0.0.1:7890（留空 = 系统代理）"
+        />
+      </div>
     </section>
 
     <!-- 库与导入 -->

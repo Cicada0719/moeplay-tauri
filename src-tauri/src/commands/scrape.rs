@@ -1,9 +1,9 @@
-﻿use crate::db::Database;
-use crate::models::{Game, ScrapeResult};
+use crate::db::Database;
+use crate::models::{Game, ScrapeResponse, ScrapeResult};
 use crate::scraper;
 use tauri::State;
 
-// ===== 閸掝喖澧涢敍鍫濇倻閸氬骸鍚嬬€瑰湱澧楅張顒婄礆 =====
+// ===== 刮削命令 =====
 
 #[tauri::command]
 pub async fn scrape_games(
@@ -17,7 +17,8 @@ pub async fn scrape_games(
     kungal: Option<bool>,
     steam: Option<bool>,
     pcgw: Option<bool>,
-) -> Result<Vec<ScrapeResult>, String> {
+    db: State<'_, Database>,
+) -> Result<ScrapeResponse, String> {
     let dlsite = dlsite.unwrap_or(false);
     let touchgal = touchgal.unwrap_or(false);
     let erogamescape = erogamescape.unwrap_or(false);
@@ -36,9 +37,14 @@ pub async fn scrape_games(
         && !steam
         && !pcgw
     {
-        return Err("鐠囩柉鍤︾亸鎴︹偓澶嬪娑撯偓娑擃亝鏆熼幑顔界爱".to_string());
+        return Err("请至少启用一个数据源".to_string());
     }
-    Ok(scraper::search_all(
+
+    let settings = db.get_settings();
+    let proxy = if settings.scraper_proxy.trim().is_empty() { None } else { Some(settings.scraper_proxy.clone()) };
+    scraper::utils::set_proxy(proxy);
+
+    let (results, source_status) = scraper::search_all(
         &query,
         vndb,
         bangumi,
@@ -50,10 +56,11 @@ pub async fn scrape_games(
         steam,
         pcgw,
     )
-    .await)
+    .await;
+    Ok(ScrapeResponse { results, source_status })
 }
 
-/// 閸掝喖澧?DLsite 娴溠冩惂鐠囷附鍎忛敍鍫熷瘻娴溠冩惂 ID閿?
+/// 按 DLsite 产品 ID 获取详情
 #[tauri::command]
 pub async fn scrape_dlsite_product(product_id: String) -> Result<ScrapeResult, String> {
     scraper::dlsite::get_product(&product_id)
@@ -61,7 +68,7 @@ pub async fn scrape_dlsite_product(product_id: String) -> Result<ScrapeResult, S
         .map_err(|e| e.to_string())
 }
 
-/// 閸掝喖澧?ErogameScape 濞撳憡鍨欑拠锔藉剰閿涘牊瀵滃〒鍛婂灆 ID閿?
+/// 按 ErogameScape 游戏 ID 获取详情
 #[tauri::command]
 pub async fn scrape_erogamescape_game(game_id: String) -> Result<ScrapeResult, String> {
     scraper::erogamescape::get_game(&game_id)
@@ -69,7 +76,7 @@ pub async fn scrape_erogamescape_game(game_id: String) -> Result<ScrapeResult, S
         .map_err(|e| e.to_string())
 }
 
-/// 閸掝喖澧?Ymgal 濞撳憡鍨欑拠锔藉剰閿涘牊瀵滃〒鍛婂灆 ID閿?
+/// 按 Ymgal 游戏 ID 获取详情
 #[tauri::command]
 pub async fn scrape_ymgal_detail(game_id: String) -> Result<ScrapeResult, String> {
     scraper::ymgal::get_detail(&game_id)
@@ -77,7 +84,7 @@ pub async fn scrape_ymgal_detail(game_id: String) -> Result<ScrapeResult, String
         .map_err(|e| e.to_string())
 }
 
-/// 閸掝喖澧?Kungal 濞撳憡鍨欑拠锔藉剰閿涘牊瀵滃〒鍛婂灆 ID閿?
+/// 按 Kungal 游戏 ID 获取详情
 #[tauri::command]
 pub async fn scrape_kungal_detail(game_id: String) -> Result<ScrapeResult, String> {
     scraper::kungal::get_detail(&game_id)
@@ -85,7 +92,7 @@ pub async fn scrape_kungal_detail(game_id: String) -> Result<ScrapeResult, Strin
         .map_err(|e| e.to_string())
 }
 
-/// 閸掝喖澧?Steam 鎼存梻鏁ょ拠锔藉剰閿涘牊瀵?App ID閿?
+/// 按 Steam App ID 获取详情
 #[tauri::command]
 pub async fn scrape_steam_app(app_id: String) -> Result<ScrapeResult, String> {
     scraper::steam::get_app_details(&app_id)
@@ -93,7 +100,7 @@ pub async fn scrape_steam_app(app_id: String) -> Result<ScrapeResult, String> {
         .map_err(|e| e.to_string())
 }
 
-/// 閸掝喖澧?PCGamingWiki 妞ょ敻娼伴幗妯款洣閿涘牊瀵滄い鐢告桨閺嶅洭顣介敍?
+/// 按 PCGamingWiki 标题获取技术资料
 #[tauri::command]
 pub async fn scrape_pcgw_page(title: String) -> Result<ScrapeResult, String> {
     scraper::pcgw::get_summary(&title)
@@ -101,7 +108,7 @@ pub async fn scrape_pcgw_page(title: String) -> Result<ScrapeResult, String> {
         .map_err(|e| e.to_string())
 }
 
-/// AI 婢х偛宸遍崚顔煎閿涙矮绮犻弫鐗堝祦濠ф劘骞忛崣鏍у帗閺佺増宓?+ LLM 閺呴缚鍏樻晶鐐插繁
+/// AI 增强刮削：多源并行搜索 + LLM 补全
 #[tauri::command]
 pub async fn scrape_game(
     query: String,
@@ -115,7 +122,7 @@ pub async fn scrape_game(
     steam: Option<bool>,
     pcgw: Option<bool>,
     db: State<'_, Database>,
-) -> Result<Vec<ScrapeResult>, String> {
+) -> Result<ScrapeResponse, String> {
     let dlsite = dlsite.unwrap_or(false);
     let touchgal = touchgal.unwrap_or(false);
     let erogamescape = erogamescape.unwrap_or(false);
@@ -134,10 +141,12 @@ pub async fn scrape_game(
         && !steam
         && !pcgw
     {
-        return Err("鐠囩柉鍤︾亸鎴︹偓澶嬪娑撯偓娑擃亝鏆熼幑顔界爱".to_string());
+        return Err("请至少启用一个数据源".to_string());
     }
 
     let settings = db.get_settings();
+    let proxy = if settings.scraper_proxy.trim().is_empty() { None } else { Some(settings.scraper_proxy.clone()) };
+    scraper::utils::set_proxy(proxy);
 
     let ai_config = if settings.ai_enabled && !settings.ai_api_key.is_empty() {
         Some(scraper::AiScrapeConfig {
@@ -149,7 +158,7 @@ pub async fn scrape_game(
         None
     };
 
-    let mut results = scraper::scrape_game(
+    let (mut results, source_status) = scraper::scrape_game(
         &query,
         vndb,
         bangumi,
@@ -164,7 +173,6 @@ pub async fn scrape_game(
     )
     .await;
 
-    // 预下载封面到本地
     for r in &mut results {
         if let Some(ref url) = r.cover {
             if url.starts_with("http") {
@@ -178,10 +186,10 @@ pub async fn scrape_game(
         }
     }
 
-    Ok(results)
+    Ok(ScrapeResponse { results, source_status })
 }
 
-/// 鎼存梻鏁ら崚顔煎缂佹挻鐏夐敍鍫熸＋閻楀牆鍚嬬€圭櫢绱濋崘娆忓弳閺冄呭鐎涙顔岄敍?
+/// 应用刮削结果到游戏记录
 #[tauri::command]
 pub fn apply_scrape_result(
     db: State<'_, Database>,
@@ -238,15 +246,13 @@ pub async fn fetch_vndb_detail(id: String) -> Result<scraper::VndbDetail, String
     scraper::vndb::detail(&id).await.map_err(|e| e.to_string())
 }
 
-/// M8: Bangumi 鐠囷附鍎忛弻銉嚄閵?
+/// Bangumi 详情获取
 #[tauri::command]
 pub async fn fetch_bangumi_detail(id: String) -> Result<ScrapeResult, String> {
     scraper::bangumi::detail(&id).await
 }
 
-/// VNDB 富详情 → 统一 ScrapeResult（含 ScrapeDetail.screenshots/developer/...）。
 fn vndb_detail_to_scrape_result(d: scraper::VndbDetail) -> ScrapeResult {
-    // 只取内容标签（cont），去掉色情/技术分类，避免标签噪音
     let tags: Vec<String> = d
         .tags
         .iter()
@@ -333,9 +339,9 @@ pub async fn fetch_full_detail(source: String, source_id: String) -> Result<Scra
     result
 }
 
-// ===== M3 閸掝喖澧涙晶鐐插繁 =====
+// ===== M3 合并刮削 =====
 
-/// M3 缂佺喍绔撮崚顔煎閿涙碍鎮崇槐?閳?閸氬牆鑻熼崢濠氬櫢 閳?AI 婢х偛宸?閳?閹搭亜娴樻稉瀣祰閵?
+/// M3 合并刮削：多源搜索 → 合并 → AI 增强 → 返回
 #[tauri::command]
 pub async fn scrape_game_merged(
     db: State<'_, Database>,
@@ -351,9 +357,12 @@ pub async fn scrape_game_merged(
         _ => scraper::strategy::ScrapeStrategy::Full,
     };
 
+    let proxy = if settings.scraper_proxy.trim().is_empty() { None } else { Some(settings.scraper_proxy.clone()) };
+    scraper::utils::set_proxy(proxy);
+
     let route = scraper::strategy::ScrapeRouter::plan(source_hint.as_deref(), false, false);
 
-    let raw = scraper::search_all(
+    let (raw, _statuses) = scraper::search_all(
         &query,
         settings.vndb_enabled,
         settings.bangumi_enabled,
@@ -373,7 +382,6 @@ pub async fn scrape_game_merged(
     };
     let merged = scraper::merge::merge_results(raw, &merge_config);
 
-    // AI 婢х偛宸遍敍鍫濐洤閺嬫粌鎯庨悽顭掔礆
     let mut result = merged;
     if settings.ai_enabled && !settings.ai_api_key.is_empty() && route.with_ai {
         let config = scraper::AiScrapeConfig {
@@ -402,7 +410,6 @@ pub async fn scrape_game_merged(
         }
     }
 
-    // 预下载封面到本地，避免 CDN 被墙后裂图
     for mr in &mut result {
         if let Some(ref url) = mr.result.cover {
             if url.starts_with("http") {
@@ -422,7 +429,7 @@ pub async fn scrape_game_merged(
     Ok(result)
 }
 
-/// 閼惧嘲褰?AI Provider 閸掓銆冮敍鍫濆敶缂?+ 閻劍鍩涢懛顏勭暰娑斿绱氶妴?
+/// 获取 AI Provider 列表
 #[tauri::command]
 pub fn get_ai_providers(
     db: State<'_, Database>,
@@ -442,13 +449,13 @@ pub fn get_ai_providers(
     Ok(providers)
 }
 
-/// 閼惧嘲褰?AI Preset 閸掓銆冮妴?
+/// 获取 AI Preset 列表
 #[tauri::command]
 pub fn get_ai_presets() -> Vec<scraper::ai_presets::AiPreset> {
     scraper::ai_presets::builtin_presets()
 }
 
-/// 鐠嬪啰鏁ら幐鍥х暰 preset 婢х偛宸遍弬鍥ㄦ拱閵?
+/// 运行指定 preset 的 AI 推理
 #[tauri::command]
 pub async fn run_ai_preset(
     db: State<'_, Database>,

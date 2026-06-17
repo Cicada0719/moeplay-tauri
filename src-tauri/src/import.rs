@@ -391,7 +391,9 @@ fn process_archive(app_handle: &tauri::AppHandle, archive_path: &Path) {
                             tauri::async_runtime::spawn(async move {
                                 let db2 = handle.state::<Database>();
                                 let s = db2.get_settings();
-                                let raw = crate::scraper::search_all(
+                                let proxy = if s.scraper_proxy.trim().is_empty() { None } else { Some(s.scraper_proxy.clone()) };
+                                crate::scraper::utils::set_proxy(proxy);
+                                let (raw, _) = crate::scraper::search_all(
                                     &gname,
                                     s.vndb_enabled,
                                     s.bangumi_enabled,

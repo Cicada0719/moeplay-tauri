@@ -1,7 +1,7 @@
 <script lang="ts">
   import EmptyState from "./EmptyState.svelte";
   import { spotlight } from "../actions/spotlight";
-  import { scrapeGame, type ScrapeResult, type ScrapeSourceOptions } from "../api";
+  import { scrapeGame, type ScrapeResult, type ScrapeSourceOptions, type ScrapeSourceStatus } from "../api";
   import { settingsStore } from "../stores/settings.svelte";
   import { uiStore } from "../stores/ui.svelte";
 
@@ -20,6 +20,7 @@
   let strategy = $state("full");
   let loading = $state(false);
   let results = $state<ScrapeResult[]>([]);
+  let sourceStatus = $state<ScrapeSourceStatus[]>([]);
   let progress = $state<string[]>([]);
   let selectedIndex = $state(0);
   const selectedResult = $derived(results[selectedIndex] ?? null);
@@ -51,9 +52,13 @@
         steam: s.steam_enabled ?? true,
         pcgw: s.pcgw_enabled ?? true,
       };
-      results = await scrapeGame(query, s.vndb_enabled, s.bangumi_enabled, opts);
+      const resp = await scrapeGame(query, s.vndb_enabled, s.bangumi_enabled, opts);
+      results = resp.results;
+      sourceStatus = resp.source_status;
       selectedIndex = 0;
-      progress = [...progress, `完成：${results.length} 条结果`];
+      const okCount = sourceStatus.filter(s => s.ok).length;
+      const failCount = sourceStatus.filter(s => !s.ok).length;
+      progress = [...progress, `完成：${results.length} 条结果（${okCount} 源成功，${failCount} 源失败）`];
     } catch (error) {
       progress = [...progress, `失败：${String(error)}`];
     } finally {
@@ -116,6 +121,21 @@
         {/each}
       </div>
 
+      {#if sourceStatus.length}
+        <div class="source-status">
+          {#each sourceStatus as st}
+            <span class="src-st" class:ok={st.ok} class:fail={!st.ok} title={st.error ?? ""}>
+              {st.source.toUpperCase()}
+              {#if st.ok}
+                {st.count}
+              {:else}
+                ✕
+              {/if}
+            </span>
+          {/each}
+        </div>
+      {/if}
+
       {#if results.length}
         <div class="candidate-list" aria-label="刮削候选结果">
           {#each results as result, i}
@@ -171,6 +191,13 @@
 </section>
 
 <style>
+  .source-status { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 0 4px; }
+  .src-st {
+    font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 6px;
+    font-family: var(--font-mono);
+  }
+  .src-st.ok { background: rgba(76, 175, 80, 0.15); color: #81c784; }
+  .src-st.fail { background: rgba(255, 80, 80, 0.15); color: #ff6b6b; }
   .page { padding: 24px; overflow: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 18px; }
   .page-head { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
   .aura-head { align-items: flex-end; }

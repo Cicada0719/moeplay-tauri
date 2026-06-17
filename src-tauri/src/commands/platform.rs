@@ -1027,7 +1027,9 @@ pub fn import_platform_library(
                         tauri::async_runtime::spawn(async move {
                             let db2 = crate::db::Database::new();
                             let s = db2.get_settings();
-                            let raw = crate::scraper::search_all(
+                            let proxy = if s.scraper_proxy.trim().is_empty() { None } else { Some(s.scraper_proxy.clone()) };
+                            crate::scraper::utils::set_proxy(proxy);
+                            let (raw, _) = crate::scraper::search_all(
                                 &gname,
                                 s.vndb_enabled,
                                 s.bangumi_enabled,
