@@ -8,6 +8,11 @@ import {
   searchGames,
   setSaveDir,
   toggleFavorite as toggleFavoriteApi,
+  toggleHidden as toggleHiddenApi,
+  addSimpleTag as addSimpleTagApi,
+  removeSimpleTag as removeSimpleTagApi,
+  updateCompletionStatus as updateCompletionStatusApi,
+  type CompletionStatus,
   type ScrapeResult,
   type Game as ApiGame,
 } from "../api";
@@ -28,18 +33,53 @@ import {
 
 export type Game = ApiGame;
 
+export interface SmartCollection {
+  id: string;
+  name: string;
+  icon: string;
+  color?: string;
+  filters: {
+    quickFilter?: string | null;
+    filterTag?: string | null;
+    searchQuery?: string;
+    developer?: string;
+    platform?: string;
+    status?: string;
+    minRating?: number;
+    sortBy?: string;
+    tags?: string[];
+    tagMode?: "any" | "all";
+    installed?: boolean;
+    hasPlayed?: boolean;
+  };
+}
+
+const COLLECTIONS_KEY = "moeplay-smart-collections";
+
+function loadCollections(): SmartCollection[] {
+  try {
+    return JSON.parse(localStorage.getItem(COLLECTIONS_KEY) || "[]");
+  } catch { return []; }
+}
+function saveCollections(cols: SmartCollection[]) {
+  localStorage.setItem(COLLECTIONS_KEY, JSON.stringify(cols));
+}
+
 let _games = $state<Game[]>([]);
 let _allGames = $state<Game[]>([]);
 let _loading = $state(false);
 let _loadError = $state<string | null>(null);
 let _selectedId = $state<string | null>(null);
+let _selectedIds = $state<Set<string>>(new Set());
 let _searchQuery = $state("");
 let _filterTag = $state<string | null>(null);
 let _quickFilter = $state<string | null>(null);
 let _sortBy = $state("recent");
+let _smartCollections = $state<SmartCollection[]>(loadCollections());
+let _activeCollectionId = $state<string | null>(null);
 
 /** Check if any field's pinyin matches the search query */
-function matchesPinyin(text: string | undefined | null, query: string): boolean {
+export function matchesPinyin(text: string | undefined | null, query: string): boolean {
   if (!text || !query) return false;
   const lower = text.toLowerCase();
   // Direct text match first
@@ -55,9 +95,10 @@ function matchesPinyin(text: string | undefined | null, query: string): boolean 
   return false;
 }
 
-function sortGames(arr: Game[]): Game[] {
+function sortGames(arr: Game[], sortBy?: string): Game[] {
   const s = [...arr];
-  switch (_sortBy) {
+  const by = sortBy ?? _sortBy;
+  switch (by) {
     case "name":
       s.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "", "zh-CN"));
       break;
@@ -88,15 +129,38 @@ function normalizeGames(games: Game[]): Game[] {
 }
 
 function applyLocalFilter() {
-  if (!_quickFilter && !_searchQuery && !_filterTag) {
-    _games = sortGames(_allGames);
+  // Resolve smart collection filters
+  let ef = _quickFilter;
+  let et = _filterTag;
+  let eq = _searchQuery;
+  let eSort = _sortBy;
+  let eDeveloper: string | undefined;
+  let ePlatform: string | undefined;
+  let eStatus: string | undefined;
+  let eMinRating: number | undefined;
+
+  if (_activeCollectionId) {
+    const col = _smartCollections.find(c => c.id === _activeCollectionId);
+    if (col) {
+      ef = col.filters.quickFilter ?? ef;
+      et = col.filters.filterTag ?? et;
+      eq = col.filters.searchQuery ?? eq;
+      eSort = col.filters.sortBy ?? eSort;
+      eDeveloper = col.filters.developer;
+      ePlatform = col.filters.platform;
+      eStatus = col.filters.status;
+      eMinRating = col.filters.minRating;
+    }
+  }
+
+  if (!ef && !et && !eq && !eDeveloper && !ePlatform && !eStatus && !eMinRating) {
+    _games = sortGames(_allGames, eSort);
     return;
   }
-  const q = (_searchQuery || "").toLowerCase();
-  const tag = (_filterTag || "").toLowerCase();
-  const f = _quickFilter;
+  const q = (eq || "").toLowerCase();
+  const tag = (et || "").toLowerCase();
+  const f = ef;
   _games = _allGames.filter(g => {
-    // quickFilter
     if (f === "favorite" && !g.favorite) return false;
     if (f === "playing" && gameCompletionStatus(g) !== "playing") return false;
     if (f === "completed" && gameCompletionStatus(g) !== "completed") return false;
@@ -106,17 +170,26 @@ function applyLocalFilter() {
     }
     if (f === "installed" && !isInstalled(g)) return false;
     if (f === "missing_metadata") {
-      // 待补全 = 缺封面 / 简介 / 标签 之一（不强制要求 vndb+bangumi ID，否则全部平台游戏都被算进来）
       const complete = !!coverOf(g) && !!g.description?.trim() && tagsOf(g).length > 0;
       if (complete) return false;
     }
     if (f === "recent" && !gameLastPlayed(g)) return false;
-    // filterTag
     if (tag) {
       const allTags = tagsOf(g).map(t => t.toLowerCase());
       if (!allTags.includes(tag)) return false;
     }
-    // searchQuery
+    if (eDeveloper) {
+      if (developerOf(g).toLowerCase() !== eDeveloper.toLowerCase()) return false;
+    }
+    if (ePlatform) {
+      if ((g as any).platform?.toLowerCase() !== ePlatform.toLowerCase()) return false;
+    }
+    if (eStatus) {
+      if (gameCompletionStatus(g) !== eStatus) return false;
+    }
+    if (eMinRating && eMinRating > 0) {
+      if (gameRating(g) < eMinRating) return false;
+    }
     if (q) {
       const originalName = originalNameOf(g);
       const fields = [
@@ -132,7 +205,7 @@ function applyLocalFilter() {
     }
     return true;
   });
-  _games = sortGames(_games);
+  _games = sortGames(_games, eSort);
 }
 
 export const gameStore = {
@@ -146,6 +219,8 @@ export const gameStore = {
   get loadError() { return _loadError; },
   get selectedId() { return _selectedId; },
   get selectedGame() { return _allGames.find(g => g.id === _selectedId) || null; },
+  get selectedIds() { return _selectedIds; },
+  get selectionMode() { return _selectedIds.size > 0; },
   get searchQuery() { return _searchQuery; },
   set searchQuery(v: string) {
     _searchQuery = v;
@@ -165,6 +240,71 @@ export const gameStore = {
   set sortBy(v: string) {
     _sortBy = v;
     applyLocalFilter();
+  },
+
+  // ---- smart collections ----
+  get smartCollections() { return _smartCollections; },
+  get activeCollectionId() { return _activeCollectionId; },
+
+  activateCollection(id: string | null) {
+    _activeCollectionId = id;
+    // Clear manual filters when activating a collection
+    if (id) {
+      _quickFilter = null;
+      _filterTag = null;
+      _searchQuery = "";
+    }
+    applyLocalFilter();
+  },
+
+  addCollection(name: string, icon: string, filters: SmartCollection["filters"]): SmartCollection {
+    const col: SmartCollection = { id: crypto.randomUUID(), name, icon, filters };
+    _smartCollections = [..._smartCollections, col];
+    saveCollections(_smartCollections);
+    return col;
+  },
+
+  updateCollection(id: string, updates: Partial<SmartCollection>) {
+    _smartCollections = _smartCollections.map(c => c.id === id ? { ...c, ...updates } : c);
+    saveCollections(_smartCollections);
+  },
+
+  removeCollection(id: string) {
+    _smartCollections = _smartCollections.filter(c => c.id !== id);
+    if (_activeCollectionId === id) {
+      _activeCollectionId = null;
+      applyLocalFilter();
+    }
+    saveCollections(_smartCollections);
+  },
+
+  saveCurrentAsCollection(name: string, icon: string): SmartCollection {
+    return this.addCollection(name, icon, {
+      quickFilter: _quickFilter,
+      filterTag: _filterTag,
+      searchQuery: _searchQuery || undefined,
+      sortBy: _sortBy,
+    });
+  },
+
+  exportCollection(id: string): string | null {
+    const col = _smartCollections.find(c => c.id === id);
+    if (!col) return null;
+    return JSON.stringify({ ...col, id: undefined }, null, 2);
+  },
+
+  importCollection(json: string): SmartCollection | null {
+    try {
+      const data = JSON.parse(json);
+      if (!data.name || !data.filters) return null;
+      return this.addCollection(data.name, data.icon || "folder", data.filters);
+    } catch { return null; }
+  },
+
+  duplicateCollection(id: string): SmartCollection | null {
+    const col = _smartCollections.find(c => c.id === id);
+    if (!col) return null;
+    return this.addCollection(`${col.name} (副本)`, col.icon, { ...col.filters });
   },
 
   // ---- data loading ----
@@ -282,5 +422,78 @@ export const gameStore = {
       _loadError = userFacingErrorMessage(e);
       throw e;
     }
+  },
+
+  // ---- batch selection ----
+  toggleSelection(id: string) {
+    const next = new Set(_selectedIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    _selectedIds = next;
+  },
+
+  selectAll() {
+    _selectedIds = new Set(_games.map(g => g.id));
+  },
+
+  clearSelection() {
+    _selectedIds = new Set();
+  },
+
+  isSelected(id: string) {
+    return _selectedIds.has(id);
+  },
+
+  // ---- batch actions ----
+  async batchDelete() {
+    const ids = [..._selectedIds];
+    _selectedIds = new Set();
+    for (const id of ids) {
+      try { await deleteGameApi(id); } catch (e) { console.error("Batch delete failed:", id, e); }
+    }
+    _allGames = _allGames.filter(g => !ids.includes(g.id));
+    _games = _games.filter(g => !ids.includes(g.id));
+    return ids.length;
+  },
+
+  async batchToggleHidden() {
+    const ids = [..._selectedIds];
+    _selectedIds = new Set();
+    for (const id of ids) {
+      try {
+        await toggleHiddenApi(id);
+      } catch (e) { console.error("Batch hide failed:", id, e); }
+    }
+    await this.load();
+    return ids.length;
+  },
+
+  async batchToggleFavorite() {
+    const ids = [..._selectedIds];
+    _selectedIds = new Set();
+    for (const id of ids) {
+      try { await toggleFavoriteApi(id); } catch (e) { console.error("Batch fav failed:", id, e); }
+    }
+    await this.load();
+    return ids.length;
+  },
+
+  async batchAddTag(tag: string) {
+    const ids = [..._selectedIds];
+    _selectedIds = new Set();
+    for (const id of ids) {
+      try { await addSimpleTagApi(id, tag); } catch (e) { console.error("Batch tag failed:", id, e); }
+    }
+    await this.load();
+    return ids.length;
+  },
+
+  async batchSetStatus(status: CompletionStatus) {
+    const ids = [..._selectedIds];
+    _selectedIds = new Set();
+    for (const id of ids) {
+      try { await updateCompletionStatusApi(id, status); } catch (e) { console.error("Batch status failed:", id, e); }
+    }
+    await this.load();
+    return ids.length;
   },
 };

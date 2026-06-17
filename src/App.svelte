@@ -104,6 +104,12 @@
       uiStore.setBigPicture(true);
     } else if (mode === "fullscreen") {
       // 已由 tauri.conf.json fullscreen:true 原生全屏，无需处理
+    } else if (mode === "windowed") {
+      import("@tauri-apps/api/dpi").then(({ LogicalSize }) => {
+        win.setFullscreen(false).then(() =>
+          win.setSize(new LogicalSize(1200, 800)).then(() => win.center())
+        ).catch(() => {});
+      });
     } else {
       win.setFullscreen(false).then(() => win.maximize()).catch(() => {});
     }
@@ -157,6 +163,10 @@
             {/await}
           {:else if uiStore.currentView === "anime"}
             {#await import("./lib/components/AnimePage.svelte") then { default: Comp }}
+              <Comp />
+            {/await}
+          {:else if uiStore.currentView === "continue"}
+            {#await import("./lib/components/ContinueHub.svelte") then { default: Comp }}
               <Comp />
             {/await}
           {:else if uiStore.currentView === "comic"}

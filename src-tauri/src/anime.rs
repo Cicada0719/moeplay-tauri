@@ -165,23 +165,32 @@ fn random_ua() -> &'static str {
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 }
 
-fn build_client(rule: &AnimeRule) -> reqwest::Client {
-    let ua = if rule.user_agent.is_empty() { random_ua().to_string() } else { rule.user_agent.clone() };
-    reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(8))
-        .user_agent(ua)
-        .danger_accept_invalid_certs(true)
-        .build()
-        .unwrap_or_default()
+fn shared_client() -> &'static reqwest::Client {
+    use std::sync::OnceLock;
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(8))
+            .user_agent(random_ua())
+            .danger_accept_invalid_certs(true)
+            .pool_max_idle_per_host(8)
+            .build()
+            .unwrap_or_default()
+    })
 }
 
 pub async fn search_anime(rule: &AnimeRule, keyword: &str) -> Result<Vec<SearchItem>, String> {
     let query_url = rule.search_url.replace("@keyword", &urlencoding::encode(keyword));
 
-    let client = build_client(rule);
+    let client = shared_client();
     let mut headers = reqwest::header::HeaderMap::new();
     if let Ok(v) = reqwest::header::HeaderValue::from_str(&format!("{}/", rule.base_url)) {
         headers.insert(reqwest::header::REFERER, v);
+    }
+    if !rule.user_agent.is_empty() {
+        if let Ok(v) = reqwest::header::HeaderValue::from_str(&rule.user_agent) {
+            headers.insert(reqwest::header::USER_AGENT, v);
+        }
     }
 
     let html = if rule.use_post {
@@ -254,10 +263,15 @@ pub async fn fetch_roads(rule: &AnimeRule, page_url: &str) -> Result<Vec<Road>, 
         format!("{}{}", rule.base_url.trim_end_matches('/'), if page_url.starts_with('/') { page_url.to_string() } else { format!("/{}", page_url) })
     };
 
-    let client = build_client(rule);
+    let client = shared_client();
     let mut headers = reqwest::header::HeaderMap::new();
     if let Ok(v) = reqwest::header::HeaderValue::from_str(&format!("{}/", rule.base_url)) {
         headers.insert(reqwest::header::REFERER, v);
+    }
+    if !rule.user_agent.is_empty() {
+        if let Ok(v) = reqwest::header::HeaderValue::from_str(&rule.user_agent) {
+            headers.insert(reqwest::header::USER_AGENT, v);
+        }
     }
 
     let html = client.get(&full_url)

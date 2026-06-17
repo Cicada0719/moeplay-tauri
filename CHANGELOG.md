@@ -1,11 +1,62 @@
 # Changelog
 
+## 0.10.2 - 2026-06-17
+
+### Bug 修复
+- 修复视频播放器卡在"正在连接播放页… 0s/30s"无法播放的问题
+  - 修复 Svelte 5 `$effect` 依赖循环：`extractTimer` 从 `$state` 改为普通变量，消除 effect 无限重触发
+  - 修复视频代理 ureq 2 错误处理：区分 HTTP 状态错误与连接错误，透传 CDN 响应而非静默返回 502
+
+### 新增功能
+- 大屏模式媒体导轨、搜索组件
+- 续播中心 + 续播卡片
+- 游戏笔记面板
+- 存档管理面板
+- 智能合集编辑器
+- 虚拟键盘（大屏模式）
+- "玩什么"推荐组件
+- 应用更新对话框
+
+## 0.10.1 - 2026-06-17
+
+### 播放源优化
+- 共享 HTTP 客户端单例（reqwest + ureq Agent），减少连接开销
+- 视频嗅探 JS 注入：相对 URL 解析、HTMLSourceElement setter hook、JSONP 检测
+- 嗅探轮询 500ms → 250ms，迭代次数 70 → 140，提升捕获率
+- 视频代理增加 Origin 头、读缓冲 8KB → 16KB、AtomicU16 替换 static mut
+- 视频 URL 缓存（30 分钟 TTL），重复播放秒开
+- 播放成功后台预提取下一集 URL
+- 并行换源：Phase 1 多源并发搜索+线路，Phase 2 顺序提取，优先上次成功源
+
+### UI 优化
+- 播放器工具栏增加分组分隔线，全屏时隐藏底栏
+- 倍速菜单/弹幕设置点击外部自动关闭
+- 提取进度指示器增加脉冲动画
+- 详情页 FAB 按钮显示续播信息 + 呼吸动画
+- 选集面板标记已观看集数、高亮续播集
+- 移除搜索抽屉无功能按钮
+- Tab 切换增加过渡动画
+- 进度条宽度响应式适配
+
+### 项目清理
+- 移除 AI 工具配置、开发临时文件
+- 标准化开源项目结构
+
+## 0.1.2 - 2026-06-16
+
+- 自动换源：播放提取失败时自动搜索替代源
+- 提取进度可视化：分步状态与计时器
+- 播放器超时/错误状态新增「手动选源」按钮
+- Tauri 自动更新集成
+- 批量操作：Ctrl 多选、批量收藏/隐藏/标签/删除
+- 智能合集：保存筛选条件为命名合集
+- 修复多个页面加载/错误状态缺失问题
+
 ## 0.1.1 - 2026-06-11
 
-- Restored reliable MoeGame LiteDB migration into the Tauri SQLite library.
-- Improved Steam platform import with playtime, last-played, vertical cover, icon, and achievement metadata.
-- Added local Epic manifest cover extraction and platform import deduplication.
-- Added one-click platform import/resync entry points for Steam and local Epic sources.
-- Reworked home/detail views toward the PS5 rail layout, including detail save and achievement panels.
-- Added frontend unit tests plus a Rust concurrent scrape identity regression.
-- Added release packaging checks and portable zip packaging scripts.
+- 从 MoeGame C# 版迁移 LiteDB 数据至 Tauri SQLite
+- Steam 平台导入：游戏时间、最后游玩、封面、图标、成就
+- Epic 本地清单封面提取与平台导入去重
+- 主页/详情视图重构为 PS5 风格导轨布局
+- 添加前端单元测试与 Rust 并发抓取回归测试
+- 发布打包脚本与构建校验

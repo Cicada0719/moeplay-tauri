@@ -98,6 +98,8 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(Database::new())
         .manage(anime::AnimeState::default())
         .manage(comic::ComicState::default())
@@ -395,6 +397,7 @@ pub fn run() {
             commands::anime_bangumi_comments,
             commands::anime_bangumi_episodes_list,
             commands::anime_get_proxy_url,
+            commands::frontend_log,
             commands::anime_image_search,
             commands::anime_bangumi_episode_comments,
             // ---- Bangumi 收藏同步 ----

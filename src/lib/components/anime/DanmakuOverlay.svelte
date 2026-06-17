@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { DanmakuComment } from "../../stores/anime.svelte";
   import { animeStore } from "../../stores/anime.svelte";
+  import { onDestroy } from "svelte";
 
   interface Props {
     comments: DanmakuComment[];
@@ -13,11 +14,10 @@
   let canvasEl = $state<HTMLCanvasElement | null>(null);
   let containerEl = $state<HTMLDivElement | null>(null);
 
-  // 从 store 读取弹幕设置
   const opacity = $derived(animeStore.danmakuOpacity);
   const speed = $derived(animeStore.danmakuSpeed);
   const fontSize = $derived(animeStore.danmakuFontSize);
-  const area = $derived(animeStore.danmakuArea); // 0=1/4 1=1/2 2=全屏
+  const area = $derived(animeStore.danmakuArea);
   const blockScroll = $derived(animeStore.danmakuBlockScroll);
   const blockTop = $derived(animeStore.danmakuBlockTop);
   const blockBottom = $derived(animeStore.danmakuBlockBottom);
@@ -25,57 +25,49 @@
 
   const FONT_FAMILY = '"PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", sans-serif';
 
-  // Danmaku renderer state
   interface ActiveComment {
     text: string;
     color: string;
-    mode: number; // 1=scroll, 4=bottom, 5=top
+    mode: number;
     x: number;
     y: number;
     width: number;
     speed: number;
-    opacity: number;
     startTime: number;
   }
 
   let activeComments: ActiveComment[] = [];
-  let lastTime = 0;
+  let lastSpawnTime = 0;
   let canvasW = 0;
   let canvasH = 0;
+  let rafId: number | null = null;
+  let lastFrameTs = 0;
 
-  // 计算弹幕区域限制
   function getMaxY(): number {
-    if (area === 0) return canvasH * 0.25; // 1/4 屏幕
-    if (area === 1) return canvasH * 0.5;  // 1/2 屏幕
-    return canvasH; // 全屏
+    if (area === 0) return canvasH * 0.25;
+    if (area === 1) return canvasH * 0.5;
+    return canvasH;
   }
 
-  // 检查弹幕是否应该被屏蔽
   function shouldBlock(comment: DanmakuComment): boolean {
-    // 按模式屏蔽
     if (blockScroll && comment.mode === 1) return true;
     if (blockTop && comment.mode === 5) return true;
     if (blockBottom && comment.mode === 4) return true;
-    // 按关键词屏蔽
     if (blockWords.length > 0 && blockWords.some(w => w.trim() && comment.text.includes(w.trim()))) return true;
     return false;
   }
 
   function getLane(mode: number, totalLanes: number, laneHeight: number): number {
-    const isScroll = mode === 1;
-    const isTop = mode === 5;
-    const isBottom = mode === 4;
-
     for (let lane = 0; lane < totalLanes; lane++) {
       const occupied = activeComments.some(c => {
-        if (isScroll && c.mode === 1) {
-          return c.y === lane * laneHeight && c.x + c.width > canvasW * 0.3;
+        if (mode === 1 && c.mode === 1) {
+          return c.y === lane * laneHeight + fontSize && c.x + c.width > canvasW * 0.3;
         }
-        if (isTop && c.mode === 5) {
-          return c.y === lane * laneHeight;
+        if (mode === 5 && c.mode === 5) {
+          return c.y === lane * laneHeight + fontSize;
         }
-        if (isBottom && c.mode === 4) {
-          return c.y === canvasH - (lane + 1) * laneHeight;
+        if (mode === 4 && c.mode === 4) {
+          return c.y === canvasH - (lane + 1) * laneHeight + fontSize;
         }
         return false;
       });
@@ -89,19 +81,13 @@
     const laneHeight = fontSize + 6;
     const scrollDuration = 8 / speed;
     for (const c of comments) {
-      if (c.time >= lastTime - tolerance && c.time < time + tolerance) {
-        // 屏蔽检查
+      if (c.time >= lastSpawnTime - tolerance && c.time < time + tolerance) {
         if (shouldBlock(c)) continue;
 
         const alreadyActive = activeComments.some(
           ac => ac.text === c.text && Math.abs(ac.startTime - c.time) < 0.5
         );
         if (alreadyActive) continue;
-
-        const r = (c.color >> 16) & 0xFF;
-        const g = (c.color >> 8) & 0xFF;
-        const b = c.color & 0xFF;
-        const colorStr = `rgb(${r},${g},${b})`;
 
         const ctx = canvasEl?.getContext('2d');
         if (!ctx) continue;
@@ -113,21 +99,26 @@
         const lane = getLane(c.mode, totalLanes, laneHeight);
         if (lane < 0) continue;
 
+        const r = (c.color >> 16) & 0xFF;
+        const g = (c.color >> 8) & 0xFF;
+        const b = c.color & 0xFF;
+        const colorStr = `rgb(${r},${g},${b})`;
+
         let x: number;
         let y: number;
         let spd: number;
 
         if (c.mode === 1) {
           x = canvasW;
-          y = lane * laneHeight;
+          y = lane * laneHeight + fontSize;
           spd = (canvasW + textWidth) / scrollDuration;
         } else if (c.mode === 5) {
           x = (canvasW - textWidth) / 2;
-          y = lane * laneHeight;
+          y = lane * laneHeight + fontSize;
           spd = 0;
         } else {
           x = (canvasW - textWidth) / 2;
-          y = canvasH - (lane + 1) * laneHeight;
+          y = canvasH - (lane + 1) * laneHeight + fontSize;
           spd = 0;
         }
 
@@ -135,21 +126,19 @@
           text: c.text,
           color: colorStr,
           mode: c.mode,
-          x,
-          y: y + fontSize,
-          width: textWidth,
+          x, y, width: textWidth,
           speed: spd,
-          opacity: opacity,
           startTime: c.time,
         });
       }
     }
   }
 
-  function render(time: number) {
+  function frame(now: number) {
+    rafId = requestAnimationFrame(frame);
+
     const canvas = canvasEl;
     if (!canvas) return;
-
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
@@ -165,57 +154,82 @@
         canvas.height = h * dpr;
         canvas.style.width = `${w}px`;
         canvas.style.height = `${h}px`;
-        ctx.scale(dpr, dpr);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       }
     }
 
     ctx.clearRect(0, 0, canvasW, canvasH);
 
     if (!enabled || comments.length === 0) {
-      lastTime = time;
+      lastSpawnTime = currentTime;
+      lastFrameTs = now;
       return;
     }
 
-    spawnComments(time);
+    spawnComments(currentTime);
+    lastSpawnTime = currentTime;
+
+    const dtSec = lastFrameTs > 0 ? (now - lastFrameTs) / 1000 : 0;
+    lastFrameTs = now;
+    const clampedDt = Math.min(dtSec, 0.1);
 
     ctx.font = `${fontSize}px ${FONT_FAMILY}`;
     ctx.textBaseline = 'top';
 
-    const dt = time - lastTime;
     activeComments = activeComments.filter(c => {
-      if (c.mode !== 1 && time - c.startTime > 4) return false;
+      if (c.mode !== 1 && currentTime - c.startTime > 4) return false;
       if (c.mode === 1 && c.x + c.width < -10) return false;
 
       if (c.mode === 1) {
-        c.x -= c.speed * dt;
+        c.x -= c.speed * clampedDt;
       }
 
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
       ctx.fillText(c.text, c.x + 1, c.y + 1);
 
       ctx.fillStyle = c.color;
-      ctx.globalAlpha = opacity; // 用当前 store 值，调滑块时即时生效
+      ctx.globalAlpha = opacity;
       ctx.fillText(c.text, c.x, c.y);
       ctx.globalAlpha = 1;
 
       return true;
     });
+  }
 
-    lastTime = time;
+  function startLoop() {
+    if (rafId !== null) return;
+    lastFrameTs = 0;
+    rafId = requestAnimationFrame(frame);
+  }
+
+  function stopLoop() {
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
   }
 
   $effect(() => {
-    const time = currentTime;
-    if (!canvasEl) return;
-    const id = requestAnimationFrame(() => render(time));
-    return () => cancelAnimationFrame(id);
+    if (enabled && comments.length > 0) {
+      startLoop();
+    } else {
+      stopLoop();
+      if (canvasEl) {
+        const ctx = canvasEl.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, canvasW, canvasH);
+      }
+    }
+    return stopLoop;
   });
 
   $effect(() => {
     const _ = comments;
     activeComments = [];
-    lastTime = 0;
+    lastSpawnTime = 0;
+    lastFrameTs = 0;
   });
+
+  onDestroy(stopLoop);
 </script>
 
 <div class="danmaku-container" bind:this={containerEl}>

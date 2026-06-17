@@ -5,6 +5,8 @@
   import type { Game } from "../stores/games.svelte";
   import Icon from "./Icon.svelte";
   import BigPictureDetail from "./BigPictureDetail.svelte";
+  import BPSearch from "./BPSearch.svelte";
+  import BPMediaRail from "./BPMediaRail.svelte";
   import RatingRing from "./RatingRing.svelte";
   import { formatPlayTime } from "../api";
   import { fileSrc } from "../utils";
@@ -35,6 +37,7 @@
   let focusIdx = $state(0);
   let filterAll = $state(true);
   let showDetail = $state(false);
+  let showSearch = $state(false);
   let railEl = $state<HTMLDivElement>();
   let now = $state(new Date());
   let bgCurrent = $state<string>(defaultLibraryBackdrop);
@@ -47,6 +50,15 @@
   const allGames = $derived(gameStore.allGames);
   const filteredGames = $derived(filterAll ? games : allGames.filter((g) => isInstalled(g)));
   const focusGame = $derived(filteredGames[focusIdx] ?? null);
+
+  const WHEEL_RADIUS = 8;
+  const wheelRange = $derived({
+    start: Math.max(0, focusIdx - WHEEL_RADIUS),
+    end: Math.min(filteredGames.length - 1, focusIdx + WHEEL_RADIUS),
+  });
+  const visibleWheelGames = $derived(
+    filteredGames.slice(wheelRange.start, wheelRange.end + 1).map((g, vi) => ({ g, origIdx: vi + wheelRange.start }))
+  );
 
   const backgroundArt = $derived(pickBackgroundArt(focusGame));
   const isHeroBg = $derived(hasHeroBackground(focusGame));
@@ -106,6 +118,37 @@
     }
     return (s / 3600).toFixed(1);
   });
+
+  const continueAnime = $derived(
+    animeStore.history
+      .filter(h => h.lastEpisode > 0)
+      .slice(0, 10)
+      .map(h => ({
+        id: `anime-${h.key}`,
+        title: h.name,
+        cover: h.image ? animeStore.getImg(h.image) || h.image : null,
+        progress: undefined,
+        progressLabel: `第${h.lastEpisode}话`,
+        type: "anime" as const,
+      }))
+  );
+
+  const continueComics = $derived(
+    comicStore.readHistory
+      .slice(0, 10)
+      .map(h => ({
+        id: `comic-${h.id || h.title}`,
+        title: h.title,
+        cover: null,
+        progressLabel: h.last_title || undefined,
+        type: "comic" as const,
+      }))
+  );
+
+  function selectMedia(item: { type: string }) {
+    uiStore.setBigPicture(false);
+    uiStore.currentView = item.type === "anime" ? "anime" : "comic";
+  }
 
   // ---- nav ----
   function move(d: number) {
@@ -190,6 +233,7 @@
       case "x": case "X": e.preventDefault(); toggleFav(); break;
       case "y": case "Y": e.preventDefault(); openScraper(); break;
       case "i": case "I": e.preventDefault(); openImport(); break;
+      case "/": e.preventDefault(); showSearch = true; break;
     }
   }
 
@@ -251,7 +295,10 @@
       </header>
 
       <div class="bp-wheel" bind:this={railEl} role="listbox" aria-label="大屏游戏列表">
-        {#each filteredGames as g, i (g.id)}
+        {#if wheelRange.start > 0}<div class="bp-wheel-spacer" style="height:{wheelRange.start * 80}px"></div>{/if}
+        {#each visibleWheelGames as item (item.g.id)}
+          {@const i = item.origIdx}
+          {@const g = item.g}
           {@const off = i - focusIdx}
           {@const coff = Math.max(-4, Math.min(4, off))}
           <button
@@ -281,6 +328,7 @@
             </span>
           </button>
         {/each}
+        {#if wheelRange.end < filteredGames.length - 1}<div class="bp-wheel-spacer" style="height:{(filteredGames.length - 1 - wheelRange.end) * 80}px"></div>{/if}
         {#if filteredGames.length === 0}
           <div class="bp-empty">
             <p>暂无游戏</p>
@@ -382,6 +430,12 @@
 
       {:else}
       <div class="bp-media">
+        {#if continueAnime.length > 0}
+          <BPMediaRail title="继续观看" items={continueAnime} onselect={selectMedia} />
+        {/if}
+        {#if continueComics.length > 0}
+          <BPMediaRail title="继续阅读" items={continueComics} onselect={selectMedia} />
+        {/if}
         <div class="bp-media-dual">
           <!-- ── 动漫区 ── -->
           <section class="bp-media-panel" role="button" tabindex="0"
@@ -440,10 +494,10 @@
             <div class="bp-media-panel-body">
               {#if comicStore.isLoggedIn && comicStore.favorites.length > 0}
                 <div class="bp-cover-rail">
-                  {#each comicStore.favorites.slice(0, 8) as fav (fav._id)}
+                  {#each comicStore.favorites.slice(0, 8) as fav (fav.id)}
                     <div class="bp-cover-thumb">
-                      {#if fav.thumb?.fileServer}
-                        <img src="{fav.thumb.fileServer}/static/{fav.thumb.path}" alt={fav.title} />
+                      {#if fav.thumb_url}
+                        <img src={fav.thumb_url} alt={fav.title} />
                       {:else}
                         <div class="bp-cover-placeholder"><Icon name="book" size={20} /></div>
                       {/if}
@@ -475,6 +529,8 @@
   {#if showDetail && focusGame}
     <BigPictureDetail game={focusGame} onClose={closeDetail} />
   {/if}
+
+  <BPSearch bind:open={showSearch} onselect={(g) => { setFocus(filteredGames.findIndex(f => f.id === g.id)); }} />
 </section>
 
 <style>
@@ -606,6 +662,7 @@
     scrollbar-width: none;
   }
   .bp-wheel::-webkit-scrollbar { display: none; }
+  .bp-wheel-spacer { flex: 0 0 auto; pointer-events: none; }
 
   .bp-card {
     position: relative;

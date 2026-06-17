@@ -1052,7 +1052,7 @@
   .cover-title {
     font-size: 13px; font-weight: 650; line-height: 1.35;
     overflow: hidden; text-overflow: ellipsis;
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical;
   }
   .cover-sub {
     font-size: 10px; color: var(--text-muted); line-height: 1.3;
@@ -1195,7 +1195,7 @@
   .collect-card-name {
     font-size: 13px; font-weight: 650; line-height: 1.35;
     overflow: hidden; text-overflow: ellipsis;
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical;
   }
   .collect-card-source { font-size: 10px; color: var(--text-muted); }
 

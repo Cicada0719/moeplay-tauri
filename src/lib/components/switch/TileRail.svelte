@@ -24,6 +24,15 @@
   let syncedSelectedId = $state<string | null>(null);
   const sentinelIndex = $derived(items.length);
 
+  const RAIL_RADIUS = 6;
+  const railRange = $derived({
+    start: Math.max(0, focusIndex - RAIL_RADIUS),
+    end: Math.min(items.length - 1, focusIndex + RAIL_RADIUS),
+  });
+  const visibleItems = $derived(
+    items.slice(railRange.start, railRange.end + 1).map((game, vi) => ({ game, origIdx: vi + railRange.start }))
+  );
+
   function prefersReducedMotion(): boolean {
     return typeof window !== "undefined"
       && window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
@@ -135,7 +144,8 @@
   onwheel={onWheel}
   onkeydown={onKeydown}
 >
-  {#each items as game, i (game.id)}
+  {#if railRange.start > 0}<div class="rail-spacer" style="width:{railRange.start * 240}px"></div>{/if}
+  {#each visibleItems as { game, origIdx: i } (game.id)}
     <div class="slot" data-idx={i} role="option" aria-selected={i === focusIndex}>
       <TileCard
         {game}
@@ -146,6 +156,7 @@
       />
     </div>
   {/each}
+  {#if railRange.end < items.length - 1}<div class="rail-spacer" style="width:{(items.length - 1 - railRange.end) * 240}px"></div>{/if}
 
   <div class="slot" data-idx={sentinelIndex} role="option" aria-selected={sentinelIndex === focusIndex}>
     <TileCard
@@ -172,6 +183,7 @@
   }
   .rail::-webkit-scrollbar { display: none; }
   .slot { flex: 0 0 auto; }
+  .rail-spacer { flex: 0 0 auto; pointer-events: none; }
   /* 不在 rail 上画 focus 环：rail 是常驻获得焦点的滚动容器，inset 焦点环会变成一条
      横跨整条卡带的大红框（用键盘/手柄导航时尤其明显）。选中态由放大的卡片自身的
      ring 表达即可，这里的 rail 级焦点环纯属冗余。 */

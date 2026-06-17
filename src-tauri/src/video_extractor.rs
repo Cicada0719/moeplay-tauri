@@ -12,7 +12,7 @@
 use serde::Serialize;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
-const SNIFF_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+const SNIFF_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Sentinel host the injected script navigates to once a video URL is found.
 const SENTINEL_HOST: &str = "moeplay.invalid";
@@ -35,6 +35,7 @@ fn sniff_js() -> String {
       window.__MOEPLAY_VIDEO_URL__ = '';
       window.__MOEPLAY_VIDEO_SRC__ = '';
       var done = false;
+      var initTimer = 0;
 
       function isAd(u){
         return /googleads|googlesyndication|adtrafficquality|doubleclick|prestrain|adservice/i.test(u);
@@ -46,6 +47,7 @@ fn sniff_js() -> String {
         if (!url || url.indexOf('data:') === 0 || url.indexOf('blob:') === 0) return;
         if (isAd(url)) return;
         done = true;
+        if (initTimer) { try { clearInterval(initTimer); } catch(e){} }
         // Many sources host the actual <video>/player inside a cross-origin iframe.
         // Neither detection path on the Rust side sees a sub-frame: WebView2's
         // NavigationStarting (on_navigation) only fires for the TOP frame, and the
@@ -87,7 +89,29 @@ fn sniff_js() -> String {
       function consider(url, source){
         if (!url || done) return;
         url = String(url);
-        if (/\.(m3u8|mpd|mp4|flv|mkv|webm)(\?|#|$)/i.test(url)) report(url, source);
+        if (/^(data|blob):/i.test(url)) return;
+        // resolve relative URLs (e.g. /video/xxx.m3u8) so all checks work uniformly
+        if (!/^https?:\/\//i.test(url)) {
+          try { url = new URL(url, location.href).href; } catch(e){ return; }
+        }
+        if (/\.(m3u8|mpd|mp4|flv|mkv|webm)(\?|#|$)/i.test(url) && !/\bads?\b/i.test(url)) report(url, source);
+        // tokenized/path-based HLS — common pattern: /hls/xxx/index or /m3u8?token=xxx
+        if (/[/.]m3u8|\/hls\//i.test(url)) report(url, source);
+      }
+      // parse JSON strings for embedded video URLs (many modern players fetch URL from API)
+      function extractVideoUrlFromJson(text, source){
+        if (!text || done || text.length > 65536) return;
+        try {
+          var t = text.replace(/^\s+|\xEF\xBB\xBF/g, '');
+          var c = t.charAt(0);
+          if (c !== '{' && c !== '[' && !/^\w+\s*\(/.test(t)) return;
+          var re = /https?:(?:\\\/\\\/|\/\/)[^"'\s]*?\.(m3u8|mp4|flv|mkv|webm)(?:\?[^"'\s]*)?/gi;
+          var m;
+          while ((m = re.exec(text)) !== null) {
+            var found = m[0].replace(/\\\//g, '/');
+            if (!isAd(found)) { report(found, source + ':json'); return; }
+          }
+        } catch(e){}
       }
 
       // ── hook fetch (URL pattern + #EXTM3U body) ───────────────────────
@@ -104,6 +128,7 @@ fn sniff_js() -> String {
                 var ru = (resp && resp.url) || u;
                 resp.clone().text().then(function(t){
                   if (t && t.slice(0, 7) === '#EXTM3U') report(ru, 'fetch-m3u8');
+                  else extractVideoUrlFromJson(t, 'fetch');
                 }).catch(function(){});
               } catch(e){}
               return resp;
@@ -121,6 +146,7 @@ fn sniff_js() -> String {
             try {
               var t = this.responseText;
               if (t && t.slice(0, 7) === '#EXTM3U') report(u, 'xhr-m3u8');
+              else extractVideoUrlFromJson(t, 'xhr');
             } catch(e){}
           });
         } catch(e){}
@@ -134,6 +160,18 @@ fn sniff_js() -> String {
           Object.defineProperty(HTMLMediaElement.prototype, 'src', {
             set: function(v){ consider(v, 'media'); return desc.set.call(this, v); },
             get: desc.get,
+            configurable: true
+          });
+        }
+      } catch(e){}
+
+      // ── hook <source> element src setter ────────────────────────────
+      try {
+        var srcDesc = Object.getOwnPropertyDescriptor(HTMLSourceElement.prototype, 'src');
+        if (srcDesc && srcDesc.set) {
+          Object.defineProperty(HTMLSourceElement.prototype, 'src', {
+            set: function(v){ consider(v, 'source-el'); return srcDesc.set.call(this, v); },
+            get: srcDesc.get,
             configurable: true
           });
         }
@@ -173,7 +211,7 @@ fn sniff_js() -> String {
       if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
       else init();
       // periodic re-scan for late dynamic players (Kazumi does this too)
-      try { setInterval(init, 1000); } catch(e){}
+      try { initTimer = setInterval(init, 1000); } catch(e){}
     })();
     "#
     .to_string()
@@ -198,12 +236,17 @@ async fn run_sniff(app: tauri::AppHandle, episode_url: String) -> Result<VideoUr
     let tx = std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
     let tx_nav = tx.clone();
 
-    let webview = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url_parsed))
+    tracing::info!("[sniff] 创建嗅探窗口: label={}, url={}", label, episode_url);
+    let label_log = label.clone();
+    let _webview = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url_parsed))
         .visible(false)
         .initialization_script(&sniff_js())
         .inner_size(1280.0, 720.0)
+        .on_page_load(move |_window, payload| {
+            tracing::info!("[sniff] 页面加载事件: event={:?} url={}", payload.event(), payload.url());
+        })
         .on_navigation(move |url| {
-            tracing::info!("on_navigation: {}", url);
+            tracing::info!("[sniff] on_navigation: {}", url);
             if url.host_str() == Some(SENTINEL_HOST) {
                 let mut found = String::new();
                 let mut source = String::new();
@@ -239,9 +282,9 @@ async fn run_sniff(app: tauri::AppHandle, episode_url: String) -> Result<VideoUr
     let label_poll = label.clone();
     let tx_poll = tx.clone();
     let poll_handle = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_millis(500));
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(250));
         interval.tick().await; // skip first immediate tick
-        for _ in 0..60 { // max 30s (60 * 500ms)
+        for _ in 0..140 { // max 35s (140 * 250ms) — overshoot SNIFF_TIMEOUT slightly so sentinel has time
             interval.tick().await;
             // Check if already resolved via on_navigation
             if tx_poll.lock().map(|g| g.is_none()).unwrap_or(true) {
@@ -277,18 +320,29 @@ async fn run_sniff(app: tauri::AppHandle, episode_url: String) -> Result<VideoUr
         }
     });
 
+    tracing::info!("[sniff] 等待嗅探结果 (超时 {}s)…", SNIFF_TIMEOUT.as_secs());
     let result = tokio::time::timeout(SNIFF_TIMEOUT, rx).await;
 
-    // Cleanup
+    // Cleanup — 不主动关闭窗口！
+    // wry 0.55 在销毁隐藏 WebView2 窗口时会 null pointer panic，
+    // 即使 catch_unwind 捕获了，也会破坏 UI 事件循环状态，
+    // 导致后续的 Svelte 响应式更新失效。
+    // 窗口保持隐藏，在应用退出时自动清理。
     poll_handle.abort();
-    let _ = webview.close();
-    if let Some(w) = app.get_webview_window(&label) {
-        let _ = w.close();
-    }
 
     match result {
-        Ok(Ok(v)) => Ok(v),
-        _ => Err("video-url-timeout".into()),
+        Ok(Ok(v)) => {
+            tracing::info!("[sniff] 嗅探成功: url={}, source={}", v.url, v.source);
+            Ok(v)
+        }
+        Ok(Err(e)) => {
+            tracing::error!("[sniff] 通道错误: {}", e);
+            Err(format!("嗅探通道错误: {}", e))
+        }
+        Err(_) => {
+            tracing::error!("[sniff] 嗅探超时 ({}s), label={}", SNIFF_TIMEOUT.as_secs(), label_log);
+            Err("video-url-timeout".into())
+        }
     }
 }
 
@@ -304,16 +358,32 @@ fn unwrap_player_url(raw: &str) -> String {
         };
         let inner = parsed.query_pairs().find_map(|(k, v)| {
             let key = k.to_ascii_lowercase();
-            if matches!(
+            let val = v.into_owned();
+            if !val.starts_with("http") {
+                return None;
+            }
+            let is_video_key = matches!(
                 key.as_str(),
-                "url" | "vurl" | "v" | "src" | "m3u8" | "playurl" | "video" | "link"
-            ) {
-                let val = v.into_owned();
-                if val.starts_with("http")
-                    && (val.contains(".m3u8") || val.contains(".mp4") || val.contains(".flv"))
-                {
-                    return Some(val);
-                }
+                "m3u8" | "playurl" | "video" | "videourl" | "stream" | "play_url"
+                    | "mediaurl" | "play" | "vurl" | "vid"
+            );
+            let is_generic_key = matches!(
+                key.as_str(),
+                "url" | "v" | "src" | "link" | "file" | "source" | "media" | "jx"
+            );
+            if is_video_key {
+                return Some(val);
+            }
+            if is_generic_key
+                && (val.contains(".m3u8")
+                    || val.contains(".mp4")
+                    || val.contains(".flv")
+                    || val.contains(".mkv")
+                    || val.contains(".webm")
+                    || val.contains("/m3u8")
+                    || val.contains("/hls/"))
+            {
+                return Some(val);
             }
             None
         });

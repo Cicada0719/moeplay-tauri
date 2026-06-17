@@ -24,9 +24,11 @@
   let query = $state("");
   let results = $state<ScrapeResult[]>([]);
   let searching = $state(false);
+  let searchError = $state<string | null>(null);
   let selectedResult = $state<ScrapeResult | null>(null);
   let recommendations = $state<{ name: string; score: number; reasons?: string[] }[]>([]);
   let collections = $state<Collection[]>([]);
+  let loadError = $state<string | null>(null);
 
   // Facet data
   let topDevs = $state<{ name: string; count: number }[]>([]);
@@ -35,11 +37,13 @@
   async function search() {
     if (!query.trim()) return;
     searching = true;
+    searchError = null;
     try {
       results = await scrapeGames(query, true, true, {
         kungal: true, steam: true, pcgw: true, erogamescape: true, ymgal: true, touchgal: true,
       });
     } catch (e) {
+      searchError = String(e);
       console.error("Search failed:", e);
     } finally {
       searching = false;
@@ -50,7 +54,7 @@
     selectedResult = r;
   }
 
-  onMount(async () => {
+  async function loadRecommendations() {
     try {
       const [recs, cols, dash] = await Promise.all([
         getRecommendations(null, 12),
@@ -61,9 +65,15 @@
       collections = cols ?? [];
       topDevs = (dash as any)?.top_developers ?? [];
       topTags = (dash as any)?.top_tags ?? [];
+      loadError = null;
     } catch (e) {
+      loadError = String(e);
       console.error("Discovery mount failed:", e);
     }
+  }
+
+  onMount(() => {
+    void loadRecommendations();
   });
 </script>
 
@@ -81,6 +91,14 @@
       <span><strong class="aura-num">{collections.length}</strong> 合集</span>
     </div>
   </header>
+
+  {#if loadError}
+    <div class="error-banner">
+      <Icon name="x" size={14} />
+      <span>推荐数据加载失败：{loadError}</span>
+      <button class="retry-link" onclick={loadRecommendations}>重试</button>
+    </div>
+  {/if}
 
   <nav class="tabs">
     {#each tabs as tab}
@@ -174,6 +192,8 @@
           </div>
         {/each}
       </div>
+    {:else if searchError}
+      <EmptyState title="搜索失败" description={searchError} actionLabel="重试" onAction={search} />
     {:else}
       <EmptyState title="等待搜索" description="并发查询 Bangumi / VNDB / Kungal / Steam / PCGW / Ymgal 等" />
     {/if}
@@ -255,6 +275,18 @@
   .head-stats strong { color: var(--text-primary); font-size: 0.95rem; }
   h1 { font-size: 1.5rem; font-weight: 700; color: var(--text-primary); }
   header p { color: var(--text-secondary); font-size: 0.85rem; margin-top: 2px; }
+
+  .error-banner {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px; border: 1px solid rgba(248,113,113,0.3); border-radius: 8px;
+    background: rgba(248,113,113,0.08); color: #f87171; font-size: 13px;
+  }
+  .error-banner span { flex: 1; }
+  .retry-link {
+    padding: 4px 10px; border: 1px solid rgba(248,113,113,0.3); border-radius: 6px;
+    background: transparent; color: #f87171; font-size: 12px; cursor: pointer;
+  }
+  .retry-link:hover { background: rgba(248,113,113,0.1); }
 
   .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
   .tabs button {

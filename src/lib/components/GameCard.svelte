@@ -41,6 +41,8 @@
     tags.some(t => /^(nsfw|18\+|r-?18|adult|成人|エロ|エロゲ)$/i.test(t.trim()))
   );
   const nsfwMode = $derived(settingsStore.settings.nsfw_display_mode ?? "show");
+  const inSelectionMode = $derived(gameStore.selectionMode);
+  const isSelected = $derived(gameStore.isSelected(game.id));
 
   // GSAP 入场：power3.out 淡入上移（结合 gsap-skill；hover 仍用 CSS 微交互）。
   onMount(() => {
@@ -53,7 +55,12 @@
     return () => ctx.revert();
   });
 
-  function handleClick() {
+  function handleClick(e: MouseEvent | KeyboardEvent) {
+    if (e instanceof KeyboardEvent && e.key !== "Enter" && e.key !== " ") return;
+    if (inSelectionMode || (e instanceof MouseEvent && (e.ctrlKey || e.metaKey))) {
+      gameStore.toggleSelection(game.id);
+      return;
+    }
     gameStore.selectGame(game.id);
     if (uiStore.currentView === "home") uiStore.libraryMode = "all";
     uiStore.currentView = "game-detail";
@@ -69,13 +76,9 @@
   class="game-card"
   class:list={uiStore.viewMode === "list"}
   class:nsfw-hidden={isNsfw && nsfwMode === "hide"}
-  onclick={handleClick}
-  onkeydown={(e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      handleClick();
-    }
-  }}
+  class:selected={isSelected}
+  onclick={(e) => handleClick(e)}
+  onkeydown={(e) => handleClick(e)}
   role="button"
   tabindex="0"
 >
@@ -86,15 +89,25 @@
       <div class="cover-placeholder"><span class="monogram">{monogram}</span></div>
     {/if}
 
-    {#if showStatusBadge}
+    {#if inSelectionMode}
+      <span class="select-check" class:checked={isSelected}>
+        {#if isSelected}
+          <Icon name="check" size={14} />
+        {/if}
+      </span>
+    {/if}
+
+    {#if showStatusBadge && !inSelectionMode}
       <span class="status-badge" title={statusLabels[completionStatus]}>
         <Icon name={statusIcons[completionStatus] || "diamond"} size={12} />
       </span>
     {/if}
 
-    <button class="fav-btn" class:active={game.favorite} onclick={toggleFavorite} aria-label="收藏">
-      <Icon name={game.favorite ? "heartFill" : "heart"} size={16} />
-    </button>
+    {#if !inSelectionMode}
+      <button class="fav-btn" class:active={game.favorite} onclick={toggleFavorite} aria-label="收藏">
+        <Icon name={game.favorite ? "heartFill" : "heart"} size={16} />
+      </button>
+    {/if}
 
     <div class="gradient-overlay"></div>
   </div>
@@ -132,6 +145,11 @@
     padding: 0;
     width: 100%;
     will-change: transform;
+    position: relative;
+  }
+  .game-card.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-ring, rgba(232,85,127,0.4));
   }
   .game-card:hover {
     transform: translateY(-4px);
@@ -168,6 +186,17 @@
     font-size: 40px; font-weight: 700;
     color: var(--text-muted);
     opacity: 0.5;
+  }
+
+  .select-check {
+    position: absolute; top: 8px; left: 8px; z-index: 5;
+    width: 24px; height: 24px; border-radius: 6px;
+    border: 2px solid rgba(255,255,255,0.4); background: rgba(0,0,0,0.3);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; transition: all 0.15s;
+  }
+  .select-check.checked {
+    border-color: var(--accent); background: var(--accent);
   }
 
   .status-badge {

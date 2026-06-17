@@ -16,8 +16,14 @@
   const roadIdx = $derived(animeStore.playerRoadIdx);
   const epIdx = $derived(animeStore.playerEpisodeIdx);
   const road = $derived(roads[roadIdx]);
-  const hasPrev = $derived(epIdx > 0);
-  const hasNext = $derived(road ? epIdx < road.episodes.length - 1 : false);
+  const hasPrev = $derived(epIdx > 0 && status !== 'extracting');
+  const hasNext = $derived(road ? epIdx < road.episodes.length - 1 && status !== 'extracting' : false);
+
+  // 换源自愈状态
+  const failoverStatus = $derived(animeStore.failoverStatus);
+  const failoverMessage = $derived(animeStore.failoverMessage);
+  const failoverTotal = $derived(animeStore.failoverTotal);
+  const failoverCurrent = $derived(animeStore.failoverCurrent);
 
   // 弹幕状态
   const danmakuComments = $derived(animeStore.danmakuComments);
@@ -38,6 +44,16 @@
   let downloading = $state(false);
   let downloadMsg = $state('');
 
+  // 提取进度反馈
+  let extractElapsed = $state(0);
+  let extractTimer: number | null = null;
+  const extractStep = $derived(
+    extractElapsed < 3 ? '正在连接播放页…' :
+    extractElapsed < 8 ? '正在嗅探视频流…' :
+    extractElapsed < 13 ? '正在提取真实地址…' :
+    '等待响应，可能较慢…'
+  );
+
   // 播放器设置
   const pendingSeekMs = $derived(animeStore.pendingSeekMs);
   const autoNext = $derived(animeStore.autoNext);
@@ -57,7 +73,7 @@
   let isLongPressing = $state(false);
   let brightness = $state(1);
 
-  // ── 选集面板 (修复「进去之后还不能选集」) ──
+  // ── 选集面板 ──
   let showEpisodePanel = $state(false);
   let pickerRoadIdx = $state(0);
   const pickerEpisodes = $derived(roads[pickerRoadIdx]?.episodes ?? []);
@@ -91,6 +107,27 @@
   onDestroy(() => {
     document.removeEventListener('fullscreenchange', onFullscreenChange);
     document.removeEventListener('keydown', onKeyDown);
+    if (extractTimer) clearInterval(extractTimer);
+  });
+
+  // 离开 found 状态时关闭视频相关弹出面板
+  $effect(() => {
+    if (status !== 'found') {
+      showSpeedMenu = false;
+      showDanmakuSettings = false;
+      showCommentsPanel = false;
+    }
+  });
+
+  // 提取进度计时器
+  $effect(() => {
+    if (status === 'extracting' && failoverStatus !== 'trying') {
+      extractElapsed = 0;
+      if (extractTimer) clearInterval(extractTimer);
+      extractTimer = window.setInterval(() => { extractElapsed += 1; }, 1000);
+    } else {
+      if (extractTimer) { clearInterval(extractTimer); extractTimer = null; }
+    }
   });
 
   // 当视频元素可用时检测 PiP 支持 & 监听事件
@@ -133,17 +170,16 @@
   }
   function onFullscreenChange() { isFullscreen = !!document.fullscreenElement; }
 
-  // 解析到直链后挂载到 <video>。
-  // 关键改动：isM3u8 仅靠 URL 判断并不可靠 —— 很多源的流地址是 token/playlist，URL 里没有 "m3u8"，
-  // 被当直链塞进原生 <video>，而 WebView2/Chromium 不支持原生 HLS → 黑屏、0:00、无元数据、还"没反应"。
-  // 这里加了「加载看门狗 + 原生↔hls.js 自动兜底」：一种方式 15s 放不出来或报错，就自动换另一种；
-  // 两种都失败才判 error 给出换源/网页播放选项，不再永远黑屏。
+  // HLS.js ↔ 原生双模兜底：15s 看门狗，一种方式超时就自动换另一种
   $effect(() => {
     const el = videoEl;
     const src = videoSrc;
     const m3u8 = isM3u8;
+    invoke('frontend_log', { level: 'info', message: `[播放器$effect] el=${!!el} status=${status} src=${src ? src.substring(0, 60) : 'null'}` }).catch(() => {});
     if (!el || status !== "found" || !src) return;
+    const v: HTMLVideoElement = el;
     console.log("[播放器] 初始化视频", { src: src.substring(0, 120), m3u8 });
+    invoke('frontend_log', { level: 'info', message: `[播放器] 初始化视频: m3u8=${m3u8}, src=${src.substring(0, 80)}` }).catch(() => {});
 
     let hls: Hls | null = null;
     let netRetry = 0;       // 网络错误重试次数（封顶防死循环）
@@ -151,7 +187,7 @@
     let attempt = 0;        // 0=未开始 1=首选方式 2=兜底方式
     let settled = false;    // 已成功加载到元数据 或 已最终判 error —— 之后不再做初次兜底
     let watchdog: number | null = null;
-    const nativeHls = el.canPlayType("application/vnd.apple.mpegurl") !== "";
+    const nativeHls = v.canPlayType("application/vnd.apple.mpegurl") !== "";
     // 首选方式：能用 hls.js 且看着像 m3u8 就先 hls，否则先原生
     const firstIsHls = m3u8 && !nativeHls && Hls.isSupported();
 
@@ -161,7 +197,7 @@
       // 15s 内拿不到元数据视为这条 src 放不出来（黑屏静默失败的兜底信号）
       watchdog = window.setTimeout(() => {
         if (settled) return;
-        if (el.readyState >= 1) return; // 已有元数据，别误杀慢源
+        if (v.readyState >= 1) return; // 已有元数据，别误杀慢源
         console.warn("[播放器] 15s 未加载到元数据，触发兜底");
         fail("timeout");
       }, 15000);
@@ -176,8 +212,8 @@
       if (hls) { try { hls.destroy(); } catch {} hls = null; }
       if (!settled && attempt < 2) {
         console.warn(`[播放器] 第${attempt}次加载失败(${why})，自动切换播放方式兜底`);
-        el.removeAttribute("src");
-        try { el.load(); } catch {}
+        v.removeAttribute("src");
+        try { v.load(); } catch {}
         startAttempt();
       } else {
         console.error(`[播放器] 加载失败(${why})，判定 error`);
@@ -188,26 +224,26 @@
 
     // 续播 + 倍速 + 跳片头：元数据就绪后执行
     const onLoadedMetadata = () => {
-      console.log("[播放器] loadedmetadata, duration:", el.duration);
+      console.log("[播放器] loadedmetadata, duration:", v.duration);
       succeed();
-      el.playbackRate = playbackRate;
+      v.playbackRate = playbackRate;
       if (pendingSeekMs > 0) {
-        el.currentTime = pendingSeekMs / 1000;
+        v.currentTime = pendingSeekMs / 1000;
         animeStore.pendingSeekMs = 0;
       } else if (animeStore.skipOpening > 0) {
-        el.currentTime = animeStore.skipOpening;
+        v.currentTime = animeStore.skipOpening;
       }
-      el.play().catch(() => {});
+      v.play().catch(() => {});
     };
-    el.addEventListener('loadedmetadata', onLoadedMetadata);
+    v.addEventListener('loadedmetadata', onLoadedMetadata);
 
     // video 元素错误：初次加载阶段触发兜底
     const onVideoError = () => {
-      const err = el.error;
+      const err = v.error;
       console.error("[播放器] video 元素错误:", err ? `code=${err.code} message=${err.message}` : "未知");
       if (!settled) fail("video error");
     };
-    el.addEventListener('error', onVideoError);
+    v.addEventListener('error', onVideoError);
 
     // 自动连播 + 跳片尾
     const onEnded = () => {
@@ -216,16 +252,16 @@
         animeStore.nextEpisode();
       }
     };
-    el.addEventListener('ended', onEnded);
+    v.addEventListener('ended', onEnded);
 
     const onTimeUpdateForSkip = () => {
-      if (animeStore.skipEnding > 0 && el.duration > 0 && el.currentTime >= el.duration - animeStore.skipEnding) {
+      if (animeStore.skipEnding > 0 && v.duration > 0 && v.currentTime >= v.duration - animeStore.skipEnding) {
         if (autoNext && hasNext) {
           animeStore.nextEpisode();
         }
       }
     };
-    el.addEventListener('timeupdate', onTimeUpdateForSkip);
+    v.addEventListener('timeupdate', onTimeUpdateForSkip);
 
     function attachHls() {
       console.log("[播放器] 使用 HLS.js 播放");
@@ -245,10 +281,10 @@
         nudgeMaxRetry: 10,
       });
       hls.loadSource(src);
-      hls.attachMedia(el);
+      hls.attachMedia(v);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         console.log("[播放器] HLS manifest 已解析，开始播放");
-        el.play().catch(() => {});
+        v.play().catch(() => {});
       });
       // 致命错误要自愈而不是直接判死（旧逻辑一遇 fatal 就 error → 播一会儿就卡死、必须退出重进）
       hls.on(Hls.Events.ERROR, (_e, data) => {
@@ -283,9 +319,9 @@
 
     function attachNative() {
       console.log("[播放器] 原生 <video> 直接播放");
-      el.src = src;
-      try { el.load(); } catch {}
-      el.play().catch(() => {});
+      v.src = src;
+      try { v.load(); } catch {}
+      v.play().catch(() => {});
       armWatchdog();
     }
 
@@ -301,10 +337,10 @@
 
     return () => {
       clearWatchdog();
-      el.removeEventListener('loadedmetadata', onLoadedMetadata);
-      el.removeEventListener('error', onVideoError);
-      el.removeEventListener('ended', onEnded);
-      el.removeEventListener('timeupdate', onTimeUpdateForSkip);
+      v.removeEventListener('loadedmetadata', onLoadedMetadata);
+      v.removeEventListener('error', onVideoError);
+      v.removeEventListener('ended', onEnded);
+      v.removeEventListener('timeupdate', onTimeUpdateForSkip);
       if (hls) { try { hls.destroy(); } catch {} }
     };
   });
@@ -354,9 +390,15 @@
     showSpeedMenu = false;
   }
 
+  function handleToolbarClickOutside(e: MouseEvent) {
+    const t = e.target as HTMLElement;
+    if (showSpeedMenu && !t.closest('.speed-control')) showSpeedMenu = false;
+    if (showDanmakuSettings && !t.closest('.danmaku-settings-btn') && !t.closest('.danmaku-settings-panel')) showDanmakuSettings = false;
+  }
+
   // 手势处理
   function onPointerDown(e: PointerEvent) {
-    if (useWebFallback) return;
+    if (useWebFallback || status !== "found") return;
     const target = e.target as HTMLElement;
     if (target.closest('button') || target.closest('.comments-panel') || target.closest('.episodes-panel')) return;
     // 视频底部原生控制条区域不接管手势：否则拖进度条 / 按播放键会和手势(快进/长按倍速)打架。
@@ -569,14 +611,17 @@
 </script>
 
 <div class="player-overlay" class:fullscreen={isFullscreen} role="dialog" bind:this={overlayEl}>
-  <div class="player-toolbar">
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="player-toolbar" onclick={handleToolbarClickOutside}>
     <button class="tool-btn" onclick={() => animeStore.closePlayer()}>
       <Icon name="x" size={16} /> 关闭
     </button>
+    <div class="toolbar-sep"></div>
     <div class="ep-info">
       <span class="ep-name">{epName || "未知集数"}</span>
       <span class="ep-pos">{road ? `${epIdx + 1} / ${road.episodes.length}` : ""}</span>
     </div>
+    <div class="toolbar-sep"></div>
     <div class="ep-nav">
       <button class="nav-btn" onclick={goPrev} disabled={!hasPrev}>
         <Icon name="chevronLeft" size={15} /> 上一集
@@ -587,39 +632,42 @@
       <button class="nav-btn fullscreen-toggle" onclick={toggleFullscreen} title={isFullscreen ? '退出全屏' : '全屏'}>
         <Icon name={isFullscreen ? 'x' : 'maximize'} size={15} />
       </button>
-      {#if isPipSupported}
+      {#if status === "found"}
+        {#if isPipSupported}
+          <button
+            class="nav-btn pip-toggle"
+            class:active={isPipActive}
+            onclick={togglePip}
+            title={isPipActive ? '退出画中画' : '画中画'}
+          >
+            <Icon name="pictureInPicture" size={15} />
+            <span class="pip-label">PIP</span>
+          </button>
+        {/if}
         <button
-          class="nav-btn pip-toggle"
-          class:active={isPipActive}
-          onclick={togglePip}
-          title={isPipActive ? '退出画中画' : '画中画'}
+          class="nav-btn danmaku-toggle"
+          class:active={danmakuEnabled}
+          onclick={() => { animeStore.danmakuEnabled = !animeStore.danmakuEnabled; }}
+          title={danmakuEnabled ? '关闭弹幕' : '开启弹幕'}
         >
-          <Icon name="pictureInPicture" size={15} />
-          <span class="pip-label">PIP</span>
+          <span class="danmaku-icon">弹</span>
+          {#if danmakuLoading}
+            <span class="danmaku-count">…</span>
+          {:else if danmakuComments.length > 0}
+            <span class="danmaku-count">{danmakuComments.length}</span>
+          {/if}
+        </button>
+        <button
+          class="nav-btn danmaku-settings-btn"
+          class:active={showDanmakuSettings}
+          onclick={() => { showDanmakuSettings = !showDanmakuSettings; showSpeedMenu = false; }}
+          title="弹幕设置"
+        >
+          <Icon name="settings" size={13} />
         </button>
       {/if}
-      <button
-        class="nav-btn danmaku-toggle"
-        class:active={danmakuEnabled}
-        onclick={() => { animeStore.danmakuEnabled = !animeStore.danmakuEnabled; }}
-        title={danmakuEnabled ? '关闭弹幕' : '开启弹幕'}
-      >
-        <span class="danmaku-icon">弹</span>
-        {#if danmakuLoading}
-          <span class="danmaku-count">…</span>
-        {:else if danmakuComments.length > 0}
-          <span class="danmaku-count">{danmakuComments.length}</span>
-        {/if}
-      </button>
-      <button
-        class="nav-btn danmaku-settings-btn"
-        class:active={showDanmakuSettings}
-        onclick={() => { showDanmakuSettings = !showDanmakuSettings; showSpeedMenu = false; }}
-        title="弹幕设置"
-      >
-        <Icon name="settings" size={13} />
-      </button>
       {#if road && road.episodes.length > 1}
+        <div class="toolbar-sep"></div>
         <button
           class="nav-btn episodes-toggle"
           class:active={showEpisodePanel}
@@ -629,71 +677,73 @@
           <Icon name="list" size={14} /> 选集
         </button>
       {/if}
-      <!-- 倍速控制 -->
-      <div class="speed-control">
-        <button
-          class="nav-btn speed-btn"
-          class:active={showSpeedMenu}
-          onclick={() => showSpeedMenu = !showSpeedMenu}
-          title="倍速播放"
-        >
-          {playbackRate}x
-        </button>
-        {#if showSpeedMenu}
-          <div class="speed-menu">
-            {#each speedOptions as speed}
-              <button
-                class="speed-option"
-                class:current={playbackRate === speed}
-                onclick={() => setPlaybackRate(speed)}
-              >
-                {speed}x
-              </button>
-            {/each}
-          </div>
-        {/if}
-      </div>
-      <!-- 弹幕设置面板 -->
-      {#if showDanmakuSettings}
-        <div class="danmaku-settings-panel">
-          <div class="settings-section">
-            <span class="settings-label">显示区域</span>
-            <div class="settings-row">
-              {#each [{l:'1/4',v:0},{l:'1/2',v:1},{l:'全屏',v:2}] as opt}
-                <button class="settings-chip" class:active={animeStore.danmakuArea===opt.v} onclick={()=>animeStore.danmakuArea=opt.v}>{opt.l}</button>
+      {#if status === "found"}
+        <!-- 倍速控制 -->
+        <div class="speed-control">
+          <button
+            class="nav-btn speed-btn"
+            class:active={showSpeedMenu}
+            onclick={() => showSpeedMenu = !showSpeedMenu}
+            title="倍速播放"
+          >
+            {playbackRate}x
+          </button>
+          {#if showSpeedMenu}
+            <div class="speed-menu">
+              {#each speedOptions as speed}
+                <button
+                  class="speed-option"
+                  class:current={playbackRate === speed}
+                  onclick={() => setPlaybackRate(speed)}
+                >
+                  {speed}x
+                </button>
               {/each}
             </div>
-          </div>
-          <div class="settings-section">
-            <span class="settings-label">不透明度 {Math.round(animeStore.danmakuOpacity*100)}%</span>
-            <input type="range" min="0.1" max="1" step="0.05" value={animeStore.danmakuOpacity} oninput={e=>animeStore.danmakuOpacity=parseFloat((e.target as HTMLInputElement).value)} />
-          </div>
-          <div class="settings-section">
-            <span class="settings-label">字号 {animeStore.danmakuFontSize}px</span>
-            <input type="range" min="16" max="40" step="1" value={animeStore.danmakuFontSize} oninput={e=>animeStore.danmakuFontSize=parseInt((e.target as HTMLInputElement).value)} />
-          </div>
-          <div class="settings-section">
-            <span class="settings-label">速度 {animeStore.danmakuSpeed}x</span>
-            <input type="range" min="0.5" max="2" step="0.1" value={animeStore.danmakuSpeed} oninput={e=>animeStore.danmakuSpeed=parseFloat((e.target as HTMLInputElement).value)} />
-          </div>
-          <div class="settings-section">
-            <span class="settings-label">屏蔽</span>
-            <div class="settings-row">
-              <label class="settings-check"><input type="checkbox" checked={animeStore.danmakuBlockScroll} onchange={()=>animeStore.danmakuBlockScroll=!animeStore.danmakuBlockScroll} /> 滚动</label>
-              <label class="settings-check"><input type="checkbox" checked={animeStore.danmakuBlockTop} onchange={()=>animeStore.danmakuBlockTop=!animeStore.danmakuBlockTop} /> 顶部</label>
-              <label class="settings-check"><input type="checkbox" checked={animeStore.danmakuBlockBottom} onchange={()=>animeStore.danmakuBlockBottom=!animeStore.danmakuBlockBottom} /> 底部</label>
+          {/if}
+        </div>
+        <!-- 弹幕设置面板 -->
+        {#if showDanmakuSettings}
+          <div class="danmaku-settings-panel">
+            <div class="settings-section">
+              <span class="settings-label">显示区域</span>
+              <div class="settings-row">
+                {#each [{l:'1/4',v:0},{l:'1/2',v:1},{l:'全屏',v:2}] as opt}
+                  <button class="settings-chip" class:active={animeStore.danmakuArea===opt.v} onclick={()=>animeStore.danmakuArea=opt.v}>{opt.l}</button>
+                {/each}
+              </div>
+            </div>
+            <div class="settings-section">
+              <span class="settings-label">不透明度 {Math.round(animeStore.danmakuOpacity*100)}%</span>
+              <input type="range" min="0.1" max="1" step="0.05" value={animeStore.danmakuOpacity} oninput={e=>animeStore.danmakuOpacity=parseFloat((e.target as HTMLInputElement).value)} />
+            </div>
+            <div class="settings-section">
+              <span class="settings-label">字号 {animeStore.danmakuFontSize}px</span>
+              <input type="range" min="16" max="40" step="1" value={animeStore.danmakuFontSize} oninput={e=>animeStore.danmakuFontSize=parseInt((e.target as HTMLInputElement).value)} />
+            </div>
+            <div class="settings-section">
+              <span class="settings-label">速度 {animeStore.danmakuSpeed}x</span>
+              <input type="range" min="0.5" max="2" step="0.1" value={animeStore.danmakuSpeed} oninput={e=>animeStore.danmakuSpeed=parseFloat((e.target as HTMLInputElement).value)} />
+            </div>
+            <div class="settings-section">
+              <span class="settings-label">屏蔽</span>
+              <div class="settings-row">
+                <label class="settings-check"><input type="checkbox" checked={animeStore.danmakuBlockScroll} onchange={()=>animeStore.danmakuBlockScroll=!animeStore.danmakuBlockScroll} /> 滚动</label>
+                <label class="settings-check"><input type="checkbox" checked={animeStore.danmakuBlockTop} onchange={()=>animeStore.danmakuBlockTop=!animeStore.danmakuBlockTop} /> 顶部</label>
+                <label class="settings-check"><input type="checkbox" checked={animeStore.danmakuBlockBottom} onchange={()=>animeStore.danmakuBlockBottom=!animeStore.danmakuBlockBottom} /> 底部</label>
+              </div>
             </div>
           </div>
-        </div>
+        {/if}
+        <button
+          class="nav-btn comments-toggle"
+          class:active={showCommentsPanel}
+          onclick={toggleCommentsPanel}
+          title={showCommentsPanel ? '关闭评论' : '章节评论'}
+        >
+          <Icon name="messageCircle" size={14} /> 评论
+        </button>
       {/if}
-      <button
-        class="nav-btn comments-toggle"
-        class:active={showCommentsPanel}
-        onclick={toggleCommentsPanel}
-        title={showCommentsPanel ? '关闭评论' : '章节评论'}
-      >
-        <Icon name="messageCircle" size={14} /> 评论
-      </button>
       {#if status === "found" && videoSrc}
         <button
           class="nav-btn download-btn"
@@ -717,9 +767,12 @@
   </div>
 
   <div class="player-body-wrap">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="player-body"
       class:with-panel={showCommentsPanel || showEpisodePanel}
+      role="region"
+      aria-label="播放器"
       onpointerdown={onPointerDown}
       onpointermove={onPointerMove}
       onpointerup={onPointerUp}
@@ -736,9 +789,33 @@
         ></iframe>
       {:else if status === "extracting"}
         <div class="player-state">
-          <div class="spinner"></div>
-          <span>正在解析视频地址…</span>
-          <small>从播放页提取真实视频流（m3u8 / mp4）</small>
+          <div class="extract-indicator">
+            <div class="spinner"></div>
+            <div class="extract-pulse"></div>
+          </div>
+          {#if failoverStatus === 'trying'}
+            <span>自动换源中…</span>
+            <small>{failoverMessage}</small>
+            <div class="failover-progress">
+              <div class="failover-bar" style="width: {failoverTotal > 0 ? (failoverCurrent / failoverTotal * 100) : 0}%"></div>
+            </div>
+          {:else}
+            <span>{extractStep}</span>
+            <small>从播放页提取真实视频流 · {extractElapsed}s / 30s</small>
+            <div class="failover-progress">
+              <div class="failover-bar" style="width: {Math.min(extractElapsed / 30 * 100, 100)}%"></div>
+            </div>
+          {/if}
+          <div class="state-actions">
+            <button class="state-btn primary" onclick={() => animeStore.cancelExtract()}>取消加载</button>
+            {#if failoverStatus === 'trying'}
+              <button class="state-btn" onclick={() => animeStore.cancelFailover()}>仅取消换源</button>
+            {/if}
+            <button class="state-btn" onclick={() => animeStore.closePlayer()}>返回详情</button>
+            {#if pageUrl}
+              <button class="state-btn" onclick={() => (useWebFallback = true)}>用网页播放</button>
+            {/if}
+          </div>
         </div>
       {:else if status === "found" && videoSrc}
         <!-- svelte-ignore a11y_media_has_caption -->
@@ -770,9 +847,16 @@
         <div class="player-state">
           <Icon name={status === "timeout" ? "clock" : "x"} size={28} />
           <span>{status === "timeout" ? "解析超时" : "未能提取到视频地址"}</span>
-          <small>该源可能有强反爬 / 加密播放器，可重试、换源或用网页播放</small>
+          {#if failoverStatus === 'allFailed'}
+            <small>已自动尝试 {failoverTotal} 个备用源，均未能成功播放。可手动选源或用网页播放。</small>
+          {:else if status === "timeout"}
+            <small>播放页响应过慢或被反爬拦截，可重试、换源或用网页播放</small>
+          {:else}
+            <small>视频地址提取失败（可能被加密或反爬），可重试、换源或用网页播放</small>
+          {/if}
           <div class="state-actions">
             <button class="state-btn primary" onclick={retry}>重试解析</button>
+            <button class="state-btn" onclick={() => animeStore.openSourceSheet()}>手动选源</button>
             {#if pageUrl}
               <button class="state-btn" onclick={() => (useWebFallback = true)}>用网页播放</button>
               <button class="state-btn" onclick={openInBrowser}>浏览器打开</button>
@@ -861,15 +945,17 @@
     {/if}
   </div>
 
-  <div class="player-bottom">
-    <button class="bottom-btn" onclick={goPrev} disabled={!hasPrev}>
-      <Icon name="chevronLeft" size={16} /> 上一集
-    </button>
-    <button class="bottom-btn close" onclick={() => animeStore.closePlayer()}>返回详情</button>
-    <button class="bottom-btn" onclick={goNext} disabled={!hasNext}>
-      下一集 <Icon name="chevronRight" size={16} />
-    </button>
-  </div>
+  {#if !isFullscreen}
+    <div class="player-bottom">
+      <button class="bottom-btn" onclick={goPrev} disabled={!hasPrev}>
+        <Icon name="chevronLeft" size={16} /> 上一集
+      </button>
+      <button class="bottom-btn close" onclick={() => animeStore.closePlayer()}>返回详情</button>
+      <button class="bottom-btn" onclick={goNext} disabled={!hasNext}>
+        下一集 <Icon name="chevronRight" size={16} />
+      </button>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -1046,11 +1132,20 @@
     flex-shrink: 0;
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
     padding: 10px 16px;
     background: rgba(10, 12, 18, 0.9);
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     backdrop-filter: blur(8px);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .player-toolbar::-webkit-scrollbar { display: none; }
+  .toolbar-sep {
+    width: 1px;
+    height: 20px;
+    background: rgba(255, 255, 255, 0.08);
+    flex-shrink: 0;
   }
   .tool-btn {
     display: inline-flex; align-items: center; gap: 5px;
@@ -1326,6 +1421,26 @@
     border-color: var(--accent); background: var(--accent-lo, rgba(232,85,127,0.1)); color: var(--accent);
   }
 
+  .extract-indicator {
+    position: relative;
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .extract-pulse {
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    border: 2px solid var(--accent, #e8557f);
+    opacity: 0;
+    animation: extract-ring 2s ease-out infinite;
+  }
+  @keyframes extract-ring {
+    0% { transform: scale(0.8); opacity: 0.6; }
+    100% { transform: scale(1.4); opacity: 0; }
+  }
   .spinner {
     width: 36px; height: 36px; border: 3px solid rgba(255, 255, 255, 0.08);
     border-top-color: var(--accent); border-radius: 50%;
@@ -1337,4 +1452,20 @@
     animation: spin 0.7s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* 换源自愈进度条 */
+  .failover-progress {
+    width: min(240px, 70vw);
+    height: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 4px;
+  }
+  .failover-bar {
+    height: 100%;
+    background: var(--accent, #e8557f);
+    border-radius: 2px;
+    transition: width 0.3s ease;
+  }
 </style>

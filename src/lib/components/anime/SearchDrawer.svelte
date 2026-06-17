@@ -56,7 +56,8 @@
 </script>
 
 {#if animeStore.drawerOpen}
-  <div class="drawer-backdrop" onclick={() => animeStore.drawerOpen = false}></div>
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="drawer-backdrop" role="none" onclick={() => animeStore.drawerOpen = false}></div>
   <div class="drawer-panel">
     <div class="drawer-handle"></div>
     
@@ -84,6 +85,7 @@
           <small>Powered by trace.moe</small>
         </div>
         <div class="search-row">
+          <!-- svelte-ignore a11y_autofocus -->
           <input
             class="drawer-input"
             placeholder="粘贴图片URL..."
@@ -153,9 +155,10 @@
     {:else}
       <!-- Normal Search -->
       <div class="search-row">
-        <input 
-          class="drawer-input" 
-          placeholder="搜索番剧..." 
+        <!-- svelte-ignore a11y_autofocus -->
+        <input
+          class="drawer-input"
+          placeholder="搜索番剧..."
           bind:value={searchInput}
           onkeydown={handleKeydown}
           autofocus
@@ -210,9 +213,7 @@
       
       <!-- Bottom Actions -->
       <div class="drawer-actions">
-        <button class="action-link">结果不准确？</button>
         <button class="action-link" onclick={() => {
-          // Alias search - search with name_cn or name
           if (animeStore.detailSubject) {
             const altName = animeStore.detailSubject.name || animeStore.detailSubject.name_cn;
             searchInput = altName;

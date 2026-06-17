@@ -58,13 +58,24 @@ pub async fn anime_import_rules(state: State<'_, AnimeState>, json: String) -> R
 pub async fn anime_search(state: State<'_, AnimeState>, rule_name: String, keyword: String) -> Result<Vec<anime::SearchItem>, String> {
     let rule = {
         let store = state.rules.lock().map_err(|e| e.to_string())?;
-        store.iter().find(|r| r.name == rule_name).cloned()
-            .ok_or_else(|| format!("规则 '{}' 不存在", rule_name))?
+        let count = store.len();
+        let found = store.iter().find(|r| r.name == rule_name).cloned();
+        eprintln!("[anime_search] rule='{}' keyword='{}' backend_rules={} found={}", rule_name, keyword, count, found.is_some());
+        found.ok_or_else(|| format!("规则 '{}' 不存在 (backend has {} rules)", rule_name, count))?
     };
-    // 硬超时兜底：避免某个站点 TLS 握手挂死导致前端永远「搜索中」
     match tokio::time::timeout(std::time::Duration::from_secs(12), anime::search_anime(&rule, &keyword)).await {
-        Ok(res) => res,
-        Err(_) => Err(format!("规则 '{}' 搜索超时", rule_name)),
+        Ok(Ok(items)) => {
+            eprintln!("[anime_search] rule='{}' → {} results", rule_name, items.len());
+            Ok(items)
+        }
+        Ok(Err(e)) => {
+            eprintln!("[anime_search] rule='{}' → error: {}", rule_name, e);
+            Err(e)
+        }
+        Err(_) => {
+            eprintln!("[anime_search] rule='{}' → TIMEOUT 12s", rule_name);
+            Err(format!("规则 '{}' 搜索超时", rule_name))
+        }
     }
 }
 
@@ -320,7 +331,19 @@ pub async fn anime_bangumi_update_collection(
 
 #[tauri::command]
 pub fn anime_get_proxy_url(url: String, referer: Option<String>) -> String {
-    crate::video_proxy::to_proxy_url(&url, referer.as_deref())
+    let result = crate::video_proxy::to_proxy_url(&url, referer.as_deref());
+    tracing::info!("[前端调用] anime_get_proxy_url: url={}, referer={:?} → {}", &url[..url.len().min(80)], referer, &result[..result.len().min(80)]);
+    result
+}
+
+/// 前端调试日志，写入 Rust tracing
+#[tauri::command]
+pub fn frontend_log(level: String, message: String) {
+    match level.as_str() {
+        "error" => tracing::error!("[前端] {}", message),
+        "warn" => tracing::warn!("[前端] {}", message),
+        _ => tracing::info!("[前端] {}", message),
+    }
 }
 
 // ── trace.moe 图片搜番 ────────────────────────────────────────────────────

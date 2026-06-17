@@ -5,14 +5,15 @@
 //! 解决浏览器层 CORS / 防盗链 Referer / 混合内容问题。
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU16, Ordering};
 use tauri::{AppHandle, Emitter};
 
 /// 代理服务器监听端口（启动时随机分配）
-static mut PROXY_PORT: u16 = 0;
+static PROXY_PORT: AtomicU16 = AtomicU16::new(0);
 
 /// 获取代理端口
 pub fn get_proxy_port() -> u16 {
-    unsafe { PROXY_PORT }
+    PROXY_PORT.load(Ordering::Relaxed)
 }
 
 /// 获取代理 base URL
@@ -82,6 +83,13 @@ fn rewrite_uri_attribute(line: &str, base_url: &str, referer: &str) -> String {
     line.to_string()
 }
 
+/// 共享 ureq Agent —— 复用 TCP/TLS 连接，CDN 分片不必每次握手
+fn proxy_agent() -> &'static ureq::Agent {
+    use std::sync::OnceLock;
+    static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
+    AGENT.get_or_init(ureq::agent)
+}
+
 /// 解析相对 URL 为绝对 URL
 fn resolve_url(base: &url::Url, relative: &str) -> String {
     if relative.starts_with("http://") || relative.starts_with("https://") {
@@ -103,9 +111,7 @@ pub fn start_proxy_server(app: AppHandle) {
             }
         };
         let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
-        unsafe {
-            PROXY_PORT = port;
-        }
+        PROXY_PORT.store(port, Ordering::Relaxed);
         tracing::info!("视频代理服务器启动: http://127.0.0.1:{}", port);
 
         // 通知前端代理已就绪
@@ -136,7 +142,7 @@ fn handle_connection(mut stream: std::net::TcpStream) {
         .set_write_timeout(Some(std::time::Duration::from_secs(30)))
         .ok();
 
-    let mut buf = vec![0u8; 8192];
+    let mut buf = vec![0u8; 16384];
     let n = match stream.read(&mut buf) {
         Ok(n) if n > 0 => n,
         _ => return,
@@ -188,8 +194,9 @@ fn handle_connection(mut stream: std::net::TcpStream) {
         .find(|l| l.to_lowercase().starts_with("range:"))
         .map(|l| l.trim().to_string());
 
-    // 用 ureq 代理请求（纯同步，不依赖 tokio）
-    let mut req = ureq::get(&target_url)
+    // 用 ureq 代理请求（纯同步，不依赖 tokio），Agent 复用连接池
+    let mut req = proxy_agent()
+        .get(&target_url)
         .timeout(std::time::Duration::from_secs(30))
         .set(
             "User-Agent",
@@ -198,6 +205,9 @@ fn handle_connection(mut stream: std::net::TcpStream) {
 
     if !referer.is_empty() {
         req = req.set("Referer", &referer);
+        if let Ok(origin) = url::Url::parse(&referer) {
+            req = req.set("Origin", &origin.origin().ascii_serialization());
+        }
     }
 
     // 透传 Range 头
@@ -208,9 +218,14 @@ fn handle_connection(mut stream: std::net::TcpStream) {
 
     let resp = match req.call() {
         Ok(r) => r,
+        Err(ureq::Error::Status(code, resp)) => {
+            tracing::warn!("[proxy] upstream HTTP {} → {}", code, short_url);
+            resp
+        }
         Err(e) => {
-            let resp = format!("HTTP/1.1 502 Bad Gateway\r\n\r\n{}", e);
-            let _ = stream.write_all(resp.as_bytes());
+            tracing::error!("[proxy] 请求失败: {} → {}", e, short_url);
+            let body = format!("HTTP/1.1 502 Bad Gateway\r\nAccess-Control-Allow-Origin: *\r\n\r\n{}", e);
+            let _ = stream.write_all(body.as_bytes());
             return;
         }
     };
@@ -247,7 +262,16 @@ fn handle_connection(mut stream: std::net::TcpStream) {
             return;
         }
         let content = String::from_utf8_lossy(&body);
-        let rewritten = rewrite_m3u8(&content, &target_url, &referer).into_bytes();
+        // 上游返回了非 m3u8 内容（HTML 错误页 / 403 / 空响应）→ 不要改写，直接透传
+        // 否则 rewrite_m3u8 把 HTML 里的行当 URL 重写 → hls.js 拿到垃圾 manifest 报更奇怪的错
+        let is_real_m3u8 = content.trim_start().starts_with("#EXTM3U")
+            || content.trim_start().starts_with("#EXT-X-");
+        let rewritten = if is_real_m3u8 {
+            rewrite_m3u8(&content, &target_url, &referer).into_bytes()
+        } else {
+            tracing::warn!("[proxy] m3u8 URL 返回非 HLS 内容 ({}B), 跳过改写", body.len());
+            body
+        };
         let mut header = format!(
             "HTTP/1.1 {}\r\n\
              Content-Type: application/vnd.apple.mpegurl\r\n\
@@ -333,8 +357,9 @@ fn parse_proxy_path(path: &str) -> Option<(String, String)> {
 fn is_m3u8_content(content_type: &str, url: &str) -> bool {
     content_type.contains("mpegurl")
         || content_type.contains("m3u8")
-        || content_type.contains("octet-stream") && url.contains(".m3u8")
+        || (content_type.contains("octet-stream") && url.contains(".m3u8"))
         || url.contains(".m3u8")
+        || url.contains("/m3u8")
 }
 
 #[cfg(test)]

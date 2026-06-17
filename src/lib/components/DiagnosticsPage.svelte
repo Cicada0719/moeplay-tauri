@@ -16,11 +16,21 @@
   let perf = $state<PerformanceSnapshot | null>(null);
   let migrations = $state<MigrationInfo[]>([]);
   let exported = $state("");
+  let loading = $state(true);
+  let error = $state<string | null>(null);
 
   async function load() {
-    report = await runDiagnostics();
-    perf = await getPerformanceSnapshot();
-    migrations = await getMigrationStatus();
+    loading = true;
+    error = null;
+    try {
+      report = await runDiagnostics();
+      perf = await getPerformanceSnapshot();
+      migrations = await getMigrationStatus();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      loading = false;
+    }
   }
 
   async function exportDb() {
@@ -124,6 +134,10 @@
         <span>已导出：{exported}</span>
       </p>
     {/if}
+  {:else if error}
+    <div class="panel aura-panel loading-panel">
+      <EmptyState title="诊断加载失败" description={error} actionLabel="重试" onAction={load} />
+    </div>
   {:else}
     <div class="panel aura-panel loading-panel">
       <EmptyState title="正在运行诊断" />

@@ -20,6 +20,8 @@
   import RatingRing from "./RatingRing.svelte";
   import Icon from "./Icon.svelte";
   import CachedImage from "./CachedImage.svelte";
+  import SavePanel from "./SavePanel.svelte";
+  import GameNotes from "./GameNotes.svelte";
   import {
     coverOf,
     developerOf,
@@ -34,7 +36,7 @@
   } from "../utils/game";
 
   let game = $derived(gameStore.selectedGame);
-  let galleryEl = $state<HTMLDivElement>();
+  let galleryEl = $state<HTMLElement>();
   let saveCandidates = $state<SaveCandidateDir[]>([]);
   let saveSnapshots = $state<SaveSnapshot[]>([]);
   let savesLoading = $state(false);
@@ -284,40 +286,8 @@
       {/if}
 
       <section class="panels" aria-label="存档与成就">
-        <article class="panel">
-          <div class="panel-head">
-            <span class="panel-label">Save Data</span>
-            <h3>存档</h3>
-          </div>
-          <div class="panel-body">
-            <div class="kv-grid">
-              <div class="kv">
-                <span>目录</span>
-                <b title={saveDirOf(game)}>{saveDirOf(game) || saveCandidates[0]?.path || "未配置"}</b>
-              </div>
-              <div class="kv">
-                <span>候选</span>
-                <b>{savesLoading ? "扫描中" : `${saveCandidates.length} 个`}</b>
-              </div>
-              <div class="kv">
-                <span>快照</span>
-                <b>{saveSnapshots.length} 份</b>
-              </div>
-            </div>
-            {#if latestSnapshot}
-              <p class="panel-note">最近快照：{latestSnapshot.file_name} / {latestSnapshot.created_at}</p>
-            {:else if savesError}
-              <p class="panel-note panel-error">{savesError}</p>
-            {:else}
-              <p class="panel-note">可从候选目录创建第一份安全快照。</p>
-            {/if}
-            <div class="panel-actions">
-              <Button variant="secondary" onclick={() => createSnapshot(saveCandidates[0]?.path)}>创建快照</Button>
-              <Button variant="ghost" onclick={() => latestSnapshot && restoreSnapshot(latestSnapshot)} disabled={!latestSnapshot}>恢复最近</Button>
-              <Button variant="ghost" onclick={handleBackup}>打开存档页</Button>
-            </div>
-          </div>
-        </article>
+        <SavePanel gameId={game.id} saveDir={saveDirOf(game)} compact />
+
 
         <article class="panel">
           <div class="panel-head">
@@ -362,6 +332,8 @@
           </div>
         </article>
       </section>
+
+      <GameNotes gameId={game.id} />
     </div>
 
     {#if isEditing}
@@ -395,6 +367,13 @@
       </div>
     {/if}
   </section>
+{:else}
+  <section class="detail-page not-found">
+    <Icon name="gamepad" size={48} />
+    <h2>游戏未找到</h2>
+    <p>该游戏可能已被移除或数据加载失败</p>
+    <button class="back-btn-inline" onclick={() => uiStore.currentView = "home"}>返回游戏库</button>
+  </section>
 {/if}
 
 <style>
@@ -407,6 +386,17 @@
     overflow-x: hidden;
     background: var(--bg-deep);
   }
+  .detail-page.not-found {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+    color: var(--text-muted); padding: 48px 24px; text-align: center;
+  }
+  .detail-page.not-found h2 { margin: 0; color: var(--text-primary); font-size: 20px; }
+  .detail-page.not-found p { margin: 0; font-size: 14px; }
+  .back-btn-inline {
+    margin-top: 8px; padding: 8px 20px; border: 1px solid var(--accent-ring); border-radius: 8px;
+    background: transparent; color: var(--accent); font-size: 13px; cursor: pointer;
+  }
+  .back-btn-inline:hover { background: var(--accent-lo); }
 
   /* ── Background art ── */
   .bg-layer {
@@ -707,51 +697,11 @@
 
   .panel-body { padding: 12px 18px 18px; }
 
-  .kv-grid {
-    display: grid;
-    grid-template-columns: 2fr 1fr 1fr;
-    gap: 8px;
-  }
-
-  .kv {
-    padding: 9px 10px;
-    border-radius: 7px;
-    background: rgba(255,255,255,0.035);
-    border: 1px solid rgba(255,255,255,0.05);
-  }
-
-  .kv span {
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    color: var(--text-muted);
-    letter-spacing: 0.04em;
-  }
-
-  .kv b {
-    display: block;
-    margin-top: 4px;
-    font-size: 12px;
-    color: var(--text-primary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   .panel-note {
     margin: 10px 0 0;
     font-size: 12px;
     line-height: 1.5;
     color: var(--text-muted);
-  }
-
-  .panel-error { color: #fca5a5; }
-
-  .panel-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 12px;
   }
 
   /* ── Achievement ── */

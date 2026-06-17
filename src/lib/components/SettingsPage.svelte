@@ -9,6 +9,9 @@
   import { animeStore } from "../stores/anime.svelte";
   import Button from "./ui/Button.svelte";
   import Icon from "./Icon.svelte";
+  import UpdateDialog from "./UpdateDialog.svelte";
+
+  let showUpdateDialog = $state(false);
 
   const nsfwModes: { id: NsfwDisplayMode; label: string }[] = [
     { id: "blur", label: "模糊" },
@@ -24,6 +27,7 @@
 
   const startupModes = [
     { id: "dashboard", label: "普通模式", desc: "最大化窗口，保留任务栏", icon: "monitor" },
+    { id: "windowed", label: "窗口模式", desc: "可自由调整大小的窗口", icon: "square" },
     { id: "fullscreen", label: "全屏模式", desc: "全屏显示，隐藏任务栏", icon: "maximize" },
     { id: "big-picture", label: "大屏模式", desc: "全屏 + 大屏游戏中心", icon: "tv" },
   ];
@@ -615,11 +619,16 @@
           <span class="about-chip">Svelte 5</span>
           <span class="about-chip">Rust</span>
         </div>
+        <button class="about-update-btn" onclick={() => showUpdateDialog = true}>
+          <Icon name="download" size={14} /> 检查更新
+        </button>
       </div>
     </section>
 
   </main>
 </section>
+
+<UpdateDialog bind:open={showUpdateDialog} />
 
 <style>
   .stg {
@@ -1002,6 +1011,15 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-full);
   }
+  .about-update-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-top: 4px; padding: 7px 16px;
+    border: 1px solid var(--accent-ring); border-radius: 8px;
+    background: transparent; color: var(--accent);
+    font-size: 12.5px; font-weight: 600; cursor: pointer;
+    transition: all 0.15s; width: fit-content;
+  }
+  .about-update-btn:hover { background: var(--accent); color: #fff; }
 
   /* ── Responsive ── */
   @media (max-width: 720px) {

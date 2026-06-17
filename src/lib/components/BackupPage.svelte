@@ -18,19 +18,33 @@
   let candidates = $state<SaveCandidateDir[]>([]);
   let snapshots = $state<SaveSnapshot[]>([]);
   let note = $state("");
+  let loading = $state(true);
+  let error = $state<string | null>(null);
 
   const selected = $derived(games.find((game) => game.id === selectedId));
 
   async function load() {
-    games = await getGames();
-    selectedId = selectedId || games[0]?.id || "";
-    await refresh();
+    loading = true;
+    error = null;
+    try {
+      games = await getGames();
+      selectedId = selectedId || games[0]?.id || "";
+      await refresh();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      loading = false;
+    }
   }
 
   async function refresh() {
     if (!selectedId) return;
-    candidates = await detectSaveCandidates(selectedId);
-    snapshots = await listSaveSnapshots(selectedId);
+    try {
+      candidates = await detectSaveCandidates(selectedId);
+      snapshots = await listSaveSnapshots(selectedId);
+    } catch (e) {
+      error = String(e);
+    }
   }
 
   async function createSnapshot(path?: string) {
@@ -71,7 +85,16 @@
   </div>
 
   <div class="content-grid">
-    <section class="panel">
+    {#if loading}
+      <div class="panel" style="grid-column: 1 / -1;">
+        <EmptyState title="正在加载存档数据…" />
+      </div>
+    {:else if error}
+      <div class="panel" style="grid-column: 1 / -1;">
+        <EmptyState title="加载失败" description={error} actionLabel="重试" onAction={load} />
+      </div>
+    {:else}
+      <section class="panel">
       <div class="panel-head">
         <h2>候选存档目录</h2>
         <span>{selected?.name ?? "未选择"}</span>
@@ -121,6 +144,7 @@
         <EmptyState title="暂无快照" description="选择一个候选目录并创建第一份快照。" />
       {/if}
     </section>
+    {/if}
   </div>
 </section>
 

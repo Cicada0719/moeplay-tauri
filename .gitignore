@@ -1,14 +1,11 @@
-# 构建产物
+# Build output
 dist/
 node_modules/
 target/
 src-tauri/target/
 src-tauri/gen/
-test-results/
-playwright-report/
-.codegraph/
 
-# 日志
+# Logs
 *.log
 *.err.log
 
@@ -18,34 +15,34 @@ playwright-report/
 *.swp
 *.swo
 
-# 系统
+# OS
 .DS_Store
 Thumbs.db
 
-# 运行时数据（用户数据不应提交）
+# Runtime data
 *.db
 *.db-shm
 *.db-wal
 
-# Env
+# Env / secrets
 .env
 .env.local
+.env.*.local
 
-# 开发临时文件
+# Dev temp
 _dev/
-.mimocode/
 _*.png
 _*.py
 _*.txt
 _*.log
 
-# 测试
-tests/
-playwright.config.ts
-vitest.config.ts
+# AI tools
+.claude/
+.mimocode/
+.codegraph/
+.reasonix/
+reasonix.toml
 
-# 计划文档
-ANIME_FLOW_PLAN.md
-ANIME_PLAYER_PLAN.md
-KAZUMI_PARITY_PLAN.md
-ROADMAP.md
+# Test reports
+test-results/
+playwright-report/

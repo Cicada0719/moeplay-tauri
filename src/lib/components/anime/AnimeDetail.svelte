@@ -101,11 +101,7 @@
         <span class="source-badge">{ruleName}</span>
       {/if}
     </div>
-    <div class="header-right">
-      <button class="header-btn close-btn" onclick={() => animeStore.closeDetail()} aria-label="关闭">
-        <Icon name="x" size={18} />
-      </button>
-    </div>
+    <div class="header-right"></div>
   </header>
 
   <!-- Main scrollable content -->
@@ -365,8 +361,13 @@
     class="fab-play"
     onclick={() => animeStore.openSourceSheet()}
   >
+    <span class="fab-glow"></span>
     <Icon name="play" size={20} />
-    <span>开始观看</span>
+    {#if historyEntry}
+      <span>继续 · {historyEntry.lastEpisodeName || `第${historyEntry.lastEpisode + 1}集`}</span>
+    {:else}
+      <span>开始观看</span>
+    {/if}
   </button>
 </div>
 
@@ -454,9 +455,6 @@
     gap: 8px;
   }
 
-  .close-btn {
-    border-color: rgba(255,255,255,0.15);
-  }
 
   /* ── Scrollable content ─────────────────────────────────────────────── */
   .detail-scroll {
@@ -816,6 +814,7 @@
   /* ── Tab content ────────────────────────────────────────────────────── */
   .tab-content {
     min-height: 200px;
+    animation: tab-enter 0.2s ease;
   }
 
   /* ── Overview content ───────────────────────────────────────────────── */
@@ -879,85 +878,6 @@
     font-size: 11px;
     color: #6e7681;
     font-weight: 400;
-  }
-
-  /* ── Road selector ──────────────────────────────────────────────────── */
-  .road-selector {
-    margin-bottom: 16px;
-  }
-
-  .road-label {
-    font-size: 14px;
-    color: #8b949e;
-    margin-bottom: 8px;
-    display: block;
-  }
-
-  .road-tabs {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  .road-tab {
-    padding: 6px 16px;
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 20px;
-    background: transparent;
-    color: #8b949e;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-
-  .road-tab:hover {
-    border-color: rgba(232,85,127,0.4);
-    color: #ffffff;
-  }
-
-  .road-tab.active {
-    background: rgba(232,85,127,0.15);
-    border-color: #e8557f;
-    color: #e8557f;
-  }
-
-  /* ── Episodes grid ──────────────────────────────────────────────────── */
-  .episodes-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
-    gap: 8px;
-  }
-
-  .episode-btn {
-    padding: 10px 8px;
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 10px;
-    background: rgba(255,255,255,0.03);
-    color: #8b949e;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    text-align: center;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .episode-btn:hover {
-    border-color: rgba(232,85,127,0.4);
-    background: rgba(232,85,127,0.08);
-    color: #ffffff;
-    transform: translateY(-1px);
-  }
-
-  .episode-btn.current {
-    border-color: #e8557f;
-    background: rgba(232,85,127,0.15);
-    color: #e8557f;
-    font-weight: 600;
-    box-shadow: 0 2px 8px rgba(232,85,127,0.2);
   }
 
   /* ── Comments ───────────────────────────────────────────────────────── */
@@ -1096,6 +1016,12 @@
     font-size: 14px;
     text-align: center;
     padding: 60px 0;
+    animation: fade-in 0.3s ease;
+  }
+
+  @keyframes tab-enter {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
 
   /* ── Floating action button ─────────────────────────────────────────── */
@@ -1112,17 +1038,39 @@
     border-radius: 30px;
     background: linear-gradient(135deg, #c7446a, #e8557f);
     color: #ffffff;
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 700;
     cursor: pointer;
     box-shadow: 0 8px 32px rgba(232,85,127,0.5);
     transition: all 0.25s ease;
     animation: fab-appear 0.3s ease-out 0.2s backwards;
+    overflow: hidden;
+    max-width: min(320px, 70vw);
+  }
+  .fab-play span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .fab-glow {
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    background: linear-gradient(135deg, rgba(232,85,127,0.6), rgba(199,68,106,0.3));
+    filter: blur(10px);
+    animation: fab-breathe 2.5s ease-in-out infinite;
+    pointer-events: none;
+    z-index: -1;
   }
 
   @keyframes fab-appear {
     from { opacity: 0; transform: translateY(20px) scale(0.9); }
     to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  @keyframes fab-breathe {
+    0%, 100% { opacity: 0.4; transform: scale(1); }
+    50% { opacity: 0.8; transform: scale(1.08); }
   }
 
   .fab-play:hover {
@@ -1132,7 +1080,7 @@
   }
 
   .fab-play:active {
-    transform: translateY(-1px);
+    transform: translateY(-1px) scale(0.97);
     box-shadow: 0 6px 24px rgba(232,85,127,0.5);
   }
 

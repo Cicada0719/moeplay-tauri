@@ -22,6 +22,13 @@
     releaseYearOf,
     tagsOf as gameTagsOf,
   } from "../utils/game";
+  import WhatToPlay from "./WhatToPlay.svelte";
+  import SmartCollectionEditor from "./SmartCollectionEditor.svelte";
+
+  let showWhatToPlay = $state(false);
+  let showCollectionEditor = $state(false);
+  let editingCollection = $state<import("../stores/games.svelte").SmartCollection | null>(null);
+  let initialCollectionFilters = $state<import("../stores/games.svelte").SmartCollection["filters"] | undefined>();
 
   let railEl = $state<HTMLDivElement>();
   let now = $state(new Date());
@@ -291,6 +298,55 @@
   function clearSearch() {
     gameStore.searchQuery = "";
   }
+
+  async function batchToggleFavorite() {
+    const n = await gameStore.batchToggleFavorite();
+    uiStore.notify(`已切换 ${n} 个游戏的收藏状态`, "success");
+  }
+  async function batchToggleHidden() {
+    const n = await gameStore.batchToggleHidden();
+    uiStore.notify(`已切换 ${n} 个游戏的隐藏状态`, "success");
+  }
+  async function promptBatchTag() {
+    const tag = prompt("请输入要添加的标签：");
+    if (!tag?.trim()) return;
+    const n = await gameStore.batchAddTag(tag.trim());
+    uiStore.notify(`已为 ${n} 个游戏添加标签「${tag.trim()}」`, "success");
+  }
+  async function confirmBatchDelete() {
+    const count = gameStore.selectedIds.size;
+    if (!confirm(`确定要删除选中的 ${count} 个游戏吗？此操作不可撤销。`)) return;
+    const n = await gameStore.batchDelete();
+    uiStore.notify(`已删除 ${n} 个游戏`, "success");
+  }
+  async function batchSetStatus(status: string) {
+    const n = await gameStore.batchSetStatus(status as any);
+    uiStore.notify(`已设置 ${n} 个游戏的状态`, "success");
+  }
+  function toggleSelectionMode() {
+    if (gameStore.selectionMode) {
+      gameStore.clearSelection();
+    } else {
+      // Enter selection mode by toggling first game
+      if (allGames.length > 0) gameStore.toggleSelection(allGames[0].id);
+    }
+  }
+
+  function saveCurrentFilter() {
+    editingCollection = null;
+    initialCollectionFilters = {
+      quickFilter: gameStore.quickFilter,
+      filterTag: gameStore.filterTag,
+      searchQuery: gameStore.searchQuery || undefined,
+      sortBy: gameStore.sortBy,
+    };
+    showCollectionEditor = true;
+  }
+  function editCollection(col: import("../stores/games.svelte").SmartCollection) {
+    editingCollection = col;
+    initialCollectionFilters = undefined;
+    showCollectionEditor = true;
+  }
 </script>
 
 {#snippet railTile(game: Game)}
@@ -374,6 +430,41 @@
     </div>
   {/if}
 
+  {#if gameStore.selectionMode}
+    <div class="batch-bar">
+      <span class="batch-count">已选 {gameStore.selectedIds.size} 个游戏</span>
+      <div class="batch-actions">
+        <button class="batch-btn" onclick={() => gameStore.selectAll()} title="全选">
+          <Icon name="check" size={14} /> 全选
+        </button>
+        <button class="batch-btn" onclick={batchToggleFavorite} title="批量收藏/取消">
+          <Icon name="heart" size={14} /> 收藏
+        </button>
+        <button class="batch-btn" onclick={batchToggleHidden} title="批量隐藏">
+          <Icon name="eyeOff" size={14} /> 隐藏
+        </button>
+        <button class="batch-btn" onclick={promptBatchTag} title="批量打标签">
+          <Icon name="tag" size={14} /> 标签
+        </button>
+        <select class="batch-select" onchange={(e) => batchSetStatus((e.target as HTMLSelectElement).value)} title="设置状态">
+          <option value="">设置状态...</option>
+          <option value="playing">游玩中</option>
+          <option value="completed">已通关</option>
+          <option value="on_hold">搁置</option>
+          <option value="dropped">已放弃</option>
+          <option value="plan_to_play">计划中</option>
+          <option value="replaying">重温中</option>
+        </select>
+        <button class="batch-btn danger" onclick={confirmBatchDelete} title="批量删除">
+          <Icon name="trash" size={14} /> 删除
+        </button>
+      </div>
+      <button class="batch-cancel" onclick={() => gameStore.clearSelection()}>
+        <Icon name="x" size={14} /> 取消
+      </button>
+    </div>
+  {/if}
+
   {#if gameStore.loading && allGames.length === 0}
     <div class="loading-panel glass-card" data-testid="library-loading">
       <Icon name="refresh" size={20} />
@@ -409,13 +500,30 @@
         <div class="filter-strip" aria-label="快捷筛选">
           {#each filterChips as chip}
             <button
-              class:active={gameStore.quickFilter === chip.id}
-              onclick={() => (gameStore.quickFilter = chip.id)}
+              class:active={gameStore.quickFilter === chip.id && !gameStore.activeCollectionId}
+              onclick={() => { gameStore.activateCollection(null); gameStore.quickFilter = chip.id; }}
               type="button"
             >
               {chip.label}
             </button>
           {/each}
+          {#if gameStore.smartCollections.length > 0}
+            <span class="filter-divider"></span>
+          {/if}
+          {#each gameStore.smartCollections as col}
+            <button
+              class:active={gameStore.activeCollectionId === col.id}
+              onclick={() => gameStore.activateCollection(col.id)}
+              oncontextmenu={(e) => { e.preventDefault(); editCollection(col); }}
+              type="button"
+              title="{col.name}（右键编辑）"
+            >
+              {col.name}
+            </button>
+          {/each}
+          <button class="filter-add" onclick={saveCurrentFilter} title="将当前筛选保存为合集" type="button">
+            +
+          </button>
         </div>
 
         <div class="command-actions">
@@ -431,6 +539,8 @@
           <button class:active={uiStore.viewMode === "grid"} onclick={() => (uiStore.viewMode = "grid")} type="button">主屏</button>
           <button onclick={() => (uiStore.viewMode = "compact")} type="button">封面墙</button>
           <button onclick={() => (uiStore.viewMode = "list")} type="button">列表</button>
+          <button class:active={gameStore.selectionMode} onclick={toggleSelectionMode} type="button" title="多选模式 (Ctrl+点击)">多选</button>
+          <button onclick={() => (showWhatToPlay = true)} type="button" title="今天玩什么？">🎲</button>
         </div>
       </section>
 
@@ -653,6 +763,9 @@
   {/if}
 </section>
 
+<WhatToPlay bind:open={showWhatToPlay} />
+<SmartCollectionEditor bind:open={showCollectionEditor} bind:collection={editingCollection} initialFilters={initialCollectionFilters} />
+
 <style>
   .console-dashboard {
     flex: 1;
@@ -868,6 +981,43 @@
     cursor: pointer;
   }
 
+  .batch-bar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px; margin: 0 34px;
+    border: 1px solid var(--accent-ring, rgba(232,85,127,0.4));
+    border-radius: 10px;
+    background: var(--accent-lo, rgba(232,85,127,0.08));
+    animation: fade-in 0.2s ease;
+  }
+  .batch-count {
+    font-size: 13px; font-weight: 650; color: var(--accent);
+    white-space: nowrap;
+  }
+  .batch-actions { display: flex; gap: 6px; flex: 1; }
+  .batch-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 6px 12px; border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px; background: rgba(255,255,255,0.04);
+    color: var(--text-secondary); font-size: 12px; cursor: pointer;
+  }
+  .batch-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .batch-btn.danger { border-color: rgba(248,113,113,0.3); color: #f87171; }
+  .batch-btn.danger:hover { background: rgba(248,113,113,0.1); }
+  .batch-cancel {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 6px 12px; border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px; background: transparent;
+    color: var(--text-muted); font-size: 12px; cursor: pointer;
+  }
+  .batch-cancel:hover { color: var(--text-primary); }
+  .batch-select {
+    padding: 6px 8px; border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px; background: rgba(255,255,255,0.04);
+    color: var(--text-secondary); font-size: 12px; cursor: pointer;
+  }
+  .batch-select:hover { border-color: var(--accent); }
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
   .loading-panel,
   .empty-console {
     position: relative;
@@ -971,6 +1121,18 @@
     border-color: rgba(69, 163, 255, 0.52);
     background: rgba(69, 163, 255, 0.16);
   }
+
+  .filter-divider {
+    width: 1px; height: 20px; flex-shrink: 0;
+    background: rgba(255,255,255,0.12);
+  }
+  .filter-add {
+    width: 34px !important; padding: 0 !important;
+    font-size: 16px; font-weight: 700;
+    border-style: dashed !important;
+    opacity: 0.6;
+  }
+  .filter-add:hover { opacity: 1; }
 
   .command-actions {
     gap: 8px;

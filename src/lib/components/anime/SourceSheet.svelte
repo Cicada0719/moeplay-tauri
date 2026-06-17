@@ -6,10 +6,7 @@
 
   const rules = $derived(animeStore.rules);
   const detailName = $derived(animeStore.detailName);
-  // isOpen 用 nonce 门控：只有本次「打开会话」的瞬态已被 effect 同步重置过
-  // (readyNonce 追上当前 nonce) 才渲染面板 —— 否则会闪现上一部番的旧步骤/旧分集，
-  // 用户开 B 番却看到 A 番的分集、点下去就串台，这正是「播放源和开始观看冲突」。
-  // 再加 view!=='player' 兜底：面板绝不盖在播放器上。
+  // nonce 门控：readyNonce 追上当前 nonce 才渲染，防止闪现上一部番的旧分集
   let readyNonce = $state(-1);
   const isOpen = $derived(
     animeStore.sourceSheetOpen &&
@@ -41,8 +38,6 @@
     const nonce = animeStore.sourceSheetNonce;
     const open = animeStore.sourceSheetOpen;
     if (open && nonce !== readyNonce && animeStore.detailName) {
-      // 同步重置本次会话的所有瞬态，再开搜索。readyNonce 追上 nonce 后 isOpen 才放行渲染，
-      // 因此面板出现时一定是干净的搜索步，绝不闪现/串到上一部番的旧分集。
       step = 'search';
       episodeRoads = [];
       episodeItemName = '';
@@ -54,35 +49,36 @@
   });
 
   function startSearch() {
-    if (!detailName || rules.length === 0) return;
+    if (!detailName || rules.length === 0) {
+      console.warn('[SourceSheet] startSearch bail:', { detailName, rulesLen: rules.length });
+      return;
+    }
     const token = ++searchToken;
     loadError = null;
     activeSourceIdx = 0;
-    // 初始全部 pending —— 从 rules 构建新 Map，**绝不读旧 searchResults**。
-    // 否则 $effect 会把 searchResults 纳入依赖、而 startSearch 又写它 → effect 自触发死循环，
-    // token 不停自增使所有 .then 回调过期 → 结果永远应用不上（一直「搜索中」、点别的源也没反应）。
     const init = new Map<string, { items: SearchItem[]; status: SourceStatus }>();
     for (const rule of rules) init.set(rule.name, { items: [], status: 'pending' });
     searchResults = init;
+    console.log(`[SourceSheet] searching "${detailName}" across ${rules.length} rules (token=${token})`);
 
-    // 所有源并发搜索；HTML 解析在 Rust 阻塞线程池里跑，各源独立返回、互不拖累
     for (const rule of rules) {
       const ruleName = rule.name;
       invoke<SearchItem[]>('anime_search', { ruleName, keyword: detailName })
         .then(items => {
+          console.log(`[SourceSheet] ${ruleName}: ${items.length} results (token=${token}, current=${searchToken})`);
           if (token !== searchToken) return;
           const ok = items.length > 0;
           const next = new Map(searchResults);
           next.set(ruleName, { items, status: ok ? 'success' : 'noResult' });
           searchResults = next;
-          // 自动跳到第一个有结果的源
           if (ok) {
             const cur = rules[activeSourceIdx]?.name;
             const curOk = cur && next.get(cur)?.status === 'success';
             if (!curOk) activeSourceIdx = rules.findIndex(r => r.name === ruleName);
           }
         })
-        .catch(() => {
+        .catch(err => {
+          console.error(`[SourceSheet] ${ruleName} FAILED (token=${token}, current=${searchToken}):`, err);
           if (token !== searchToken) return;
           const next = new Map(searchResults);
           next.set(ruleName, { items: [], status: 'error' });
@@ -170,11 +166,14 @@
   const currentResult = $derived(currentSource ? searchResults.get(currentSource.name) : undefined);
   // 当前线路的分集
   const currentEpisodes = $derived(episodeRoads[activeRoadIdx]?.episodes ?? []);
+  // 历史记录：上次看到的集数
+  const historyEntry = $derived(animeStore.history.find(h => h.name === detailName));
+  const lastWatchedEp = $derived(historyEntry?.lastEpisode ?? -1);
 </script>
 
 {#if isOpen}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="source-backdrop" onclick={closeSheet}></div>
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="source-backdrop" role="none" onclick={closeSheet}></div>
   <div class="source-sheet" role="dialog">
     <!-- Drag handle -->
     <div class="source-handle"></div>
@@ -220,8 +219,17 @@
           {:else}
             <div class="episode-grid">
               {#each currentEpisodes as ep, i (ep.url + i)}
-                <button class="episode-btn" onclick={() => playEpisodeFromSheet(i)} title={ep.name}>
+                <button
+                  class="episode-btn"
+                  class:watched={i <= lastWatchedEp}
+                  class:last-watched={i === lastWatchedEp}
+                  onclick={() => playEpisodeFromSheet(i)}
+                  title={ep.name}
+                >
                   {ep.name || `第${i + 1}集`}
+                  {#if i === lastWatchedEp}
+                    <span class="ep-badge">续</span>
+                  {/if}
                 </button>
               {/each}
             </div>
@@ -559,6 +567,7 @@
     gap: 8px;
   }
   .episode-btn {
+    position: relative;
     padding: 11px 8px;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 10px;
@@ -569,7 +578,7 @@
     cursor: pointer;
     transition: all 0.15s;
     text-align: center;
-    overflow: hidden;
+    overflow: visible;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -578,6 +587,28 @@
     background: rgba(232, 85, 127, 0.1);
     color: #fff;
     transform: translateY(-1px);
+  }
+  .episode-btn.watched {
+    color: rgba(255, 255, 255, 0.35);
+    border-color: rgba(255, 255, 255, 0.04);
+  }
+  .episode-btn.last-watched {
+    position: relative;
+    border-color: rgba(232, 85, 127, 0.5);
+    background: rgba(232, 85, 127, 0.08);
+    color: #e8557f;
+  }
+  .ep-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    font-size: 9px;
+    font-weight: 700;
+    background: #e8557f;
+    color: #fff;
+    padding: 1px 4px;
+    border-radius: 6px;
+    line-height: 1.2;
   }
 
   .spinner {
