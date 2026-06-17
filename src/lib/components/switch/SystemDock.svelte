@@ -3,11 +3,13 @@
 
   type DockItem = { id: string; label: string; icon: string; view: string };
 
-  let { items, current, toolsOpen = false, onpick }: {
+  let { items, current, toolsOpen = false, onpick, windowFullscreen = false, ontogglefullscreen }: {
     items: DockItem[];
     current: string;
     toolsOpen?: boolean;
     onpick: (view: string) => void;
+    windowFullscreen?: boolean;
+    ontogglefullscreen?: () => void;
   } = $props();
 
   const contentItems = $derived(items.filter(i => ["home", "anime", "comic"].includes(i.id)));
@@ -56,6 +58,16 @@
   <div class="dock-sep" aria-hidden="true"></div>
 
   <div class="dock-group">
+    {#if ontogglefullscreen}
+      <button
+        class="dock-btn dock-mode"
+        onclick={ontogglefullscreen}
+        title={windowFullscreen ? '切换到窗口模式' : '切换到全屏模式'}
+      >
+        <span class="ic"><Icon name={windowFullscreen ? 'shrink' : 'maximize'} size={18} /></span>
+        <small>{windowFullscreen ? '窗口' : '全屏'}</small>
+      </button>
+    {/if}
     {#each modeItems as it (it.id)}
       <button
         class="dock-btn dock-mode"

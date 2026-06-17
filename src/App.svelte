@@ -16,6 +16,7 @@
 
   const isBigPicture = $derived(uiStore.bigPictureActive);
   let toolsDrawerOpen = $state(false);
+  let isWindowFullscreen = $state(false);
 
   // tool drawer contains these views — used to highlight "工具" in dock
   const TOOL_VIEWS = new Set(TOOL_ITEMS.map(t => t.view));
@@ -73,6 +74,19 @@
     if (uiStore.currentView === "game-detail" && !gameStore.selectedGame && gameStore.games[0]) gameStore.selectGame(gameStore.games[0].id);
   });
 
+  async function toggleWindowFullscreen() {
+    try {
+      const win = getCurrentWindow();
+      if (isWindowFullscreen) {
+        await win.setFullscreen(false);
+        await win.maximize();
+      } else {
+        await win.setFullscreen(true);
+      }
+      isWindowFullscreen = !isWindowFullscreen;
+    } catch {}
+  }
+
   let booted = $state(false);
   let _detachGamepad = () => {};
   onMount(() => {
@@ -81,6 +95,7 @@
       gameStore.load();
       settingsStore.load();
     }
+    getCurrentWindow().isFullscreen().then(v => { isWindowFullscreen = v; }).catch(() => {});
     window.addEventListener("keydown", onKeydown);
     _detachGamepad = attachGamepad({ back: () => {
       if (toolsDrawerOpen) { toolsDrawerOpen = false; return; }
@@ -230,6 +245,8 @@
         current={isToolView ? "__tools" : uiStore.currentView}
         toolsOpen={toolsDrawerOpen}
         onpick={pickDock}
+        windowFullscreen={isWindowFullscreen}
+        ontogglefullscreen={toggleWindowFullscreen}
       />
     </div>
   {:else}
