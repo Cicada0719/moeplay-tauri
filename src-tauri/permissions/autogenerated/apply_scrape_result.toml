@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-apply-scrape-result"
+description = "Enables the apply_scrape_result command without any pre-configured scope."
+commands.allow = ["apply_scrape_result"]
+
+[[permission]]
+identifier = "deny-apply-scrape-result"
+description = "Denies the apply_scrape_result command without any pre-configured scope."
+commands.deny = ["apply_scrape_result"]

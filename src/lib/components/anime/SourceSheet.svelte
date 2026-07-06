@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core';
-  import { animeStore } from '../../stores/anime.svelte';
+    import { animeStore } from '../../stores/anime.svelte';
+import { invokeCmd } from '../../api/core';
   import type { SearchItem, Road } from '../../stores/anime.svelte';
   import Icon from '../Icon.svelte';
+  import { Button, EmptyState, Overlay, Tag } from '../ui';
 
   const rules = $derived(animeStore.rules);
   const detailName = $derived(animeStore.detailName);
@@ -63,7 +64,7 @@
 
     for (const rule of rules) {
       const ruleName = rule.name;
-      invoke<SearchItem[]>('anime_search', { ruleName, keyword: detailName })
+      invokeCmd<SearchItem[]>('anime_search', { ruleName, keyword: detailName })
         .then(items => {
           console.log(`[SourceSheet] ${ruleName}: ${items.length} results (token=${token}, current=${searchToken})`);
           if (token !== searchToken) return;
@@ -94,7 +95,7 @@
     const next = new Map(searchResults);
     next.set(ruleName, { items: [], status: 'pending' });
     searchResults = next;
-    invoke<SearchItem[]>('anime_search', { ruleName, keyword: detailName })
+    invokeCmd<SearchItem[]>('anime_search', { ruleName, keyword: detailName })
       .then(items => {
         if (token !== searchToken) return;
         const ok = items.length > 0;
@@ -118,7 +119,7 @@
     episodeSourceUrl = item.url;
     episodeItemName = item.name;
     try {
-      const roads = await invoke<Road[]>('anime_fetch_roads', {
+      const roads = await invokeCmd<Road[]>('anime_fetch_roads', {
         ruleName,
         pageUrl: item.url,
       });
@@ -172,8 +173,9 @@
 </script>
 
 {#if isOpen}
-  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-  <div class="source-backdrop" role="none" onclick={closeSheet}></div>
+  <div class="sheet-backdrop">
+    <Overlay onClose={closeSheet} ariaLabel="关闭" />
+  </div>
   <div class="source-sheet" role="dialog">
     <!-- Drag handle -->
     <div class="source-handle"></div>
@@ -181,16 +183,16 @@
     <!-- Header -->
     <div class="source-header">
       {#if step === 'episodes'}
-        <button class="source-back" onclick={backToSearch} title="返回选源">
+        <Button variant="quiet" size="sm" onclick={backToSearch} ariaLabel="返回选源" class="source-back">
           <Icon name="chevronLeft" size={18} />
-        </button>
+        </Button>
         <span class="source-title source-title-ellipsis">{episodeItemName || '选择剧集'}</span>
       {:else}
         <span class="source-title">选择播放源</span>
       {/if}
-      <button class="source-close" onclick={closeSheet}>
+      <Button variant="quiet" size="sm" onclick={closeSheet} ariaLabel="关闭" class="source-close">
         <Icon name="x" size={16} />
-      </button>
+      </Button>
     </div>
 
     {#if step === 'episodes'}
@@ -199,23 +201,22 @@
         {#if episodeRoads.length > 1}
           <div class="road-tabs">
             {#each episodeRoads as road, i}
-              <button
-                class="road-tab"
-                class:active={activeRoadIdx === i}
+              <Tag
+                active={activeRoadIdx === i}
                 onclick={() => { activeRoadIdx = i; }}
+                variant="neutral"
+                size="md"
+                class="road-tab"
               >
                 {road.name || `线路${i + 1}`}
-              </button>
+              </Tag>
             {/each}
           </div>
         {/if}
 
         <div class="episode-scroll">
           {#if currentEpisodes.length === 0}
-            <div class="source-empty">
-              <Icon name="film" size={24} />
-              <p>该线路暂无剧集</p>
-            </div>
+            <EmptyState icon="film" title="该线路暂无剧集" class="source-empty" />
           {:else}
             <div class="episode-grid">
               {#each currentEpisodes as ep, i (ep.url + i)}
@@ -270,27 +271,27 @@
               <span>搜索中...</span>
             </div>
           {:else if currentResult.status === 'error'}
-            <div class="source-empty">
-              <Icon name="x" size={24} />
-              <p>检索失败</p>
-              <button class="retry-btn" onclick={() => currentSource && retrySource(currentSource.name)}>重试</button>
-            </div>
+            <EmptyState
+              icon="x"
+              title="检索失败"
+              action={{ label: '重试', onclick: () => currentSource && retrySource(currentSource.name) }}
+              class="source-empty"
+            />
           {:else if currentResult.status === 'noResult' || currentResult.items.length === 0}
-            <div class="source-empty">
-              <Icon name="search" size={24} />
-              <p>该源未找到「{detailName}」</p>
-              <div class="source-actions">
-                <button class="action-link" onclick={() => currentSource && retrySource(currentSource.name)}>重试该源</button>
-              </div>
-            </div>
+            <EmptyState
+              icon="search"
+              title={`该源未找到「${detailName}」`}
+              action={{ label: '重试该源', onclick: () => currentSource && retrySource(currentSource.name) }}
+              class="source-empty"
+            />
           {:else}
             <div class="result-list">
               {#each currentResult.items as item (item.url)}
-                <button class="result-item" onclick={() => onSelectResult(currentSource.name, item)}>
+                <Button variant="quiet" fullWidth class="result-item" onclick={() => onSelectResult(currentSource.name, item)}>
                   <Icon name="film" size={16} />
                   <span class="result-name">{item.name}</span>
                   <Icon name="chevronRight" size={14} />
-                </button>
+                </Button>
               {/each}
             </div>
           {/if}
@@ -305,10 +306,9 @@
 {/if}
 
 <style>
-  .source-backdrop {
+  .sheet-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
     z-index: 40;
     animation: fade-in 0.2s ease;
   }
@@ -358,7 +358,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .source-back {
+  :global(.ui-button.source-back) {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -372,8 +372,8 @@
     transition: all 0.15s;
     flex-shrink: 0;
   }
-  .source-back:hover { background: rgba(232, 85, 127, 0.15); color: #e8557f; }
-  .source-close {
+  :global(.ui-button.source-back:hover) { background: rgba(232, 85, 127, 0.15); color: #e8557f; }
+  :global(.ui-button.source-close) {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -387,7 +387,7 @@
     transition: all 0.15s;
     flex-shrink: 0;
   }
-  .source-close:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+  :global(.ui-button.source-close:hover) { background: rgba(255, 255, 255, 0.1); color: #fff; }
 
   .source-body {
     display: flex;
@@ -448,7 +448,7 @@
     padding: 8px 0;
     min-width: 0;
   }
-  .source-loading, .source-empty {
+  .source-loading, :global(.ui-empty.source-empty) {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -458,31 +458,14 @@
     color: rgba(255, 255, 255, 0.35);
     font-size: 13px;
   }
-  .source-empty p { margin: 0; }
-  .source-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 8px;
-  }
-  .action-link {
-    padding: 6px 14px;
-    border: 1px solid rgba(232, 85, 127, 0.3);
-    border-radius: 6px;
-    background: transparent;
-    color: #e8557f;
-    font-size: 12px;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  .action-link:hover { background: rgba(232, 85, 127, 0.1); }
-
+  :global(.ui-empty.source-empty p) { margin: 0; }
   .result-list {
     display: flex;
     flex-direction: column;
     gap: 2px;
     padding: 0 8px;
   }
-  .result-item {
+  :global(.ui-button.result-item) {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -497,7 +480,7 @@
     text-align: left;
     width: 100%;
   }
-  .result-item:hover {
+  :global(.ui-button.result-item:hover) {
     background: rgba(232, 85, 127, 0.08);
     color: #fff;
   }
@@ -513,16 +496,6 @@
     color: #f87171;
     font-size: 12px;
   }
-  .retry-btn {
-    padding: 6px 16px;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 6px;
-    background: transparent;
-    color: #fff;
-    font-size: 12px;
-    cursor: pointer;
-  }
-  .retry-btn:hover { background: rgba(255, 255, 255, 0.06); }
 
   /* ── 第二步：选集 ── */
   .episode-view {
@@ -537,23 +510,6 @@
     flex-wrap: wrap;
     padding: 12px 16px 4px;
     flex-shrink: 0;
-  }
-  .road-tab {
-    padding: 5px 14px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 16px;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.6);
-    font-size: 12.5px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  .road-tab:hover { border-color: rgba(232, 85, 127, 0.4); color: #fff; }
-  .road-tab.active {
-    background: rgba(232, 85, 127, 0.15);
-    border-color: #e8557f;
-    color: #e8557f;
   }
   .episode-scroll {
     flex: 1;

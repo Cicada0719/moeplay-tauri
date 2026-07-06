@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-comic-random"
+description = "Enables the comic_random command without any pre-configured scope."
+commands.allow = ["comic_random"]
+
+[[permission]]
+identifier = "deny-comic-random"
+description = "Denies the comic_random command without any pre-configured scope."
+commands.deny = ["comic_random"]

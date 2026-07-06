@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-smart-collections"
+description = "Enables the get_smart_collections command without any pre-configured scope."
+commands.allow = ["get_smart_collections"]
+
+[[permission]]
+identifier = "deny-get-smart-collections"
+description = "Denies the get_smart_collections command without any pre-configured scope."
+commands.deny = ["get_smart_collections"]

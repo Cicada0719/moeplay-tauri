@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-add-tag-entry"
+description = "Enables the add_tag_entry command without any pre-configured scope."
+commands.allow = ["add_tag_entry"]
+
+[[permission]]
+identifier = "deny-add-tag-entry"
+description = "Denies the add_tag_entry command without any pre-configured scope."
+commands.deny = ["add_tag_entry"]

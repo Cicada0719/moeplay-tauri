@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-comic-comment-children"
+description = "Enables the comic_comment_children command without any pre-configured scope."
+commands.allow = ["comic_comment_children"]
+
+[[permission]]
+identifier = "deny-comic-comment-children"
+description = "Denies the comic_comment_children command without any pre-configured scope."
+commands.deny = ["comic_comment_children"]

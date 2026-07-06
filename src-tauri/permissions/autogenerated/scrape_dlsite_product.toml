@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-scrape-dlsite-product"
+description = "Enables the scrape_dlsite_product command without any pre-configured scope."
+commands.allow = ["scrape_dlsite_product"]
+
+[[permission]]
+identifier = "deny-scrape-dlsite-product"
+description = "Denies the scrape_dlsite_product command without any pre-configured scope."
+commands.deny = ["scrape_dlsite_product"]

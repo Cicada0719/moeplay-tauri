@@ -1,10 +1,11 @@
 <script lang="ts">
   import type { ComicSummary } from "../../stores/comic.svelte";
+  import { Card } from "../ui";
 
   let { comic, onclick }: { comic: ComicSummary; onclick?: () => void } = $props();
 </script>
 
-<button class="comic-card" {onclick} tabindex="0">
+<Card class="comic-card" padding="none" hoverable focusable role="button" ariaLabel={comic.title} {onclick}>
   <div class="thumb-wrap">
     <img
       src={comic.thumb_url}
@@ -22,28 +23,13 @@
     <p class="author">{comic.author || "未知作者"}</p>
     <p class="meta">{comic.eps_count}话 · {(comic.total_views / 1000).toFixed(0)}k</p>
   </div>
-</button>
+</Card>
 
 <style>
-  .comic-card {
-    display: flex;
-    flex-direction: column;
-    background: var(--bg-card, rgba(255,255,255,0.03));
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    overflow: hidden;
+  :global(.comic-card) {
     cursor: pointer;
-    transition: transform 0.18s ease, border-color 0.18s ease;
     text-align: left;
-    padding: 0;
     width: 100%;
-  }
-  .comic-card:hover {
-    transform: translateY(-3px);
-    border-color: var(--accent);
-  }
-  .comic-card:active {
-    transform: translateY(-1px) scale(0.98);
   }
 
   .thumb-wrap {

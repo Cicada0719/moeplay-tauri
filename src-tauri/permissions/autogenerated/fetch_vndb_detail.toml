@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-fetch-vndb-detail"
+description = "Enables the fetch_vndb_detail command without any pre-configured scope."
+commands.allow = ["fetch_vndb_detail"]
+
+[[permission]]
+identifier = "deny-fetch-vndb-detail"
+description = "Denies the fetch_vndb_detail command without any pre-configured scope."
+commands.deny = ["fetch_vndb_detail"]

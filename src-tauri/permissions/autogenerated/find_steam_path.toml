@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-find-steam-path"
+description = "Enables the find_steam_path command without any pre-configured scope."
+commands.allow = ["find_steam_path"]
+
+[[permission]]
+identifier = "deny-find-steam-path"
+description = "Denies the find_steam_path command without any pre-configured scope."
+commands.deny = ["find_steam_path"]

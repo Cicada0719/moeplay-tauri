@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-comic-categories"
+description = "Enables the comic_categories command without any pre-configured scope."
+commands.allow = ["comic_categories"]
+
+[[permission]]
+identifier = "deny-comic-categories"
+description = "Denies the comic_categories command without any pre-configured scope."
+commands.deny = ["comic_categories"]

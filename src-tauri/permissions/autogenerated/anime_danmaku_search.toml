@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-danmaku-search"
+description = "Enables the anime_danmaku_search command without any pre-configured scope."
+commands.allow = ["anime_danmaku_search"]
+
+[[permission]]
+identifier = "deny-anime-danmaku-search"
+description = "Denies the anime_danmaku_search command without any pre-configured scope."
+commands.deny = ["anime_danmaku_search"]

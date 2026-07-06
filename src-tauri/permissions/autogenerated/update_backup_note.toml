@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-backup-note"
+description = "Enables the update_backup_note command without any pre-configured scope."
+commands.allow = ["update_backup_note"]
+
+[[permission]]
+identifier = "deny-update-backup-note"
+description = "Denies the update_backup_note command without any pre-configured scope."
+commands.deny = ["update_backup_note"]

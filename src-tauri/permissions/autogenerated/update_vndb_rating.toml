@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-vndb-rating"
+description = "Enables the update_vndb_rating command without any pre-configured scope."
+commands.allow = ["update_vndb_rating"]
+
+[[permission]]
+identifier = "deny-update-vndb-rating"
+description = "Denies the update_vndb_rating command without any pre-configured scope."
+commands.deny = ["update_vndb_rating"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-comic-set-token"
+description = "Enables the comic_set_token command without any pre-configured scope."
+commands.allow = ["comic_set_token"]
+
+[[permission]]
+identifier = "deny-comic-set-token"
+description = "Denies the comic_set_token command without any pre-configured scope."
+commands.deny = ["comic_set_token"]

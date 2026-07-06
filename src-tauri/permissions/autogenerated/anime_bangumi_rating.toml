@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-bangumi-rating"
+description = "Enables the anime_bangumi_rating command without any pre-configured scope."
+commands.allow = ["anime_bangumi_rating"]
+
+[[permission]]
+identifier = "deny-anime-bangumi-rating"
+description = "Denies the anime_bangumi_rating command without any pre-configured scope."
+commands.deny = ["anime_bangumi_rating"]

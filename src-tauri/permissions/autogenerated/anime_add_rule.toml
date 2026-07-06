@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-add-rule"
+description = "Enables the anime_add_rule command without any pre-configured scope."
+commands.allow = ["anime_add_rule"]
+
+[[permission]]
+identifier = "deny-anime-add-rule"
+description = "Denies the anime_add_rule command without any pre-configured scope."
+commands.deny = ["anime_add_rule"]

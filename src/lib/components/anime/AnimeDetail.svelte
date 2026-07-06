@@ -1,6 +1,7 @@
 <script lang="ts">
   import { animeStore, COLLECT_TYPES } from '../../stores/anime.svelte';
   import Icon from '../Icon.svelte';
+  import { BackgroundLayer, Button, Card, EmptyState, SegmentControl, Tag } from '../ui';
 
   // ── Reactive data from store ──────────────────────────────────────────
   const subject = $derived(animeStore.detailSubject);
@@ -88,17 +89,17 @@
 <div class="detail-overlay" role="dialog" tabindex="-1" onclick={handleOverlayClick} onkeydown={(e) => e.key === 'Escape' && animeStore.closeDetail()}>
   <!-- Blurred poster background -->
   {#if bgPosterUrl}
-    <div class="bg-blur" style="background-image: url('{bgPosterUrl}')"></div>
+    <BackgroundLayer src={bgPosterUrl} overlay={false} class="bg-blur" />
   {/if}
 
   <!-- Top header -->
   <header class="detail-header">
-    <button class="header-btn" onclick={() => animeStore.closeDetail()} aria-label="返回">
+    <Button variant="ghost" size="sm" onclick={() => animeStore.closeDetail()} ariaLabel="返回" class="header-btn">
       <Icon name="chevronLeft" size={20} />
-    </button>
+    </Button>
     <div class="header-center">
       {#if ruleName}
-        <span class="source-badge">{ruleName}</span>
+        <Tag variant="accent" size="md">{ruleName}</Tag>
       {/if}
     </div>
     <div class="header-right"></div>
@@ -112,10 +113,7 @@
         <span>加载中...</span>
       </div>
     {:else if error && !subject}
-      <div class="error-center">
-        <Icon name="x" size={32} />
-        <p>{error}</p>
-      </div>
+      <EmptyState icon="x" title="加载失败" description={error} class="error-center" />
     {:else}
       <!-- Title section -->
       <section class="title-section">
@@ -226,25 +224,17 @@
       </section>
 
       <!-- Tab navigation -->
-      <nav class="tab-bar">
-        {#each [
-          ['overview', '概览'],
-          ['comments', '吐槽'],
-          ['characters', '角色'],
-          ['staff', '制作人员']
-        ] as [tab, label] (tab)}
-          <button
-            class="tab-btn"
-            class:active={detailTab === tab}
-            onclick={() => switchTab(tab as 'overview' | 'comments' | 'characters' | 'staff')}
-          >
-            {label}
-            {#if detailTab === tab}
-              <span class="tab-indicator"></span>
-            {/if}
-          </button>
-        {/each}
-      </nav>
+      <SegmentControl
+        class="tab-bar"
+        options={[
+          { value: 'overview', label: '概览' },
+          { value: 'comments', label: '吐槽' },
+          { value: 'characters', label: '角色' },
+          { value: 'staff', label: '制作人员' }
+        ]}
+        value={detailTab}
+        onChange={(v) => switchTab(v as 'overview' | 'comments' | 'characters' | 'staff')}
+      />
 
       <!-- Tab content -->
       <div class="tab-content">
@@ -259,30 +249,31 @@
 
           <!-- Tags -->
           {#if subject?.tags && subject.tags.length > 0}
-            <div class="content-block">
+            <Card padding="md" class="content-block">
               <h3 class="block-title">标签</h3>
               <div class="tags-wrap">
                 {#each subject.tags as tag}
-                  <span class="tag-pill">
+                  <Tag variant="accent" size="sm">
                     {tag.name}
                     {#if tag.count > 0}
                       <span class="tag-count">{tag.count}</span>
                     {/if}
-                  </span>
+                  </Tag>
                 {/each}
               </div>
-            </div>
+            </Card>
           {/if}
 
           <!-- 线路/分集已移至 SourceSheet (点击"开始观看"后弹出) -->
 
+
         {:else if detailTab === 'comments'}
           <div class="comments-list">
             {#if comments.length === 0}
-              <p class="empty-text">暂无吐槽</p>
+              <EmptyState title="暂无吐槽" class="empty-text" />
             {:else}
               {#each comments as c}
-                <div class="comment-card">
+                <Card padding="md" class="comment-card">
                   <div class="comment-header">
                     <span class="comment-user">{c.user}</span>
                     {#if c.rate > 0}
@@ -291,7 +282,7 @@
                     <span class="comment-date">{c.date}</span>
                   </div>
                   <p class="comment-text">{c.comment}</p>
-                </div>
+                </Card>
               {/each}
             {/if}
           </div>
@@ -299,10 +290,10 @@
         {:else if detailTab === 'characters'}
           <div class="characters-list">
             {#if characters.length === 0}
-              <p class="empty-text">暂无角色信息</p>
+              <EmptyState title="暂无角色信息" class="empty-text" />
             {:else}
               {#each characters as ch}
-                <div class="character-card">
+                <Card padding="sm" class="character-card">
                   {#if ch.image}
                     <img
                       src={imgCache[ch.image] || ch.image}
@@ -320,7 +311,7 @@
                       <span class="char-actor">CV: {ch.actors.map(a => a.name_cn || a.name).join(', ')}</span>
                     {/if}
                   </div>
-                </div>
+                </Card>
               {/each}
             {/if}
           </div>
@@ -328,10 +319,10 @@
         {:else if detailTab === 'staff'}
           <div class="staff-list">
             {#if persons.length === 0}
-              <p class="empty-text">暂无制作人员信息</p>
+              <EmptyState title="暂无制作人员信息" class="empty-text" />
             {:else}
               {#each persons as p}
-                <div class="staff-card">
+                <Card padding="sm" class="staff-card">
                   {#if p.image}
                     <img
                       src={imgCache[p.image] || p.image}
@@ -347,7 +338,7 @@
                     <span class="staff-name">{p.name_cn || p.name}</span>
                     <span class="staff-job">{p.jobs.join(' / ')}</span>
                   </div>
-                </div>
+                </Card>
               {/each}
             {/if}
           </div>
@@ -390,7 +381,7 @@
   }
 
   /* ── Blurred background ─────────────────────────────────────────────── */
-  .bg-blur {
+  :global(.ui-bg-layer.bg-blur) {
     position: absolute;
     inset: -60px;
     background-size: cover;
@@ -412,7 +403,7 @@
     background: linear-gradient(180deg, rgba(13,17,23,0.95) 0%, rgba(13,17,23,0.7) 70%, transparent 100%);
   }
 
-  .header-btn {
+  :global(.ui-button.header-btn) {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -427,7 +418,7 @@
     backdrop-filter: blur(8px);
   }
 
-  .header-btn:hover {
+  :global(.ui-button.header-btn:hover) {
     background: rgba(232,85,127,0.3);
     border-color: #e8557f;
     transform: scale(1.05);
@@ -437,17 +428,6 @@
     flex: 1;
     display: flex;
     justify-content: center;
-  }
-
-  .source-badge {
-    padding: 4px 12px;
-    background: rgba(232,85,127,0.15);
-    border: 1px solid rgba(232,85,127,0.3);
-    border-radius: 20px;
-    color: #e8557f;
-    font-size: 12px;
-    font-weight: 500;
-    backdrop-filter: blur(8px);
   }
 
   .header-right {
@@ -759,56 +739,14 @@
   }
 
   /* ── Tab navigation ─────────────────────────────────────────────────── */
-  .tab-bar {
-    display: flex;
-    gap: 0;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
+  :global(.ui-segment.tab-bar) {
     margin-bottom: 20px;
     overflow-x: auto;
     scrollbar-width: none;
   }
 
-  .tab-bar::-webkit-scrollbar {
+  :global(.ui-segment.tab-bar::-webkit-scrollbar) {
     display: none;
-  }
-
-  .tab-btn {
-    position: relative;
-    padding: 12px 18px;
-    border: none;
-    background: transparent;
-    color: #6e7681;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  .tab-btn:hover {
-    color: #8b949e;
-  }
-
-  .tab-btn.active {
-    color: #e8557f;
-    font-weight: 600;
-  }
-
-  .tab-indicator {
-    position: absolute;
-    bottom: -1px;
-    left: 18px;
-    right: 18px;
-    height: 2px;
-    background: #e8557f;
-    border-radius: 1px;
-    animation: indicator-appear 0.2s ease-out;
-  }
-
-  @keyframes indicator-appear {
-    from { transform: scaleX(0); }
-    to   { transform: scaleX(1); }
   }
 
   /* ── Tab content ────────────────────────────────────────────────────── */
@@ -854,26 +792,6 @@
     gap: 8px;
   }
 
-  .tag-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 14px;
-    border: 1px solid rgba(232,85,127,0.3);
-    border-radius: 20px;
-    background: rgba(232,85,127,0.06);
-    color: #e8557f;
-    font-size: 13px;
-    font-weight: 500;
-    transition: all 0.15s ease;
-    cursor: default;
-  }
-
-  .tag-pill:hover {
-    background: rgba(232,85,127,0.15);
-    border-color: rgba(232,85,127,0.5);
-  }
-
   .tag-count {
     font-size: 11px;
     color: #6e7681;
@@ -887,15 +805,7 @@
     gap: 12px;
   }
 
-  .comment-card {
-    padding: 16px;
-    background: rgba(255,255,255,0.03);
-    border-radius: 12px;
-    border: 1px solid rgba(255,255,255,0.06);
-    transition: all 0.15s ease;
-  }
-
-  .comment-card:hover {
+  :global(.ui-card.comment-card:hover) {
     background: rgba(255,255,255,0.05);
     border-color: rgba(255,255,255,0.1);
   }
@@ -942,20 +852,15 @@
     gap: 10px;
   }
 
-  .character-card,
-  .staff-card {
+  :global(.ui-card.character-card),
+  :global(.ui-card.staff-card) {
     display: flex;
     gap: 14px;
     align-items: center;
-    padding: 12px;
-    background: rgba(255,255,255,0.03);
-    border-radius: 12px;
-    border: 1px solid rgba(255,255,255,0.06);
-    transition: all 0.15s ease;
   }
 
-  .character-card:hover,
-  .staff-card:hover {
+  :global(.ui-card.character-card:hover),
+  :global(.ui-card.staff-card:hover) {
     background: rgba(255,255,255,0.05);
     border-color: rgba(255,255,255,0.1);
     transform: translateX(4px);
@@ -1011,7 +916,7 @@
     white-space: nowrap;
   }
 
-  .empty-text {
+  :global(.ui-empty.empty-text) {
     color: #6e7681;
     font-size: 14px;
     text-align: center;
@@ -1086,7 +991,7 @@
 
   /* ── Loading & Error states ─────────────────────────────────────────── */
   .loading-center,
-  .error-center {
+  :global(.ui-empty.error-center) {
     flex: 1;
     display: flex;
     flex-direction: column;
@@ -1110,7 +1015,7 @@
     to { transform: rotate(360deg); }
   }
 
-  .error-center p {
+  :global(.ui-empty.error-center p) {
     font-size: 14px;
     margin: 0;
     text-align: center;

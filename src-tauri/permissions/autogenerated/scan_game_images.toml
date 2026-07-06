@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-scan-game-images"
+description = "Enables the scan_game_images command without any pre-configured scope."
+commands.allow = ["scan_game_images"]
+
+[[permission]]
+identifier = "deny-scan-game-images"
+description = "Denies the scan_game_images command without any pre-configured scope."
+commands.deny = ["scan_game_images"]

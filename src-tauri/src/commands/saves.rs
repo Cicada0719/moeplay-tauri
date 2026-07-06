@@ -139,6 +139,15 @@ pub fn backup_save(save_path: String) -> Result<String, String> {
         return Err("存档文件不存在".to_string());
     }
 
+    // 安全作用域：应用数据目录 + 该存档所在的目录
+    let mut scope = crate::security::app_data_scope().unwrap_or_default();
+    if let Some(parent) = src.parent() {
+        scope.allow(parent);
+    }
+    let src = scope
+        .resolve(&src)
+        .map_err(|_| "路径不在允许范围内".to_string())?;
+
     let backup_dir = dirs::data_dir()
         .unwrap_or_default()
         .join("moeplay")
@@ -164,6 +173,22 @@ pub fn restore_save(backup_path: String, target_path: String) -> Result<(), Stri
     if !src.exists() {
         return Err("备份文件不存在".to_string());
     }
+
+    // 安全作用域：应用数据目录 + 两端各自的父目录（即游戏存档目录）
+    let mut scope = crate::security::app_data_scope().unwrap_or_default();
+    if let Some(parent) = src.parent() {
+        scope.allow(parent);
+    }
+    if let Some(parent) = dst.parent() {
+        scope.allow(parent);
+    }
+
+    let src = scope
+        .resolve(&src)
+        .map_err(|_| "路径不在允许范围内".to_string())?;
+    let dst = scope
+        .resolve(&dst)
+        .map_err(|_| "路径不在允许范围内".to_string())?;
 
     fs::copy(&src, &dst).map_err(|e| format!("恢复失败: {}", e))?;
     Ok(())

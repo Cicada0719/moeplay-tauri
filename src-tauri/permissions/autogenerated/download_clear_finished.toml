@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-download-clear-finished"
+description = "Enables the download_clear_finished command without any pre-configured scope."
+commands.allow = ["download_clear_finished"]
+
+[[permission]]
+identifier = "deny-download-clear-finished"
+description = "Denies the download_clear_finished command without any pre-configured scope."
+commands.deny = ["download_clear_finished"]

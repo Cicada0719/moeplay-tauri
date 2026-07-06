@@ -15,8 +15,7 @@
   } from "../api";
   import type { Game } from "../stores/games.svelte";
   import { fileSrc } from "../utils";
-  import Button from "./Button.svelte";
-  import TagPill from "./TagPill.svelte";
+  import { Button, Card, Dialog, EmptyState, Input, Tag } from "./ui";
   import RatingRing from "./RatingRing.svelte";
   import Icon from "./Icon.svelte";
   import CachedImage from "./CachedImage.svelte";
@@ -211,9 +210,9 @@
       {/if}
       <div class="hero-scrim"></div>
 
-      <button class="back-btn" onclick={() => uiStore.currentView = "home"} aria-label="返回游戏库">
+      <Button variant="quiet" class="back-btn" onclick={() => uiStore.currentView = "home"} ariaLabel="返回游戏库">
         <Icon name="arrowLeft" size={16} />
-      </button>
+      </Button>
 
       <div class="hero-floor">
         <div class="poster">
@@ -248,7 +247,7 @@
           <div class="tags">
             {#if detailTags.length}
               {#each detailTags.slice(0, 6) as tag, index}
-                <TagPill label={tag} active={index === 0} />
+                <Tag active={index === 0}>{tag}</Tag>
               {/each}
             {/if}
           </div>
@@ -289,7 +288,7 @@
         <SavePanel gameId={game.id} saveDir={saveDirOf(game)} compact />
 
 
-        <article class="panel">
+        <Card class="panel" padding="none">
           <div class="panel-head">
             <span class="panel-label">Achievements</span>
             <h3>成就</h3>
@@ -308,9 +307,9 @@
               {achievementTotal ? "来自平台同步的成就数据。" : "暂无成就数据，Steam 同步后自动填充。"}
             </p>
           </div>
-        </article>
+        </Card>
 
-        <article class="panel">
+        <Card class="panel" padding="none">
           <div class="panel-head">
             <span class="panel-label">Recent Play</span>
             <h3>最近会话</h3>
@@ -330,49 +329,49 @@
               <p class="panel-note">还没有游玩记录。</p>
             {/if}
           </div>
-        </article>
+        </Card>
       </section>
 
       <GameNotes gameId={game.id} />
     </div>
 
-    {#if isEditing}
-      <div class="edit-overlay" role="dialog" aria-modal="true" aria-label="编辑游戏">
-        <div class="edit-panel">
-          <header class="edit-header">
-            <h3>编辑：{game.name}</h3>
-            <button class="edit-close" onclick={() => isEditing = false} aria-label="关闭">
-              <Icon name="x" size={18} />
-            </button>
-          </header>
-          <div class="edit-body">
-            <div class="edit-field">
-              <label for="edit-name">游戏名称</label>
-              <input id="edit-name" bind:value={editName} />
-            </div>
-            <div class="edit-field">
-              <label for="edit-exe">可执行文件路径</label>
-              <input id="edit-exe" class="mono" bind:value={editExePath} />
-            </div>
-            <div class="edit-field">
-              <label for="edit-desc">游戏简介</label>
-              <textarea id="edit-desc" bind:value={editDesc} rows={5}></textarea>
-            </div>
+    <Dialog open={isEditing} onClose={() => isEditing = false} title="编辑：{game.name}">
+      <div class="edit-panel">
+        <header class="edit-header">
+          <h3>编辑：{game.name}</h3>
+          <button class="edit-close" onclick={() => isEditing = false} aria-label="关闭">
+            <Icon name="x" size={18} />
+          </button>
+        </header>
+        <div class="edit-body">
+          <div class="edit-field">
+            <label for="edit-name">游戏名称</label>
+            <Input id="edit-name" bind:value={editName} />
           </div>
-          <footer class="edit-footer">
-            <Button onclick={saveEdit} disabled={isSaving}>{isSaving ? "保存中…" : "保存修改"}</Button>
-            <Button variant="ghost" onclick={() => isEditing = false}>取消</Button>
-          </footer>
+          <div class="edit-field">
+            <label for="edit-exe">可执行文件路径</label>
+            <Input id="edit-exe" class="mono" bind:value={editExePath} />
+          </div>
+          <div class="edit-field">
+            <label for="edit-desc">游戏简介</label>
+            <textarea id="edit-desc" bind:value={editDesc} rows={5}></textarea>
+          </div>
         </div>
+        <footer class="edit-footer">
+          <Button onclick={saveEdit} disabled={isSaving}>{isSaving ? "保存中…" : "保存修改"}</Button>
+          <Button variant="ghost" onclick={() => isEditing = false}>取消</Button>
+        </footer>
       </div>
-    {/if}
+    </Dialog>
   </section>
 {:else}
   <section class="detail-page not-found">
-    <Icon name="gamepad" size={48} />
-    <h2>游戏未找到</h2>
-    <p>该游戏可能已被移除或数据加载失败</p>
-    <button class="back-btn-inline" onclick={() => uiStore.currentView = "home"}>返回游戏库</button>
+    <EmptyState
+      icon="gamepad"
+      title="游戏未找到"
+      description="该游戏可能已被移除或数据加载失败"
+      action={{ label: "返回游戏库", onclick: () => uiStore.currentView = "home" }}
+    />
   </section>
 {/if}
 
@@ -390,13 +389,6 @@
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
     color: var(--text-muted); padding: 48px 24px; text-align: center;
   }
-  .detail-page.not-found h2 { margin: 0; color: var(--text-primary); font-size: 20px; }
-  .detail-page.not-found p { margin: 0; font-size: 14px; }
-  .back-btn-inline {
-    margin-top: 8px; padding: 8px 20px; border: 1px solid var(--accent-ring); border-radius: 8px;
-    background: transparent; color: var(--accent); font-size: 13px; cursor: pointer;
-  }
-  .back-btn-inline:hover { background: var(--accent-lo); }
 
   /* ── Background art ── */
   .bg-layer {
@@ -434,13 +426,15 @@
     pointer-events: none;
   }
 
-  .back-btn {
+  :global(.ui-button.back-btn) {
     position: absolute;
     top: 20px;
     left: 24px;
     z-index: 4;
     width: 36px;
     height: 36px;
+    min-height: 0;
+    padding: 0;
     display: grid;
     place-items: center;
     border: 1px solid rgba(255,255,255,0.12);
@@ -452,7 +446,7 @@
     -webkit-backdrop-filter: blur(12px);
     transition: color 0.2s, border-color 0.2s, background 0.2s;
   }
-  .back-btn:hover {
+  :global(.ui-button.back-btn:hover) {
     color: var(--text-primary);
     border-color: rgba(255,255,255,0.22);
     background: rgba(10,12,18,0.7);
@@ -662,14 +656,7 @@
     gap: 12px;
   }
 
-  .panel {
-    border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 12px;
-    background: rgba(255,255,255,0.025);
-    overflow: hidden;
-    transition: border-color 0.2s;
-  }
-  .panel:hover {
+  :global(.ui-card.panel:hover) {
     border-color: rgba(255,255,255,0.10);
   }
 
@@ -794,19 +781,7 @@
     .shot { width: min(72vw, 380px); }
   }
 
-  /* ── Edit overlay ── */
-  .edit-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 50;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(8,10,16,0.72);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
-  }
-
+  /* ── Edit dialog ── */
   .edit-panel {
     width: min(520px, 90vw);
     max-height: 80vh;
@@ -872,7 +847,6 @@
     color: var(--text-muted);
   }
 
-  .edit-field input,
   .edit-field textarea {
     background: rgba(255,255,255,0.05);
     color: var(--text-primary);
@@ -886,10 +860,9 @@
     transition: border-color 0.2s;
   }
 
-  .edit-field input:focus,
   .edit-field textarea:focus { border-color: var(--accent); }
 
-  .edit-field input.mono {
+  .edit-field :global(.ui-input.mono) {
     font-family: var(--font-mono);
     font-size: 12px;
   }

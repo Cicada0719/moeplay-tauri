@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-nsfw-display-mode"
+description = "Enables the update_nsfw_display_mode command without any pre-configured scope."
+commands.allow = ["update_nsfw_display_mode"]
+
+[[permission]]
+identifier = "deny-update-nsfw-display-mode"
+description = "Denies the update_nsfw_display_mode command without any pre-configured scope."
+commands.deny = ["update_nsfw_display_mode"]

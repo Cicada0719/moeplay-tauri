@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-schema-version"
+description = "Enables the get_schema_version command without any pre-configured scope."
+commands.allow = ["get_schema_version"]
+
+[[permission]]
+identifier = "deny-get-schema-version"
+description = "Denies the get_schema_version command without any pre-configured scope."
+commands.deny = ["get_schema_version"]

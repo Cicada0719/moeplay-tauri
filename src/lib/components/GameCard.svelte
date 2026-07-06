@@ -7,10 +7,18 @@
   import type { Game } from "../stores/games.svelte";
   import CachedImage from "./CachedImage.svelte";
   import Icon from "./Icon.svelte";
-  import { coverOf, developerOf, gameCompletionStatus, gameRating, tagsOf } from "../utils/game";
+  import { Card } from "./ui";
+  import {
+    coverOf,
+    developerOf,
+    gameCompletionStatus,
+    gameRating,
+    releaseYearOf,
+    tagsOf,
+  } from "../utils/game";
 
   let { game }: { game: Game } = $props();
-  let el = $state<HTMLDivElement>();
+  let el = $state<HTMLElement>();
 
   const statusLabels: Record<string, string> = {
     playing: "游玩中",
@@ -19,6 +27,7 @@
     dropped: "已放弃",
     plan_to_play: "计划中",
     replaying: "重温中",
+    not_started: "未开始",
   };
   const statusIcons: Record<string, string> = {
     playing: "play",
@@ -27,6 +36,7 @@
     dropped: "x",
     plan_to_play: "star",
     replaying: "refresh",
+    not_started: "circle",
   };
 
   const monogram = $derived((game.name?.trim()?.[0] ?? "?").toUpperCase());
@@ -34,17 +44,17 @@
   const completionStatus = $derived(gameCompletionStatus(game));
   const showStatusBadge = $derived(Boolean(statusLabels[completionStatus]));
   const developer = $derived(developerOf(game));
+  const year = $derived(releaseYearOf(game));
   const rating = $derived(gameRating(game));
   const tags = $derived(tagsOf(game));
-
   const isNsfw = $derived(
     tags.some(t => /^(nsfw|18\+|r-?18|adult|成人|エロ|エロゲ)$/i.test(t.trim()))
   );
   const nsfwMode = $derived(settingsStore.settings.nsfw_display_mode ?? "show");
   const inSelectionMode = $derived(gameStore.selectionMode);
   const isSelected = $derived(gameStore.isSelected(game.id));
+  const isList = $derived(uiStore.viewMode === "list");
 
-  // GSAP 入场：power3.out 淡入上移（结合 gsap-skill；hover 仍用 CSS 微交互）。
   onMount(() => {
     const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
     const node = el;
@@ -71,18 +81,18 @@
   }
 </script>
 
-<div
-  bind:this={el}
-  class="game-card"
-  class:list={uiStore.viewMode === "list"}
-  class:nsfw-hidden={isNsfw && nsfwMode === "hide"}
-  class:selected={isSelected}
-  onclick={(e) => handleClick(e)}
-  onkeydown={(e) => handleClick(e)}
+<Card
+  bind:ref={el}
+  class="game-card {isList ? 'game-card--list' : ''} {isSelected ? 'game-card--selected' : ''}"
+  padding="none"
+  hoverable
+  focusable
   role="button"
-  tabindex="0"
+  ariaLabel={game.name}
+  onclick={handleClick}
+  onkeydown={handleClick}
 >
-  <div class="cover" class:cover-blur={isNsfw && nsfwMode === "blur"}>
+  <div class="cover" class:cover-blur={isNsfw && nsfwMode === "blur"} class:cover-hidden={isNsfw && nsfwMode === "hide"}>
     {#if coverSource}
       <CachedImage source={coverSource} cacheKey={`game-cover-${game.id}`} alt={game.name} loading="lazy" />
     {:else}
@@ -114,9 +124,14 @@
 
   <div class="info">
     <h3 class="title">{game.name}</h3>
-    {#if developer && developer !== '未知社团'}
-      <p class="developer">{developer}</p>
-    {/if}
+    <div class="meta-line">
+      {#if developer && developer !== "未知社团"}
+        <span class="developer">{developer}</span>
+      {/if}
+      {#if year}
+        <span class="year">{year}</span>
+      {/if}
+    </div>
     <div class="meta">
       {#if rating > 0}
         <span class="rating">
@@ -129,38 +144,19 @@
       {/if}
     </div>
   </div>
-</div>
+</Card>
 
 <style>
-  .game-card {
-    background: var(--bg-elev, var(--bg-card));
-    border-radius: var(--radius-lg, 14px);
-    border: 1px solid var(--border);
+  :global(.game-card) {
     overflow: hidden;
     cursor: pointer;
-    /* 克制的 ease-out（无 overshoot 弹跳，仅 transform/box-shadow） */
-    transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1),
-                box-shadow 0.26s ease, border-color 0.26s ease;
     text-align: left;
-    padding: 0;
     width: 100%;
-    will-change: transform;
     position: relative;
   }
-  .game-card.selected {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 2px var(--accent-ring, rgba(232,85,127,0.4));
-  }
-  .game-card:hover {
-    transform: translateY(-4px);
-    box-shadow: var(--shadow-hover);
-    border-color: var(--border-hover);
-  }
-  /* 玫红焦点环（键盘/手柄/选中），对应设计稿 */
-  .game-card:focus-visible {
-    outline: none;
-    border-color: transparent;
-    box-shadow: 0 0 0 2px var(--accent-pink-ring), var(--shadow-hover);
+  :global(.game-card--selected) {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 2px var(--accent-ring, rgba(232,85,127,0.4)) !important;
   }
 
   .cover {
@@ -174,7 +170,7 @@
     object-fit: cover;
     transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
   }
-  .game-card:hover .cover :global(.cached-image) { transform: scale(1.04); }
+  :global(.game-card:hover) .cover :global(.cached-image) { transform: scale(1.04); }
 
   .cover-placeholder {
     width: 100%; height: 100%;
@@ -232,18 +228,23 @@
 
   .info { padding: 12px 12px 14px; }
   .title {
-    margin: 0 0 4px;
+    margin: 0 0 6px;
     font-size: 14px; font-weight: 600;
     color: var(--text-primary);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .developer {
-    margin: 0 0 8px;
+  .meta-line {
+    display: flex; gap: 8px; align-items: center;
+    margin-bottom: 8px;
+    min-height: 16px;
+  }
+  .developer, .year {
+    margin: 0;
     font-size: 12px; color: var(--text-muted);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  .year::before { content: "·"; margin-right: 8px; }
   .meta { display: flex; gap: 8px; align-items: center; }
-  /* 评分：玫红 + 等宽数字，无渐变、无 emoji */
   .rating {
     display: inline-flex; align-items: center; gap: 4px;
     color: var(--accent-pink);
@@ -262,16 +263,16 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 84px;
   }
 
-  /* 列表视图 */
-  .game-card.list { display: flex; align-items: center; padding: 10px; gap: 14px; }
-  .game-card.list .cover { width: 56px; height: 74px; aspect-ratio: auto; flex-shrink: 0; border-radius: var(--radius-md); }
-  .game-card.list .info { flex: 1; padding: 0; }
-  .game-card.list .gradient-overlay,
-  .game-card.list .status-badge,
-  .game-card.list .fav-btn { display: none; }
+  /* List view */
+  :global(.game-card--list) { display: flex; align-items: center; padding: 10px; gap: 14px; }
+  :global(.game-card--list) .cover { width: 56px; height: 74px; aspect-ratio: auto; flex-shrink: 0; border-radius: var(--radius-md); }
+  :global(.game-card--list) .info { flex: 1; padding: 0; }
+  :global(.game-card--list) .gradient-overlay,
+  :global(.game-card--list) .status-badge,
+  :global(.game-card--list) .fav-btn { display: none; }
 
   /* NSFW */
-  .nsfw-hidden { display: none; }
+  .cover-hidden { display: none; }
   .cover.cover-blur :global(.cached-image) { filter: blur(18px); transform: scale(1.06); }
   .cover.cover-blur::after {
     content: "NSFW";

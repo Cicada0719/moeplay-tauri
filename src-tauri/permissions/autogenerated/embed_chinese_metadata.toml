@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-embed-chinese-metadata"
+description = "Enables the embed_chinese_metadata command without any pre-configured scope."
+commands.allow = ["embed_chinese_metadata"]
+
+[[permission]]
+identifier = "deny-embed-chinese-metadata"
+description = "Denies the embed_chinese_metadata command without any pre-configured scope."
+commands.deny = ["embed_chinese_metadata"]

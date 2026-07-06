@@ -1,6 +1,6 @@
 use crate::locale::{self, LocaleEmulatorManager};
 use crate::process_monitor::{ProcessMonitor, RunningGameInfo};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tauri::State;
 
 #[tauri::command]
@@ -54,12 +54,32 @@ pub fn open_url(url: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn open_path(path: String) -> Result<(), String> {
-    let p = Path::new(&path);
+    let p = PathBuf::from(&path);
     if !p.exists() {
         return Err(format!("路径不存在: {}", path));
     }
 
-    open::that(p).map_err(|e| format!("打开路径失败: {}", e))
+    // 拒绝包含 .. 的路径
+    for c in p.components() {
+        if matches!(c, std::path::Component::ParentDir) {
+            return Err("路径包含非法的 .. 片段".to_string());
+        }
+    }
+
+    // 限制只能打开用户主目录、数据目录等已知安全位置
+    let mut scope = crate::security::app_data_scope().unwrap_or_default();
+    if let Some(home) = dirs::home_dir() {
+        scope.allow(home);
+    }
+    if let Some(dl) = dirs::download_dir() {
+        scope.allow(dl);
+    }
+
+    scope
+        .resolve(&p)
+        .map_err(|_| "路径不在允许范围内".to_string())?;
+
+    open::that(&p).map_err(|e| format!("打开路径失败: {}", e))
 }
 
 #[tauri::command]

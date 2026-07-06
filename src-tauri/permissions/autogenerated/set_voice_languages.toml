@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-voice-languages"
+description = "Enables the set_voice_languages command without any pre-configured scope."
+commands.allow = ["set_voice_languages"]
+
+[[permission]]
+identifier = "deny-set-voice-languages"
+description = "Denies the set_voice_languages command without any pre-configured scope."
+commands.deny = ["set_voice_languages"]

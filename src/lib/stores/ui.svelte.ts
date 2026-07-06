@@ -1,4 +1,4 @@
-let _currentView = $state(new URLSearchParams(window.location.search).get("view") || "home");
+let _currentView = $state("home");
 let _viewMode = $state<"grid" | "list" | "compact">("grid");
 let _sortBy = $state("recent");
 let _sidebarCollapsed = $state(false);
@@ -14,6 +14,7 @@ let _bigPictureActive = $state(false);
 let _libraryMode = $state<"home" | "all">("home");
 let _drawerOpen = $state(false);
 let _drawerView = $state<string | null>(null);
+let _focusSearchSignal = $state(0);
 
 export const uiStore = {
   get currentView() { return _currentView; },
@@ -79,4 +80,8 @@ export const uiStore = {
   set pendingDownloadUrl(v: string | null) { _pendingDownloadUrl = v; },
   get pendingDownloadName() { return _pendingDownloadName; },
   set pendingDownloadName(v: string | null) { _pendingDownloadName = v; },
+
+  get focusSearchSignal() { return _focusSearchSignal; },
+  requestFocusSearch() { _focusSearchSignal++; },
+  consumeFocusSearchSignal() { _focusSearchSignal = 0; },
 };

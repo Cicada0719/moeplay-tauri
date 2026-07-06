@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-import-database"
+description = "Enables the import_database command without any pre-configured scope."
+commands.allow = ["import_database"]
+
+[[permission]]
+identifier = "deny-import-database"
+description = "Denies the import_database command without any pre-configured scope."
+commands.deny = ["import_database"]

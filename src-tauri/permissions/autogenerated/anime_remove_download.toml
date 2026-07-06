@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-remove-download"
+description = "Enables the anime_remove_download command without any pre-configured scope."
+commands.allow = ["anime_remove_download"]
+
+[[permission]]
+identifier = "deny-anime-remove-download"
+description = "Denies the anime_remove_download command without any pre-configured scope."
+commands.deny = ["anime_remove_download"]

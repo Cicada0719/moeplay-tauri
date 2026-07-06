@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-completion-count"
+description = "Enables the update_completion_count command without any pre-configured scope."
+commands.allow = ["update_completion_count"]
+
+[[permission]]
+identifier = "deny-update-completion-count"
+description = "Denies the update_completion_count command without any pre-configured scope."
+commands.deny = ["update_completion_count"]

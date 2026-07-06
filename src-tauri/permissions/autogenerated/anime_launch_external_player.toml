@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-launch-external-player"
+description = "Enables the anime_launch_external_player command without any pre-configured scope."
+commands.allow = ["anime_launch_external_player"]
+
+[[permission]]
+identifier = "deny-anime-launch-external-player"
+description = "Denies the anime_launch_external_player command without any pre-configured scope."
+commands.deny = ["anime_launch_external_player"]

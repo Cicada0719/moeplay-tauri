@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-import-steam-session-games"
+description = "Enables the import_steam_session_games command without any pre-configured scope."
+commands.allow = ["import_steam_session_games"]
+
+[[permission]]
+identifier = "deny-import-steam-session-games"
+description = "Denies the import_steam_session_games command without any pre-configured scope."
+commands.deny = ["import_steam_session_games"]

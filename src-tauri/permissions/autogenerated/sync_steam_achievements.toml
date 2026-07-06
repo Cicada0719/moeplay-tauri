@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sync-steam-achievements"
+description = "Enables the sync_steam_achievements command without any pre-configured scope."
+commands.allow = ["sync_steam_achievements"]
+
+[[permission]]
+identifier = "deny-sync-steam-achievements"
+description = "Denies the sync_steam_achievements command without any pre-configured scope."
+commands.deny = ["sync_steam_achievements"]

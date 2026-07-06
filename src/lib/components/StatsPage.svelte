@@ -1,12 +1,19 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
   import { onMount } from "svelte";
   import { gsap } from "gsap";
   import { gameStore } from "../stores/games.svelte";
+  import { invokeCmd } from "../api/core";
   import { uiStore } from "../stores/ui.svelte";
-  import Skeleton from "./Skeleton.svelte";
-  import EmptyState from "./EmptyState.svelte";
   import Icon from "./Icon.svelte";
+  import { Button, Card, Chart, EmptyState, Skeleton, StatBlock, Tag } from "./ui";
+  import {
+    buildCompletionDoughnutData,
+    buildMonthlyTrendData,
+    buildStatusDistributionData,
+    commonChartOptions,
+    doughnutOptions,
+    statusBarOptions,
+  } from "../utils/chart";
 
   interface DashboardData {
     total_games: number;
@@ -29,7 +36,6 @@
   let heroNumEl = $state<HTMLSpanElement>();
   let doneNumEl = $state<HTMLSpanElement>();
   let hoursNumEl = $state<HTMLSpanElement>();
-  let donutSvg = $state<SVGCircleElement>();
 
   const statusLabels: Record<string, string> = {
     not_started: "未开始",
@@ -41,16 +47,11 @@
     replaying: "重温中",
   };
 
-  const donutR = 42;
-  const donutCirc = 2 * Math.PI * donutR;
-  const chartW = 320;
-  const chartH = 92;
-
   async function loadDashboard() {
     loading = true;
     error = null;
     try {
-      data = await invoke<DashboardData>("get_dashboard_data");
+      data = await invokeCmd<DashboardData>("get_dashboard_data");
     } catch (e) {
       error = String(e);
     } finally {
@@ -65,22 +66,6 @@
     else if (name.includes("收藏")) gameStore.filterTag = "收藏";
     else gameStore.filterTag = c.name;
     uiStore.currentView = "home";
-  }
-
-  function statusPct(status: string): number {
-    if (!data || data.total_games <= 0) return 0;
-    const entry = data.status_distribution.find((s) => s.status === status);
-    return entry ? Math.round((entry.count / data.total_games) * 100) : 0;
-  }
-
-  function trendPoints(items: { hours: number }[]): string {
-    if (items.length === 0) return "";
-    const max = Math.max(1, ...items.map((item) => item.hours));
-    return items.map((item, index) => {
-      const x = items.length === 1 ? chartW / 2 : (index / (items.length - 1)) * chartW;
-      const y = chartH - (item.hours / max) * (chartH - 10) - 5;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    }).join(" ");
   }
 
   onMount(() => {
@@ -125,20 +110,6 @@
           if (hoursNumEl) hoursNumEl.textContent = Math.round(hours.v).toString();
         },
       });
-
-      if (donutSvg) {
-        const target = donutCirc * (1 - Math.min(1, (d.completion_rate || 0) / 100));
-        gsap.fromTo(
-          donutSvg,
-          { strokeDashoffset: donutCirc },
-          {
-            strokeDashoffset: target,
-            duration: 1.3,
-            ease: "power3.out",
-            delay: 0.2,
-          },
-        );
-      }
     });
     return () => ctx.revert();
   });
@@ -155,90 +126,63 @@
 
   {#if loading}
     <div class="loading-stack">
-      <Skeleton variant="stats" count={4} />
-      <Skeleton variant="card" count={2} />
+      <Skeleton variant="stat" count={4} />
+      <Skeleton variant="block" count={2} />
     </div>
   {:else if error}
     <div class="inline-error" role="alert">
       <Icon name="x" size={16} />
       <span>加载失败：{error}</span>
-      <button onclick={loadDashboard}>
+      <Button variant="ghost" size="sm" class="retry-btn" onclick={loadDashboard}>
         <Icon name="refresh" size={15} />
         <span>重试</span>
-      </button>
+      </Button>
     </div>
   {:else if data}
     <div class="bento">
-      <article class="metric-card hero">
+      <Card class="metric-card hero">
         <span class="label">游戏总数</span>
         <span class="value hero-value aura-num" bind:this={heroNumEl}>{data.total_games}</span>
         <span class="hint">完成率 <span class="aura-num">{data.completion_rate}%</span></span>
-      </article>
+      </Card>
 
-      <article class="metric-card">
-        <span class="label">已通关</span>
-        <span class="value mid aura-num" bind:this={doneNumEl}>{data.completed_games}</span>
-      </article>
+      <StatBlock label="已通关" value={data.completed_games} class="stat-cell" />
 
-      <article class="metric-card">
-        <span class="label">总时长</span>
-        <span class="value mid aura-num"><span bind:this={hoursNumEl}>{data.total_playtime_hours.toFixed(0)}</span><small>h</small></span>
-      </article>
+      <StatBlock label="总时长" value={data.total_playtime_hours.toFixed(0)} unit="h" class="stat-cell" />
 
-      <article class="metric-card">
-        <span class="label">磁盘占用</span>
-        <span class="value mid aura-num">{data.disk_usage_gb.toFixed(1)}<small>GB</small></span>
-      </article>
+      <StatBlock label="磁盘占用" value={data.disk_usage_gb.toFixed(1)} unit="GB" class="stat-cell" />
 
-      <article class="metric-card donut-card">
+      <Card class="metric-card donut-card">
         <span class="label">完成率</span>
         <div class="donut">
-          <svg width="108" height="108" viewBox="0 0 108 108" aria-hidden="true">
-            <circle cx="54" cy="54" r={donutR} fill="none" stroke="var(--border)" stroke-width="8" />
-            <circle
-              bind:this={donutSvg}
-              cx="54"
-              cy="54"
-              r={donutR}
-              fill="none"
-              stroke="var(--aura-data-a)"
-              stroke-width="8"
-              stroke-linecap="round"
-              stroke-dasharray={donutCirc}
-              stroke-dashoffset={donutCirc * (1 - Math.min(1, (data.completion_rate || 0) / 100))}
-              transform="rotate(-90 54 54)"
-            />
-          </svg>
+          <Chart type="doughnut" data={buildCompletionDoughnutData(data.completion_rate)} options={doughnutOptions} />
           <span class="donut-num aura-num">{data.completion_rate}%</span>
         </div>
-      </article>
+      </Card>
 
-      <article class="metric-card wide">
+      <Card class="metric-card wide">
         <span class="label">状态分布</span>
-        <div class="status-bars">
-          {#each Object.entries(statusLabels) as [key, label]}
-            {@const pct = statusPct(key)}
-            <div class="status-row" title="{label}: {pct}%">
-              <span class="status-label">{label}</span>
-              <div class="status-track"><div class="status-fill" style="width:{pct}%"></div></div>
-              <span class="status-pct aura-num">{pct}%</span>
-            </div>
-          {/each}
+        <div class="status-chart">
+          <Chart
+            type="bar"
+            data={buildStatusDistributionData(data.status_distribution, statusLabels)}
+            options={statusBarOptions}
+          />
         </div>
-      </article>
+      </Card>
 
-      <article class="metric-card">
+      <Card class="metric-card">
         <span class="label">热门标签</span>
         <div class="tag-cloud">
           {#each (data.top_tags ?? []).slice(0, 10) as tag}
-            <span class="tag-chip">
+            <Tag class="tag-chip">
               {tag.name}<small class="aura-num">{tag.count}</small>
-            </span>
+            </Tag>
           {/each}
         </div>
-      </article>
+      </Card>
 
-      <article class="metric-card">
+      <Card class="metric-card">
         <span class="label">开发商</span>
         <div class="flat-list">
           {#each (data.top_developers ?? []).slice(0, 10) as developer}
@@ -248,29 +192,24 @@
             </div>
           {/each}
         </div>
-      </article>
+      </Card>
 
-      <article class="metric-card wide">
-        <span class="label">月度热力图</span>
+      <Card class="metric-card wide">
+        <span class="label">月度趋势</span>
         {#if (data.monthly_heatmap ?? []).length > 0}
-          <svg class="trend-line" viewBox={`0 0 ${chartW} ${chartH}`} aria-label="月度趋势">
-            <polyline class="trend-area" points={`${trendPoints(data.monthly_heatmap.slice(-12))} ${chartW},${chartH} 0,${chartH}`} />
-            <polyline class="trend-stroke" points={trendPoints(data.monthly_heatmap.slice(-12))} />
-          </svg>
-          <div class="heatmap">
-            {#each data.monthly_heatmap.slice(-12) as month}
-              <div class="heat-cell" title="{month.month}: {month.hours}h" style="--heat:{Math.min(1, month.hours * 0.06)}">
-                <span><span class="aura-num">{month.month.slice(-2)}</span>月</span>
-                <strong class="aura-num">{month.hours}h</strong>
-              </div>
-            {/each}
+          <div class="trend-chart">
+            <Chart
+              type="line"
+              data={buildMonthlyTrendData(data.monthly_heatmap)}
+              options={commonChartOptions}
+            />
           </div>
         {:else}
           <EmptyState title="暂无数据" />
         {/if}
-      </article>
+      </Card>
 
-      <article class="metric-card wide">
+      <Card class="metric-card wide">
         <span class="label">最近游玩</span>
         {#if (data.recent_sessions ?? []).length > 0}
           <div class="sessions">
@@ -285,19 +224,25 @@
         {:else}
           <EmptyState title="暂无记录" />
         {/if}
-      </article>
+      </Card>
 
-      <article class="metric-card wide">
+      <Card class="metric-card wide">
         <span class="label">智能合集</span>
         <div class="collection-grid">
           {#each (data.collection_counts ?? []).slice(0, 8) as collection}
-            <button class="collection-action" onclick={() => handleCollectionClick(collection)}>
+            <Card
+              class="collection-action"
+              padding="none"
+              hoverable
+              onclick={() => handleCollectionClick(collection)}
+              ariaLabel={collection.name}
+            >
               <span class="collection-count aura-num">{collection.count}</span>
               <span class="collection-name">{collection.name}</span>
-            </button>
+            </Card>
           {/each}
         </div>
-      </article>
+      </Card>
     </div>
   {:else}
     <div class="empty-panel">
@@ -363,29 +308,29 @@
     gap: 14px;
   }
 
-  .metric-card,
+  :global(.ui-card.metric-card),
+  :global(.ui-stat.stat-cell),
   .inline-error,
   .empty-panel {
     min-width: 0;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--bg-card);
-    box-shadow: none;
   }
 
-  .metric-card {
-    padding: 18px;
+  :global(.ui-card.metric-card) {
     display: flex;
     flex-direction: column;
     gap: 10px;
     min-height: 132px;
   }
 
-  .metric-card.wide {
+  :global(.ui-stat.stat-cell) {
+    min-height: 132px;
+  }
+
+  :global(.ui-card.metric-card.wide) {
     grid-column: span 2;
   }
 
-  .metric-card.hero {
+  :global(.ui-card.metric-card.hero) {
     grid-column: 1;
     grid-row: span 2;
     justify-content: center;
@@ -413,21 +358,11 @@
     overflow-wrap: anywhere;
   }
 
-  .value.mid {
-    font-size: 24px;
-  }
-
   .value.hero-value {
     font-size: clamp(44px, 7vw, 68px);
   }
 
-  .value small {
-    color: var(--text-muted);
-    font-family: var(--font-ui);
-    font-size: 13px;
-    font-weight: 650;
-  }
-
+  
   .hint,
   .muted {
     color: var(--text-muted);
@@ -443,12 +378,14 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .donut-card {
+  :global(.ui-card.donut-card) {
     align-items: center;
   }
 
   .donut {
     position: relative;
+    width: 108px;
+    height: 108px;
     display: grid;
     place-items: center;
   }
@@ -462,44 +399,27 @@
     font-weight: 760;
   }
 
-  .status-bars,
+  .status-chart,
+  .trend-chart {
+    min-width: 0;
+    flex: 1;
+    min-height: 0;
+    position: relative;
+  }
+
+  .status-chart {
+    height: 160px;
+  }
+
+  .trend-chart {
+    height: 180px;
+  }
+
   .flat-list,
   .sessions {
     min-width: 0;
     display: grid;
     gap: 8px;
-  }
-
-  .status-row {
-    min-width: 0;
-    display: grid;
-    grid-template-columns: 64px minmax(0, 1fr) 40px;
-    gap: 10px;
-    align-items: center;
-    color: var(--text-secondary);
-    font-size: 12px;
-  }
-
-  .status-track {
-    min-width: 0;
-    height: 6px;
-    border-radius: 999px;
-    background: var(--aura-inset);
-    overflow: hidden;
-  }
-
-  .status-fill {
-    height: 100%;
-    border-radius: inherit;
-    background: linear-gradient(90deg, var(--aura-data-a), var(--aura-data-b));
-    transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
-  }
-
-  .status-pct {
-    color: var(--text-muted);
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-    text-align: right;
   }
 
   .tag-cloud {
@@ -509,25 +429,11 @@
     gap: 8px;
   }
 
-  .tag-chip {
-    min-width: 0;
-    max-width: 100%;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 5px 9px;
-    display: inline-flex;
-    align-items: baseline;
-    gap: 6px;
-    color: var(--text-secondary);
-    background: transparent;
-    font-size: 12px;
+  :global(.tag-chip) {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
     overflow-wrap: anywhere;
-  }
-
-  .tag-chip small {
-    color: var(--text-muted);
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
   }
 
   .list-row,
@@ -556,63 +462,6 @@
     white-space: nowrap;
   }
 
-  .heatmap {
-    min-width: 0;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
-    gap: 8px;
-  }
-
-  .trend-line {
-    width: 100%;
-    min-height: 82px;
-    display: block;
-    overflow: visible;
-  }
-
-  .trend-stroke,
-  .trend-area {
-    fill: none;
-    vector-effect: non-scaling-stroke;
-  }
-
-  .trend-stroke {
-    stroke: var(--aura-data-1);
-    stroke-width: 3;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    filter: drop-shadow(0 10px 18px rgba(232, 85, 127, 0.18));
-  }
-
-  .trend-area {
-    fill: var(--aura-data-3);
-    opacity: 0.34;
-  }
-
-  .heat-cell {
-    min-width: 0;
-    min-height: 54px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 8px;
-    display: grid;
-    place-items: center;
-    gap: 3px;
-    color: var(--text-secondary);
-    background:
-      linear-gradient(180deg, var(--aura-data-3), transparent),
-      var(--aura-inset);
-    box-shadow: inset 0 -3px 0 var(--aura-data-2);
-    font-size: 12px;
-  }
-
-  .heat-cell strong {
-    color: var(--text-primary);
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-    font-size: 12px;
-  }
-
   .collection-grid {
     min-width: 0;
     display: grid;
@@ -620,35 +469,19 @@
     gap: 8px;
   }
 
-  .collection-action {
+  :global(.ui-card.collection-action) {
     min-width: 0;
     min-height: 58px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
     padding: 9px;
     display: grid;
     place-items: center;
     gap: 3px;
     color: var(--text-secondary);
-    background: transparent;
     font: inherit;
-    cursor: pointer;
-    transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
   }
 
-  .collection-action:hover {
-    border-color: var(--border-hover);
+  :global(.ui-card.collection-action:hover) {
     color: var(--text-primary);
-    background: var(--bg-hover);
-  }
-
-  .collection-action:active {
-    transform: translateY(1px);
-  }
-
-  .collection-action:focus-visible {
-    outline: none;
-    box-shadow: var(--focus-ring);
   }
 
   .collection-count {
@@ -674,6 +507,9 @@
     display: flex;
     align-items: center;
     gap: 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-card);
     color: var(--color-error);
   }
 
@@ -682,32 +518,8 @@
     overflow-wrap: anywhere;
   }
 
-  .inline-error button {
-    min-height: 34px;
+  .inline-error :global(.ui-button.retry-btn) {
     margin-left: auto;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0 12px;
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    color: var(--text-secondary);
-    background: transparent;
-    font: inherit;
-    font-size: 13px;
-    font-weight: 700;
-    cursor: pointer;
-  }
-
-  .inline-error button:hover {
-    border-color: var(--border-hover);
-    color: var(--text-primary);
-    background: var(--bg-hover);
-  }
-
-  .inline-error button:focus-visible {
-    outline: none;
-    box-shadow: var(--focus-ring);
   }
 
   .empty-panel {
@@ -722,21 +534,13 @@
     gap: 14px;
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .status-fill,
-    .collection-action,
-    .inline-error button {
-      transition: none;
-    }
-  }
-
   @media (max-width: 900px) {
     .bento {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .metric-card.wide,
-    .metric-card.hero {
+    :global(.ui-card.metric-card.wide),
+    :global(.ui-card.metric-card.hero) {
       grid-column: span 2;
     }
 
@@ -755,19 +559,11 @@
       grid-template-columns: 1fr;
     }
 
-    .metric-card,
-    .metric-card.wide,
-    .metric-card.hero {
+    :global(.ui-card.metric-card),
+    :global(.ui-card.metric-card.wide),
+    :global(.ui-card.metric-card.hero),
+    :global(.ui-stat.stat-cell) {
       grid-column: 1;
-    }
-
-    .session-row,
-    .status-row {
-      grid-template-columns: minmax(0, 1fr);
-    }
-
-    .status-pct {
-      text-align: left;
     }
 
     .inline-error {
@@ -775,7 +571,7 @@
       flex-direction: column;
     }
 
-    .inline-error button {
+    .inline-error :global(.ui-button.retry-btn) {
       width: 100%;
       justify-content: center;
       margin-left: 0;

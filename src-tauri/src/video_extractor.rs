@@ -9,13 +9,61 @@
 //! This avoids the capability problem that silently blocked `plugin:event|emit`
 //! from external-origin sniffer windows (which made extraction always time out).
 
+use regex::Regex;
 use serde::Serialize;
+use std::sync::{Arc, Mutex};
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 const SNIFF_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Sentinel host the injected script navigates to once a video URL is found.
 const SENTINEL_HOST: &str = "moeplay.invalid";
+
+/// 代理/广告域名过滤。
+fn is_ad_url(url: &str) -> bool {
+    let lower = url.to_lowercase();
+    lower.contains("googleads")
+        || lower.contains("googlesyndication")
+        || lower.contains("adtrafficquality")
+        || lower.contains("doubleclick")
+        || lower.contains("prestrain")
+        || lower.contains("adservice")
+        || lower.contains("/ads/")
+        || lower.contains("adserver")
+}
+
+/// 判断一个 URL 是否像可播放的视频流地址（m3u8 / 直链 / DASH）。
+fn is_video_stream_url(url: &str) -> bool {
+    if url.starts_with("data:") || url.starts_with("blob:") {
+        return false;
+    }
+    if url.is_empty() || is_ad_url(url) {
+        return false;
+    }
+    let lower = url.to_lowercase();
+    lower.contains(".m3u8")
+        || lower.contains("/m3u8")
+        || lower.contains("/hls/")
+        || lower.contains("/dash/")
+        || lower.contains(".mpd")
+        || lower.contains(".mp4")
+        || lower.contains(".flv")
+        || lower.contains(".mkv")
+        || lower.contains(".webm")
+        || lower.contains(".mov")
+}
+
+/// 把 query 参数值做多次 percent-decode，处理部分源对 url 参数做了双重编码的情况。
+fn fully_decode_value(value: &str) -> String {
+    let mut current = value.to_string();
+    for _ in 0..3 {
+        match urlencoding::decode(&current) {
+            Ok(decoded) if decoded.as_ref() != current => current = decoded.into_owned(),
+            _ => break,
+        }
+    }
+    current
+}
 
 #[derive(Serialize, Clone, Debug)]
 pub struct VideoUrlResult {
@@ -219,8 +267,16 @@ fn sniff_js() -> String {
 
 /// Shared implementation: open a hidden window, inject the sniffer, wait for a
 /// sentinel navigation carrying the found URL (or time out).
-/// Dual detection: on_navigation (sentinel URL) + periodic JS polling (global var).
-async fn run_sniff(app: tauri::AppHandle, episode_url: String) -> Result<VideoUrlResult, String> {
+/// Triple detection:
+///   1. JS injection in the main frame (fetch/XHR/DOM).
+///   2. `on_web_resource_request` for **all frames** (covers cross-origin iframes
+///      where the initialization script can't run).
+///   3. Periodic JS polling as a safety net.
+async fn run_sniff(
+    app: tauri::AppHandle,
+    episode_url: String,
+    user_agent: Option<String>,
+) -> Result<VideoUrlResult, String> {
     let label = format!(
         "video-sniff-{}",
         std::time::SystemTime::now()
@@ -233,15 +289,25 @@ async fn run_sniff(app: tauri::AppHandle, episode_url: String) -> Result<VideoUr
         .map_err(|e: url::ParseError| e.to_string())?;
 
     let (tx, rx) = tokio::sync::oneshot::channel::<VideoUrlResult>();
-    let tx = std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
+    let tx = Arc::new(Mutex::new(Some(tx)));
     let tx_nav = tx.clone();
+    let tx_resource = tx.clone();
 
     tracing::info!("[sniff] 创建嗅探窗口: label={}, url={}", label, episode_url);
     let label_log = label.clone();
-    let _webview = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url_parsed))
+
+    let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url_parsed))
         .visible(false)
         .initialization_script(&sniff_js())
-        .inner_size(1280.0, 720.0)
+        .inner_size(1280.0, 720.0);
+
+    if let Some(ref ua) = user_agent {
+        if !ua.is_empty() {
+            builder = builder.user_agent(ua);
+        }
+    }
+
+    let _webview = builder
         .on_page_load(move |_window, payload| {
             tracing::info!("[sniff] 页面加载事件: event={:?} url={}", payload.event(), payload.url());
         })
@@ -272,6 +338,37 @@ async fn run_sniff(app: tauri::AppHandle, episode_url: String) -> Result<VideoUr
                 return false;
             }
             true
+        })
+        .on_web_resource_request(move |request, response| {
+            // 通过 WebView2 网络层拦截所有帧的请求/响应，弥补 JS 注入无法进入跨域 iframe 的缺陷。
+            let url = request.uri().to_string();
+            let mut found: Option<(String, String)> = None;
+
+            if is_video_stream_url(&url) {
+                found = Some((url.clone(), "webresource:url".into()));
+            } else {
+                // 检查响应内容：m3u8 master/media playlist 通常以 #EXTM3U 开头。
+                let body = response.body().as_ref();
+                if body.len() >= 7
+                    && &body[..7] == b"#EXTM3U"
+                    && !is_ad_url(&url)
+                {
+                    found = Some((url.clone(), "webresource:m3u8-body".into()));
+                }
+            }
+
+            if let Some((found_url, source)) = found {
+                tracing::info!("[sniff] web_resource 命中: source={}, url={}", source, found_url);
+                if let Ok(mut guard) = tx_resource.lock() {
+                    if let Some(sender) = guard.take() {
+                        let _ = sender.send(VideoUrlResult {
+                            url: found_url,
+                            source,
+                            tab_url: String::new(),
+                        });
+                    }
+                }
+            }
         })
         .build()
         .map_err(|e| format!("创建提取窗口失败: {}", e))?;
@@ -348,7 +445,7 @@ async fn run_sniff(app: tauri::AppHandle, episode_url: String) -> Result<VideoUr
 
 /// 很多源把真实流地址塞在播放器页 URL 的查询参数里，例如
 /// `.../artplayer/index.html?url=https://cdn/.../index.m3u8`。
-/// 把内层真实视频地址解出来（最多解三层，防嵌套/死循环）。
+/// 把内层真实视频地址解出来（最多解三层，防嵌套/死循环），并支持双重 URL 编码。
 fn unwrap_player_url(raw: &str) -> String {
     let mut current = raw.to_string();
     for _ in 0..3 {
@@ -358,14 +455,14 @@ fn unwrap_player_url(raw: &str) -> String {
         };
         let inner = parsed.query_pairs().find_map(|(k, v)| {
             let key = k.to_ascii_lowercase();
-            let val = v.into_owned();
+            let val = fully_decode_value(&v);
             if !val.starts_with("http") {
                 return None;
             }
             let is_video_key = matches!(
                 key.as_str(),
                 "m3u8" | "playurl" | "video" | "videourl" | "stream" | "play_url"
-                    | "mediaurl" | "play" | "vurl" | "vid"
+                    | "mediaurl" | "play" | "vurl" | "vid" | "dash" | "hls"
             );
             let is_generic_key = matches!(
                 key.as_str(),
@@ -380,8 +477,10 @@ fn unwrap_player_url(raw: &str) -> String {
                     || val.contains(".flv")
                     || val.contains(".mkv")
                     || val.contains(".webm")
+                    || val.contains(".mpd")
                     || val.contains("/m3u8")
-                    || val.contains("/hls/"))
+                    || val.contains("/hls/")
+                    || val.contains("/dash/"))
             {
                 return Some(val);
             }
@@ -395,6 +494,63 @@ fn unwrap_player_url(raw: &str) -> String {
     current
 }
 
+/// 传统解析：直接请求播放器页 HTML，用正则匹配内嵌的视频地址。
+/// 对把 URL 直接写在页面 JS/JSON 里的源很有用，且不需要 WebView。
+async fn legacy_extract(
+    episode_url: &str,
+    referer: Option<&str>,
+    user_agent: Option<&str>,
+) -> Result<VideoUrlResult, String> {
+    tracing::info!("[legacy] 请求页面: {}", episode_url);
+    let client = crate::http_client::build_reqwest_client(
+        15,
+        user_agent.unwrap_or(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        ),
+    );
+    let mut req = client.get(episode_url);
+    if let Some(r) = referer {
+        req = req.header("Referer", r);
+    }
+    let text = req
+        .send()
+        .await
+        .map_err(|e| format!("请求失败: {}", e))?
+        .text()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // 1. 裸 URL
+    let re_url = Regex::new(r#"https?://[^\s"'<>]+?\.(?:m3u8|mp4|mpd|flv|mkv|webm|mov)(?:\?[^\s"'<>]*)?"#).unwrap();
+    for m in re_url.find_iter(&text) {
+        let u = m.as_str();
+        if !is_ad_url(u) {
+            return Ok(VideoUrlResult {
+                url: u.to_string(),
+                source: "legacy:url".into(),
+                tab_url: episode_url.to_string(),
+            });
+        }
+    }
+
+    // 2. JSON/JS 中常见的 url/src/video/playUrl 字段
+    let re_json = Regex::new(r#"["'](?:url|src|video|playUrl|play_url|m3u8|mp4|stream|link)["']\s*[:=]\s*["'](https?://[^"']+?)["']"#).unwrap();
+    for cap in re_json.captures_iter(&text) {
+        if let Some(u) = cap.get(1) {
+            let u = u.as_str();
+            if !is_ad_url(u) {
+                return Ok(VideoUrlResult {
+                    url: u.to_string(),
+                    source: "legacy:json".into(),
+                    tab_url: episode_url.to_string(),
+                });
+            }
+        }
+    }
+
+    Err("传统解析未找到视频地址".into())
+}
+
 /// Tauri command: extract the real video stream URL from an episode page.
 #[tauri::command]
 pub async fn anime_extract_video_url(
@@ -402,14 +558,27 @@ pub async fn anime_extract_video_url(
     episode_url: String,
     referer: Option<String>,
     use_legacy_parser: bool,
+    user_agent: Option<String>,
 ) -> Result<VideoUrlResult, String> {
     tracing::info!("开始提取视频 URL: {}", episode_url);
-    let _ = (referer, use_legacy_parser);
-    let mut result = run_sniff(app, episode_url).await?;
-    // 解出内层真实流地址；把播放器页地址作为 Referer（CDN 防盗链通常认播放器域，最准）。
-    let player_url = result.url.clone();
+
+    let mut result = if use_legacy_parser {
+        legacy_extract(&episode_url, referer.as_deref(), user_agent.as_deref()).await
+    } else {
+        let mut res = run_sniff(app, episode_url.clone(), user_agent.clone()).await;
+        if let Err(ref e) = res {
+            let msg = e.to_lowercase();
+            if msg.contains("timeout") || msg.contains("video-url-timeout") {
+                tracing::info!("[提取] WebView 嗅探超时，回退到传统解析: {}", episode_url);
+                res = legacy_extract(&episode_url, referer.as_deref(), user_agent.as_deref()).await;
+            }
+        }
+        res
+    }?;
+
+    // 解出内层真实流地址；Referer 固定用播放器页本身最可靠。
     let real = unwrap_player_url(&result.url);
-    result.tab_url = player_url;
+    result.tab_url = episode_url;
     if real != result.url {
         tracing::info!("解出内层视频地址: {} (来源页 {})", real, result.tab_url);
         result.url = real;
@@ -424,9 +593,51 @@ pub async fn extract_video_url(
     app: tauri::AppHandle,
     target_url: String,
 ) -> Result<VideoUrlResult, String> {
-    let mut result = run_sniff(app, target_url).await?;
+    let mut result = run_sniff(app, target_url.clone(), None).await?;
     let player_url = result.url.clone();
     result.url = unwrap_player_url(&result.url);
     result.tab_url = player_url;
     Ok(result)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unwrap_player_url_extracts_inner_m3u8() {
+        let raw = "https://player.example.com/artplayer/index.html?url=https%3A%2F%2Fcdn.example.com%2Fplaylist.m3u8";
+        assert_eq!(
+            unwrap_player_url(raw),
+            "https://cdn.example.com/playlist.m3u8"
+        );
+    }
+
+    #[test]
+    fn unwrap_player_url_handles_double_encoding() {
+        let raw = "https://player.example.com/?url=https%253A%252F%252Fcdn.example.com%252Fplaylist.m3u8";
+        assert_eq!(
+            unwrap_player_url(raw),
+            "https://cdn.example.com/playlist.m3u8"
+        );
+    }
+
+    #[test]
+    fn fully_decode_value_decodes_multiple_times() {
+        assert_eq!(
+            fully_decode_value("https%253A%252F%252Fcdn.example.com%252Fplaylist.m3u8"),
+            "https://cdn.example.com/playlist.m3u8"
+        );
+    }
+
+    #[test]
+    fn is_video_stream_url_recognises_common_manifests() {
+        assert!(is_video_stream_url("https://cdn.example.com/playlist.m3u8"));
+        assert!(is_video_stream_url("https://cdn.example.com/hls/123/index.m3u8"));
+        assert!(is_video_stream_url("https://cdn.example.com/video.mp4"));
+        assert!(!is_video_stream_url("https://example.com/page.html"));
+        assert!(!is_video_stream_url("blob:https://example.com/abc"));
+        assert!(!is_video_stream_url("https://googleads.g.doubleclick.net/pagead/id"));
+    }
 }

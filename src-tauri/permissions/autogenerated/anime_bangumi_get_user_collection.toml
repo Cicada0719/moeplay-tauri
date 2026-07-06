@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-bangumi-get-user-collection"
+description = "Enables the anime_bangumi_get_user_collection command without any pre-configured scope."
+commands.allow = ["anime_bangumi_get_user_collection"]
+
+[[permission]]
+identifier = "deny-anime-bangumi-get-user-collection"
+description = "Denies the anime_bangumi_get_user_collection command without any pre-configured scope."
+commands.deny = ["anime_bangumi_get_user_collection"]

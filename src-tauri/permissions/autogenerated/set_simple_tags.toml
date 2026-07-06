@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-simple-tags"
+description = "Enables the set_simple_tags command without any pre-configured scope."
+commands.allow = ["set_simple_tags"]
+
+[[permission]]
+identifier = "deny-set-simple-tags"
+description = "Denies the set_simple_tags command without any pre-configured scope."
+commands.deny = ["set_simple_tags"]

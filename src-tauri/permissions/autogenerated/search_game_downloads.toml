@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-search-game-downloads"
+description = "Enables the search_game_downloads command without any pre-configured scope."
+commands.allow = ["search_game_downloads"]
+
+[[permission]]
+identifier = "deny-search-game-downloads"
+description = "Denies the search_game_downloads command without any pre-configured scope."
+commands.deny = ["search_game_downloads"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-original-name"
+description = "Enables the update_original_name command without any pre-configured scope."
+commands.allow = ["update_original_name"]
+
+[[permission]]
+identifier = "deny-update-original-name"
+description = "Denies the update_original_name command without any pre-configured scope."
+commands.deny = ["update_original_name"]

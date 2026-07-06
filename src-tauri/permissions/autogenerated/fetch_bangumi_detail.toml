@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-fetch-bangumi-detail"
+description = "Enables the fetch_bangumi_detail command without any pre-configured scope."
+commands.allow = ["fetch_bangumi_detail"]
+
+[[permission]]
+identifier = "deny-fetch-bangumi-detail"
+description = "Denies the fetch_bangumi_detail command without any pre-configured scope."
+commands.deny = ["fetch_bangumi_detail"]

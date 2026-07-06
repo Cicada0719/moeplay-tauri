@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-bangumi-search"
+description = "Enables the anime_bangumi_search command without any pre-configured scope."
+commands.allow = ["anime_bangumi_search"]
+
+[[permission]]
+identifier = "deny-anime-bangumi-search"
+description = "Denies the anime_bangumi_search command without any pre-configured scope."
+commands.deny = ["anime_bangumi_search"]

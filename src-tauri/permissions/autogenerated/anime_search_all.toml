@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-search-all"
+description = "Enables the anime_search_all command without any pre-configured scope."
+commands.allow = ["anime_search_all"]
+
+[[permission]]
+identifier = "deny-anime-search-all"
+description = "Denies the anime_search_all command without any pre-configured scope."
+commands.deny = ["anime_search_all"]

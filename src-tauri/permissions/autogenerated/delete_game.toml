@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-delete-game"
+description = "Enables the delete_game command without any pre-configured scope."
+commands.allow = ["delete_game"]
+
+[[permission]]
+identifier = "deny-delete-game"
+description = "Denies the delete_game command without any pre-configured scope."
+commands.deny = ["delete_game"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-proxy-images-batch"
+description = "Enables the anime_proxy_images_batch command without any pre-configured scope."
+commands.allow = ["anime_proxy_images_batch"]
+
+[[permission]]
+identifier = "deny-anime-proxy-images-batch"
+description = "Denies the anime_proxy_images_batch command without any pre-configured scope."
+commands.deny = ["anime_proxy_images_batch"]

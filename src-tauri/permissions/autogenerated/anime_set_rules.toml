@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-set-rules"
+description = "Enables the anime_set_rules command without any pre-configured scope."
+commands.allow = ["anime_set_rules"]
+
+[[permission]]
+identifier = "deny-anime-set-rules"
+description = "Denies the anime_set_rules command without any pre-configured scope."
+commands.deny = ["anime_set_rules"]

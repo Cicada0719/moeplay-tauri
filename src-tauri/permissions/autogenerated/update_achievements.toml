@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-achievements"
+description = "Enables the update_achievements command without any pre-configured scope."
+commands.allow = ["update_achievements"]
+
+[[permission]]
+identifier = "deny-update-achievements"
+description = "Denies the update_achievements command without any pre-configured scope."
+commands.deny = ["update_achievements"]

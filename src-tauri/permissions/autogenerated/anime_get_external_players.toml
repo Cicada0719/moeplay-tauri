@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-get-external-players"
+description = "Enables the anime_get_external_players command without any pre-configured scope."
+commands.allow = ["anime_get_external_players"]
+
+[[permission]]
+identifier = "deny-anime-get-external-players"
+description = "Denies the anime_get_external_players command without any pre-configured scope."
+commands.deny = ["anime_get_external_players"]

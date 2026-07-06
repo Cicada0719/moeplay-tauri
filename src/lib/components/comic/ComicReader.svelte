@@ -1,6 +1,7 @@
 <script lang="ts">
   import { comicStore } from "../../stores/comic.svelte";
   import Icon from "../Icon.svelte";
+  import { Button, EmptyState } from "../ui";
 
   const images = $derived(comicStore.readerImages);
   const chapters = $derived(comicStore.chapters);
@@ -23,23 +24,23 @@
 <div class="reader-overlay" role="dialog">
   <!-- Toolbar -->
   <div class="reader-toolbar">
-    <button class="tool-btn" onclick={() => comicStore.closeReader()}>
+    <Button variant="ghost" size="sm" onclick={() => comicStore.closeReader()}>
       <Icon name="x" size={16} />
       关闭
-    </button>
+    </Button>
     <div class="chapter-info">
       <span class="chapter-title">{title || `第 ${order} 话`}</span>
       <span class="chapter-pos">{chapterIdx + 1} / {chapters.length}</span>
     </div>
     <div class="chapter-nav">
-      <button class="nav-btn" onclick={() => comicStore.prevChapter()} disabled={!hasPrev}>
+      <Button variant="ghost" size="sm" onclick={() => comicStore.prevChapter()} disabled={!hasPrev}>
         <Icon name="chevronLeft" size={15} />
         上一话
-      </button>
-      <button class="nav-btn" onclick={() => comicStore.nextChapter()} disabled={!hasNext}>
+      </Button>
+      <Button variant="ghost" size="sm" onclick={() => comicStore.nextChapter()} disabled={!hasNext}>
         下一话
         <Icon name="chevronRight" size={15} />
-      </button>
+      </Button>
     </div>
   </div>
 
@@ -51,10 +52,7 @@
         <span>加载图片中...</span>
       </div>
     {:else if images.length === 0}
-      <div class="reader-loading">
-        <Icon name="x" size={28} />
-        <span>未能加载图片</span>
-      </div>
+      <EmptyState class="reader-empty" icon="x" title="未能加载图片" />
     {:else}
       <div class="images-list">
         {#each images as img (img.id)}
@@ -77,17 +75,17 @@
 
       <!-- Bottom nav -->
       <div class="reader-bottom-nav">
-        <button class="bottom-nav-btn" onclick={() => comicStore.prevChapter()} disabled={!hasPrev}>
+        <Button variant="ghost" size="md" onclick={() => comicStore.prevChapter()} disabled={!hasPrev}>
           <Icon name="chevronLeft" size={16} />
           上一话
-        </button>
-        <button class="bottom-nav-btn close" onclick={() => comicStore.closeReader()}>
+        </Button>
+        <Button variant="secondary" size="md" onclick={() => comicStore.closeReader()}>
           返回详情
-        </button>
-        <button class="bottom-nav-btn" onclick={() => comicStore.nextChapter()} disabled={!hasNext}>
+        </Button>
+        <Button variant="ghost" size="md" onclick={() => comicStore.nextChapter()} disabled={!hasNext}>
           下一话
           <Icon name="chevronRight" size={16} />
-        </button>
+        </Button>
       </div>
     {/if}
   </div>
@@ -115,24 +113,6 @@
     border-bottom: 1px solid rgba(255,255,255,0.06);
     backdrop-filter: blur(8px);
   }
-  .tool-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 6px 12px;
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 6px;
-    background: rgba(255,255,255,0.05);
-    color: var(--text-muted);
-    font-size: 12.5px;
-    cursor: pointer;
-    transition: all 0.15s;
-    flex-shrink: 0;
-  }
-  .tool-btn:hover {
-    background: rgba(255,255,255,0.1);
-    color: var(--text-primary);
-  }
   .chapter-info {
     flex: 1;
     display: flex;
@@ -158,28 +138,6 @@
     display: flex;
     gap: 6px;
     flex-shrink: 0;
-  }
-  .nav-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 6px 12px;
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 6px;
-    background: transparent;
-    color: var(--text-muted);
-    font-size: 12px;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  .nav-btn:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
-  }
-  .nav-btn:not(:disabled):hover {
-    border-color: var(--accent);
-    color: var(--accent);
-    background: var(--accent-lo, rgba(232,85,127,0.08));
   }
 
   /* ── Scroll area ── */
@@ -217,32 +175,6 @@
     gap: 12px;
     padding: 28px 16px 40px;
   }
-  .bottom-nav-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 10px 20px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: rgba(255,255,255,0.04);
-    color: var(--text-muted);
-    font-size: 13px;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  .bottom-nav-btn:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
-  }
-  .bottom-nav-btn.close {
-    border-color: var(--accent-ring, rgba(232,85,127,0.3));
-    color: var(--accent);
-  }
-  .bottom-nav-btn:not(:disabled):hover {
-    border-color: var(--accent);
-    background: var(--accent-lo, rgba(232,85,127,0.1));
-    color: var(--accent);
-  }
 
   .reader-loading {
     flex: 1;
@@ -252,6 +184,10 @@
     justify-content: center;
     gap: 14px;
     color: var(--text-muted);
+    min-height: 400px;
+  }
+  :global(.reader-empty) {
+    flex: 1;
     min-height: 400px;
   }
   .spinner {

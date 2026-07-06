@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-danmaku-get-comments"
+description = "Enables the anime_danmaku_get_comments command without any pre-configured scope."
+commands.allow = ["anime_danmaku_get_comments"]
+
+[[permission]]
+identifier = "deny-anime-danmaku-get-comments"
+description = "Denies the anime_danmaku_get_comments command without any pre-configured scope."
+commands.deny = ["anime_danmaku_get_comments"]

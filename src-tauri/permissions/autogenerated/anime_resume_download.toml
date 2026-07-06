@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-resume-download"
+description = "Enables the anime_resume_download command without any pre-configured scope."
+commands.allow = ["anime_resume_download"]
+
+[[permission]]
+identifier = "deny-anime-resume-download"
+description = "Denies the anime_resume_download command without any pre-configured scope."
+commands.deny = ["anime_resume_download"]

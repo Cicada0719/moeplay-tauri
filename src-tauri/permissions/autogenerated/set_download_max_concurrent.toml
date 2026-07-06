@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-download-max-concurrent"
+description = "Enables the set_download_max_concurrent command without any pre-configured scope."
+commands.allow = ["set_download_max_concurrent"]
+
+[[permission]]
+identifier = "deny-set-download-max-concurrent"
+description = "Denies the set_download_max_concurrent command without any pre-configured scope."
+commands.deny = ["set_download_max_concurrent"]

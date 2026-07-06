@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-steam-open-community"
+description = "Enables the steam_open_community command without any pre-configured scope."
+commands.allow = ["steam_open_community"]
+
+[[permission]]
+identifier = "deny-steam-open-community"
+description = "Denies the steam_open_community command without any pre-configured scope."
+commands.deny = ["steam_open_community"]

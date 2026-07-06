@@ -217,12 +217,7 @@ pub async fn anime_proxy_images_batch(urls: Vec<String>) -> Result<Vec<(String, 
 #[tauri::command]
 pub async fn anime_fetch_page(url: String, referer: Option<String>, user_agent: Option<String>) -> Result<String, String> {
     let ua = user_agent.unwrap_or_else(|| "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36".into());
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .user_agent(&ua)
-        .danger_accept_invalid_certs(true)
-        .build()
-        .unwrap_or_default();
+    let client = crate::http_client::build_reqwest_client(15, &ua);
     let mut req = client.get(&url);
     if let Some(ref r) = referer {
         if let Ok(v) = reqwest::header::HeaderValue::from_str(r) {

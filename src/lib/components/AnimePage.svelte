@@ -7,6 +7,7 @@
   import SearchDrawer from "./anime/SearchDrawer.svelte";
   import SourceSheet from "./anime/SourceSheet.svelte";
   import Icon from "./Icon.svelte";
+  import { Button, Card, EmptyState, Input, SegmentControl, Skeleton, StatBlock, Tag } from "./ui";
 
   let searchInput = $state("");
   let isSearching = $state(false);
@@ -105,17 +106,18 @@
       <form class="search-form" onsubmit={handleSearch}>
         <div class="search-wrap">
           <Icon name="search" size={15} />
-          <input
+          <Input
             class="search-input"
-            type="text"
+            type="search"
             placeholder="搜索番剧..."
             bind:value={searchInput}
             disabled={animeStore.loading}
+            onkeydown={(e) => { if (e.key === 'Enter') handleSearch(e); }}
           />
           {#if searchInput}
-            <button type="button" class="search-clear" onclick={clearSearch}>
+            <Button variant="quiet" size="sm" ariaLabel="清空" onclick={clearSearch} class="search-clear">
               <Icon name="x" size={13} />
-            </button>
+            </Button>
           {/if}
         </div>
 
@@ -128,9 +130,9 @@
           </select>
         {/if}
 
-        <button type="submit" class="search-btn" disabled={!searchInput.trim() || isSearching}>
+        <Button type="submit" variant="primary" disabled={!searchInput.trim() || isSearching}>
           搜索
-        </button>
+        </Button>
       </form>
     </header>
 
@@ -138,7 +140,7 @@
     <div class="tab-bar">
       {#if animeStore.view === "search"}
         <span class="search-label">搜索："{animeStore.searchKeyword}"</span>
-        <button class="tab-clear" onclick={clearSearch}>清除</button>
+        <Button variant="ghost" size="sm" onclick={clearSearch}>清除</Button>
       {:else}
         {#each [
           { id: "recommend", label: "推荐", icon: "star" },
@@ -174,21 +176,18 @@
             <span>搜索中...</span>
           </div>
         {:else if animeStore.error}
-          <div class="content-empty">
-            <Icon name="search" size={32} />
-            <p>{animeStore.error}</p>
-          </div>
+          <EmptyState icon="x" title="搜索失败" description={animeStore.error} class="content-empty" />
         {:else}
           {#each animeStore.searchResults as [source, items] (source)}
             <div class="result-group">
               <h3 class="result-source">{source}</h3>
               <div class="result-list">
                 {#each items as item (item.url)}
-                  <button class="result-row" onclick={() => openResult(source, item)}>
+                  <Button variant="quiet" fullWidth class="result-row" onclick={() => openResult(source, item)}>
                     <Icon name="film" size={16} />
                     <span class="result-name">{item.name}</span>
                     <Icon name="chevronRight" size={14} />
-                  </button>
+                  </Button>
                 {/each}
               </div>
             </div>
@@ -208,19 +207,21 @@
                   本季新番
                 </h3>
                 {#if animeStore.recSeasonalTotal > animeStore.recSeasonal.length}
-                  <button class="load-more-btn" onclick={() => animeStore.loadMoreSeasonal()}
+                  <Button variant="secondary" size="sm" onclick={() => animeStore.loadMoreSeasonal()}
                     disabled={animeStore.recSeasonalLoading}>
                     {animeStore.recSeasonalLoading ? "加载中..." : "更多"}
-                    <Icon name="chevronRight" size={12} />
-                  </button>
+                    {#if !animeStore.recSeasonalLoading}
+                      <Icon name="chevronRight" size={12} />
+                    {/if}
+                  </Button>
                 {/if}
               </div>
               {#if animeStore.recSeasonalLoading && animeStore.recSeasonal.length === 0}
-                <div class="rec-loading"><div class="spinner sm"></div></div>
+                <div class="rec-loading"><div class="cover-grid"><Skeleton variant="card" count={10} /></div></div>
               {:else if animeStore.recSeasonal.length > 0}
                 <div class="cover-grid">
                   {#each animeStore.recSeasonal as sub (sub.id)}
-                    <button class="cover-card" onclick={() => searchBangumi(sub)}>
+                    <Card padding="none" hoverable={false} class="cover-card" onclick={() => searchBangumi(sub)}>
                       <div class="cover-img-wrap">
                         {#if animeStore.getImg(sub.image)}
                           <img src={animeStore.getImg(sub.image)} alt={sub.name_cn || sub.name} class="cover-img" />
@@ -242,11 +243,11 @@
                           <span class="cover-sub">{sub.air_date}</span>
                         {/if}
                       </div>
-                    </button>
+                    </Card>
                   {/each}
                 </div>
               {:else}
-                <div class="rec-empty">暂无本季数据</div>
+                <EmptyState title="暂无本季数据" class="rec-empty" />
               {/if}
             </div>
 
@@ -258,19 +259,21 @@
                   热门推荐
                 </h3>
                 {#if animeStore.recTrendingTotal > animeStore.recTrending.length}
-                  <button class="load-more-btn" onclick={() => animeStore.loadMoreTrending()}
+                  <Button variant="secondary" size="sm" onclick={() => animeStore.loadMoreTrending()}
                     disabled={animeStore.recTrendingLoading}>
                     {animeStore.recTrendingLoading ? "加载中..." : "更多"}
-                    <Icon name="chevronRight" size={12} />
-                  </button>
+                    {#if !animeStore.recTrendingLoading}
+                      <Icon name="chevronRight" size={12} />
+                    {/if}
+                  </Button>
                 {/if}
               </div>
               {#if animeStore.recTrendingLoading && animeStore.recTrending.length === 0}
-                <div class="rec-loading"><div class="spinner sm"></div></div>
+                <div class="rec-loading"><div class="cover-grid"><Skeleton variant="card" count={10} /></div></div>
               {:else if animeStore.recTrending.length > 0}
                 <div class="cover-grid">
                   {#each animeStore.recTrending as sub (sub.id)}
-                    <button class="cover-card" onclick={() => searchBangumi(sub)}>
+                    <Card padding="none" hoverable={false} class="cover-card" onclick={() => searchBangumi(sub)}>
                       <div class="cover-img-wrap">
                         {#if animeStore.getImg(sub.image)}
                           <img src={animeStore.getImg(sub.image)} alt={sub.name_cn || sub.name} class="cover-img" />
@@ -289,11 +292,11 @@
                           <span class="cover-sub">{sub.name}</span>
                         {/if}
                       </div>
-                    </button>
+                    </Card>
                   {/each}
                 </div>
               {:else}
-                <div class="rec-empty">暂无热门数据</div>
+                <EmptyState title="暂无热门数据" class="rec-empty" />
               {/if}
             </div>
 
@@ -305,19 +308,21 @@
                   Bangumi 排行
                 </h3>
                 {#if animeStore.recTopRatedTotal > animeStore.recTopRated.length}
-                  <button class="load-more-btn" onclick={() => animeStore.loadMoreTopRated()}
+                  <Button variant="secondary" size="sm" onclick={() => animeStore.loadMoreTopRated()}
                     disabled={animeStore.recTopRatedLoading}>
                     {animeStore.recTopRatedLoading ? "加载中..." : "更多"}
-                    <Icon name="chevronRight" size={12} />
-                  </button>
+                    {#if !animeStore.recTopRatedLoading}
+                      <Icon name="chevronRight" size={12} />
+                    {/if}
+                  </Button>
                 {/if}
               </div>
               {#if animeStore.recTopRatedLoading && animeStore.recTopRated.length === 0}
-                <div class="rec-loading"><div class="spinner sm"></div></div>
+                <div class="rec-loading"><div class="cover-grid"><Skeleton variant="card" count={10} /></div></div>
               {:else if animeStore.recTopRated.length > 0}
                 <div class="cover-grid">
                   {#each animeStore.recTopRated as sub (sub.id)}
-                    <button class="cover-card" onclick={() => searchBangumi(sub)}>
+                    <Card padding="none" hoverable={false} class="cover-card" onclick={() => searchBangumi(sub)}>
                       <div class="cover-img-wrap">
                         {#if animeStore.getImg(sub.image)}
                           <img src={animeStore.getImg(sub.image)} alt={sub.name_cn || sub.name} class="cover-img" />
@@ -339,11 +344,11 @@
                           <span class="cover-sub">{sub.air_date}</span>
                         {/if}
                       </div>
-                    </button>
+                    </Card>
                   {/each}
                 </div>
               {:else}
-                <div class="rec-empty">暂无排行数据</div>
+                <EmptyState title="暂无排行数据" class="rec-empty" />
               {/if}
             </div>
           </div>
@@ -378,7 +383,7 @@
             {#each animeStore.calendar.filter(d => d.weekday === animeStore.calendarDay) as currentDay (currentDay.weekday)}
               <div class="cover-grid">
                 {#each currentDay.items as sub (sub.id)}
-                  <button class="cover-card" onclick={() => searchBangumi(sub)}>
+                  <Card padding="none" hoverable={false} class="cover-card" onclick={() => searchBangumi(sub)}>
                     <div class="cover-img-wrap">
                       {#if animeStore.getImg(sub.image)}
                         <img src={animeStore.getImg(sub.image)} alt={sub.name_cn || sub.name} class="cover-img" />
@@ -400,22 +405,21 @@
                         <span class="cover-eps">{sub.eps_count} 话</span>
                       {/if}
                     </div>
-                  </button>
+                  </Card>
                 {/each}
               </div>
             {/each}
           </div>
         {:else if animeStore.error}
-          <div class="content-empty">
-            <Icon name="x" size={32} />
-            <p>{animeStore.error}</p>
-            <button class="action-btn" onclick={() => animeStore.loadCalendar()}>重试</button>
-          </div>
+          <EmptyState
+            icon="x"
+            title="加载失败"
+            description={animeStore.error}
+            action={{ label: '重试', onclick: () => animeStore.loadCalendar() }}
+            class="content-empty"
+          />
         {:else}
-          <div class="content-empty">
-            <Icon name="film" size={32} />
-            <p>暂无时间表数据</p>
-          </div>
+          <EmptyState icon="film" title="暂无时间表数据" class="content-empty" />
         {/if}
 
       <!-- ═══════════════════════════════════════════════════════════
@@ -424,44 +428,24 @@
       {:else if animeStore.activeTab === "my"}
         <!-- 统计卡片 -->
         <div class="my-stats-bar">
-          <div class="stat-card">
-            <span class="stat-num">{animeStore.stats.total}</span>
-            <span class="stat-label">收藏</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-num watching">{animeStore.stats.watching}</span>
-            <span class="stat-label">在看</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-num planned">{animeStore.stats.planned}</span>
-            <span class="stat-label">想看</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-num watched">{animeStore.stats.watched}</span>
-            <span class="stat-label">看过</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-num">{animeStore.stats.historyCount}</span>
-            <span class="stat-label">历史</span>
-          </div>
+          <StatBlock label="收藏" value={animeStore.stats.total} class="stat-card" />
+          <StatBlock label="在看" value={animeStore.stats.watching} class="stat-card" />
+          <StatBlock label="想看" value={animeStore.stats.planned} class="stat-card" />
+          <StatBlock label="看过" value={animeStore.stats.watched} class="stat-card" />
+          <StatBlock label="历史" value={animeStore.stats.historyCount} class="stat-card" />
         </div>
 
         <!-- 子 Tab -->
-        <div class="my-sub-tabs">
-          {#each [
-            { id: "collection", label: "收藏" },
-            { id: "history", label: "历史记录" },
-            { id: "stats", label: "数据统计" },
-          ] as tab (tab.id)}
-            <button
-              class="my-sub-tab"
-              class:active={animeStore.mySubTab === tab.id}
-              onclick={() => { animeStore.mySubTab = tab.id as any; }}
-            >
-              {tab.label}
-            </button>
-          {/each}
-        </div>
+        <SegmentControl
+          class="my-sub-tabs"
+          options={[
+            { value: "collection", label: "收藏" },
+            { value: "history", label: "历史记录" },
+            { value: "stats", label: "数据统计" },
+          ]}
+          value={animeStore.mySubTab}
+          onChange={(v) => { animeStore.mySubTab = v as any; }}
+        />
 
         <!-- 收藏子页 -->
         {#if animeStore.mySubTab === "collection"}
@@ -475,29 +459,30 @@
               { type: 4, label: "看过", count: animeStore.stats.watched },
               { type: 5, label: "抛弃", count: animeStore.stats.dropped },
             ] as f (f.type)}
-              <button
-                class="filter-chip"
-                class:active={animeStore.collectFilter === f.type}
+              <Tag
+                active={animeStore.collectFilter === f.type}
                 onclick={() => { animeStore.collectFilter = f.type; }}
+                class="filter-chip"
               >
                 {f.label}
                 {#if f.count > 0}
                   <span class="filter-count">{f.count}</span>
                 {/if}
-              </button>
+              </Tag>
             {/each}
           </div>
 
           {#if animeStore.filteredCollection.length === 0}
-            <div class="content-empty">
-              <Icon name="heart" size={40} />
-              <h3>{animeStore.collectFilter === 0 ? "还没有收藏" : `没有${COLLECT_TYPES[animeStore.collectFilter]}的番剧`}</h3>
-              <p>在番剧详情页中点击收藏按钮添加</p>
-            </div>
+            <EmptyState
+              icon="heart"
+              title={animeStore.collectFilter === 0 ? "还没有收藏" : `没有${COLLECT_TYPES[animeStore.collectFilter]}的番剧`}
+              description="在番剧详情页中点击收藏按钮添加"
+              class="content-empty"
+            />
           {:else}
             <div class="collect-grid">
               {#each animeStore.filteredCollection as item (item.key)}
-                <button class="collect-card" onclick={() => {
+                <Card padding="none" hoverable={false} class="collect-card" onclick={() => {
                   if (item.ruleSource && item.sourceUrl) {
                     animeStore.openDetail(item.ruleSource, { name: item.name, url: item.sourceUrl }, item.image);
                   }
@@ -517,7 +502,7 @@
                       <span class="collect-card-source">{item.ruleSource}</span>
                     {/if}
                   </div>
-                </button>
+                </Card>
               {/each}
             </div>
           {/if}
@@ -525,18 +510,14 @@
         <!-- 历史子页 -->
         {:else if animeStore.mySubTab === "history"}
           {#if animeStore.history.length === 0}
-            <div class="content-empty">
-              <Icon name="eye" size={40} />
-              <h3>暂无观看记录</h3>
-              <p>开始观看番剧后将自动记录</p>
-            </div>
+            <EmptyState icon="eye" title="暂无观看记录" description="开始观看番剧后将自动记录" class="content-empty" />
           {:else}
             <div class="history-toolbar">
               <span class="history-count">{animeStore.history.length} 条记录</span>
-              <button class="clear-btn" onclick={() => animeStore.clearHistory()}>
+              <Button variant="ghost" size="sm" onclick={() => animeStore.clearHistory()} class="clear-btn">
                 <Icon name="trash" size={13} />
                 清空
-              </button>
+              </Button>
             </div>
             <div class="history-list">
               {#each animeStore.history as item (item.key)}
@@ -560,9 +541,9 @@
                       {item.ruleName} · {fmtRelativeTime(item.updatedAt)}
                     </span>
                   </div>
-                  <button class="remove-btn" onclick={(e) => { e.stopPropagation(); animeStore.removeHistory(item.key); }}>
+                  <Button variant="quiet" size="sm" onclick={(e) => { e.stopPropagation(); animeStore.removeHistory(item.key); }} ariaLabel="删除" class="remove-btn">
                     <Icon name="x" size={12} />
-                  </button>
+                  </Button>
                 </div>
               {/each}
             </div>
@@ -572,7 +553,7 @@
         {:else if animeStore.mySubTab === "stats"}
           <div class="stats-page">
             <div class="stats-grid">
-              <div class="stats-block">
+              <Card padding="md" class="stats-block">
                 <div class="stats-block-title">收藏概览</div>
                 <div class="stats-items">
                   <div class="stats-row">
@@ -619,9 +600,9 @@
                     {/if}
                   </div>
                 {/if}
-              </div>
+              </Card>
 
-              <div class="stats-block">
+              <Card padding="md" class="stats-block">
                 <div class="stats-block-title">观看历史</div>
                 <div class="stats-items">
                   <div class="stats-row">
@@ -633,7 +614,7 @@
                     <span class="stats-val">{animeStore.stats.rulesCount}</span>
                   </div>
                 </div>
-              </div>
+              </Card>
             </div>
           </div>
         {/if}
@@ -651,16 +632,16 @@
                 <p class="import-desc">从 GitHub 一键安装 / 更新社区规则</p>
               </div>
               <div class="catalog-actions">
-                <button class="action-btn secondary" onclick={() => animeStore.loadCatalog()}
+                <Button variant="secondary" size="sm" onclick={() => animeStore.loadCatalog()}
                   disabled={animeStore.catalogLoading}>
                   <Icon name="refresh" size={13} />
                   {animeStore.catalogLoading ? "加载中..." : "刷新"}
-                </button>
+                </Button>
                 {#if animeStore.catalog.length > 0}
-                  <button class="action-btn" onclick={() => animeStore.installAllRules()}
+                  <Button variant="primary" size="sm" onclick={() => animeStore.installAllRules()}
                     disabled={animeStore.catalogLoading}>
                     全部安装 ({animeStore.catalog.length})
-                  </button>
+                  </Button>
                 {/if}
               </div>
             </div>
@@ -695,23 +676,21 @@
                     {#if installing}
                       <span class="catalog-status installing">安装中...</span>
                     {:else if hasUpdate}
-                      <button class="catalog-install update" onclick={() => animeStore.installRule(item.name)}>
+                      <Button variant="secondary" size="sm" onclick={() => animeStore.installRule(item.name)}>
                         更新
-                      </button>
+                      </Button>
                     {:else if installed}
                       <span class="catalog-status installed-badge">已安装</span>
                     {:else}
-                      <button class="catalog-install" onclick={() => animeStore.installRule(item.name)}>
+                      <Button variant="primary" size="sm" onclick={() => animeStore.installRule(item.name)}>
                         安装
-                      </button>
+                      </Button>
                     {/if}
                   </div>
                 {/each}
               </div>
             {:else if !animeStore.catalogLoading}
-              <div class="catalog-empty">
-                <p>点击「刷新」从 GitHub 加载规则列表</p>
-              </div>
+              <EmptyState title="暂无规则数据" description="点击「刷新」从 GitHub 加载规则列表" class="catalog-empty" />
             {/if}
           </div>
 
@@ -726,9 +705,9 @@
                 rows="5"
               ></textarea>
               <div class="import-actions">
-                <button class="action-btn" onclick={handleImport} disabled={!importText.trim()}>
+                <Button variant="primary" onclick={handleImport} disabled={!importText.trim()}>
                   导入规则
-                </button>
+                </Button>
                 {#if importMsg}
                   <span class="import-msg" class:error={importMsg.includes("失败")}>{importMsg}</span>
                 {/if}
@@ -751,9 +730,9 @@
                       {#if rule.adBlocker}<span class="rule-badge">AdBlock</span>{/if}
                     </span>
                   </div>
-                  <button class="remove-rule" onclick={() => animeStore.removeRule(rule.name)} title="删除规则">
+                  <Button variant="quiet" size="sm" onclick={() => animeStore.removeRule(rule.name)} ariaLabel="删除规则" class="remove-rule">
                     <Icon name="trash" size={14} />
-                  </button>
+                  </Button>
                 </div>
               {/each}
             </div>
@@ -859,7 +838,7 @@
     border-color: var(--accent);
     color: var(--text-primary);
   }
-  .search-input {
+  :global(.ui-input.search-input) {
     flex: 1;
     background: transparent;
     border: none;
@@ -868,8 +847,8 @@
     outline: none;
     padding: 8px 0;
   }
-  .search-input::placeholder { color: var(--text-muted); }
-  .search-clear {
+  :global(.ui-input.search-input::placeholder) { color: var(--text-muted); }
+  :global(.ui-button.search-clear) {
     background: transparent;
     border: none;
     color: var(--text-muted);
@@ -890,23 +869,6 @@
     max-width: 120px;
   }
   .rule-select:focus { border-color: var(--accent); }
-  .search-btn {
-    padding: 0 14px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: rgba(255,255,255,0.04);
-    color: var(--text-muted);
-    font-size: 13px;
-    cursor: pointer;
-    transition: all 0.15s;
-    white-space: nowrap;
-  }
-  .search-btn:not(:disabled):hover {
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-  .search-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
   /* ── Tab bar (Kazumi 风格) ───────────────────────────────── */
   .tab-bar {
     flex-shrink: 0;
@@ -945,16 +907,6 @@
     color: var(--text-muted);
     flex: 1;
   }
-  .tab-clear {
-    padding: 5px 12px;
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 6px;
-    background: transparent;
-    color: var(--text-muted);
-    font-size: 12px;
-    cursor: pointer;
-  }
-
   .anime-content {
     flex: 1;
     overflow-y: auto;
@@ -983,22 +935,10 @@
   .rec-dot.trending { background: #f59e0b; }
   .rec-dot.toprated { background: #60a5fa; }
 
-  .load-more-btn {
-    display: inline-flex; align-items: center; gap: 4px;
-    padding: 5px 14px; border: 1px solid var(--border); border-radius: 6px;
-    background: transparent; color: var(--text-muted);
-    font-size: 12px; font-weight: 550; cursor: pointer;
-    transition: all 0.15s;
-  }
-  .load-more-btn:not(:disabled):hover {
-    border-color: var(--accent); color: var(--accent);
-  }
-  .load-more-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
   .rec-loading {
     padding: 30px 0; display: flex; justify-content: center;
   }
-  .rec-empty {
+  :global(.ui-empty.rec-empty) {
     padding: 24px 0; text-align: center; color: var(--text-muted); font-size: 13px;
   }
 
@@ -1008,15 +948,15 @@
     grid-template-columns: repeat(10, minmax(0, 1fr));
     gap: 14px;
   }
-  .cover-card {
+  :global(.ui-card.cover-card) {
     display: flex; flex-direction: column; gap: 8px;
     border: none; border-radius: 10px;
     background: transparent; padding: 0; cursor: pointer;
     text-align: left; color: var(--text-primary);
     transition: transform 0.18s, opacity 0.18s;
   }
-  .cover-card:hover { transform: translateY(-3px); }
-  .cover-card:active { transform: scale(0.97); }
+  :global(.ui-card.cover-card:hover) { transform: translateY(-3px); }
+  :global(.ui-card.cover-card:active) { transform: scale(0.97); }
 
   .cover-img-wrap {
     position: relative; width: 100%; aspect-ratio: 3/4;
@@ -1059,8 +999,6 @@
   }
   .cover-eps { font-size: 10.5px; color: var(--text-muted); }
 
-  .spinner.sm { width: 20px; height: 20px; border-width: 2px; }
-
   /* ── Calendar ──────────────────────────────────────────────── */
   .calendar-section { display: flex; flex-direction: column; gap: 14px; }
   .weekday-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -1096,60 +1034,24 @@
   .my-stats-bar {
     display: flex; gap: 8px; flex-wrap: wrap;
   }
-  .stat-card {
+  :global(.ui-stat.stat-card) {
     flex: 1; min-width: 80px;
-    display: flex; flex-direction: column; align-items: center; gap: 2px;
-    padding: 12px 8px; border-radius: 10px;
-    background: rgba(255,255,255,0.03); border: 1px solid var(--border);
   }
-  .stat-num {
-    font-size: 22px; font-weight: 800; font-family: var(--font-mono);
-    color: var(--text-primary);
+  
+  :global(.ui-segment.my-sub-tabs) {
+    padding: 4px 0;
   }
-  .stat-num.watching { color: var(--accent); }
-  .stat-num.planned { color: #60a5fa; }
-  .stat-num.watched { color: #34d399; }
-  .stat-label { font-size: 11px; color: var(--text-muted); font-weight: 550; }
-
-  .my-sub-tabs {
-    display: flex; gap: 2px;
-    border-bottom: 1px solid var(--border);
-    padding-bottom: 0;
-  }
-  .my-sub-tab {
-    padding: 8px 18px; border: none; border-bottom: 2px solid transparent;
-    background: transparent; color: var(--text-muted);
-    font-size: 13px; font-weight: 600; cursor: pointer;
-    transition: all 0.15s;
-  }
-  .my-sub-tab.active {
-    color: var(--accent); border-bottom-color: var(--accent);
-  }
-  .my-sub-tab:not(.active):hover { color: var(--text-primary); }
 
   /* 收藏筛选 */
   .collect-filters {
     display: flex; gap: 6px; flex-wrap: wrap; padding: 4px 0;
   }
-  .filter-chip {
-    padding: 5px 12px; border: 1px solid var(--border); border-radius: 16px;
-    background: transparent; color: var(--text-muted);
-    font-size: 12px; font-weight: 550; cursor: pointer;
-    transition: all 0.15s;
-    display: inline-flex; align-items: center; gap: 4px;
-  }
-  .filter-chip.active {
-    background: var(--accent-lo, rgba(232,85,127,0.1));
-    border-color: var(--accent-ring, rgba(232,85,127,0.3));
-    color: var(--accent); font-weight: 700;
-  }
-  .filter-chip:not(.active):hover { border-color: var(--text-muted); color: var(--text-primary); }
   .filter-count {
     font-size: 10px; font-weight: 700;
     padding: 0 4px; border-radius: 8px;
     background: rgba(255,255,255,0.06);
   }
-  .filter-chip.active .filter-count {
+  :global(.ui-tag.filter-chip.is-active) .filter-count {
     background: var(--accent-lo);
   }
 
@@ -1159,15 +1061,15 @@
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
     gap: 14px;
   }
-  .collect-card {
+  :global(.ui-card.collect-card) {
     display: flex; flex-direction: column; gap: 8px;
     border: none; border-radius: 10px;
     background: transparent; padding: 0; cursor: pointer;
     text-align: left; color: var(--text-primary);
     transition: transform 0.18s;
   }
-  .collect-card:hover { transform: translateY(-3px); }
-  .collect-card:active { transform: scale(0.97); }
+  :global(.ui-card.collect-card:hover) { transform: translateY(-3px); }
+  :global(.ui-card.collect-card:active) { transform: scale(0.97); }
 
   .collect-card-img {
     position: relative; width: 100%; aspect-ratio: 3/4;
@@ -1204,13 +1106,13 @@
     padding: 4px 0;
   }
   .history-count { font-size: 12px; color: var(--text-muted); font-weight: 550; }
-  .clear-btn {
+  :global(.ui-button.clear-btn) {
     display: inline-flex; align-items: center; gap: 5px;
     padding: 5px 12px; border: 1px solid rgba(248,113,113,0.3); border-radius: 6px;
     background: transparent; color: #f87171; font-size: 12px; cursor: pointer;
     transition: all 0.15s;
   }
-  .clear-btn:hover { background: rgba(248,113,113,0.1); }
+  :global(.ui-button.clear-btn:hover) { background: rgba(248,113,113,0.1); }
 
   .history-list { display: flex; flex-direction: column; gap: 4px; }
   .history-row {
@@ -1233,21 +1135,19 @@
   .history-meta { font-size: 12px; color: var(--accent); font-weight: 550; }
   .history-sub { font-size: 11px; color: var(--text-muted); }
 
-  .remove-btn {
+  :global(.ui-button.remove-btn) {
     flex-shrink: 0; width: 28px; height: 28px;
     display: grid; place-items: center;
     border: 1px solid transparent; border-radius: 6px;
     background: transparent; color: var(--text-muted); cursor: pointer;
     transition: all 0.15s;
   }
-  .remove-btn:hover { border-color: rgba(248,113,113,0.3); color: #f87171; background: rgba(248,113,113,0.08); }
+  :global(.ui-button.remove-btn:hover) { border-color: rgba(248,113,113,0.3); color: #f87171; background: rgba(248,113,113,0.08); }
 
   /* 统计页 */
   .stats-page { display: flex; flex-direction: column; gap: 16px; padding: 4px 0; }
   .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-  .stats-block {
-    padding: 16px 18px; border: 1px solid var(--border); border-radius: 10px;
-    background: rgba(255,255,255,0.02);
+  :global(.ui-card.stats-block) {
     display: flex; flex-direction: column; gap: 10px;
   }
   .stats-block-title {
@@ -1277,13 +1177,13 @@
   .result-group { display: flex; flex-direction: column; gap: 6px; }
   .result-source { font-size: 13px; font-weight: 700; color: var(--accent); margin: 0; padding: 4px 0; }
   .result-list { display: flex; flex-direction: column; gap: 3px; }
-  .result-row {
+  :global(.ui-button.result-row) {
     display: flex; align-items: center; gap: 10px;
     padding: 10px 12px; border: 1px solid transparent; border-radius: 8px;
     background: rgba(255,255,255,0.02); cursor: pointer;
     transition: all 0.15s; text-align: left; width: 100%; color: var(--text-primary);
   }
-  .result-row:hover { border-color: var(--border); background: rgba(255,255,255,0.04); }
+  :global(.ui-button.result-row:hover) { border-color: var(--border); background: rgba(255,255,255,0.04); }
   .result-name { flex: 1; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* ── Rules / Catalog ──────────────────────────────────────── */
@@ -1319,22 +1219,12 @@
   }
   .catalog-badge.warn { background: rgba(251,191,36,0.12); color: #fbbf24; }
 
-  .catalog-install {
-    padding: 5px 14px; border: 1px solid var(--accent-ring, rgba(232,85,127,0.3));
-    border-radius: 6px; background: var(--accent-lo, rgba(232,85,127,0.1));
-    color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer;
-    transition: all 0.15s; flex-shrink: 0;
-  }
-  .catalog-install:hover { background: var(--accent); color: #fff; }
-  .catalog-install.update { border-color: rgba(96,165,250,0.3); background: rgba(96,165,250,0.1); color: #60a5fa; }
-  .catalog-install.update:hover { background: #60a5fa; color: #fff; }
-
   .catalog-status {
     font-size: 11px; color: var(--text-muted); flex-shrink: 0; padding: 0 4px;
   }
   .catalog-status.installing { color: var(--accent); font-weight: 600; }
   .installed-badge { color: #34d399; font-weight: 600; }
-  .catalog-empty { text-align: center; color: var(--text-muted); font-size: 13px; padding: 20px 0; }
+  :global(.ui-empty.catalog-empty) { text-align: center; color: var(--text-muted); font-size: 13px; padding: 20px 0; }
 
   .manual-import {
     border: 1px solid var(--border); border-radius: 8px;
@@ -1356,20 +1246,6 @@
   }
   .import-textarea:focus { border-color: var(--accent); }
   .import-actions { display: flex; align-items: center; gap: 12px; }
-  .action-btn {
-    padding: 9px 20px; border: none; border-radius: 8px;
-    background: var(--accent, #e8557f); color: #fff;
-    font-size: 13px; font-weight: 700; cursor: pointer;
-    transition: opacity 0.15s, transform 0.15s;
-    display: inline-flex; align-items: center; gap: 5px;
-  }
-  .action-btn:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
-  .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .action-btn.secondary {
-    background: rgba(255,255,255,0.06); color: var(--text-muted);
-    border: 1px solid var(--border);
-  }
-  .action-btn.secondary:hover:not(:disabled) { color: var(--text-primary); border-color: var(--accent); }
   .import-msg { font-size: 12.5px; color: var(--accent); }
   .import-msg.error { color: #f87171; }
 
@@ -1390,23 +1266,23 @@
     display: inline-block; padding: 1px 6px; border-radius: 4px;
     background: rgba(255,255,255,0.06); font-size: 10px; margin-left: 4px;
   }
-  .remove-rule {
+  :global(.ui-button.remove-rule) {
     flex-shrink: 0; width: 32px; height: 32px;
     display: grid; place-items: center;
     border: 1px solid transparent; border-radius: 6px;
     background: transparent; color: var(--text-muted); cursor: pointer;
     transition: all 0.15s;
   }
-  .remove-rule:hover { border-color: rgba(248,113,113,0.3); color: #f87171; background: rgba(248,113,113,0.08); }
+  :global(.ui-button.remove-rule:hover) { border-color: rgba(248,113,113,0.3); color: #f87171; background: rgba(248,113,113,0.08); }
 
   /* ── Empty & loading ──────────────────────────────────────── */
-  .content-empty {
+  :global(.ui-empty.content-empty) {
     flex: 1; display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     gap: 10px; color: var(--text-muted); padding: 60px 0; text-align: center;
   }
-  .content-empty h3 { margin: 0; font-size: 16px; color: var(--text-primary); }
-  .content-empty p { margin: 0; font-size: 13px; max-width: 400px; }
+  :global(.ui-empty.content-empty) h3 { margin: 0; font-size: 16px; color: var(--text-primary); }
+  :global(.ui-empty.content-empty) p { margin: 0; font-size: 13px; max-width: 400px; }
   .content-loading {
     flex: 1; display: flex; flex-direction: column;
     align-items: center; justify-content: center;

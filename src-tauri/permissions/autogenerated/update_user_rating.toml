@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-user-rating"
+description = "Enables the update_user_rating command without any pre-configured scope."
+commands.allow = ["update_user_rating"]
+
+[[permission]]
+identifier = "deny-update-user-rating"
+description = "Denies the update_user_rating command without any pre-configured scope."
+commands.deny = ["update_user_rating"]

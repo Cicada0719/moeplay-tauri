@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-play-tracker"
+description = "Enables the update_play_tracker command without any pre-configured scope."
+commands.allow = ["update_play_tracker"]
+
+[[permission]]
+identifier = "deny-update-play-tracker"
+description = "Denies the update_play_tracker command without any pre-configured scope."
+commands.deny = ["update_play_tracker"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-scrape-pcgw-page"
+description = "Enables the scrape_pcgw_page command without any pre-configured scope."
+commands.allow = ["scrape_pcgw_page"]
+
+[[permission]]
+identifier = "deny-scrape-pcgw-page"
+description = "Denies the scrape_pcgw_page command without any pre-configured scope."
+commands.deny = ["scrape_pcgw_page"]

@@ -7,9 +7,14 @@ import {
   type Settings,
 } from "../api";
 import { STARTUP_MIGRATED_KEY, shouldMigrateStartupMode } from "./startup-migration";
+import {
+  applyTheme,
+  loadStoredTheme,
+  type AppTheme,
+} from "../utils/theme";
 
 const defaultSettings: Settings = {
-  theme: localStorage.getItem("moegame-theme") || "dark",
+  theme: loadStoredTheme(),
   watch_dirs: [],
   auto_scrape: true,
   language: "zh",
@@ -38,23 +43,18 @@ let _settings = $state<Settings>({ ...defaultSettings });
 let _loading = $state(false);
 let _loaded = $state(false);
 
-function applyTheme(theme: string) {
-  localStorage.setItem("moegame-theme", theme);
-  document.documentElement.setAttribute("data-theme", theme);
-}
-
 export const settingsStore = {
   get settings() { return _settings; },
   get loading() { return _loading; },
   get loaded() { return _loaded; },
-  get theme() { return _settings.theme; },
+  get theme() { return _settings.theme as AppTheme; },
   get language() { return _settings.language; },
 
   async load() {
     _loading = true;
     try {
       _settings = { ...defaultSettings, ...(await getSettings()) };
-      applyTheme(_settings.theme);
+      applyTheme(_settings.theme as AppTheme);
       // 一次性迁移：仅历史默认 dashboard 的老用户迁到 fullscreen 一次；
       // 之后无条件尊重用户选择（避免"普通模式存不住"）。
       const migrated = !!localStorage.getItem(STARTUP_MIGRATED_KEY);
@@ -64,6 +64,10 @@ export const settingsStore = {
       }
       if (!migrated) localStorage.setItem(STARTUP_MIGRATED_KEY, "1");
       _loaded = true;
+    } catch (e) {
+      console.error("Failed to load settings:", e);
+      _settings = { ...defaultSettings };
+      applyTheme(_settings.theme as AppTheme);
     } finally {
       _loading = false;
     }
@@ -71,7 +75,7 @@ export const settingsStore = {
 
   async save(settings: Settings) {
     _settings = await updateSettings({ ...defaultSettings, ...settings });
-    applyTheme(_settings.theme);
+    applyTheme(_settings.theme as AppTheme);
     return _settings;
   },
 
@@ -85,11 +89,20 @@ export const settingsStore = {
   },
 
   async addWatchDir() {
-    const dir = await pickDirectory();
-    _settings = await addWatchDir(dir);
+    try {
+      const dir = await pickDirectory();
+      if (!dir) return;
+      _settings = await addWatchDir(dir);
+    } catch (e) {
+      console.error("Failed to add watch dir:", e);
+    }
   },
 
   async removeWatchDir(dir: string) {
-    _settings = await removeWatchDir(dir);
+    try {
+      _settings = await removeWatchDir(dir);
+    } catch (e) {
+      console.error("Failed to remove watch dir:", e);
+    }
   },
 };

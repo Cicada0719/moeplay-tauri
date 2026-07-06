@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import EmptyState from "./EmptyState.svelte";
   import Icon from "./Icon.svelte";
+  import { Button, Card, EmptyState, Input } from "./ui";
   import {
     createSaveSnapshot,
     detectSaveCandidates,
@@ -77,73 +77,73 @@
   </header>
 
   <div class="toolbar">
-    <input bind:value={note} placeholder="快照备注（可选）" />
-    <button class="primary-action" disabled={!selectedId} onclick={() => createSnapshot(candidates[0]?.path)}>
+    <Input class="note-field" bind:value={note} placeholder="快照备注（可选）" />
+    <Button disabled={!selectedId} onclick={() => createSnapshot(candidates[0]?.path)}>
       <Icon name="save" size={16} />
       <span>创建快照</span>
-    </button>
+    </Button>
   </div>
 
   <div class="content-grid">
     {#if loading}
-      <div class="panel" style="grid-column: 1 / -1;">
+      <Card class="panel full-width">
         <EmptyState title="正在加载存档数据…" />
-      </div>
+      </Card>
     {:else if error}
-      <div class="panel" style="grid-column: 1 / -1;">
-        <EmptyState title="加载失败" description={error} actionLabel="重试" onAction={load} />
-      </div>
+      <Card class="panel full-width">
+        <EmptyState title="加载失败" description={error ?? undefined} action={{ label: "重试", onclick: load }} />
+      </Card>
     {:else}
-      <section class="panel">
-      <div class="panel-head">
-        <h2>候选存档目录</h2>
-        <span>{selected?.name ?? "未选择"}</span>
-      </div>
-      {#if candidates.length}
-        <div class="row-list">
-          {#each candidates as item}
-            <article class="data-row">
-              <div class="row-copy">
-                <strong>{item.path}</strong>
-                <span>{item.category} · <span class="aura-num">{item.score}</span> 分 · <span class="aura-num">{item.file_count}</span> 文件</span>
-              </div>
-              <button class="row-action" onclick={() => createSnapshot(item.path)}>
-                <Icon name="save" size={15} />
-                <span>备份</span>
-              </button>
-            </article>
-          {/each}
+      <Card class="panel">
+        <div class="panel-head">
+          <h2>候选存档目录</h2>
+          <span>{selected?.name ?? "未选择"}</span>
         </div>
-      {:else}
-        <EmptyState title="未检测到存档" description="可先在游戏详情里手动设置存档目录。" />
-      {/if}
-    </section>
+        {#if candidates.length}
+          <div class="row-list">
+            {#each candidates as item}
+              <article class="data-row">
+                <div class="row-copy">
+                  <strong>{item.path}</strong>
+                  <span>{item.category} · <span class="aura-num">{item.score}</span> 分 · <span class="aura-num">{item.file_count}</span> 文件</span>
+                </div>
+                <Button variant="ghost" size="sm" onclick={() => createSnapshot(item.path)}>
+                  <Icon name="save" size={15} />
+                  <span>备份</span>
+                </Button>
+              </article>
+            {/each}
+          </div>
+        {:else}
+          <EmptyState title="未检测到存档" description="可先在游戏详情里手动设置存档目录。" />
+        {/if}
+      </Card>
 
-    <section class="panel">
-      <div class="panel-head">
-        <h2>快照</h2>
-        <span class="aura-num">{snapshots.length}</span>
-      </div>
-      {#if snapshots.length}
-        <div class="timeline-list">
-          {#each snapshots as snapshot}
-            <article class="timeline-row">
-              <span class="timeline-node" aria-hidden="true"></span>
-              <div class="timeline-copy">
-                <strong>{snapshot.file_name}</strong>
-                <span><span class="aura-num">{snapshot.created_at}</span> · <span class="aura-num">{snapshot.file_count}</span> 文件</span>
-              </div>
-              <button class="row-action" onclick={() => restoreSaveSnapshot(selectedId, snapshot.file_path)}>
-                <Icon name="refresh" size={15} />
-                <span>恢复</span>
-              </button>
-            </article>
-          {/each}
+      <Card class="panel">
+        <div class="panel-head">
+          <h2>快照</h2>
+          <span class="aura-num">{snapshots.length}</span>
         </div>
-      {:else}
-        <EmptyState title="暂无快照" description="选择一个候选目录并创建第一份快照。" />
-      {/if}
-    </section>
+        {#if snapshots.length}
+          <div class="timeline-list">
+            {#each snapshots as snapshot}
+              <article class="timeline-row">
+                <span class="timeline-node" aria-hidden="true"></span>
+                <div class="timeline-copy">
+                  <strong>{snapshot.file_name}</strong>
+                  <span><span class="aura-num">{snapshot.created_at}</span> · <span class="aura-num">{snapshot.file_count}</span> 文件</span>
+                </div>
+                <Button variant="ghost" size="sm" onclick={() => restoreSaveSnapshot(selectedId, snapshot.file_path)}>
+                  <Icon name="refresh" size={15} />
+                  <span>恢复</span>
+                </Button>
+              </article>
+            {/each}
+          </div>
+        {:else}
+          <EmptyState title="暂无快照" description="选择一个候选目录并创建第一份快照。" />
+        {/if}
+      </Card>
     {/if}
   </div>
 </section>
@@ -161,8 +161,7 @@
   }
 
   .tool-head,
-  .toolbar,
-  .panel {
+  .toolbar {
     min-width: 0;
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -231,8 +230,7 @@
     gap: 8px;
   }
 
-  select,
-  input {
+  select {
     min-width: 0;
     width: 100%;
     border: 1px solid var(--border);
@@ -244,55 +242,17 @@
     outline: none;
   }
 
-  select:focus-visible,
-  input:focus-visible {
+  select:focus-visible {
     border-color: var(--accent-ring);
     box-shadow: var(--focus-ring);
   }
 
-  input {
+  :global(.ui-input.note-field) {
     flex: 1;
   }
 
-  button {
-    min-width: 0;
-    border-radius: 8px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    font: inherit;
-    font-size: 13px;
-    font-weight: 700;
-    cursor: pointer;
-    transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
-  }
-
-  button:focus-visible {
-    outline: none;
-    box-shadow: var(--focus-ring);
-  }
-
-  button:active:not(:disabled) {
-    transform: translateY(1px);
-  }
-
-  button:disabled {
-    cursor: not-allowed;
-    opacity: 0.56;
-  }
-
-  .primary-action {
-    min-height: 38px;
-    border: 1px solid var(--accent-ring);
-    padding: 0 14px;
-    color: #fff;
-    background: var(--accent);
-  }
-
-  .primary-action:hover:not(:disabled) {
-    background: var(--accent-hi);
-    border-color: var(--accent-hi);
+  :global(.ui-card.full-width) {
+    grid-column: 1 / -1;
   }
 
   .content-grid {
@@ -302,8 +262,8 @@
     gap: 16px;
   }
 
-  .panel {
-    padding: 16px;
+  :global(.ui-card.panel) {
+    min-width: 0;
   }
 
   .panel-head {
@@ -410,20 +370,6 @@
     overflow-wrap: anywhere;
   }
 
-  .row-action {
-    min-height: 34px;
-    border: 1px solid var(--border);
-    padding: 0 12px;
-    color: var(--text-secondary);
-    background: transparent;
-  }
-
-  .row-action:hover {
-    border-color: var(--border-hover);
-    color: var(--text-primary);
-    background: var(--bg-hover);
-  }
-
   @media (max-width: 900px) {
     .content-grid {
       grid-template-columns: 1fr;
@@ -453,12 +399,13 @@
       grid-template-columns: 18px minmax(0, 1fr);
     }
 
-    .data-row .row-action,
-    .primary-action {
+    .data-row :global(.ui-button),
+    .timeline-row :global(.ui-button),
+    .toolbar :global(.ui-button) {
       width: 100%;
     }
 
-    .timeline-row .row-action {
+    .timeline-row :global(.ui-button) {
       grid-column: 2;
       justify-self: start;
       width: auto;

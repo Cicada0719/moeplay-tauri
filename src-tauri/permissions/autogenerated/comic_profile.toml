@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-comic-profile"
+description = "Enables the comic_profile command without any pre-configured scope."
+commands.allow = ["comic_profile"]
+
+[[permission]]
+identifier = "deny-comic-profile"
+description = "Denies the comic_profile command without any pre-configured scope."
+commands.deny = ["comic_profile"]

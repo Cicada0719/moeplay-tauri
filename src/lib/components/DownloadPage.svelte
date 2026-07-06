@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import Icon from "./Icon.svelte";
-  import EmptyState from "./EmptyState.svelte";
   import {
     downloadCancel,
     downloadPause,
@@ -22,6 +21,7 @@
     animeOpenDownloadFolder,
     type AnimeDownloadTask,
   } from "../api";
+  import { Button, Card, EmptyState, Input, SegmentControl, Tag } from "./ui";
 
   let url = $state("");
   let filename = $state("");
@@ -29,7 +29,7 @@
   let animeDownloads = $state<AnimeDownloadTask[]>([]);
   let activeTab = $state<"general" | "anime">("general");
   let loading = $state(false);
-  let urlInput = $state<HTMLInputElement>();
+  let urlBox = $state<HTMLDivElement>();
 
   async function refresh() {
     downloads = await getDownloads();
@@ -48,7 +48,7 @@
   }
 
   function focusUrlInput() {
-    urlInput?.focus();
+    urlBox?.querySelector<HTMLInputElement>("input")?.focus();
   }
 
   onMount(() => {
@@ -110,10 +110,14 @@
   const doneCount = $derived(downloads.filter(d => d.status === "Completed").length);
   const animeActiveCount = $derived(animeDownloads.filter(d => d.status === "Downloading" || d.status === "Parsing" || d.status === "Merging").length);
   const animeDoneCount = $derived(animeDownloads.filter(d => d.status === "Completed").length);
+  const tabs = $derived([
+    { value: "general", label: "通用下载" },
+    { value: "anime", label: animeDownloads.length > 0 ? `番剧下载 (${animeDownloads.length})` : "番剧下载" },
+  ]);
 </script>
 
 <section class="page aura-page" data-aura-echo="DOWNLOADS">
-  <header class="page-head aura-head">
+  <Card class="page-head aura-head" padding="md">
     <div>
       <span class="aura-kicker">Transfer Queue</span>
       <h1 class="aura-title">资源下载</h1>
@@ -121,52 +125,42 @@
     </div>
     <div class="head-actions">
       {#if activeCount > 0}
-        <span class="pill active">{activeCount} 下载中</span>
+        <Tag variant="accent" size="sm">{activeCount} 下载中</Tag>
       {/if}
       {#if doneCount > 0}
-        <span class="pill done">{doneCount} 已完成</span>
+        <Tag variant="neutral" size="sm">{doneCount} 已完成</Tag>
       {/if}
       {#if animeActiveCount > 0}
-        <span class="pill active">番剧 {animeActiveCount} 下载中</span>
+        <Tag variant="accent" size="sm">番剧 {animeActiveCount} 下载中</Tag>
       {/if}
-      <button class="ghost" onclick={() => downloadClearFinished().then(refresh)} title="清除已完成">
+      <Button variant="ghost" size="sm" onclick={() => downloadClearFinished().then(refresh)} title="清除已完成">
         <Icon name="trash" size={14} /> 清除
-      </button>
+      </Button>
     </div>
-  </header>
+  </Card>
 
-  <div class="tabs">
-    <button class="tab-btn" class:active={activeTab === "general"} onclick={() => activeTab = "general"}>
-      <Icon name="download" size={14} /> 通用下载
-    </button>
-    <button class="tab-btn" class:active={activeTab === "anime"} onclick={() => activeTab = "anime"}>
-      <span class="tab-icon">▶</span> 番剧下载
-      {#if animeDownloads.length > 0}
-        <span class="tab-badge">{animeDownloads.length}</span>
-      {/if}
-    </button>
-  </div>
+  <SegmentControl options={tabs} value={activeTab} onChange={(v) => activeTab = v as "general" | "anime"} size="sm" />
 
   {#if activeTab === "general"}
-  <div class="toolbar">
-    <div class="search-box">
+  <Card class="toolbar" padding="sm">
+    <div class="search-box" bind:this={urlBox}>
       <Icon name="download" size={16} />
-      <input bind:this={urlInput} bind:value={url} placeholder="粘贴下载 URL 或磁力链接" onkeydown={(e) => e.key === "Enter" && start()} />
+      <Input bind:value={url} placeholder="粘贴下载 URL 或磁力链接" onkeydown={(e) => e.key === "Enter" && start()} class="url-input" ariaLabel="下载链接" />
     </div>
-    <input bind:value={filename} placeholder="文件名（可选）" class="fname-input" />
-    <button class="primary" onclick={start} disabled={loading}>
+    <Input bind:value={filename} placeholder="文件名（可选）" class="fname-input" ariaLabel="文件名" />
+    <Button variant="primary" onclick={start} loading={loading} disabled={loading}>
       {loading ? "添加中..." : "添加下载"}
-    </button>
-  </div>
+    </Button>
+  </Card>
 
-  <section class="panel aura-panel">
+  <Card class="panel aura-panel" padding="none">
     {#if downloads.length}
-      <div class="downloads">
+      <div class="downloads" role="list">
         {#each downloads as task}
-          <article class="task" class:done={task.status === "Completed"} class:fail={task.status === "Failed"}>
+          <article class="task {statusClass(task.status)}" role="listitem">
             <div class="task-head">
               <strong class="task-fname">{task.filename}</strong>
-              <span class="status-badge {statusClass(task.status)}">{statusLabel(task.status)}</span>
+              <Tag variant="neutral" size="sm" class="status-badge {statusClass(task.status)}">{statusLabel(task.status)}</Tag>
             </div>
 
             <div class="bar-wrap">
@@ -194,19 +188,19 @@
 
             <div class="task-actions">
               {#if task.status === "Downloading"}
-                <button class="act" onclick={() => downloadPause(task.id)}><Icon name="chevronDown" size={14} /> 暂停</button>
+                <Button variant="ghost" size="sm" onclick={() => downloadPause(task.id)}><Icon name="chevronDown" size={14} /> 暂停</Button>
               {/if}
               {#if task.status === "Paused"}
-                <button class="act" onclick={() => downloadResume(task.id)}><Icon name="play" size={14} /> 继续</button>
+                <Button variant="ghost" size="sm" onclick={() => downloadResume(task.id)}><Icon name="play" size={14} /> 继续</Button>
               {/if}
               {#if task.status === "Failed"}
-                <button class="act" onclick={() => downloadRetry(task.id)}><Icon name="refresh" size={14} /> 重试</button>
+                <Button variant="ghost" size="sm" onclick={() => downloadRetry(task.id)}><Icon name="refresh" size={14} /> 重试</Button>
               {/if}
               {#if task.status !== "Downloading"}
-                <button class="act danger" onclick={() => downloadRemove(task.id).then(refresh)}><Icon name="trash" size={14} /> 移除</button>
+                <Button variant="ghost" size="sm" class="danger" onclick={() => downloadRemove(task.id).then(refresh)}><Icon name="trash" size={14} /> 移除</Button>
               {/if}
               {#if task.status === "Downloading"}
-                <button class="act danger" onclick={() => downloadCancel(task.id)}><Icon name="x" size={14} /> 取消</button>
+                <Button variant="ghost" size="sm" class="danger" onclick={() => downloadCancel(task.id)}><Icon name="x" size={14} /> 取消</Button>
               {/if}
             </div>
           </article>
@@ -216,18 +210,17 @@
       <EmptyState
         title="暂无下载任务"
         description="粘贴资源链接开始下载。支持断点续传与限速。"
-        actionLabel="添加资源链接"
-        onAction={focusUrlInput}
+        action={{ label: "添加资源链接", onclick: focusUrlInput }}
       />
     {/if}
-  </section>
+  </Card>
   {:else}
   <!-- 番剧下载 Tab -->
-  <div class="panel aura-panel">
+  <Card class="panel aura-panel" padding="none">
     {#if animeDownloads.length}
-      <div class="downloads">
+      <div class="downloads" role="list">
         {#each animeDownloads as task}
-          <article class="task" class:done={task.status === "Completed"} class:fail={task.status === "Failed"}>
+          <article class="task {animeStatusClass(task.status)}" role="listitem">
             <div class="task-head">
               <div class="task-info">
                 <strong class="task-fname">{task.episode_name || task.filename}</strong>
@@ -237,9 +230,9 @@
               </div>
               <div class="task-badges">
                 {#if task.is_m3u8}
-                  <span class="badge m3u8">HLS</span>
+                  <Tag variant="muted" size="sm" class="m3u8">HLS</Tag>
                 {/if}
-                <span class="status-badge {animeStatusClass(task.status)}">{animeStatusLabel(task.status)}</span>
+                <Tag variant="neutral" size="sm" class="status-badge {animeStatusClass(task.status)}">{animeStatusLabel(task.status)}</Tag>
               </div>
             </div>
 
@@ -272,19 +265,19 @@
 
             <div class="task-actions">
               {#if task.status === "Downloading" || task.status === "Parsing"}
-                <button class="act" onclick={() => animePauseDownload(task.id).then(refresh)}><Icon name="chevronDown" size={14} /> 暂停</button>
+                <Button variant="ghost" size="sm" onclick={() => animePauseDownload(task.id).then(refresh)}><Icon name="chevronDown" size={14} /> 暂停</Button>
               {/if}
               {#if task.status === "Paused"}
-                <button class="act" onclick={() => animeResumeDownload(task.id).then(refresh)}><Icon name="play" size={14} /> 继续</button>
+                <Button variant="ghost" size="sm" onclick={() => animeResumeDownload(task.id).then(refresh)}><Icon name="play" size={14} /> 继续</Button>
               {/if}
               {#if task.status === "Completed"}
-                <button class="act" onclick={() => animeOpenDownloadFolder(task.id)}><Icon name="externalLink" size={14} /> 打开目录</button>
+                <Button variant="ghost" size="sm" onclick={() => animeOpenDownloadFolder(task.id)}><Icon name="externalLink" size={14} /> 打开目录</Button>
               {/if}
               {#if task.status !== "Downloading" && task.status !== "Parsing" && task.status !== "Merging"}
-                <button class="act danger" onclick={() => animeRemoveDownload(task.id).then(refresh)}><Icon name="trash" size={14} /> 移除</button>
+                <Button variant="ghost" size="sm" class="danger" onclick={() => animeRemoveDownload(task.id).then(refresh)}><Icon name="trash" size={14} /> 移除</Button>
               {/if}
               {#if task.status === "Downloading" || task.status === "Parsing" || task.status === "Paused"}
-                <button class="act danger" onclick={() => animeCancelDownload(task.id).then(refresh)}><Icon name="x" size={14} /> 取消</button>
+                <Button variant="ghost" size="sm" class="danger" onclick={() => animeCancelDownload(task.id).then(refresh)}><Icon name="x" size={14} /> 取消</Button>
               {/if}
             </div>
           </article>
@@ -296,109 +289,79 @@
         description="在播放器中点击「下载」按钮即可下载当前剧集。支持 m3u8/HLS 分片下载。"
       />
     {/if}
-  </div>
+  </Card>
   {/if}
 </section>
 
 <style>
-  .page { min-width: 0; padding: 24px; overflow-y: auto; height: 100%; display: flex; flex-direction: column; gap: 18px; }
-  .page-head { min-width: 0; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-  h1 { font-size: 1.5rem; font-weight: 700; color: var(--text-primary); }
-  .page-head p { color: var(--text-secondary); font-size: 0.85rem; margin-top: 2px; }
-  .head-actions { min-width: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-  .pill { padding: 4px 12px; border-radius: var(--radius-full); font-size: 0.75rem; font-weight: 600; }
-  .pill.active { background: var(--accent-lo); color: var(--accent); }
-  .pill.done { background: rgba(34,197,94,0.12); color: var(--color-success); }
-  .ghost {
-    display: inline-flex; align-items: center; gap: 4px; padding: 6px 12px;
-    border: 1px solid var(--border); border-radius: var(--radius-full);
-    background: transparent; color: var(--text-secondary); cursor: pointer; font-size: 0.8rem;
-  }
-  .ghost:hover { border-color: var(--accent); color: var(--text-primary); }
-
-  .tabs {
+  .page {
+    position: relative;
+    isolation: isolate;
+    min-width: 0;
+    padding: 24px;
+    overflow-y: auto;
+    height: 100%;
     display: flex;
-    gap: 4px;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 4px;
+    flex-direction: column;
+    gap: 18px;
+    --aura-track: rgba(255, 255, 255, 0.08);
+    background: var(--bg-void);
+    color: var(--text-primary);
   }
-  .tab-btn {
-    flex: 1;
-    display: inline-flex;
+
+  :global(.page-head.aura-head) {
+    min-width: 0;
+    display: flex;
+    justify-content: space-between;
     align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 8px 16px;
-    border: none;
-    border-radius: 6px;
-    background: transparent;
+    gap: 12px;
+    padding: 18px 20px;
+  }
+  :global(.page-head.aura-head) > div:first-child {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+  }
+  :global(.page-head.aura-head) p {
     color: var(--text-secondary);
     font-size: 0.85rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s;
+    margin-top: 2px;
   }
-  .tab-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
-  .tab-btn.active {
-    background: var(--accent-lo);
-    color: var(--accent);
-    font-weight: 600;
-  }
-  .tab-icon { font-size: 11px; }
-  .tab-badge {
-    padding: 1px 7px;
-    border-radius: 10px;
-    font-size: 0.7rem;
-    font-weight: 700;
-    background: var(--accent);
-    color: #fff;
-  }
+  h1 { font-size: 1.5rem; font-weight: 700; color: var(--text-primary); }
+  .head-actions { min-width: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 
-  .task-info { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-  .task-anime-name { font-size: 0.75rem; color: var(--text-muted); }
-  .task-badges { display: flex; align-items: center; gap: 6px; }
-  .badge {
-    padding: 1px 8px;
-    border-radius: var(--radius-full);
-    font-size: 0.65rem;
-    font-weight: 700;
-    background: rgba(99,102,241,0.15);
-    color: #818cf8;
+  :global(.toolbar) {
+    min-width: 0;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding: 12px;
   }
-
-  .toolbar { min-width: 0; display: flex; gap: 10px; align-items: center; }
   .search-box {
+    position: relative;
     min-width: 0; flex: 1; display: flex; align-items: center; gap: 8px;
-    background: var(--bg-card); border: 1px solid var(--border);
-    border-radius: var(--radius-full); padding: 10px 18px; color: var(--text-muted);
+    color: var(--text-muted);
   }
-  .search-box:focus-within { border-color: var(--accent); }
-  .search-box input {
-    min-width: 0; flex: 1; border: none; background: transparent; color: var(--text-primary);
-    font-size: 0.9rem; outline: none; font-family: var(--font-ui);
+  .search-box > :global(.icon) {
+    position: absolute;
+    left: 14px;
+    pointer-events: none;
   }
-  .fname-input {
-    min-width: 0; width: 180px; padding: 10px 14px; border-radius: var(--radius-md);
-    background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary);
-    font-size: 0.85rem; font-family: var(--font-mono);
-  }
-  .fname-input:focus { outline: none; border-color: var(--accent); }
-  .primary {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 10px 22px; border: none; border-radius: var(--radius-full);
-    background: var(--accent); color: #fff; font-weight: 600; cursor: pointer;
-    font-size: 0.9rem; white-space: nowrap; transition: opacity 0.2s;
-  }
-  .primary:hover:not(:disabled) { opacity: 0.85; }
-  .primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  :global(.ui-input.url-input) { padding-left: 36px; }
+  :global(.ui-input.fname-input) { width: 180px; }
 
-  .panel { flex: 1; overflow-y: auto; }
-  .downloads { display: flex; flex-direction: column; gap: 10px; }
+  :global(.panel.aura-panel) {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0;
+  }
+  .downloads { display: flex; flex-direction: column; }
 
   .task {
-    padding: 16px 18px; display: flex; flex-direction: column; gap: 10px;
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
     transition: border-color 0.2s;
   }
   .task.done { border-color: rgba(34,197,94,0.25); }
@@ -406,14 +369,19 @@
 
   .task-head { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .task-fname { min-width: 0; font-size: 0.9rem; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .status-badge {
-    padding: 2px 10px; border-radius: var(--radius-full); font-size: 0.7rem; font-weight: 600; white-space: nowrap;
-    background: var(--bg-hover); color: var(--text-secondary);
+  :global(.ui-tag.status-badge.active) { color: var(--accent); background: var(--accent-lo); border-color: transparent; }
+  :global(.ui-tag.status-badge.done) { color: var(--color-success); background: rgba(34,197,94,0.12); border-color: transparent; }
+  :global(.ui-tag.status-badge.fail) { color: var(--color-error); background: rgba(239,68,68,0.12); border-color: transparent; }
+  :global(.ui-tag.status-badge.paused) { color: var(--color-warning); background: rgba(245,158,11,0.12); border-color: transparent; }
+
+  .task-info { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .task-anime-name { font-size: 0.75rem; color: var(--text-muted); }
+  .task-badges { display: flex; align-items: center; gap: 6px; }
+  :global(.ui-tag.m3u8) {
+    background: rgba(99,102,241,0.15);
+    color: #818cf8;
+    border-color: transparent;
   }
-  .status-badge.active { background: var(--accent-lo); color: var(--accent); }
-  .status-badge.done { background: rgba(34,197,94,0.12); color: var(--color-success); }
-  .status-badge.fail { background: rgba(239,68,68,0.12); color: var(--color-error); }
-  .status-badge.paused { background: rgba(245,158,11,0.12); color: var(--color-warning); }
 
   .bar-wrap { height: 6px; border-radius: 3px; background: var(--bg-hover); overflow: hidden; }
   .bar { height: 100%; border-radius: 3px; background: var(--accent); transition: width 0.4s ease; }
@@ -427,22 +395,15 @@
   .task-error { font-size: 0.75rem; color: var(--color-error); padding: 6px 10px; border-radius: var(--radius-sm); background: rgba(239,68,68,0.08); }
 
   .task-actions { display: flex; gap: 6px; flex-wrap: wrap; }
-  .act {
-    display: inline-flex; align-items: center; gap: 4px;
-    padding: 5px 12px; border: 1px solid var(--border); border-radius: var(--radius-full);
-    background: transparent; color: var(--text-secondary); cursor: pointer; font-size: 0.75rem;
-    transition: all 0.15s;
-  }
-  .act:hover { border-color: var(--accent); color: var(--text-primary); }
-  .act.danger:hover { border-color: var(--color-error); color: var(--color-error); }
+  :global(.ui-button.danger:hover) { border-color: var(--color-error); color: var(--color-error); }
 
   @media (max-width: 700px) {
     .page {
       padding: 18px;
     }
 
-    .page-head,
-    .toolbar {
+    :global(.page-head.aura-head),
+    :global(.toolbar) {
       align-items: stretch;
       flex-direction: column;
     }
@@ -452,12 +413,12 @@
     }
 
     .search-box,
-    .fname-input,
-    .primary {
+    :global(.ui-input.fname-input),
+    .toolbar :global(.ui-button) {
       width: 100%;
     }
 
-    .primary {
+    .toolbar :global(.ui-button) {
       justify-content: center;
     }
 
@@ -472,54 +433,6 @@
     }
   }
 
-  .page {
-    position: relative;
-    isolation: isolate;
-    min-width: 0;
-    --aura-track: rgba(255, 255, 255, 0.08);
-    background: var(--bg-void);
-    color: var(--text-primary);
-  }
-  .page-head,
-  .toolbar,
-  .task,
-  .panel {
-    border: 1px solid var(--border);
-    background: var(--bg-card);
-    box-shadow: var(--shadow-xs);
-  }
-  .page-head {
-    padding: 18px 20px;
-    border-radius: 8px;
-  }
-  .toolbar {
-    padding: 12px;
-    border-radius: 8px;
-  }
-  .panel {
-    border-radius: 8px;
-    padding: 10px;
-  }
-  .task {
-    border-radius: 8px;
-  }
-  .search-box,
-  .fname-input {
-    border-radius: 8px;
-    background: var(--bg-deep);
-    border-color: var(--border);
-  }
-
-  .aura-head {
-    align-items: center;
-  }
-
-  .aura-head > div:first-child {
-    min-width: 0;
-    display: grid;
-    gap: 4px;
-  }
-
   .aura-kicker {
     color: var(--text-muted);
     font-size: 12px;
@@ -527,8 +440,10 @@
     line-height: 1.2;
   }
 
-  .aura-title,
-  .aura-head p {
+  .aura-title {
+    margin: 0;
+  }
+  :global(.page-head.aura-head) p {
     margin: 0;
   }
 
@@ -536,15 +451,6 @@
     font-size: clamp(24px, 2.2vw, 32px);
     font-weight: 760;
     line-height: 1.12;
-  }
-
-  .panel {
-    padding: 0;
-    overflow: hidden;
-  }
-
-  .downloads {
-    gap: 0;
   }
 
   .aura-page .task {

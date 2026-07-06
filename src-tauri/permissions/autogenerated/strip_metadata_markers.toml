@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-strip-metadata-markers"
+description = "Enables the strip_metadata_markers command without any pre-configured scope."
+commands.allow = ["strip_metadata_markers"]
+
+[[permission]]
+identifier = "deny-strip-metadata-markers"
+description = "Denies the strip_metadata_markers command without any pre-configured scope."
+commands.deny = ["strip_metadata_markers"]

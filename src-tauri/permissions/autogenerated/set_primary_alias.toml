@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-primary-alias"
+description = "Enables the set_primary_alias command without any pre-configured scope."
+commands.allow = ["set_primary_alias"]
+
+[[permission]]
+identifier = "deny-set-primary-alias"
+description = "Denies the set_primary_alias command without any pre-configured scope."
+commands.deny = ["set_primary_alias"]

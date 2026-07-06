@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-game-saves"
+description = "Enables the get_game_saves command without any pre-configured scope."
+commands.allow = ["get_game_saves"]
+
+[[permission]]
+identifier = "deny-get-game-saves"
+description = "Denies the get_game_saves command without any pre-configured scope."
+commands.deny = ["get_game_saves"]

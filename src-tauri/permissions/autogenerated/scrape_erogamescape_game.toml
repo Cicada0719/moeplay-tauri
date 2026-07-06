@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-scrape-erogamescape-game"
+description = "Enables the scrape_erogamescape_game command without any pre-configured scope."
+commands.allow = ["scrape_erogamescape_game"]
+
+[[permission]]
+identifier = "deny-scrape-erogamescape-game"
+description = "Denies the scrape_erogamescape_game command without any pre-configured scope."
+commands.deny = ["scrape_erogamescape_game"]

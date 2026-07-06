@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-bangumi-episodes-list"
+description = "Enables the anime_bangumi_episodes_list command without any pre-configured scope."
+commands.allow = ["anime_bangumi_episodes_list"]
+
+[[permission]]
+identifier = "deny-anime-bangumi-episodes-list"
+description = "Denies the anime_bangumi_episodes_list command without any pre-configured scope."
+commands.deny = ["anime_bangumi_episodes_list"]

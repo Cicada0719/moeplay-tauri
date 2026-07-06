@@ -23,8 +23,8 @@
   import { settingsStore } from "../stores/settings.svelte";
   import { uiStore } from "../stores/ui.svelte";
   import defaultLibraryBackdrop from "../assets/default-library-backdrop.png";
-  import Button from "./Button.svelte";
   import Icon from "./Icon.svelte";
+  import { Button, Card, EmptyState, Input, StatBlock, Tag } from "./ui";
 
   type SectionKey = "steamAccount" | "steamLocal" | "epicLocal";
   type AggregateImportSummary = {
@@ -578,17 +578,17 @@
   <div class="backdrop" style={`background-image: url("${defaultLibraryBackdrop}")`}></div>
 
   <header class="page-head aura-head">
-    <button class="back" onclick={goLibrary} aria-label="返回游戏库" type="button">
+    <Button variant="ghost" class="back" onclick={goLibrary} ariaLabel="返回游戏库">
       <Icon name="arrowLeft" size={18} />
-    </button>
+    </Button>
     <div class="title-block">
       <span class="aura-kicker">Platform Import</span>
       <h1 class="aura-title">平台导入</h1>
     </div>
-    <div class={`connection ${steamConnectionTone}`}>
+    <Card class={`connection ${steamConnectionTone}`} padding="sm">
       <span>Steam</span>
       <strong>{steamConnectionLabel}</strong>
-    </div>
+    </Card>
   </header>
 
   <nav class="step-strip aura-panel" aria-label="导入步骤">
@@ -609,7 +609,7 @@
     </div>
   </nav>
 
-  <section class="aggregate-bar">
+  <Card class="aggregate-bar" padding="md">
     <div>
       <strong>一键平台同步</strong>
       <span>自动聚合 Steam 账号/本地与 Epic 本地候选，按平台 ID 去重后增量写入。</span>
@@ -622,7 +622,7 @@
         <Icon name="refresh" size={16} />重新同步
       </Button>
     </div>
-  </section>
+  </Card>
 
   {#if allImportError}
     <div class="banner error aggregate-banner">{allImportError}</div>
@@ -633,7 +633,7 @@
     </div>
   {/if}
 
-  <section class="aggregate-bar">
+  <Card class="aggregate-bar" padding="md">
     <div>
       <strong>Steam 成就同步</strong>
       <span>从 Steam Web API 拉取所有 Steam 游戏的成就数据（需要 API Key + SteamID）。</span>
@@ -643,7 +643,7 @@
         <Icon name="star" size={16} />{syncingAchievements ? "同步中..." : "同步成就数据"}
       </Button>
     </div>
-  </section>
+  </Card>
 
   {#if achievementError}
     <div class="banner error aggregate-banner">{achievementError}</div>
@@ -659,7 +659,7 @@
   {/if}
 
   <div class="layout">
-    <section class="panel account-panel platform-card steam-card">
+    <Card class="panel account-panel steam-card" padding="lg">
       <div class="panel-head">
         <div>
           <p class="eyebrow">Steam Account</p>
@@ -669,24 +669,15 @@
       </div>
 
       <div class="status-grid">
-        <div>
-          <span>本机 Steam</span>
-          <strong>{status?.steam_path || "未检测到"}</strong>
-        </div>
-        <div>
-          <span>SteamID64</span>
-          <strong>{steamIdInput || "未连接"}</strong>
-        </div>
-        <div>
-          <span>API Key</span>
-          <strong>{status?.steam_api_key_validated ? "已验证" : (apiKeyInput ? "待验证" : "未填写")}</strong>
-        </div>
+        <StatBlock label="本机 Steam" value={status?.steam_path || "未检测到"} />
+        <StatBlock label="SteamID64" value={steamIdInput || "未连接"} />
+        <StatBlock label="API Key" value={status?.steam_api_key_validated ? "已验证" : (apiKeyInput ? "待验证" : "未填写")} />
       </div>
 
       <div class="field-row">
         <label>
           <span>Steam Web API Key</span>
-          <input type="password" bind:value={apiKeyInput} autocomplete="off" placeholder="粘贴 Steam Web API Key" />
+          <Input type="password" bind:value={apiKeyInput} autocomplete="off" placeholder="粘贴 Steam Web API Key" />
         </label>
         <div class="actions">
           <Button variant="secondary" onclick={openApiKeyPage}><Icon name="globe" size={16} />打开 Key 页面</Button>
@@ -697,7 +688,7 @@
       <div class="field-row">
         <label>
           <span>SteamID64 / 个人主页</span>
-          <input bind:value={steamProfileInput} placeholder="7656119... 或 https://steamcommunity.com/profiles/..." onkeydown={(e) => { if (e.key === "Enter") resolveSteamProfile(); }} />
+          <Input bind:value={steamProfileInput} placeholder="7656119... 或 https://steamcommunity.com/profiles/..." onkeydown={(e) => { if (e.key === "Enter") resolveSteamProfile(); }} />
         </label>
         <div class="actions">
           <Button variant="secondary" onclick={detectLocalSteam} disabled={detectingSteam}><Icon name="search" size={16} />{detectingSteam ? "检测中" : "检测本地"}</Button>
@@ -738,9 +729,9 @@
         onImport: importSelected,
         showInstalled: true,
       })}
-    </section>
+    </Card>
 
-    <section class="panel platform-card steam-local-card">
+    <Card class="panel steam-local-card" padding="lg">
       <div class="panel-head">
         <div>
           <p class="eyebrow">Steam Local</p>
@@ -762,9 +753,9 @@
         onToggleAll: toggleAll,
         onImport: importSelected,
       })}
-    </section>
+    </Card>
 
-    <section class="panel platform-card epic-card">
+    <Card class="panel epic-card" padding="lg">
       <div class="panel-head">
         <div>
           <p class="eyebrow">Epic Local</p>
@@ -787,27 +778,27 @@
         onToggleAll: toggleAll,
         onImport: importSelected,
       })}
-    </section>
+    </Card>
   </div>
 
   {#if steamAccountImport || steamLocalImport || epicImport}
-    <footer class="done-bar">
+    <Card class="done-bar" padding="md">
       <span>游戏库已刷新</span>
       <Button onclick={goLibrary}><Icon name="collection" size={16} />查看游戏库</Button>
-    </footer>
+    </Card>
   {/if}
 
   {#if loadingStatus}
-    <div class="loading-cover"><Icon name="refresh" size={18} />读取平台状态...</div>
+    <Card class="loading-cover" padding="sm"><Icon name="refresh" size={18} />读取平台状态...</Card>
   {/if}
 </section>
 
 {#snippet resultLine(result: PlatformImportResult)}
   <div class="result-line">
-    <span>新增 {result.imported}</span>
-    <span>更新 {result.updated}</span>
-    <span>跳过 {result.skipped}</span>
-    <span>失败 {result.failed}</span>
+    <Tag>新增 {result.imported}</Tag>
+    <Tag>更新 {result.updated}</Tag>
+    <Tag>跳过 {result.skipped}</Tag>
+    <Tag variant={result.failed > 0 ? "accent" : "neutral"}>失败 {result.failed}</Tag>
   </div>
   {#if result.errors.length}
     <div class="error-list">
@@ -820,17 +811,9 @@
 
 {#snippet emptyState(scan: PlatformScanResult | null)}
   {#if scan}
-    <div class="empty">
-      <strong>没有候选游戏</strong>
-      {#if scan.skipped.length}
-        <p>{scan.skipped[0]}</p>
-      {/if}
-    </div>
+    <EmptyState icon="folder" title="没有候选游戏" description={scan.skipped.length ? scan.skipped[0] : undefined} />
   {:else}
-    <div class="empty">
-      <strong>等待扫描</strong>
-      <p>扫描后会在这里显示候选列表。</p>
-    </div>
+    <EmptyState icon="search" title="等待扫描" description="扫描后会在这里显示候选列表。" />
   {/if}
 {/snippet}
 
@@ -840,9 +823,9 @@
       <span>{props.title}</span>
       {#if props.scan?.candidates.length}
         <div class="candidate-actions">
-          <button onclick={() => props.onToggleAll(props.section, props.scan!.candidates)} type="button">
+          <Button variant="quiet" onclick={() => props.onToggleAll(props.section, props.scan!.candidates)}>
             {props.selected.size === props.scan.candidates.length ? "取消全选" : "全选"}
-          </button>
+          </Button>
           <Button onclick={() => props.onImport(props.section)} disabled={props.importing || props.selected.size === 0}>
             <Icon name="download" size={15} />{props.importing ? "导入中" : `导入选中 ${props.selected.size}`}
           </Button>
@@ -865,7 +848,7 @@
               <small>{game.install_dir || game.launch_uri}</small>
             </span>
             {#if props.showInstalled}
-              <span class:installed={game.installed} class="install-state">{game.installed ? "已安装" : "账号库"}</span>
+              <Tag variant={game.installed ? "accent" : "neutral"}>{game.installed ? "已安装" : "账号库"}</Tag>
             {/if}
             <code>{game.library_id}</code>
             <span class="playtime">{formatPlaytime(game.playtime_minutes)}</span>
@@ -919,11 +902,11 @@
   }
   .page-head,
   .step-strip,
-  .aggregate-bar,
+  :global(.ui-card.aggregate-bar),
   .aggregate-banner,
   .layout,
-  .done-bar,
-  .loading-cover {
+  :global(.ui-card.done-bar),
+  :global(.ui-card.loading-cover) {
     position: relative;
     z-index: 1;
   }
@@ -934,16 +917,10 @@
     margin: 24px 28px 0;
     padding: 18px 20px;
   }
-  .back {
+  :global(.ui-button.back.back) {
     width: 38px;
     height: 38px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: var(--bg-card);
-    color: rgba(255,255,255,0.78);
-    display: grid;
-    place-items: center;
-    cursor: pointer;
+    padding: 0;
   }
   .title-block {
     min-width: 0;
@@ -967,29 +944,25 @@
   }
   h1 { font-size: 28px; }
   h2 { font-size: 18px; }
-  .connection {
+  :global(.ui-card.connection) {
     margin-left: auto;
     min-width: 128px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: var(--bg-card);
-    padding: 9px 12px;
     display: flex;
     flex-direction: column;
     gap: 3px;
     align-items: flex-start;
   }
-  .connection span {
+  :global(.ui-card.connection) span {
     color: rgba(255,255,255,0.52);
     font-size: 11px;
   }
-  .connection strong {
+  :global(.ui-card.connection) strong {
     color: #fff;
     font-size: 13px;
   }
-  .connection.ok strong { color: var(--color-success); }
-  .connection.warn strong { color: #fbbf24; }
-  .connection.busy strong { color: #93c5fd; }
+  :global(.ui-card.connection.ok) strong { color: var(--color-success); }
+  :global(.ui-card.connection.warn) strong { color: #fbbf24; }
+  :global(.ui-card.connection.busy) strong { color: #93c5fd; }
 
   .step-strip {
     margin: 14px 28px 0;
@@ -1038,25 +1011,20 @@
     font-size: 11px;
   }
 
-  .aggregate-bar {
+  :global(.ui-card.aggregate-bar) {
     margin: 14px 28px 0;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--bg-card);
-    box-shadow: var(--shadow-xs);
-    padding: 12px 14px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 16px;
   }
-  .aggregate-bar strong {
+  :global(.ui-card.aggregate-bar) strong {
     display: block;
     color: #fff;
     font-size: 14px;
     margin-bottom: 4px;
   }
-  .aggregate-bar span {
+  :global(.ui-card.aggregate-bar) span {
     display: block;
     color: rgba(255,255,255,0.58);
     font-size: 12px;
@@ -1085,18 +1053,13 @@
     gap: 18px;
     padding: 20px 28px 94px;
   }
-  .panel {
+  :global(.ui-card.panel) {
     min-width: 0;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--bg-card);
-    box-shadow: var(--shadow-xs);
-    padding: 18px;
     display: flex;
     flex-direction: column;
     gap: 14px;
   }
-  .account-panel {
+  :global(.ui-card.account-panel) {
     grid-row: span 2;
   }
   .panel-head {
@@ -1115,28 +1078,12 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
   }
-  .status-grid div {
-    min-width: 0;
-    border: 1px solid var(--border);
-    background: var(--bg-deep);
-    border-radius: 8px;
-    padding: 11px;
-  }
-  .status-grid span,
   label span {
     display: block;
     color: rgba(255,255,255,0.52);
     font-size: 11px;
     font-weight: 700;
     margin-bottom: 7px;
-  }
-  .status-grid strong {
-    color: #fff;
-    display: block;
-    font-size: 12px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .field-row {
     display: grid;
@@ -1147,18 +1094,11 @@
   label {
     min-width: 0;
   }
-  input {
-    width: 100%;
-    min-height: 40px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: var(--bg-deep);
-    color: #fff;
-    padding: 0 12px;
-    outline: none;
-  }
-  input:focus {
-    border-color: rgba(255,126,173,0.55);
+  .candidate-row input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+    cursor: pointer;
   }
   .actions,
   .primary-row,
@@ -1223,13 +1163,6 @@
     font-weight: 700;
     color: #fff;
   }
-  .candidate-actions button {
-    border: 0;
-    background: transparent;
-    color: rgba(255,255,255,0.72);
-    cursor: pointer;
-    font-size: 12px;
-  }
   .candidate-list {
     max-height: 360px;
     overflow: auto;
@@ -1272,51 +1205,16 @@
     margin-top: 3px;
   }
   code,
-  .install-state,
   .playtime {
     font-family: var(--font-mono);
     font-size: 11px;
     color: rgba(255,255,255,0.58);
-  }
-  .install-state {
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 999px;
-    padding: 4px 8px;
-  }
-  .install-state.installed {
-    color: var(--color-success);
-    border-color: rgba(34,197,94,0.3);
-  }
-  .empty {
-    min-height: 92px;
-    border: 1px dashed var(--border-hover);
-    border-radius: 8px;
-    display: grid;
-    place-items: center;
-    text-align: center;
-    padding: 16px;
-    color: rgba(255,255,255,0.56);
-  }
-  .empty strong {
-    color: rgba(255,255,255,0.82);
-  }
-  .empty p {
-    margin: 6px 0 0;
-    font-size: 12px;
   }
   .result-line {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
     margin-top: 10px;
-  }
-  .result-line span {
-    border: 1px solid var(--border);
-    background: var(--bg-deep);
-    border-radius: 999px;
-    padding: 5px 9px;
-    color: rgba(255,255,255,0.78);
-    font-size: 12px;
   }
   .error-list {
     margin-top: 8px;
@@ -1326,35 +1224,27 @@
   .error-list p {
     margin: 3px 0;
   }
-  .done-bar {
+  :global(.ui-card.done-bar) {
     position: absolute;
     left: 28px;
     right: 28px;
     bottom: 18px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--bg-card);
-    padding: 12px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
   }
-  .done-bar span {
+  :global(.ui-card.done-bar) span {
     color: rgba(255,255,255,0.74);
     font-weight: 700;
   }
-  .loading-cover {
+  :global(.ui-card.loading-cover) {
     position: absolute;
     right: 28px;
     top: 92px;
     display: flex;
     gap: 8px;
     align-items: center;
-    border: 1px solid var(--border);
-    background: var(--bg-card);
-    border-radius: 8px;
-    padding: 10px 12px;
     color: rgba(255,255,255,0.74);
     font-size: 12px;
   }
@@ -1362,14 +1252,14 @@
     .layout {
       grid-template-columns: 1fr;
     }
-    .account-panel {
+    :global(.ui-card.account-panel) {
       grid-row: auto;
     }
   }
   @media (max-width: 760px) {
     .page-head,
     .step-strip,
-    .aggregate-bar,
+    :global(.ui-card.aggregate-bar),
     .aggregate-banner,
     .layout {
       margin-left: 16px;
@@ -1391,7 +1281,6 @@
       grid-template-columns: 20px minmax(0, 1fr);
     }
     code,
-    .install-state,
     .playtime {
       display: none;
     }

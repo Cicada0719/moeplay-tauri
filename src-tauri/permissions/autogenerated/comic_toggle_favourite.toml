@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-comic-toggle-favourite"
+description = "Enables the comic_toggle_favourite command without any pre-configured scope."
+commands.allow = ["comic_toggle_favourite"]
+
+[[permission]]
+identifier = "deny-comic-toggle-favourite"
+description = "Denies the comic_toggle_favourite command without any pre-configured scope."
+commands.deny = ["comic_toggle_favourite"]

@@ -2,18 +2,24 @@
   import { onMount } from "svelte";
   import { fly, fade, scale } from "svelte/transition";
   import { quintOut, cubicOut } from "svelte/easing";
+  import { shortcut } from "@svelte-put/shortcut";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { gameStore } from "./lib/stores/games.svelte";
   import { settingsStore } from "./lib/stores/settings.svelte";
   import { uiStore } from "./lib/stores/ui.svelte";
+  import { continueStore } from "./lib/stores/continue.svelte";
   import SwitchHome from "./lib/components/switch/SwitchHome.svelte";
   import SystemDock from "./lib/components/switch/SystemDock.svelte";
   import Notifications from "./lib/components/Notifications.svelte";
   import BigPicturePage from "./lib/components/BigPicturePage.svelte";
+  import ShortcutHelp from "./lib/components/ShortcutHelp.svelte";
   import Icon from "./lib/components/Icon.svelte";
   import { attachGamepad } from "./lib/components/switch/useGamepad.svelte";
   import { DOCK_ITEMS, TOOL_ITEMS } from "./lib/nav";
+  import { buildShortcutParameter, type ShortcutActions } from "./lib/shortcuts";
+  import { initRouter } from "./lib/stores/router.svelte";
 
+  continueStore.start();
   const isBigPicture = $derived(uiStore.bigPictureActive);
   let toolsDrawerOpen = $state(false);
   let isWindowFullscreen = $state(false);
@@ -58,6 +64,11 @@
 
   function onKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") {
+      if (showShortcutHelp) {
+        e.preventDefault();
+        showShortcutHelp = false;
+        return;
+      }
       if (toolsDrawerOpen) {
         e.preventDefault();
         toolsDrawerOpen = false;
@@ -69,6 +80,32 @@
       }
     }
   }
+
+  const shortcutActions: ShortcutActions = {
+    navigate(view: string) {
+      if (isBigPicture) return;
+      pickDock(view);
+    },
+    toggleTools() {
+      if (isBigPicture) return;
+      toolsDrawerOpen = !toolsDrawerOpen;
+    },
+    focusSearch() {
+      if (isBigPicture) return;
+      if (uiStore.currentView !== "home") uiStore.currentView = "home";
+      uiStore.requestFocusSearch();
+    },
+    toggleHelp() {
+      if (isBigPicture) return;
+      showShortcutHelp = !showShortcutHelp;
+    },
+    goHome() {
+      if (isBigPicture) return;
+      goHome();
+    },
+  };
+
+  const shortcutParameter = $derived(buildShortcutParameter(shortcutActions));
 
   $effect(() => {
     if (uiStore.currentView === "game-detail" && !gameStore.selectedGame && gameStore.games[0]) gameStore.selectGame(gameStore.games[0].id);
@@ -89,14 +126,17 @@
 
   let booted = $state(false);
   let _detachGamepad = () => {};
+  let showShortcutHelp = $state(false);
   onMount(() => {
     if (!booted) {
       booted = true;
       gameStore.load();
       settingsStore.load();
+      initRouter();
     }
     getCurrentWindow().isFullscreen().then(v => { isWindowFullscreen = v; }).catch(() => {});
     window.addEventListener("keydown", onKeydown);
+    // disable shortcuts while help is open to avoid double-firing from action
     _detachGamepad = attachGamepad({ back: () => {
       if (toolsDrawerOpen) { toolsDrawerOpen = false; return; }
       if (exitable()) goHome();
@@ -141,6 +181,8 @@
     }
   });
 </script>
+
+<svelte:window use:shortcut={shortcutParameter} />
 
 <div
   class="app-container"
@@ -265,6 +307,8 @@
     <Comp />
   {/await}
 {/if}
+
+<ShortcutHelp open={showShortcutHelp} onclose={() => (showShortcutHelp = false)} />
 
 <Notifications />
 

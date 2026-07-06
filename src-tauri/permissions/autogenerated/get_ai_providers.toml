@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-ai-providers"
+description = "Enables the get_ai_providers command without any pre-configured scope."
+commands.allow = ["get_ai_providers"]
+
+[[permission]]
+identifier = "deny-get-ai-providers"
+description = "Denies the get_ai_providers command without any pre-configured scope."
+commands.deny = ["get_ai_providers"]

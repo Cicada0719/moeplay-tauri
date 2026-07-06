@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-add-screenshot"
+description = "Enables the add_screenshot command without any pre-configured scope."
+commands.allow = ["add_screenshot"]
+
+[[permission]]
+identifier = "deny-add-screenshot"
+description = "Denies the add_screenshot command without any pre-configured scope."
+commands.deny = ["add_screenshot"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-game-metadata"
+description = "Enables the update_game_metadata command without any pre-configured scope."
+commands.allow = ["update_game_metadata"]
+
+[[permission]]
+identifier = "deny-update-game-metadata"
+description = "Denies the update_game_metadata command without any pre-configured scope."
+commands.deny = ["update_game_metadata"]

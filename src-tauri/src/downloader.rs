@@ -137,11 +137,10 @@ impl Downloader {
         } else {
             3
         };
-        let client = Client::builder()
-            .timeout(Duration::from_secs(30 * 60))
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 MoeGame/1.0")
-            .danger_accept_invalid_certs(true)
-            .build().expect("HTTP client");
+        let client = crate::http_client::build_reqwest_client(
+            30 * 60,
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 MoeGame/1.0",
+        );
 
         Self {
             tasks: Arc::new(Mutex::new(HashMap::new())),
@@ -250,17 +249,12 @@ impl Downloader {
     }
 
     pub async fn retry(&self, task_id: &str) -> Result<(), String> {
-        let can = {
-            let t = self.tasks.lock().await;
-            let task = t.get(task_id).ok_or("任务不存在")?;
-            task.status == DownloadStatus::Failed && task.retry_count < task.max_retries
-        };
-        if !can {
-            return Err("无法重试".into());
-        }
         {
             let mut t = self.tasks.lock().await;
-            let task = t.get_mut(task_id).unwrap();
+            let task = t.get_mut(task_id).ok_or("任务不存在")?;
+            if task.status != DownloadStatus::Failed || task.retry_count >= task.max_retries {
+                return Err("无法重试".into());
+            }
             task.status = DownloadStatus::Pending;
             task.retry_count += 1;
             task.error = None;
@@ -653,15 +647,26 @@ impl Downloader {
             "zip" => {
                 let f = std::fs::File::open(archive).map_err(|e| format!("打开失败: {}", e))?;
                 let mut za = zip::ZipArchive::new(f).map_err(|e| format!("ZIP错误: {}", e))?;
+                let mut scope = crate::security::SecurityScope::new();
+                scope.allow(dir);
                 for i in 0..za.len() {
                     let mut e = za.by_index(i).map_err(|e| format!("条目错误: {}", e))?;
-                    let op = dir.join(e.name());
+                    let safe_name = match e.enclosed_name() {
+                        Some(p) => p.to_path_buf(),
+                        None => {
+                            tracing::warn!("跳过不安全的下载 zip 条目: {}", e.name());
+                            continue;
+                        }
+                    };
+                    let op = dir.join(&safe_name);
                     if e.is_dir() {
                         std::fs::create_dir_all(&op).ok();
+                        let _ = scope.resolve(&op)?;
                     } else {
                         if let Some(p) = op.parent() {
                             std::fs::create_dir_all(p).ok();
                         }
+                        let op = scope.resolve(&op)?;
                         let mut of =
                             std::fs::File::create(&op).map_err(|e| format!("创建失败: {}", e))?;
                         std::io::copy(&mut e, &mut of).map_err(|e| format!("写入失败: {}", e))?;
@@ -804,7 +809,7 @@ mod tests {
         let p = dir.join("test_dl_unique.txt");
         let _ = std::fs::remove_file(&p);
         assert_eq!(get_unique_file_path(&p), p);
-        std::fs::write(&p, "x").unwrap();
+        std::fs::write(&p, "x").expect("test fixture write");
         assert_ne!(get_unique_file_path(&p), p);
         std::fs::remove_file(&p).ok();
     }

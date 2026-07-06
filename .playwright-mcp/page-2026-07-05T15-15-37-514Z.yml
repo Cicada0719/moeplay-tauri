@@ -1,0 +1,100 @@
+- generic [ref=e3]:
+  - main [ref=e4]:
+    - generic [ref=e6]:
+      - generic:
+        - img
+      - generic [ref=e7]:
+        - generic [ref=e8]:
+          - generic [ref=e9]: 萌
+          - generic [ref=e10]: 萌游
+        - generic [ref=e12]:
+          - generic:
+            - img
+          - searchbox "搜索游戏" [ref=e13]
+        - generic [ref=e14]: 23:15
+        - button "设置" [ref=e15] [cursor=pointer]:
+          - img [ref=e17]
+      - generic [ref=e19]:
+        - button "星空列车与白的旅行" [ref=e20] [cursor=pointer]:
+          - generic [ref=e23]:
+            - generic [ref=e24]: 继续游玩
+            - heading "星空列车与白的旅行" [level=2] [ref=e25]
+            - paragraph [ref=e26]: Studioツキ · 2023 · 未开始 · 1h 0m
+            - generic [ref=e27]:
+              - button "开始游戏" [ref=e28]:
+                - img [ref=e29]
+                - generic [ref=e31]: 开始游戏
+              - button [ref=e32]:
+                - img [ref=e33]
+              - button [ref=e35]:
+                - img [ref=e36]
+        - generic [ref=e39]:
+          - generic [ref=e40]:
+            - heading "最近番剧" [level=3] [ref=e41]
+            - button "查看全部" [ref=e42] [cursor=pointer]
+          - paragraph [ref=e44]: 还没有最近番剧
+        - generic [ref=e45]:
+          - generic [ref=e47]:
+            - heading "游戏库" [level=3] [ref=e48]
+            - generic [ref=e49]:
+              - generic [ref=e50]:
+                - generic [ref=e51]: "6"
+                - generic [ref=e52]: 总数
+              - generic [ref=e53]:
+                - generic [ref=e54]: "6"
+                - generic [ref=e55]: 已安装
+              - generic [ref=e56]:
+                - generic [ref=e57]: "1"
+                - generic [ref=e58]: 收藏
+          - button "游戏历史" [ref=e59] [cursor=pointer]:
+            - generic [ref=e60]:
+              - generic [ref=e61]:
+                - img [ref=e62]
+                - generic [ref=e64]: 游戏历史
+              - paragraph [ref=e65]: 暂无游戏记录
+          - button "全部游戏" [ref=e66] [cursor=pointer]:
+            - generic [ref=e67]:
+              - img [ref=e69]
+              - generic [ref=e71]: 全部游戏
+              - generic [ref=e72]: 6 款
+          - button "随机抽一款" [ref=e73] [cursor=pointer]:
+            - generic [ref=e74]:
+              - img [ref=e76]
+              - generic [ref=e78]: 随机推荐
+              - generic [ref=e79]: 点我抽签
+  - navigation "系统功能" [ref=e81]:
+    - generic [ref=e82]:
+      - button "游戏库 1" [ref=e83] [cursor=pointer]:
+        - generic [ref=e84]:
+          - img [ref=e86]
+          - generic [ref=e88]: 游戏库
+          - generic [ref=e89]: "1"
+      - button "番剧 3" [ref=e91] [cursor=pointer]:
+        - generic [ref=e92]:
+          - img [ref=e94]
+          - generic [ref=e96]: 番剧
+          - generic [ref=e97]: "3"
+      - button "漫画 4" [ref=e98] [cursor=pointer]:
+        - generic [ref=e99]:
+          - img [ref=e101]
+          - generic [ref=e103]: 漫画
+          - generic [ref=e104]: "4"
+    - generic [ref=e106]:
+      - button "工具 5" [ref=e107] [cursor=pointer]:
+        - generic [ref=e108]:
+          - img [ref=e110]
+          - generic [ref=e112]: 工具
+          - generic [ref=e113]: "5"
+      - button "设置" [ref=e114] [cursor=pointer]:
+        - generic [ref=e115]:
+          - img [ref=e117]
+          - generic [ref=e119]: 设置
+    - generic [ref=e121]:
+      - button "全屏" [ref=e122] [cursor=pointer]:
+        - generic [ref=e123]:
+          - img [ref=e125]
+          - generic [ref=e127]: 全屏
+      - button "大屏" [ref=e128] [cursor=pointer]:
+        - generic [ref=e129]:
+          - img [ref=e131]
+          - generic [ref=e133]: 大屏

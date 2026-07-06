@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-comic-punch-in"
+description = "Enables the comic_punch_in command without any pre-configured scope."
+commands.allow = ["comic_punch_in"]
+
+[[permission]]
+identifier = "deny-comic-punch-in"
+description = "Denies the comic_punch_in command without any pre-configured scope."
+commands.deny = ["comic_punch_in"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-end-play-session"
+description = "Enables the end_play_session command without any pre-configured scope."
+commands.allow = ["end_play_session"]
+
+[[permission]]
+identifier = "deny-end-play-session"
+description = "Denies the end_play_session command without any pre-configured scope."
+commands.deny = ["end_play_session"]

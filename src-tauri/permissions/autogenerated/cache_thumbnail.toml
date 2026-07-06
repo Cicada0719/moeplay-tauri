@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cache-thumbnail"
+description = "Enables the cache_thumbnail command without any pre-configured scope."
+commands.allow = ["cache_thumbnail"]
+
+[[permission]]
+identifier = "deny-cache-thumbnail"
+description = "Denies the cache_thumbnail command without any pre-configured scope."
+commands.deny = ["cache_thumbnail"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-comic-list"
+description = "Enables the comic_list command without any pre-configured scope."
+commands.allow = ["comic_list"]
+
+[[permission]]
+identifier = "deny-comic-list"
+description = "Denies the comic_list command without any pre-configured scope."
+commands.deny = ["comic_list"]

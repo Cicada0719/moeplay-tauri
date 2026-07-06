@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-extract-video-url"
+description = "Enables the anime_extract_video_url command without any pre-configured scope."
+commands.allow = ["anime_extract_video_url"]
+
+[[permission]]
+identifier = "deny-anime-extract-video-url"
+description = "Denies the anime_extract_video_url command without any pre-configured scope."
+commands.deny = ["anime_extract_video_url"]

@@ -243,12 +243,10 @@ pub struct AnimeDownloader {
 
 impl AnimeDownloader {
     pub fn new(download_dir: PathBuf) -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30 * 60))
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
-            .danger_accept_invalid_certs(true)
-            .build()
-            .expect("HTTP client for anime download");
+        let client = crate::http_client::build_reqwest_client(
+            30 * 60,
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        );
 
         Self {
             tasks: Arc::new(Mutex::new(HashMap::new())),
@@ -628,7 +626,13 @@ impl AnimeDownloader {
                 }
             }
 
-            let permit = sem.acquire_owned().await.unwrap();
+            let permit = match sem.acquire_owned().await {
+                Ok(p) => p,
+                Err(_) => {
+                    fc.fetch_add(1, Ordering::Relaxed);
+                    continue;
+                }
+            };
 
             tokio::spawn(async move {
                 let result =

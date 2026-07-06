@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-estimated-hours"
+description = "Enables the update_estimated_hours command without any pre-configured scope."
+commands.allow = ["update_estimated_hours"]
+
+[[permission]]
+identifier = "deny-update-estimated-hours"
+description = "Denies the update_estimated_hours command without any pre-configured scope."
+commands.deny = ["update_estimated_hours"]

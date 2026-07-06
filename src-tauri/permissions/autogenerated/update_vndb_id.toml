@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-vndb-id"
+description = "Enables the update_vndb_id command without any pre-configured scope."
+commands.allow = ["update_vndb_id"]
+
+[[permission]]
+identifier = "deny-update-vndb-id"
+description = "Denies the update_vndb_id command without any pre-configured scope."
+commands.deny = ["update_vndb_id"]

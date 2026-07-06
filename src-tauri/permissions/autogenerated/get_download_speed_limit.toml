@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-download-speed-limit"
+description = "Enables the get_download_speed_limit command without any pre-configured scope."
+commands.allow = ["get_download_speed_limit"]
+
+[[permission]]
+identifier = "deny-get-download-speed-limit"
+description = "Denies the get_download_speed_limit command without any pre-configured scope."
+commands.deny = ["get_download_speed_limit"]

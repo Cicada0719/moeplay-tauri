@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-import-rules"
+description = "Enables the anime_import_rules command without any pre-configured scope."
+commands.allow = ["anime_import_rules"]
+
+[[permission]]
+identifier = "deny-anime-import-rules"
+description = "Denies the anime_import_rules command without any pre-configured scope."
+commands.deny = ["anime_import_rules"]

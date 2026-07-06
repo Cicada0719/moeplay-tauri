@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-restore-latest-save-snapshot-from-cloud"
+description = "Enables the restore_latest_save_snapshot_from_cloud command without any pre-configured scope."
+commands.allow = ["restore_latest_save_snapshot_from_cloud"]
+
+[[permission]]
+identifier = "deny-restore-latest-save-snapshot-from-cloud"
+description = "Denies the restore_latest_save_snapshot_from_cloud command without any pre-configured scope."
+commands.deny = ["restore_latest_save_snapshot_from_cloud"]

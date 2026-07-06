@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-scan-directory-for-games"
+description = "Enables the scan_directory_for_games command without any pre-configured scope."
+commands.allow = ["scan_directory_for_games"]
+
+[[permission]]
+identifier = "deny-scan-directory-for-games"
+description = "Denies the scan_directory_for_games command without any pre-configured scope."
+commands.deny = ["scan_directory_for_games"]

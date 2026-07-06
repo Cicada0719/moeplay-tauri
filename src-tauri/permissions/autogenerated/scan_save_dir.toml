@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-scan-save-dir"
+description = "Enables the scan_save_dir command without any pre-configured scope."
+commands.allow = ["scan_save_dir"]
+
+[[permission]]
+identifier = "deny-scan-save-dir"
+description = "Denies the scan_save_dir command without any pre-configured scope."
+commands.deny = ["scan_save_dir"]

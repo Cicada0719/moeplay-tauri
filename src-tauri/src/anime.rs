@@ -172,7 +172,7 @@ fn shared_client() -> &'static reqwest::Client {
         reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(8))
             .user_agent(random_ua())
-            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_certs(crate::http_client::insecure_tls_enabled())
             .pool_max_idle_per_host(8)
             .build()
             .unwrap_or_default()
@@ -334,7 +334,7 @@ fn proxy_client() -> &'static reqwest::Client {
             .timeout(std::time::Duration::from_secs(15))
             .connect_timeout(std::time::Duration::from_secs(8))
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
-            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_certs(crate::http_client::insecure_tls_enabled())
             .pool_max_idle_per_host(8)
             .build()
             .unwrap_or_default()
@@ -429,12 +429,7 @@ pub struct RuleCatalogItem {
 }
 
 fn github_client() -> reqwest::Client {
-    reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(20))
-        .user_agent("MoeGame/1.0")
-        .danger_accept_invalid_certs(true)
-        .build()
-        .unwrap_or_default()
+    crate::http_client::build_reqwest_client(20, "MoeGame/1.0")
 }
 
 pub async fn fetch_rules_index() -> Result<Vec<RuleCatalogItem>, String> {
@@ -1116,12 +1111,10 @@ pub struct DanmakuAnime {
 }
 
 fn dandan_client() -> reqwest::Client {
-    reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(12))
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
-        .danger_accept_invalid_certs(true)
-        .build()
-        .unwrap_or_default()
+    crate::http_client::build_reqwest_client(
+        12,
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    )
 }
 
 pub async fn danmaku_search(keyword: &str) -> Result<Vec<DanmakuAnime>, String> {

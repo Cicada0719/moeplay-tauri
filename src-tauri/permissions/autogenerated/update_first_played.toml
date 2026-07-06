@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-first-played"
+description = "Enables the update_first_played command without any pre-configured scope."
+commands.allow = ["update_first_played"]
+
+[[permission]]
+identifier = "deny-update-first-played"
+description = "Denies the update_first_played command without any pre-configured scope."
+commands.deny = ["update_first_played"]

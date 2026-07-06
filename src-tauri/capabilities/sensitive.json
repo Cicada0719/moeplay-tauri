@@ -1,0 +1,30 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "sensitive",
+  "description": "高风险命令显式权限（文件打开、存档备份恢复、系统自启、游戏启动、下载、外部播放器等）",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "allow-open-path",
+    "allow-backup-save",
+    "allow-restore-save",
+    "allow-import-database",
+    "allow-export-database",
+    "allow-migrate-from-csharp",
+    "allow-set-autostart",
+    "allow-pick-directory",
+    "allow-add-game-by-path",
+    "allow-add-game-by-dialog",
+    "allow-import-games-from-dir",
+    "allow-scan-directory-for-games",
+    "allow-extract-archive-command",
+    "allow-launch-game",
+    "allow-restore-save-snapshot",
+    "allow-delete-save-snapshot",
+    "allow-restore-latest-save-snapshot-from-cloud",
+    "allow-download-start",
+    "allow-anime-download-episode",
+    "allow-anime-launch-external-player"
+  ]
+}

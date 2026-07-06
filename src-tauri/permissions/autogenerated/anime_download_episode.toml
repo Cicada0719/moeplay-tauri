@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-download-episode"
+description = "Enables the anime_download_episode command without any pre-configured scope."
+commands.allow = ["anime_download_episode"]
+
+[[permission]]
+identifier = "deny-anime-download-episode"
+description = "Denies the anime_download_episode command without any pre-configured scope."
+commands.deny = ["anime_download_episode"]

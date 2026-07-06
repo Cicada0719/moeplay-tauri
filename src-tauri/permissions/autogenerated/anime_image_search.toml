@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-image-search"
+description = "Enables the anime_image_search command without any pre-configured scope."
+commands.allow = ["anime_image_search"]
+
+[[permission]]
+identifier = "deny-anime-image-search"
+description = "Denies the anime_image_search command without any pre-configured scope."
+commands.deny = ["anime_image_search"]

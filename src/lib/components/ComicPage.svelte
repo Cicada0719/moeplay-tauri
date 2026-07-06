@@ -5,6 +5,7 @@
   import ComicDetail from "./comic/ComicDetail.svelte";
   import ComicReader from "./comic/ComicReader.svelte";
   import Icon from "./Icon.svelte";
+  import { Button, Card, EmptyState, Input, LoadingSkeleton, SearchInput, SegmentControl, Tag } from "./ui";
 
   let loginEmail = $state(comicStore.savedEmail);
   let loginPassword = $state("");
@@ -28,10 +29,9 @@
   // 搜索
   let searchInput = $state("");
 
-  async function handleSearch(e: Event) {
-    e.preventDefault();
-    if (!searchInput.trim()) return;
-    await comicStore.search(searchInput.trim());
+  async function handleSearch(value: string) {
+    if (!value.trim()) return;
+    await comicStore.search(value.trim());
   }
 
   function clearSearch() {
@@ -40,7 +40,15 @@
     comicStore.setTab("explore");
   }
 
+  function isTypingTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) return false;
+    const tag = target.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+    return target.isContentEditable;
+  }
+
   function onKeydown(e: KeyboardEvent) {
+    if (isTypingTarget(e.target)) return;
     if (e.key === "Escape") {
       if (comicStore.view === "reader") {
         e.stopImmediatePropagation();
@@ -64,12 +72,12 @@
   });
 
   const tabs = [
-    { id: "explore",   label: "探索" },
-    { id: "ranking",   label: "排行榜" },
-    { id: "random",    label: "随机" },
-    { id: "favorites", label: "收藏" },
-    { id: "history",   label: "历史" },
-  ] as const;
+    { value: "explore",   label: "探索" },
+    { value: "ranking",   label: "排行榜" },
+    { value: "random",    label: "随机" },
+    { value: "favorites", label: "收藏" },
+    { value: "history",   label: "历史" },
+  ];
 
   let punchingIn = $state(false);
   async function handlePunchIn() {
@@ -92,28 +100,28 @@
   {#if !comicStore.isLoggedIn}
     <!-- ── 登录 ── -->
     <div class="login-gate">
-      <div class="login-card">
+      <Card class="login-card" padding="lg">
         <div class="login-logo"><Icon name="book" size={36} /></div>
         <h1 class="login-title">哔咔漫画</h1>
         <p class="login-sub">使用你的哔咔账号登录，畅读海量漫画</p>
         <form class="login-form" onsubmit={handleLogin}>
           <div class="field">
             <label for="email">邮箱 / 用户名</label>
-            <input id="email" type="text" bind:value={loginEmail}
+            <Input id="email" type="text" bind:value={loginEmail}
               placeholder="邮箱或用户名" autocomplete="username" disabled={comicStore.loading} />
           </div>
           <div class="field">
             <label for="pwd">密码</label>
-            <input id="pwd" type="password" bind:value={loginPassword}
+            <Input id="pwd" type="password" bind:value={loginPassword}
               placeholder="••••••••" autocomplete="current-password" disabled={comicStore.loading} />
           </div>
           {#if loginError}<p class="login-error">{loginError}</p>{/if}
-          <button type="submit" class="login-btn" disabled={comicStore.loading}>
-            {comicStore.loading ? "登录中..." : "登录"}
-          </button>
+          <Button type="submit" fullWidth loading={comicStore.loading}>
+            登录
+          </Button>
         </form>
         <p class="login-note">账号为你的哔咔注册账号，萌游不存储密码。</p>
-      </div>
+      </Card>
     </div>
 
   {:else}
@@ -125,51 +133,38 @@
           <h1 class="header-title"><Icon name="book" size={20} /> 漫画</h1>
         </div>
 
-        <form class="search-form" onsubmit={handleSearch}>
-          <div class="search-wrap">
-            <Icon name="search" size={15} />
-            <input class="search-input" type="text" placeholder="搜索漫画..."
-              bind:value={searchInput} disabled={comicStore.loading} />
-            {#if searchInput}
-              <button type="button" class="search-clear" onclick={clearSearch}>
-                <Icon name="x" size={13} />
-              </button>
-            {/if}
-          </div>
-          <button type="submit" class="search-btn" disabled={!searchInput.trim()}>搜索</button>
+        <form class="search-form" onsubmit={(e) => { e.preventDefault(); handleSearch(searchInput); }}>
+          <SearchInput class="search-wrap" bind:value={searchInput}
+            placeholder="搜索漫画..." onclear={clearSearch} />
+          <Button type="submit" variant="secondary" disabled={!searchInput.trim()}>搜索</Button>
         </form>
 
         <!-- 用户信息 -->
         <div class="user-area">
           {#if comicStore.profile}
-            <div class="user-chip" title={comicStore.profile.slogan || comicStore.profile.name}>
+            <Tag variant="muted" size="md" class="user-chip" title={comicStore.profile.slogan || comicStore.profile.name}>
               <span class="user-level">Lv.{comicStore.profile.level}</span>
               <span class="user-name">{comicStore.profile.name}</span>
-            </div>
+            </Tag>
             {#if !comicStore.profile.is_punched}
-              <button class="punch-btn" onclick={handlePunchIn} disabled={punchingIn}
-                title="每日打卡">
+              <Button variant="ghost" size="sm" class="punch-btn" onclick={handlePunchIn} disabled={punchingIn}
+                title="每日打卡" ariaLabel="每日打卡">
                 <Icon name="zap" size={13} />
-              </button>
+              </Button>
             {:else}
-              <span class="punched-badge" title="今日已打卡"><Icon name="check" size={13} /></span>
+              <Tag variant="accent" size="sm" class="punched-badge" title="今日已打卡"><Icon name="check" size={13} /></Tag>
             {/if}
           {/if}
-          <button class="logout-btn" onclick={() => comicStore.logout()} title="退出登录">
+          <Button variant="ghost" size="sm" class="logout-btn" onclick={() => comicStore.logout()} title="退出登录" ariaLabel="退出登录">
             <Icon name="x" size={14} />
-          </button>
+          </Button>
         </div>
       </header>
 
       <!-- Tab Bar -->
       <div class="tab-bar">
         {#if !comicStore.searchKeyword}
-          {#each tabs as tab (tab.id)}
-            <button class="tab-btn" class:active={comicStore.activeTab === tab.id}
-              onclick={() => comicStore.setTab(tab.id as any)}>
-              {tab.label}
-            </button>
-          {/each}
+          <SegmentControl options={tabs} value={comicStore.activeTab} onChange={(v) => comicStore.setTab(v as any)} size="sm" />
 
           <!-- 排序（仅探索/搜索/收藏） -->
           {#if comicStore.activeTab === "explore" || comicStore.activeTab === "favorites"}
@@ -192,22 +187,18 @@
               {/each}
             </select>
           </div>
-          <button class="tab-clear" onclick={clearSearch}>清除</button>
+          <Button variant="ghost" size="sm" onclick={clearSearch}>清除</Button>
         {/if}
       </div>
 
       <!-- Content -->
       <div class="comic-content">
         {#if comicStore.error}
-          <div class="content-error">
-            <Icon name="x" size={28} />
-            <p>{comicStore.error}</p>
-            <button onclick={() => { comicStore.clearError(); comicStore.loadCategories(); }}>重试</button>
-          </div>
+          <EmptyState class="content-error" icon="x" title={comicStore.error}
+            action={{ label: "重试", onclick: () => { comicStore.clearError(); comicStore.loadCategories(); } }} />
         {:else if comicStore.loading && comicStore.comicList.length === 0 && comicStore.searchResults.length === 0 && comicStore.ranking.length === 0 && comicStore.randomList.length === 0 && comicStore.favorites.length === 0}
           <div class="content-loading">
-            <div class="spinner"></div>
-            <span>连接哔咔服务器...</span>
+            <LoadingSkeleton rows={6} columns={4} />
             <span class="loading-hint">若长时间无响应，请检查网络或代理设置</span>
           </div>
 
@@ -219,26 +210,25 @@
             {/each}
           </div>
           {#if comicStore.searchPage < comicStore.searchPages}
-            <button class="load-more" onclick={() => comicStore.searchNextPage()}
-              disabled={comicStore.loading}>
-              {comicStore.loading ? "加载中..." : "加载更多"}
-            </button>
+            <Button variant="ghost" class="load-more" onclick={() => comicStore.searchNextPage()}
+              disabled={comicStore.loading} loading={comicStore.loading}>
+              加载更多
+            </Button>
           {/if}
         {:else if comicStore.searchKeyword && !comicStore.loading}
-          <div class="empty-state"><Icon name="search" size={36} /><p>没有找到相关漫画</p></div>
+          <EmptyState icon="search" title="没有找到相关漫画" />
 
         <!-- 探索 -->
         {:else if comicStore.activeTab === "explore"}
           {#if comicStore.categories.length > 0}
             <div class="cat-chips">
-              <button class="cat-chip" class:active={comicStore.selectedCategory === null}
-                onclick={() => comicStore.selectCategory(null)}>全部</button>
+              <Tag active={comicStore.selectedCategory === null}
+                onclick={() => comicStore.selectCategory(null)}>全部</Tag>
               {#each comicStore.categories as cat (cat.id || cat.title)}
-                <button class="cat-chip"
-                  class:active={comicStore.selectedCategory === cat.title}
+                <Tag active={comicStore.selectedCategory === cat.title}
                   onclick={() => comicStore.selectCategory(cat.title)}>
                   {cat.title}
-                </button>
+                </Tag>
               {/each}
             </div>
           {/if}
@@ -248,23 +238,18 @@
             {/each}
           </div>
           {#if comicStore.comicList.length === 0 && !comicStore.loading}
-            <div class="empty-state"><Icon name="book" size={36} /><p>暂无漫画</p></div>
+            <EmptyState icon="book" title="暂无漫画" />
           {/if}
           {#if comicStore.comicPage < comicStore.comicPages}
-            <button class="load-more" onclick={() => comicStore.loadMoreComics()}
-              disabled={comicStore.loading}>
-              {comicStore.loading ? "加载中..." : "加载更多"}
-            </button>
+            <Button variant="ghost" class="load-more" onclick={() => comicStore.loadMoreComics()}
+              disabled={comicStore.loading} loading={comicStore.loading}>
+              加载更多
+            </Button>
           {/if}
 
         <!-- 排行榜 -->
         {:else if comicStore.activeTab === "ranking"}
-          <div class="rank-tabs">
-            {#each [{ v: "H24", l: "日榜" }, { v: "D7", l: "周榜" }, { v: "D30", l: "月榜" }] as r (r.v)}
-              <button class="rank-tab" class:active={comicStore.rankingType === r.v}
-                onclick={() => comicStore.loadRanking(r.v as any)}>{r.l}</button>
-            {/each}
-          </div>
+          <SegmentControl options={[{ value: "H24", label: "日榜" }, { value: "D7", label: "周榜" }, { value: "D30", label: "月榜" }]} value={comicStore.rankingType} onChange={(v) => comicStore.loadRanking(v as any)} size="sm" />
           <div class="rank-list">
             {#each comicStore.ranking as comic, i (comic.id)}
               <button class="rank-row" onclick={() => comicStore.openComic(comic.id)}>
@@ -278,18 +263,18 @@
               </button>
             {/each}
             {#if comicStore.ranking.length === 0 && !comicStore.loading}
-              <div class="empty-state"><Icon name="chart" size={32} /><p>暂无排行数据</p></div>
+              <EmptyState icon="chart" title="暂无排行数据" />
             {/if}
           </div>
 
         <!-- 随机本子 -->
         {:else if comicStore.activeTab === "random"}
           <div class="random-header">
-            <button class="refresh-btn" onclick={() => comicStore.loadRandom()}
-              disabled={comicStore.loading}>
+            <Button variant="ghost" size="sm" onclick={() => comicStore.loadRandom()}
+              disabled={comicStore.loading} loading={comicStore.loading}>
               <Icon name="refresh" size={15} />
-              {comicStore.loading ? "加载中..." : "换一批"}
-            </button>
+              换一批
+            </Button>
           </div>
           <div class="comics-grid">
             {#each comicStore.randomList as comic (comic.id)}
@@ -297,7 +282,7 @@
             {/each}
           </div>
           {#if comicStore.randomList.length === 0 && !comicStore.loading}
-            <div class="empty-state"><Icon name="diamond" size={36} /><p>点击"换一批"获取随机漫画</p></div>
+            <EmptyState icon="diamond" title='点击"换一批"获取随机漫画' />
           {/if}
 
         <!-- 收藏 -->
@@ -308,13 +293,13 @@
             {/each}
           </div>
           {#if comicStore.favorites.length === 0 && !comicStore.loading}
-            <div class="empty-state"><Icon name="heart" size={36} /><p>还没有收藏的漫画</p></div>
+            <EmptyState icon="heart" title="还没有收藏的漫画" />
           {/if}
           {#if comicStore.favPage < comicStore.favPages}
-            <button class="load-more" onclick={() => comicStore.loadFavorites(comicStore.favPage + 1)}
-              disabled={comicStore.loading}>
-              {comicStore.loading ? "加载中..." : "加载更多"}
-            </button>
+            <Button variant="ghost" class="load-more" onclick={() => comicStore.loadFavorites(comicStore.favPage + 1)}
+              disabled={comicStore.loading} loading={comicStore.loading}>
+              加载更多
+            </Button>
           {/if}
 
         <!-- 阅读历史 -->
@@ -322,7 +307,7 @@
           {#if comicStore.readHistory.length > 0}
             <div class="history-header">
               <span class="history-count">{comicStore.readHistory.length} 条记录</span>
-              <button class="history-clear" onclick={() => comicStore.clearHistory()}>清空</button>
+              <Button variant="ghost" size="sm" onclick={() => comicStore.clearHistory()}>清空</Button>
             </div>
             <div class="history-list">
               {#each comicStore.readHistory as rec (rec.id)}
@@ -336,15 +321,15 @@
                     <p class="history-progress">读到: {rec.last_title || `第${rec.last_order}话`}</p>
                   </div>
                   <span class="history-time">{fmtDate(rec.ts)}</span>
-                  <button class="history-del" onclick={(e) => { e.stopPropagation(); comicStore.removeHistory(rec.id); }}
-                    title="删除记录">
+                  <Button variant="quiet" size="sm" class="history-del" onclick={(e) => { e.stopPropagation(); comicStore.removeHistory(rec.id); }}
+                    title="删除记录" ariaLabel="删除记录">
                     <Icon name="x" size={12} />
-                  </button>
+                  </Button>
                 </div>
               {/each}
             </div>
           {:else}
-            <div class="empty-state"><Icon name="eye" size={36} /><p>暂无阅读记录</p></div>
+            <EmptyState icon="eye" title="暂无阅读记录" />
           {/if}
         {/if}
       </div>
@@ -378,10 +363,8 @@
 
   /* ── Login Gate ── */
   .login-gate { flex: 1; display: grid; place-items: center; padding: 32px; }
-  .login-card {
+  :global(.login-card) {
     width: 100%; max-width: 380px;
-    background: rgba(255,255,255,0.03); border: 1px solid var(--border);
-    border-radius: 16px; padding: 36px 32px;
     display: flex; flex-direction: column; gap: 12px;
     align-items: center; text-align: center;
   }
@@ -396,23 +379,8 @@
   .login-form { width: 100%; display: flex; flex-direction: column; gap: 14px; margin-top: 8px; }
   .field { display: flex; flex-direction: column; gap: 5px; text-align: left; }
   .field label { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
-  .field input {
-    padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px;
-    background: rgba(255,255,255,0.04); color: var(--text-primary);
-    font-size: 14px; transition: border-color 0.15s; outline: none;
-  }
-  .field input:focus { border-color: var(--accent); }
-  .field input:disabled { opacity: 0.5; }
+  .field :global(.ui-input) { padding: 9px 12px; font-size: 14px; }
   .login-error { font-size: 12.5px; color: #f87171; margin: 0; text-align: left; }
-  .login-btn {
-    padding: 11px; border: none; border-radius: 8px;
-    background: var(--accent, #e8557f); color: #fff;
-    font-size: 14px; font-weight: 700; cursor: pointer;
-    transition: opacity 0.15s, transform 0.15s;
-  }
-  .login-btn:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
-  .login-btn:active:not(:disabled) { transform: translateY(0) scale(0.98); }
-  .login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .login-note { font-size: 11px; color: var(--text-dim, var(--text-muted)); margin: 0; }
 
   /* ── Shell ── */
@@ -426,72 +394,36 @@
   .header-title { font-family: var(--font-display); font-size: 20px; font-weight: 750; margin: 0; display: flex; align-items: center; gap: 6px; line-height: 1; }
 
   .search-form { flex: 1; display: flex; gap: 8px; }
-  .search-wrap {
-    flex: 1; display: flex; align-items: center; gap: 8px; padding: 0 10px;
-    border: 1px solid var(--border); border-radius: 8px;
-    background: rgba(255,255,255,0.03); color: var(--text-muted); transition: border-color 0.15s;
-  }
-  .search-wrap:focus-within { border-color: var(--accent); color: var(--text-primary); }
-  .search-input { flex: 1; background: transparent; border: none; color: var(--text-primary); font-size: 13px; outline: none; padding: 8px 0; }
-  .search-input::placeholder { color: var(--text-muted); }
-  .search-clear { background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 0; display: flex; align-items: center; }
-  .search-btn {
-    padding: 0 14px; border: 1px solid var(--border); border-radius: 8px;
-    background: rgba(255,255,255,0.04); color: var(--text-muted);
-    font-size: 13px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
-  }
-  .search-btn:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
-  .search-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  :global(.search-wrap) { flex: 1; }
 
   /* ── User area ── */
   .user-area { flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
-  .user-chip {
-    display: flex; align-items: center; gap: 5px;
-    padding: 4px 10px; border-radius: 6px;
-    background: rgba(255,255,255,0.04); border: 1px solid var(--border);
-    font-size: 11.5px; color: var(--text-muted);
+  :global(.user-chip) {
+    gap: 5px;
+    max-width: 140px;
   }
   .user-level { font-family: var(--font-mono); font-weight: 700; color: var(--accent); font-size: 10px; }
   .user-name { max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .punch-btn {
-    width: 28px; height: 28px; display: grid; place-items: center;
-    border: 1px solid var(--accent-ring, rgba(232,85,127,0.3)); border-radius: 6px;
-    background: var(--accent-lo, rgba(232,85,127,0.1)); color: var(--accent);
-    cursor: pointer; transition: all 0.15s;
+  :global(.punch-btn) {
+    width: 28px; height: 28px; min-height: 28px; padding: 0;
+    border-color: var(--accent-ring, rgba(232,85,127,0.3));
+    background: var(--accent-lo, rgba(232,85,127,0.1));
+    color: var(--accent);
   }
-  .punch-btn:hover:not(:disabled) { background: var(--accent); color: #fff; }
-  .punch-btn:disabled { opacity: 0.5; }
-  .punched-badge {
-    width: 28px; height: 28px; display: grid; place-items: center;
-    border-radius: 6px; background: rgba(74,222,128,0.1);
-    border: 1px solid rgba(74,222,128,0.3); color: #4ade80;
+  :global(.punch-btn:hover:not(:disabled)) { background: var(--accent); color: #fff; }
+  :global(.punched-badge) {
+    width: 28px; height: 24px;
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 0;
   }
-  .logout-btn {
-    flex-shrink: 0; width: 28px; height: 28px; display: grid; place-items: center;
-    border: 1px solid rgba(255,255,255,0.08); border-radius: 6px;
-    background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.15s;
+  :global(.logout-btn) {
+    width: 28px; height: 28px; min-height: 28px; padding: 0;
   }
-  .logout-btn:hover { border-color: rgba(248,113,113,0.4); color: #f87171; background: rgba(248,113,113,0.08); }
+  :global(.logout-btn:hover) { border-color: rgba(248,113,113,0.4); color: #f87171; background: rgba(248,113,113,0.08); }
 
   /* ── Tabs ── */
   .tab-bar { flex-shrink: 0; display: flex; align-items: center; gap: 4px; padding: 4px 20px 8px; border-bottom: 1px solid var(--border); }
-  .tab-btn {
-    padding: 6px 14px; border: 1px solid transparent; border-radius: 6px;
-    background: transparent; color: var(--text-muted);
-    font-size: 13px; font-weight: 550; cursor: pointer; transition: all 0.15s;
-  }
-  .tab-btn.active {
-    background: var(--accent-lo, rgba(232,85,127,0.1));
-    border-color: var(--accent-ring, rgba(232,85,127,0.3));
-    color: var(--accent); font-weight: 700;
-  }
-  .tab-btn:not(.active):hover { background: rgba(255,255,255,0.04); color: var(--text-primary); }
   .search-label { font-size: 13px; color: var(--text-muted); flex: 1; }
-  .tab-clear {
-    padding: 5px 12px; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px;
-    background: transparent; color: var(--text-muted); font-size: 12px; cursor: pointer;
-  }
-  .tab-clear:hover { color: var(--text-primary); }
 
   .sort-area { margin-left: auto; }
   .sort-select {
@@ -505,41 +437,13 @@
   .comic-content { flex: 1; overflow-y: auto; padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 12px; }
 
   .cat-chips { display: flex; flex-wrap: wrap; gap: 6px; flex-shrink: 0; }
-  .cat-chip {
-    padding: 5px 12px; border: 1px solid var(--border); border-radius: 999px;
-    background: transparent; color: var(--text-muted);
-    font-size: 12px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
-  }
-  .cat-chip.active {
-    background: var(--accent-lo, rgba(232,85,127,0.1));
-    border-color: var(--accent-ring, rgba(232,85,127,0.3)); color: var(--accent);
-  }
-  .cat-chip:not(.active):hover { background: rgba(255,255,255,0.04); color: var(--text-primary); }
 
   .comics-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
 
   /* ── Random ── */
   .random-header { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-  .refresh-btn {
-    display: inline-flex; align-items: center; gap: 5px;
-    padding: 7px 16px; border: 1px solid var(--accent-ring, rgba(232,85,127,0.3));
-    border-radius: 8px; background: var(--accent-lo, rgba(232,85,127,0.1));
-    color: var(--accent); font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s;
-  }
-  .refresh-btn:hover:not(:disabled) { background: var(--accent); color: #fff; }
-  .refresh-btn:disabled { opacity: 0.5; }
 
   /* ── Ranking ── */
-  .rank-tabs { display: flex; gap: 4px; flex-shrink: 0; }
-  .rank-tab {
-    padding: 5px 14px; border: 1px solid var(--border); border-radius: 6px;
-    background: transparent; color: var(--text-muted); font-size: 12.5px; cursor: pointer; transition: all 0.15s;
-  }
-  .rank-tab.active {
-    background: var(--accent-lo, rgba(232,85,127,0.1));
-    border-color: var(--accent-ring, rgba(232,85,127,0.3));
-    color: var(--accent); font-weight: 700;
-  }
   .rank-list { display: flex; flex-direction: column; gap: 4px; }
   .rank-row {
     display: flex; align-items: center; gap: 12px; padding: 8px 12px;
@@ -558,10 +462,6 @@
   /* ── History ── */
   .history-header { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
   .history-count { font-size: 12px; color: var(--text-muted); }
-  .history-clear {
-    padding: 4px 12px; border: 1px solid rgba(248,113,113,0.3); border-radius: 6px;
-    background: rgba(248,113,113,0.08); color: #f87171; font-size: 12px; cursor: pointer;
-  }
   .history-list { display: flex; flex-direction: column; gap: 4px; }
   .history-row {
     display: flex; align-items: center; gap: 12px; padding: 8px 12px;
@@ -575,49 +475,30 @@
   .history-meta { font-size: 11px; color: var(--text-muted); margin: 0; }
   .history-progress { font-size: 11px; color: var(--accent); margin: 0; }
   .history-time { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-dim, var(--text-muted)); flex-shrink: 0; }
-  .history-del {
-    width: 24px; height: 24px; display: grid; place-items: center;
-    border: none; border-radius: 4px; background: transparent;
-    color: var(--text-muted); cursor: pointer; opacity: 0; transition: all 0.15s; flex-shrink: 0;
+  :global(.history-del) {
+    width: 24px; height: 24px; min-height: 24px; padding: 0;
+    opacity: 0; transition: opacity 0.15s; flex-shrink: 0;
   }
-  .history-row:hover .history-del { opacity: 1; }
-  .history-del:hover { color: #f87171; background: rgba(248,113,113,0.1); }
+  .history-row:hover :global(.history-del) { opacity: 1; }
+  :global(.history-del:hover) { color: #f87171; background: rgba(248,113,113,0.1); }
 
   /* ── Misc ── */
-  .load-more {
-    align-self: center; padding: 9px 24px; border: 1px solid var(--border);
-    border-radius: 8px; background: transparent; color: var(--text-muted);
-    font-size: 13px; cursor: pointer; transition: all 0.15s; margin-top: 4px;
+  :global(.load-more) {
+    align-self: center; margin-top: 4px;
   }
-  .load-more:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-  .load-more:disabled { opacity: 0.5; cursor: not-allowed; }
 
-  .empty-state {
+  .content-loading {
     flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 12px; color: var(--text-muted); padding: 60px 0;
   }
-  .empty-state p { margin: 0; font-size: 14px; }
-
-  .content-loading, .content-error {
-    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 12px; color: var(--text-muted); padding: 60px 0;
-  }
-  .content-error button {
-    margin-top: 8px; padding: 7px 18px; border: 1px solid var(--border);
-    border-radius: 6px; background: transparent; color: var(--text-muted); cursor: pointer;
+  :global(.content-error) {
+    flex: 1;
   }
   .loading-hint {
     font-size: 11px; color: var(--text-dim, var(--text-muted));
     opacity: 0; animation: fade-hint 0.5s ease 4s forwards;
   }
   @keyframes fade-hint { to { opacity: 0.7; } }
-
-  .spinner {
-    width: 32px; height: 32px;
-    border: 3px solid rgba(255,255,255,0.08); border-top-color: var(--accent);
-    border-radius: 50%; animation: spin 0.7s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
 
   .overlays { position: absolute; inset: 0; z-index: 20; pointer-events: all; }
 </style>

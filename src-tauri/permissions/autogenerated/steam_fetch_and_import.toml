@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-steam-fetch-and-import"
+description = "Enables the steam_fetch_and_import command without any pre-configured scope."
+commands.allow = ["steam_fetch_and_import"]
+
+[[permission]]
+identifier = "deny-steam-fetch-and-import"
+description = "Denies the steam_fetch_and_import command without any pre-configured scope."
+commands.deny = ["steam_fetch_and_import"]

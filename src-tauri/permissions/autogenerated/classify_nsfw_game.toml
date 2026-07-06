@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-classify-nsfw-game"
+description = "Enables the classify_nsfw_game command without any pre-configured scope."
+commands.allow = ["classify_nsfw_game"]
+
+[[permission]]
+identifier = "deny-classify-nsfw-game"
+description = "Denies the classify_nsfw_game command without any pre-configured scope."
+commands.deny = ["classify_nsfw_game"]

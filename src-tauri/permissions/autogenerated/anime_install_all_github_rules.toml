@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-install-all-github-rules"
+description = "Enables the anime_install_all_github_rules command without any pre-configured scope."
+commands.allow = ["anime_install_all_github_rules"]
+
+[[permission]]
+identifier = "deny-anime-install-all-github-rules"
+description = "Denies the anime_install_all_github_rules command without any pre-configured scope."
+commands.deny = ["anime_install_all_github_rules"]

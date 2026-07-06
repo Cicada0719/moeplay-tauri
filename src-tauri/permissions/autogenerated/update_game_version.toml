@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-game-version"
+description = "Enables the update_game_version command without any pre-configured scope."
+commands.allow = ["update_game_version"]
+
+[[permission]]
+identifier = "deny-update-game-version"
+description = "Denies the update_game_version command without any pre-configured scope."
+commands.deny = ["update_game_version"]

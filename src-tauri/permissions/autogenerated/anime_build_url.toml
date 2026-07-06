@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-build-url"
+description = "Enables the anime_build_url command without any pre-configured scope."
+commands.allow = ["anime_build_url"]
+
+[[permission]]
+identifier = "deny-anime-build-url"
+description = "Denies the anime_build_url command without any pre-configured scope."
+commands.deny = ["anime_build_url"]

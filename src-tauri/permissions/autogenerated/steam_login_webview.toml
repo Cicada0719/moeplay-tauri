@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-steam-login-webview"
+description = "Enables the steam_login_webview command without any pre-configured scope."
+commands.allow = ["steam_login_webview"]
+
+[[permission]]
+identifier = "deny-steam-login-webview"
+description = "Denies the steam_login_webview command without any pre-configured scope."
+commands.deny = ["steam_login_webview"]

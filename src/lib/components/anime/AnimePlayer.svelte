@@ -1,6 +1,6 @@
 <script lang="ts">
   import Hls from "hls.js";
-  import { invoke } from "@tauri-apps/api/core";
+  import { invokeCmd } from "../../api/core";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onDestroy, onMount } from "svelte";
   import { animeStore } from "../../stores/anime.svelte";
@@ -180,11 +180,11 @@
     const el = videoEl;
     const src = videoSrc;
     const m3u8 = isM3u8;
-    invoke('frontend_log', { level: 'info', message: `[播放器$effect] el=${!!el} status=${status} src=${src ? src.substring(0, 60) : 'null'}` }).catch(() => {});
+    invokeCmd('frontend_log', { level: 'info', message: `[播放器$effect] el=${!!el} status=${status} src=${src ? src.substring(0, 60) : 'null'}` }).catch(() => {});
     if (!el || status !== "found" || !src) return;
     const v: HTMLVideoElement = el;
     console.log("[播放器] 初始化视频", { src: src.substring(0, 120), m3u8 });
-    invoke('frontend_log', { level: 'info', message: `[播放器] 初始化视频: m3u8=${m3u8}, src=${src.substring(0, 80)}` }).catch(() => {});
+    invokeCmd('frontend_log', { level: 'info', message: `[播放器] 初始化视频: m3u8=${m3u8}, src=${src.substring(0, 80)}` }).catch(() => {});
 
     let hls: Hls | null = null;
     let netRetry = 0;       // 网络错误重试次数（封顶防死循环）
@@ -361,12 +361,12 @@
     animeStore.playEpisode(roadIdx, epIdx);
   }
   function openInBrowser() {
-    if (pageUrl) invoke("open_url", { url: pageUrl }).catch(() => {});
+    if (pageUrl) invokeCmd("open_url", { url: pageUrl }).catch(() => {});
   }
   async function launchExternalPlayer() {
     if (!pageUrl) return;
     try {
-      const players = await invoke<{ name: string; display_name: string; available: boolean }[]>("anime_get_external_players");
+      const players = await invokeCmd<{ name: string; display_name: string; available: boolean }[]>("anime_get_external_players");
       const available = players.filter(p => p.available);
       if (available.length === 0) {
         alert("未检测到外部播放器（mpv / VLC / PotPlayer）");
@@ -374,7 +374,7 @@
       }
       // 优先选 mpv，否则选第一个可用的
       const player = available.find(p => p.name === "mpv") || available[0];
-      const msg = await invoke<string>("anime_launch_external_player", {
+      const msg = await invokeCmd<string>("anime_launch_external_player", {
         url: pageUrl,
         player: player.name,
         referer: animeStore.rules.find(r => r.name === animeStore.playerRuleName)?.baseUrl || null,
@@ -616,8 +616,7 @@
 </script>
 
 <div class="player-overlay" class:fullscreen={isFullscreen} role="dialog" bind:this={overlayEl}>
-  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-  <div class="player-toolbar" onclick={handleToolbarClickOutside}>
+  <div class="player-toolbar" role="toolbar" aria-label="播放器工具栏" tabindex="-1" onclick={handleToolbarClickOutside} onkeydown={(e) => { if (e.key === "Escape") { showSpeedMenu = false; showDanmakuSettings = false; showEpisodePanel = false; showCommentsPanel = false; } }}>
     <button class="tool-btn" onclick={() => animeStore.closePlayer()}>
       <Icon name="x" size={16} /> 关闭
     </button>

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-comic-chapter-images"
+description = "Enables the comic_chapter_images command without any pre-configured scope."
+commands.allow = ["comic_chapter_images"]
+
+[[permission]]
+identifier = "deny-comic-chapter-images"
+description = "Denies the comic_chapter_images command without any pre-configured scope."
+commands.deny = ["comic_chapter_images"]

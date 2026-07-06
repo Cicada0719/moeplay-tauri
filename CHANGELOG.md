@@ -1,5 +1,171 @@
 # Changelog
 
+## 0.11.3 - 2026-07-05
+
+### Phase D/E/F · 依赖安全、后端健壮性与剩余 UI 基元化
+- 统一版本号至 `0.11.3`，重建 `package-lock.json`。
+- 升级 `vite` 6.4.3、`@sveltejs/vite-plugin-svelte` 5.1.1、`@tauri-apps/cli` 2.11.4、`@tauri-apps/api` 2.11.1；`npm audit` 0 vulnerabilities。
+- 安装 Visual Studio Build Tools 2022 + C++ 工作负载，解决 Git Bash `link.exe` 冲突，恢复 Windows release 构建。
+- 修复 Rust panic 点：
+  - `downloader.rs` 测试写入错误使用 `expect`。
+  - `anime_download.rs` 信号量 `acquire_owned` 失败时优雅跳过。
+  - `comic.rs` HTTP client 构建失败回退到默认 client；HMAC 签名改为返回 `Result`。
+  - `db.rs` 内存库打开失败时再尝试临时文件库兜底。
+- 修复 `archive.rs` 测试在 `zip` 2.4 下的类型推断。
+- 修复 Tauri v2 ACL 能力文件格式：自定义命令权限从 `app:<snake_case>` 改为 `allow-<kebab-case>`，并在 `build.rs` 中显式声明 275 条命令，使 release 构建通过 ACL 校验。
+- 修复前端状态/错误处理：
+  - `settingsStore.load()` 增加 catch 回退默认设置。
+  - `addWatchDir` / `removeWatchDir` 增加错误处理。
+  - `gameLibrary.batchDelete` 仅移除后端确认删除成功的条目。
+  - `animeStore` 换源自愈增加集数标题数字匹配，降低集数错位概率。
+- 子代理并行迁移剩余页面到 UI 基元：
+  - `AnimePage.svelte`、`anime/AnimeDetail.svelte`、`anime/SourceSheet.svelte`、`anime/SearchDrawer.svelte`
+  - `ComicPage.svelte`、`comic/ComicDetail.svelte`、`comic/ComicCard.svelte`、`comic/ComicReader.svelte`
+  - `GameDetailPage.svelte`、`PlatformImportPage.svelte`
+  - `StatsPage.svelte`、`BackupPage.svelte`、`DiagnosticsPage.svelte`
+  - `DownloadPage.svelte`、`switch/SwitchHome.svelte`、`switch/SystemDock.svelte`
+- 清理迁移产生的未使用 CSS，保持 `npm run check` 0 errors / 0 warnings。
+- 完整 Windows 安装包产出：MSI、NSIS setup、便携 zip 与 `release-manifest.json`。
+
+## 0.11.2 - 2026-07-05
+
+### Phase C · 核心工具页 UI 基元重构
+- 重做 `ContinueHub.svelte` / `ContinueCard.svelte`：
+  - 统计区改用 `ui/StatBlock.svelte` Bento 网格（6/3/2 列响应式）。
+  - 顶部继续卡片使用 `ui/Card.svelte`，支持聚焦与键盘 Enter 打开。
+  - 类型筛选改用 `ui/SegmentControl.svelte`，标签内显示各类型计数。
+  - `ContinueCard` 基于 `ui/Card` + `ui/Tag`，hover 显示操作图标。
+  - 空状态接入 `ui/EmptyState.svelte`，操作按钮统一为 `ui/Button`。
+  - GSAP 入场动画仅在首次挂载时触发一次，筛选切换不再重排。
+- 重构 `SettingsPage.svelte`：
+  - 各设置章节使用 `ui/Card.svelte` 包裹，统一 padding 与 hover 反馈。
+  - 主题、NSFW、同步优先级、播放器倍速等改用 `ui/SegmentControl.svelte`。
+  - 所有开关（数据源、自动刮削、AI、自启动、播放器选项）统一使用新增 `ui/Switch.svelte`。
+  - 文本输入框（代理、AI 地址/Key/模型、Bangumi Token）统一使用新增 `ui/Input.svelte`。
+  - 扫描目录列表项使用 `ui/Card.svelte`；操作与关于区域按钮全部使用 `ui/Button`。
+- 打磨 `DiscoveryPage.svelte` / `DiscoveryDetail.svelte`：
+  - 新增 `DiscoveryCard.svelte`，基于 `ui/Card` + `ui/Tag`，复用封面、来源徽章、评分标签。
+  - 顶部 Tab 使用 `ui/SegmentControl.svelte`；搜索框使用 `ui/SearchInput.svelte` + `ui/Button`。
+  - 搜索结果横向轨道使用 `ui/Rail.svelte`，加载与空状态使用 `ui/EmptyState.svelte`。
+  - `DiscoveryDetail` 内部标签/类型使用 `ui/Tag`，操作按钮使用 `ui/Button`，资源卡片使用 `ui/Card`。
+- 优化 `SmartCollectionEditor.svelte`：
+  - 名称输入使用 `ui/Input.svelte`。
+  - 图标选择使用 `ui/Tag.svelte`；快速筛选与状态使用 `ui/SegmentControl.svelte`。
+  - 已安装 / 已玩过开关使用 `ui/Switch.svelte`；保存/取消/删除按钮使用 `ui/Button`。
+- 新增通用 UI 基元：`ui/Input.svelte`、`ui/Switch.svelte`。
+- 新增 `Input.test.ts`、`Switch.test.ts` 单元测试，当前共 107 个测试。
+
+## 0.11.1 - 2026-07-05
+
+### Phase B · 首页 Bento、卡片与 Store 拆分
+- 新增 `src/lib/components/home/HomeBento.svelte`：首页改为 Bento Grid 布局，含精选游戏 Hero、最近游戏 Rail、游戏库统计、继续入口、全部游戏、随机推荐六个 widget。
+- `SwitchHome.svelte` 接入 `HomeBento`，保留动态背景、顶部栏、搜索与全库网格模式。
+- 重构 `GameCard.svelte`：基于 `ui/Card.svelte` 容器，优化信息层级，保留 grid/compact/list 三种形态、NSFW、收藏、多选、hover 上浮动效。
+- `Card.svelte` 增加 `ref`、`onkeydown`、`focusable` 支持，focusable 时自动补全 `role="button"` 与 `tabindex`。
+- 拆分 `src/lib/stores/games.svelte.ts`：
+  - `gameLibrary.svelte.ts` 负责数据、筛选排序、Smart Collection。
+  - `gameSelection.svelte.ts` 负责选中与批量选择。
+  - `games.svelte.ts` 保留为兼容门面，组件 import 路径与 `gameStore` API 不变。
+- 新增 `gameLibrary.test.ts`、`gameSelection.test.ts` 单元测试。
+- 重构 `BigPicturePage.svelte`：拆分为 `BigPictureBackground`、`BigPictureWheel`、`BigPictureHero`、`BigPictureMediaTab` 子组件，交互与手柄逻辑保持不变。
+- 修复 `continue.svelte.ts` 在静态导入场景下的 `$effect` 作用域错误，改为由 `App.svelte` 调用 `continueStore.start()` 启动。
+- `Icon.svelte` 新增 `dice` 图标。
+
+## 0.11.0 - 2026-07-05
+
+### Phase A · 重塑基础（UI 组件、API 核心、后端安全）
+- 新增通用 UI 组件：`Card`、`SearchInput`、`SegmentControl`、`EmptyState`、`LoadingSkeleton`、`BackgroundLayer`、`Tooltip`。
+- `Icon.svelte` 补齐 `user`、`settings`、`image`、`square`、`calendar` 图标。
+- `Dialog.svelte` 接入焦点陷阱 action，打开时聚焦、Tab 循环、关闭后恢复焦点。
+- 新增 `src/lib/actions/focus-trap.svelte.ts` 焦点管理工具。
+- 拆分 `src/lib/api/index.ts`：类型定义迁移至 `src/lib/api/types.ts`，新增 `src/lib/api/core.ts` 统一 invoke 封装与测试 mock 注入点。
+- 将 `stores/anime.svelte.ts`、`stores/comic.svelte.ts`、`components/anime/AnimePlayer.svelte`、`components/anime/SourceSheet.svelte`、`components/StatsPage.svelte` 中的直接 `invoke` 调用迁移至 `invokeCmd`。
+- 新增 `src/lib/testing/vitest-setup.ts` 与组件测试 harness；新增 `Button`、`Dialog` 组件测试（当前共 83 个单元测试）。
+- 后端安全 P0：新增 `src-tauri/src/security.rs` 路径作用域校验；修复 `src-tauri/src/archive.rs` Zip Slip；`downloader.rs` / `anime.rs` / `comic.rs` / `gal_download.rs` 等默认启用 TLS 校验，仅 `MOEGAME_INSECURE_TLS=1` 时关闭。
+- 新增 `src-tauri/src/http_client.rs` 统一 HTTP 客户端构造。
+- `commands/system.rs::open_path` 与 `commands/saves.rs::backup_save` / `restore_save` 增加路径白名单校验。
+- `capabilities/default.json` 从通配权限改为显式列出全部 275 个自定义命令；新增 `capabilities/sensitive.json` 单独声明高风险命令。
+- 新增 `playwright.config.ts` 与 `tests/visual/smoke.spec.ts` 视觉测试骨架。
+
+## 0.10.12 - 2026-07-05
+
+### Phase 1 前端基础清理
+- 删除已确认无引用的废弃组件：`LibraryView.svelte`、`HeroArea.svelte`、`GameDetail.svelte`、`StatusBadge.svelte`、`Modal.svelte`、`Toast.svelte`、`Topbar.svelte`。
+- 将 `BigPictureDetail.svelte`、`EmulatorImportDialog.svelte`、`GameDetailPage.svelte`、`MigrationPage.svelte`、`PlatformImportPage.svelte`、`SavePanel.svelte`、`SettingsPage.svelte` 的按钮统一迁移至 `src/lib/components/ui/Button.svelte`，删除旧版 `src/lib/components/Button.svelte`。
+- 修复剩余 6 个 `svelte-check` a11y 警告，当前 `npm run check` 0 errors / 0 warnings。
+- `Icon.svelte` 新增 `ariaHidden`、`ariaLabel`、`role` 属性，默认对装饰性图标隐藏。
+- 完善浅色主题令牌（`--bg`、`--bg-void`、`--text-dim`、`--accent-ring`、阴影与玻璃变量）。
+- 补齐纯黑/高对比主题缺少的 `--glass-blur`、`--accent-pink*` 等别名与语义色。
+- 新增 `sakura` 主题 CSS 令牌。
+- 新增共享底层组件 `Overlay.svelte` 与 `Dialog.svelte`，`SmartCollectionEditor.svelte` 已接入 `Dialog`。
+- 修复 Windows 下 Git Bash 小写盘符导致 `vitest` 报 `Cannot read properties of undefined (reading 'config')` 的问题，调整 `test:unit` 脚本与 `vitest.config.ts`。
+
+## 0.10.11 - 2026-07-05
+
+### URL hash 路由持久化
+- 新增 `src/lib/stores/router.svelte.ts`：hash 解析、视图白名单、生效应用、双向同步、`hashchange`/`popstate` 监听。
+- 支持 `#home`、`#settings`、`#stats`、`#game-detail?id=xxx` 等 hash 格式。
+- 切换视图时自动同步地址栏 hash；刷新页面后恢复到上一个合法视图与选中的游戏。
+- `uiStore` 移除 `?view=` 查询参数初始化，统一由路由 Store 管理。
+- `App.svelte` 启动时调用 `initRouter()`。
+- 新增 `src/lib/stores/router.test.ts`（11 个测试）。
+
+## 0.10.10 - 2026-07-05
+
+### 主题系统扩展
+- 新增主题模式：跟随系统、纯黑（OLED）、高对比。
+- 抽取 `src/lib/utils/theme.ts` 集中管理主题类型、生效主题解析、`system` 模式监听与持久化。
+- `src/lib/stores/settings.svelte.ts` 改用主题工具初始化与应用主题。
+- 设置页主题选择器使用 `APP_THEMES`，共 6 个选项。
+- `Icon.svelte` 新增 `moon`、`contrast` 图标。
+- `app.css` 新增 `[data-theme="black"]`、`[data-theme="contrast"]` 与对应 Aura 变量覆盖。
+- 新增 `src/lib/utils/theme.test.ts`，覆盖 8 个单元测试。
+
+## 0.10.9 - 2026-07-05
+
+### 修复与优化
+- 修复 Chart.js  typings：使用 `border.display: false` 替代 `drawBorder: false`，消除 `svelte-check` 类型错误
+- 清理 `app.css` 中已弃用的 `.status-fill` 样式选择器
+- `npm run check` 0 errors，`npm run test:unit` 57 个测试全部通过
+
+## 0.10.8 - 2026-07-05
+
+### 统计页 Chart.js 图表化
+- 接入 `chart.js` 图表库
+- 新增 `Chart.svelte` 通用图表组件，自动销毁与响应式更新
+- 统计页替换原有 SVG 手绘图表：
+  - 月度热力图 → Chart.js 折线图（支持 hover 提示、平滑曲线）
+  - 状态分布 → Chart.js 水平条形图
+  - 完成率 → Chart.js doughnut 图，保留中心百分比
+- 新增 `src/lib/utils/chart.ts` 数据转换工具与单元测试
+
+## 0.10.7 - 2026-07-05
+
+### 全局键盘快捷键系统
+- 接入 `@svelte-put/shortcut`，建立可扩展的快捷键体系
+- 新增快捷键：
+  - `1`~`5` 快速切换 Dock 前 5 个主视图（游戏库、继续、番剧、漫画、工具）
+  - `?` 打开/关闭快捷键帮助浮层
+  - `/` 或 `Ctrl/Cmd + K` 聚焦游戏库搜索框
+- 底部 Dock 显示对应数字快捷键提示角标
+- 新增 `ShortcutHelp` 组件集中展示所有可用快捷键
+- 保留原有 Escape 返回首页、手柄回退行为
+
+## 0.10.6 - 2026-07-05
+
+### 今日中枢 Dashboard 升级
+- 将「继续」页升级为全功能 Dashboard，每个展示栏位均有实际作用
+- 新增今日/本周活跃时长、连续活跃天数、游戏/番剧/漫画计数等统计卡片
+- 智能排序「最该继续」的内容，优先展示做到一半的游戏、最近更新的番剧/漫画
+- 每个卡片新增进度条、副标题、明确操作意图（继续游玩/观看/阅读）
+- 空状态提供「导入游戏」「去追番」「去看漫」一键跳转入口
+
+### 架构与质量
+- 抽取 `src/lib/utils/continue.ts` 纯函数模块：进度计算、时长聚合、连续天数、优先级评分
+- 重构 `src/lib/stores/continue.svelte.ts`，数据逻辑下沉到可测试函数
+- 新增 `src/lib/utils/continue.test.ts` 单元测试，覆盖核心计算逻辑
+- 引入 `date-fns` 替代手写 `timeAgo` 与日期聚合逻辑
+
 ## 0.10.5 - 2026-06-17
 
 ### 刮削改进

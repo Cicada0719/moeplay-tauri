@@ -4,7 +4,7 @@
   import { uiStore } from "../stores/ui.svelte";
   import { openPath, pickDirectory } from "../api";
   import Icon from "./Icon.svelte";
-  import Button from "./Button.svelte";
+  import Button from "./ui/Button.svelte";
   import RatingRing from "./RatingRing.svelte";
   import {
     formatPlayTime,
@@ -366,8 +366,8 @@
   .d-actions-sub {
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
   }
-  .d-actions-main :global(.btn),
-  .d-actions-sub :global(.btn) {
+  .d-actions-main :global(.ui-button),
+  .d-actions-sub :global(.ui-button) {
     width: 100%; min-width: 0;
     padding: 10px 8px; font-size: 12.5px;
     white-space: nowrap; overflow: hidden;

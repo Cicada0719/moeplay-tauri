@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-scrape-kungal-detail"
+description = "Enables the scrape_kungal_detail command without any pre-configured scope."
+commands.allow = ["scrape_kungal_detail"]
+
+[[permission]]
+identifier = "deny-scrape-kungal-detail"
+description = "Denies the scrape_kungal_detail command without any pre-configured scope."
+commands.deny = ["scrape_kungal_detail"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-mark-game-finished"
+description = "Enables the mark_game_finished command without any pre-configured scope."
+commands.allow = ["mark_game_finished"]
+
+[[permission]]
+identifier = "deny-mark-game-finished"
+description = "Denies the mark_game_finished command without any pre-configured scope."
+commands.deny = ["mark_game_finished"]

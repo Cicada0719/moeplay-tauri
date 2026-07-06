@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-bangumi-rating"
+description = "Enables the update_bangumi_rating command without any pre-configured scope."
+commands.allow = ["update_bangumi_rating"]
+
+[[permission]]
+identifier = "deny-update-bangumi-rating"
+description = "Denies the update_bangumi_rating command without any pre-configured scope."
+commands.deny = ["update_bangumi_rating"]

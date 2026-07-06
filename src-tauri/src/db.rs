@@ -46,7 +46,12 @@ impl Database {
                 let _ = std::fs::remove_file(&sqlite_path);
                 SqliteDb::open(&sqlite_path).unwrap_or_else(|e2| {
                     tracing::error!(error = %e2, "Fresh DB creation failed — using in-memory (data will NOT persist)");
-                    SqliteDb::open_in_memory().expect("in-memory db should always open")
+                    SqliteDb::open_in_memory().unwrap_or_else(|e3| {
+                        tracing::error!(error = %e3, "In-memory DB also failed — trying temp fallback");
+                        let fallback = data_dir.join("moegame-fallback.db");
+                        let _ = std::fs::remove_file(&fallback);
+                        SqliteDb::open(&fallback).expect("至少应能打开一个 SQLite 数据库")
+                    })
                 })
             }
         };

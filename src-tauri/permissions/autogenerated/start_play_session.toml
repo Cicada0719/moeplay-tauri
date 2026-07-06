@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-start-play-session"
+description = "Enables the start_play_session command without any pre-configured scope."
+commands.allow = ["start_play_session"]
+
+[[permission]]
+identifier = "deny-start-play-session"
+description = "Denies the start_play_session command without any pre-configured scope."
+commands.deny = ["start_play_session"]

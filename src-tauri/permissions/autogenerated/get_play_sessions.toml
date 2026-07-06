@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-play-sessions"
+description = "Enables the get_play_sessions command without any pre-configured scope."
+commands.allow = ["get_play_sessions"]
+
+[[permission]]
+identifier = "deny-get-play-sessions"
+description = "Denies the get_play_sessions command without any pre-configured scope."
+commands.deny = ["get_play_sessions"]

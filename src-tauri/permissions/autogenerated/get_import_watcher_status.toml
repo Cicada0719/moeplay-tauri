@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-import-watcher-status"
+description = "Enables the get_import_watcher_status command without any pre-configured scope."
+commands.allow = ["get_import_watcher_status"]
+
+[[permission]]
+identifier = "deny-get-import-watcher-status"
+description = "Denies the get_import_watcher_status command without any pre-configured scope."
+commands.deny = ["get_import_watcher_status"]

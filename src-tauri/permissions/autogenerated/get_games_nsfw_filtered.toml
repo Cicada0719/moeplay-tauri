@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-games-nsfw-filtered"
+description = "Enables the get_games_nsfw_filtered command without any pre-configured scope."
+commands.allow = ["get_games_nsfw_filtered"]
+
+[[permission]]
+identifier = "deny-get-games-nsfw-filtered"
+description = "Denies the get_games_nsfw_filtered command without any pre-configured scope."
+commands.deny = ["get_games_nsfw_filtered"]

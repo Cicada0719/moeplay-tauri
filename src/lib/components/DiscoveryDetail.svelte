@@ -1,7 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import Icon from "./Icon.svelte";
-  import Skeleton from "./Skeleton.svelte";
+  import Skeleton from "./ui/Skeleton.svelte";
+  import Button from "./ui/Button.svelte";
+  import Card from "./ui/Card.svelte";
+  import Tag from "./ui/Tag.svelte";
   import { uiStore } from "../stores/ui.svelte";
   import type { ScrapeResult } from "../api";
   import { openUrl, buildSourceUrl, searchGameDownloads, searchDownloadsDirect, downloadStart, type DownloadEntry, type DownloadSearchResult } from "../api";
@@ -28,16 +31,16 @@
     other: "其他",
   };
 
-  const kindBg: Record<string, string> = {
-    magnet: "rgba(245,158,11,0.15)",
-    http: "rgba(229,86,123,0.15)",
-    baidu_pan: "rgba(59,130,246,0.15)",
-    one_drive: "rgba(59,130,246,0.15)",
-    google_drive: "rgba(34,197,94,0.15)",
-    patch: "rgba(139,92,246,0.15)",
-    translation_patch: "rgba(34,197,94,0.15)",
-    official_site: "rgba(255,255,255,0.06)",
-    other: "rgba(255,255,255,0.06)",
+  const kindVariants: Record<string, "accent" | "muted" | "neutral"> = {
+    magnet: "accent",
+    http: "accent",
+    baidu_pan: "muted",
+    one_drive: "muted",
+    google_drive: "muted",
+    patch: "neutral",
+    translation_patch: "neutral",
+    official_site: "muted",
+    other: "muted",
   };
 
   let detailExpanded = $state(true);
@@ -162,13 +165,13 @@
 
     <!-- Header -->
     <header class="detail-header">
-      <button class="back-btn" onclick={onClose} type="button">
+      <Button variant="ghost" size="sm" onclick={onClose}>
         <Icon name="arrowLeft" size={18} /> 返回搜索
-      </button>
+      </Button>
       {#if sourceUrl}
-        <button class="source-btn" onclick={() => openUrl(sourceUrl)} type="button">
+        <Button variant="secondary" size="sm" onclick={() => openUrl(sourceUrl)}>
           <Icon name="globe" size={14} /> {result.source.toUpperCase()}
-        </button>
+        </Button>
       {/if}
     </header>
 
@@ -179,7 +182,7 @@
           <div class="cover-wrap">
             <img src={result.cover} alt={result.title} />
             {#if result.detail?.age_rating}
-              <span class="age-badge">{result.detail.age_rating}</span>
+              <Tag variant="accent" size="sm" class="age-badge">{result.detail.age_rating}</Tag>
             {/if}
           </div>
         {:else}
@@ -208,13 +211,13 @@
         {#if result.tags.length}
           <div class="tags-wrap">
             {#each result.tags as tag}
-              <span class="tag">{tag}</span>
+              <Tag variant="neutral" size="sm">{tag}</Tag>
             {/each}
           </div>
         {/if}
 
         {#if result.description}
-          <div class="desc-section">
+          <div class="desc-section" class:is-collapsed={!detailExpanded}>
             <h3>简介</h3>
             <p>{result.description}</p>
           </div>
@@ -243,7 +246,7 @@
             <h3>类型</h3>
             <div class="tags-wrap">
               {#each result.detail.genres as genre}
-                <span class="tag genre">{genre}</span>
+                <Tag variant="accent" size="sm">{genre}</Tag>
               {/each}
             </div>
           </div>
@@ -252,14 +255,14 @@
         <!-- Action buttons -->
         <div class="actions-bar">
           {#if sourceUrl}
-            <a href={sourceUrl} target="_blank" class="action-btn primary" onclick={(e) => { e.preventDefault(); openUrl(sourceUrl!); }}>
+            <Button variant="primary" onclick={() => openUrl(sourceUrl!)}>
               <Icon name="globe" size={16} /> 打开 {result.source.toUpperCase()}
-            </a>
+            </Button>
           {/if}
-          <button class="action-btn" onclick={() => detailExpanded = !detailExpanded} type="button">
+          <Button variant="ghost" onclick={() => detailExpanded = !detailExpanded}>
             <Icon name={detailExpanded ? "chevronDown" : "arrowLeft"} size={14} />
             {detailExpanded ? "收起" : "展开"}
-          </button>
+          </Button>
         </div>
       </aside>
 
@@ -315,17 +318,15 @@
           <div class="source-links">
             {#each [{ label: "VNDB", id: result.detail?.vndb_id, url: result.detail?.vndb_id ? `https://vndb.org/${result.detail?.vndb_id}` : null }, { label: "Bangumi", id: result.detail?.bangumi_id, url: result.detail?.bangumi_id ? `https://bgm.tv/subject/${result.detail?.bangumi_id}` : null }, { label: "Steam", id: result.source === "steam" ? result.source_id : null, url: result.source === "steam" ? `https://store.steampowered.com/app/${result.source_id}` : null }, { label: "DLsite", id: result.detail?.dl_site_id, url: null }] as link}
               {#if link.url}
-                <button class="link-card" onclick={() => openUrl(link.url!)} type="button">
+                <Button variant="ghost" size="sm" onclick={() => openUrl(link.url!)}>
                   <Icon name="globe" size={14} /> {link.label}
-                  <span class="link-hint"><Icon name="arrowLeft" size={12} /></span>
-                </button>
+                </Button>
               {/if}
             {/each}
             {#if sourceUrl}
-              <button class="link-card" onclick={() => openUrl(sourceUrl!)} type="button">
+              <Button variant="ghost" size="sm" onclick={() => openUrl(sourceUrl!)}>
                 <Icon name="globe" size={14} /> 源站 ({result.source})
-                <span class="link-hint">↗</span>
-              </button>
+              </Button>
             {/if}
           </div>
         </section>
@@ -335,9 +336,9 @@
           <div class="section-header">
             <h3><Icon name="download" size={14} /> 下载资源</h3>
             {#if !dlResult && !dlLoading}
-              <button class="btn-reload" onclick={searchDownloads} disabled={dlLoading} type="button">
+              <Button variant="ghost" size="sm" onclick={searchDownloads} disabled={dlLoading}>
                 <Icon name="refresh" size={14} /> 搜索下载
-              </button>
+              </Button>
             {/if}
           </div>
 
@@ -346,7 +347,7 @@
             <p class="muted">正在从 TouchGAL / Kungal 搜索下载资源...</p>
           {:else if dlError}
             <p class="muted error"><Icon name="x" size={14} /> {dlError}</p>
-            <button class="btn-reload" onclick={searchDownloads} type="button">重试</button>
+            <Button variant="secondary" size="sm" onclick={searchDownloads}>重试</Button>
           {:else if dlResult?.entries?.length}
             {#if dlResult.source_url}
               <div class="source-note">
@@ -355,11 +356,9 @@
             {/if}
             <div class="resource-list">
               {#each dlResult.entries as entry}
-                <button class="resource-card" onclick={() => handleEntryClick(entry)} type="button">
+                <Card class="resource-card" hoverable onclick={() => handleEntryClick(entry)} padding="md">
                   <div class="res-header">
-                    <span class="res-kind" style="background:{kindBg[entry.type] ?? 'rgba(255,255,255,0.06)'}; color:var(--text-primary)">
-                      {kindLabels[entry.type] ?? entry.type}
-                    </span>
+                    <Tag variant={kindVariants[entry.type] ?? "muted"} size="sm">{kindLabels[entry.type] ?? entry.type}</Tag>
                     {#if entry.size}
                       <span class="res-size text-mono">{entry.size}</span>
                     {/if}
@@ -375,12 +374,12 @@
                   {#if entry.note}
                     <div class="res-note">{entry.note}</div>
                   {/if}
-                </button>
+                </Card>
               {/each}
             </div>
           {:else}
             <p class="muted">未找到下载资源。可能该游戏尚未收录，或 TouchGAL 不可达。</p>
-            <button class="btn-reload" onclick={searchDownloads} type="button">重新搜索</button>
+            <Button variant="secondary" size="sm" onclick={searchDownloads}>重新搜索</Button>
           {/if}
         </section>
       </main>
@@ -407,13 +406,6 @@
     padding: 14px 20px; border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
-  .back-btn, .source-btn {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 8px 14px; border: 1px solid var(--border); border-radius: var(--radius-full);
-    background: transparent; color: var(--text-secondary); cursor: pointer;
-    font-size: 0.85rem; transition: all 0.2s;
-  }
-  .back-btn:hover, .source-btn:hover { border-color: var(--accent); color: var(--text-primary); }
 
   .detail-body {
     flex: 1; overflow-y: auto; display: grid;
@@ -436,10 +428,8 @@
     background: var(--bg-hover); display: flex; align-items: center; justify-content: center;
     color: var(--text-muted);
   }
-  .age-badge {
+  :global(.age-badge) {
     position: absolute; top: 10px; right: 10px;
-    padding: 3px 10px; border-radius: var(--radius-full);
-    background: var(--accent-lo); color: var(--accent); font-size: 0.7rem; font-weight: 600;
   }
 
   .title { font-size: 1.6rem; font-weight: 700; color: var(--text-primary); line-height: 1.2; }
@@ -449,15 +439,14 @@
   .stat-label { color: var(--text-muted); font-family: var(--font-ui); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px; }
 
   .tags-wrap { display: flex; flex-wrap: wrap; gap: 6px; }
-  .tag {
-    padding: 3px 10px; border-radius: var(--radius-full);
-    background: var(--bg-hover); color: var(--text-secondary); font-size: 0.75rem;
-  }
-  .tag.genre { background: var(--accent-lo); color: var(--accent); }
 
   .desc-section, .aliases-section, .genres-section { display: flex; flex-direction: column; gap: 8px; }
   .desc-section h3, .aliases-section h3, .genres-section h3 { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
   .desc-section p { font-size: 0.85rem; color: var(--text-secondary); line-height: 1.7; }
+  .desc-section.is-collapsed p {
+    display: -webkit-box; -webkit-line-clamp: 4; line-clamp: 4; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
   .muted { font-style: italic; opacity: 0.4; }
 
   .aliases-list { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -466,15 +455,6 @@
   .alias:last-child::after { content: ""; }
 
   .actions-bar { display: flex; gap: 8px; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border); }
-  .action-btn {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 8px 16px; border: 1px solid var(--border); border-radius: var(--radius-md);
-    background: transparent; color: var(--text-secondary); cursor: pointer;
-    font-size: 0.82rem; text-decoration: none; transition: all 0.2s;
-  }
-  .action-btn:hover { border-color: var(--accent); color: var(--text-primary); }
-  .action-btn.primary { border-color: var(--accent); color: var(--accent); background: var(--accent-lo); }
-  .action-btn.primary:hover { background: var(--accent); color: #fff; }
 
   /* ===== RIGHT PANEL ===== */
   .resource-panel {
@@ -482,7 +462,7 @@
     display: flex; flex-direction: column; gap: 24px;
   }
   .section { display: flex; flex-direction: column; gap: 12px; }
-  .section h3 { font-size: 0.85rem; font-weight: 600; color: var(--text-primary); }
+  .section h3 { font-size: 0.85rem; font-weight: 600; color: var(--text-primary); display: inline-flex; align-items: center; gap: 6px; }
 
   /* Screenshots */
   .screenshot-viewer { position: relative; border-radius: var(--radius-lg); overflow: hidden; background: var(--bg-secondary); }
@@ -503,38 +483,19 @@
 
   /* Source links */
   .source-links { display: flex; flex-wrap: wrap; gap: 6px; }
-  .link-card {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 6px 14px; border: 1px solid var(--border); border-radius: var(--radius-full);
-    background: transparent; color: var(--text-secondary); cursor: pointer;
-    font-size: 0.8rem; transition: all 0.2s;
-  }
-  .link-card:hover { border-color: var(--accent); color: var(--accent); }
-  .link-hint { font-size: 0.7rem; opacity: 0.4; }
 
   /* Download resources */
   .section-header { display: flex; align-items: center; justify-content: space-between; }
-  .btn-reload {
-    display: inline-flex; align-items: center; gap: 4px;
-    padding: 5px 12px; border: 1px solid var(--border); border-radius: var(--radius-full);
-    background: transparent; color: var(--text-secondary); cursor: pointer;
-    font-size: 0.75rem; transition: all 0.2s;
-  }
-  .btn-reload:hover { border-color: var(--accent); color: var(--accent); }
-  .btn-reload:disabled { opacity: 0.4; cursor: not-allowed; }
   .source-note { font-size: 0.75rem; color: var(--text-muted); }
   .source-note .link { background: none; border: none; color: var(--accent); cursor: pointer; text-decoration: underline; font-size: 0.75rem; padding: 0; }
   .error { color: var(--color-error) !important; }
   .resource-list { display: flex; flex-direction: column; gap: 8px; }
-  .resource-card {
-    display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left;
-    padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius-md);
-    background: var(--bg-card); cursor: pointer; text-decoration: none;
-    transition: all 0.2s; font-family: var(--font-ui); color: var(--text-primary);
+  :global(.resource-card) {
+    width: 100%; text-align: left;
+    cursor: pointer; text-decoration: none;
+    font-family: var(--font-ui); color: var(--text-primary);
   }
-  .resource-card:hover { border-color: var(--accent); background: var(--bg-hover); }
   .res-header { display: flex; align-items: center; gap: 8px; }
-  .res-kind { font-size: 0.7rem; font-weight: 600; padding: 2px 8px; border-radius: var(--radius-full); }
   .res-size { font-size: 0.7rem; color: var(--text-muted); }
   .res-action { margin-left: auto; display: flex; align-items: center; gap: 4px; font-size: 0.75rem; color: var(--accent); }
   .res-label { font-size: 0.85rem; font-weight: 500; color: var(--text-primary); }

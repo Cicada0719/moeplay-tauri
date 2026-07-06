@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-export-diagnostics-zip"
+description = "Enables the export_diagnostics_zip command without any pre-configured scope."
+commands.allow = ["export_diagnostics_zip"]
+
+[[permission]]
+identifier = "deny-export-diagnostics-zip"
+description = "Denies the export_diagnostics_zip command without any pre-configured scope."
+commands.deny = ["export_diagnostics_zip"]

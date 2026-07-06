@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-open-download-folder"
+description = "Enables the anime_open_download_folder command without any pre-configured scope."
+commands.allow = ["anime_open_download_folder"]
+
+[[permission]]
+identifier = "deny-anime-open-download-folder"
+description = "Denies the anime_open_download_folder command without any pre-configured scope."
+commands.deny = ["anime_open_download_folder"]

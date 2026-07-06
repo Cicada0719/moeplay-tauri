@@ -80,15 +80,16 @@
       launch: () => pressCurrent(),
       back: () => onClose(),
     });
+    boardEl?.focus();
     return () => detachGamepad?.();
   });
 </script>
 
-<!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_noninteractive_tabindex -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
   class="vk"
   bind:this={boardEl}
-  tabindex="0"
+  tabindex="-1"
   onkeydown={onKeydown}
   role="application"
   aria-label="屏幕键盘"

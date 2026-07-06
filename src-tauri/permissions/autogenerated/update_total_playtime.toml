@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-total-playtime"
+description = "Enables the update_total_playtime command without any pre-configured scope."
+commands.allow = ["update_total_playtime"]
+
+[[permission]]
+identifier = "deny-update-total-playtime"
+description = "Denies the update_total_playtime command without any pre-configured scope."
+commands.deny = ["update_total_playtime"]

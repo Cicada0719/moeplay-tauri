@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-bangumi-calendar"
+description = "Enables the anime_bangumi_calendar command without any pre-configured scope."
+commands.allow = ["anime_bangumi_calendar"]
+
+[[permission]]
+identifier = "deny-anime-bangumi-calendar"
+description = "Denies the anime_bangumi_calendar command without any pre-configured scope."
+commands.deny = ["anime_bangumi_calendar"]

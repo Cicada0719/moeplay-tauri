@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-remove-play-session"
+description = "Enables the remove_play_session command without any pre-configured scope."
+commands.allow = ["remove_play_session"]
+
+[[permission]]
+identifier = "deny-remove-play-session"
+description = "Denies the remove_play_session command without any pre-configured scope."
+commands.deny = ["remove_play_session"]

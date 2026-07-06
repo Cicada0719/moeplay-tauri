@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-scan-roms"
+description = "Enables the scan_roms command without any pre-configured scope."
+commands.allow = ["scan_roms"]
+
+[[permission]]
+identifier = "deny-scan-roms"
+description = "Denies the scan_roms command without any pre-configured scope."
+commands.deny = ["scan_roms"]

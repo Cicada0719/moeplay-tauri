@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import EmptyState from "./EmptyState.svelte";
   import Icon from "./Icon.svelte";
+  import { Button, Card, EmptyState, StatBlock } from "./ui";
   import {
     exportDatabase,
     getMigrationStatus,
@@ -49,34 +49,22 @@
       <h1 class="aura-title">诊断</h1>
       <p>系统信息、迁移状态、性能快照和导出工具。</p>
     </div>
-    <button class="primary-action" onclick={exportDb}>
+    <Button onclick={exportDb}>
       <Icon name="database" size={16} />
       <span>导出数据库</span>
-    </button>
+    </Button>
   </header>
 
   {#if report}
     <div class="stat-grid" aria-label="诊断概览">
-      <article class="stat-tile">
-        <span>系统</span>
-        <strong>{report.system_info.os}</strong>
-      </article>
-      <article class="stat-tile">
-        <span>LE</span>
-        <strong class="aura-num">{report.system_info.locale_emulator_installed ? "已安装" : "未检测到"}</strong>
-      </article>
-      <article class="stat-tile">
-        <span>游戏数</span>
-        <strong class="aura-num">{perf?.game_count ?? 0}</strong>
-      </article>
-      <article class="stat-tile">
-        <span>缓存</span>
-        <strong class="aura-num">{Math.round((perf?.cache_size_bytes ?? 0) / 1024 / 1024)} MB</strong>
-      </article>
+      <StatBlock class="stat-tile" label="系统" value={report.system_info.os} />
+      <StatBlock class="stat-tile" label="LE" value={report.system_info.locale_emulator_installed ? "已安装" : "未检测到"} />
+      <StatBlock class="stat-tile" label="游戏数" value={perf?.game_count ?? 0} />
+      <StatBlock class="stat-tile" label="缓存" value={Math.round((perf?.cache_size_bytes ?? 0) / 1024 / 1024)} unit="MB" />
     </div>
 
     <div class="content-grid">
-      <section class="panel aura-panel">
+      <Card class="panel aura-panel">
         <div class="panel-head">
           <h2>问题</h2>
           <span class="aura-num">{report.issues.length}</span>
@@ -93,9 +81,9 @@
         {:else}
           <EmptyState title="暂无诊断问题" />
         {/if}
-      </section>
+      </Card>
 
-      <section class="panel aura-panel">
+      <Card class="panel aura-panel">
         <div class="panel-head">
           <h2>迁移</h2>
           <span class="aura-num">{migrations.length}</span>
@@ -112,10 +100,10 @@
         {:else}
           <EmptyState title="暂无迁移记录" />
         {/if}
-      </section>
+      </Card>
     </div>
 
-    <section class="panel aura-panel">
+    <Card class="panel aura-panel">
       <div class="panel-head">
         <h2>日志井</h2>
         <span class="aura-num">{new Date(perf?.timestamp ?? Date.now()).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</span>
@@ -126,7 +114,7 @@
         <code>scrapers={(report.app_info.scrape_sources ?? []).join(",") || "none"}</code>
         <code>export={exported || "not_run"}</code>
       </div>
-    </section>
+    </Card>
 
     {#if exported}
       <p class="exported aura-inset">
@@ -135,13 +123,13 @@
       </p>
     {/if}
   {:else if error}
-    <div class="panel aura-panel loading-panel">
-      <EmptyState title="诊断加载失败" description={error} actionLabel="重试" onAction={load} />
-    </div>
+    <Card class="panel aura-panel loading-panel">
+      <EmptyState title="诊断加载失败" description={error ?? undefined} action={{ label: "重试", onclick: load }} />
+    </Card>
   {:else}
-    <div class="panel aura-panel loading-panel">
+    <Card class="panel aura-panel loading-panel">
       <EmptyState title="正在运行诊断" />
-    </div>
+    </Card>
   {/if}
 </section>
 
@@ -158,8 +146,6 @@
   }
 
   .tool-head,
-  .panel,
-  .stat-tile,
   .exported {
     min-width: 0;
     border: 1px solid var(--border);
@@ -187,8 +173,7 @@
   }
 
   .eyebrow,
-  .panel-head span,
-  .stat-tile span {
+  .panel-head span {
     color: var(--text-muted);
     font-size: 12px;
     font-weight: 650;
@@ -232,39 +217,6 @@
     line-height: 1.55;
   }
 
-  .primary-action {
-    min-width: 0;
-    min-height: 38px;
-    border: 1px solid var(--accent-ring);
-    border-radius: 8px;
-    padding: 0 14px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    color: #fff;
-    background: var(--accent);
-    font: inherit;
-    font-size: 13px;
-    font-weight: 700;
-    cursor: pointer;
-    transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
-  }
-
-  .primary-action:hover {
-    background: var(--accent-hi);
-    border-color: var(--accent-hi);
-  }
-
-  .primary-action:active {
-    transform: translateY(1px);
-  }
-
-  .primary-action:focus-visible {
-    outline: none;
-    box-shadow: var(--focus-ring);
-  }
-
   .stat-grid,
   .content-grid {
     min-width: 0;
@@ -280,24 +232,9 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .stat-tile {
-    padding: 16px;
-    display: grid;
-    gap: 10px;
-  }
-
-  .stat-tile strong {
+  :global(.ui-card.panel),
+  :global(.ui-stat.stat-tile) {
     min-width: 0;
-    color: var(--text-primary);
-    font-family: var(--font-mono);
-    font-size: 20px;
-    font-weight: 760;
-    line-height: 1.1;
-    overflow-wrap: anywhere;
-  }
-
-  .panel {
-    padding: 16px;
   }
 
   .panel-head {
@@ -313,9 +250,6 @@
   .row-list {
     min-width: 0;
     display: grid;
-  }
-
-  .row-list {
     margin-top: 12px;
     overflow: hidden;
   }
@@ -398,7 +332,7 @@
     overflow-wrap: anywhere;
   }
 
-  .loading-panel {
+  :global(.ui-card.loading-panel) {
     min-height: 180px;
     display: grid;
     place-items: center;
@@ -415,7 +349,7 @@
       align-items: stretch;
     }
 
-    .primary-action {
+    .tool-head :global(.ui-button) {
       width: 100%;
     }
   }

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-collection-games"
+description = "Enables the get_collection_games command without any pre-configured scope."
+commands.allow = ["get_collection_games"]
+
+[[permission]]
+identifier = "deny-get-collection-games"
+description = "Denies the get_collection_games command without any pre-configured scope."
+commands.deny = ["get_collection_games"]

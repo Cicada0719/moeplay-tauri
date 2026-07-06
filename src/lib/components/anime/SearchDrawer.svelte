@@ -3,6 +3,7 @@
   import Icon from '../Icon.svelte';
   import { onDestroy } from 'svelte';
   import { listen } from '@tauri-apps/api/event';
+  import { Button, Card, EmptyState, Input, Overlay } from '../ui';
 
   let searchInput = $state(animeStore.searchKeyword || '');
   let activeSource = $state<string>('all');
@@ -56,8 +57,9 @@
 </script>
 
 {#if animeStore.drawerOpen}
-  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-  <div class="drawer-backdrop" role="none" onclick={() => animeStore.drawerOpen = false}></div>
+  <div class="drawer-backdrop">
+    <Overlay onClose={() => animeStore.drawerOpen = false} ariaLabel="关闭" />
+  </div>
   <div class="drawer-panel">
     <div class="drawer-handle"></div>
     
@@ -86,23 +88,20 @@
         </div>
         <div class="search-row">
           <!-- svelte-ignore a11y_autofocus -->
-          <input
+          <Input
             class="drawer-input"
             placeholder="粘贴图片URL..."
             bind:value={imageUrlInput}
             onkeydown={handleImageSearchKeydown}
             autofocus
           />
-          <button class="drawer-search-btn" onclick={handleImageSearch} disabled={animeStore.imageSearchLoading}>
+          <Button variant="primary" onclick={handleImageSearch} disabled={animeStore.imageSearchLoading}>
             {animeStore.imageSearchLoading ? '搜索中...' : '搜索'}
-          </button>
+          </Button>
         </div>
 
         {#if animeStore.imageSearchError}
-          <div class="image-search-error">
-            <Icon name="x" size={14} />
-            <span>{animeStore.imageSearchError}</span>
-          </div>
+          <EmptyState icon="x" title="识别失败" description={animeStore.imageSearchError} class="image-search-error" />
         {/if}
 
         {#if animeStore.imageSearchLoading}
@@ -110,7 +109,7 @@
         {:else if animeStore.imageSearchResults.length > 0}
           <div class="image-results">
             {#each animeStore.imageSearchResults as result, i (i)}
-              <div class="image-result-item">
+              <Card padding="sm" class="image-result-item">
                 {#if result.image}
                   <div class="result-thumbnail">
                     <img src={result.image} alt="预览" loading="lazy" />
@@ -138,32 +137,29 @@
                   <div class="result-filename">{result.filename}</div>
                 </div>
                 {#if result.video}
-                  <button class="preview-btn" onclick={() => window.open(result.video, '_blank')} title="预览片段">
+                  <Button variant="ghost" size="sm" onclick={() => window.open(result.video, '_blank')} ariaLabel="预览片段" class="preview-btn">
                     <Icon name="play" size={14} />
-                  </button>
+                  </Button>
                 {/if}
-              </div>
+              </Card>
             {/each}
           </div>
         {:else if !animeStore.imageSearchError && !animeStore.imageSearchLoading}
-          <div class="image-search-hint">
-            <Icon name="search" size={24} />
-            <p>输入图片URL，trace.moe 会通过AI识别截图对应的动漫作品</p>
-          </div>
+          <EmptyState icon="search" title="通过截图搜索番剧" description="输入图片URL，trace.moe 会通过AI识别截图对应的动漫作品" class="image-search-hint" />
         {/if}
       </div>
     {:else}
       <!-- Normal Search -->
       <div class="search-row">
         <!-- svelte-ignore a11y_autofocus -->
-        <input
+        <Input
           class="drawer-input"
           placeholder="搜索番剧..."
           bind:value={searchInput}
           onkeydown={handleKeydown}
           autofocus
         />
-        <button class="drawer-search-btn" onclick={handleSearch}>搜索</button>
+        <Button variant="primary" onclick={handleSearch}>搜索</Button>
       </div>
 
       <!-- Search History -->
@@ -171,20 +167,20 @@
         <div class="search-history">
           <div class="history-header">
             <span class="history-title">搜索历史</span>
-            <button class="history-clear-btn" onclick={() => animeStore.clearSearchHistory()}>
+            <Button variant="ghost" size="sm" onclick={() => animeStore.clearSearchHistory()} class="history-clear-btn">
               <Icon name="trash" size={12} /> 清空
-            </button>
+            </Button>
           </div>
           <div class="history-list">
             {#each animeStore.searchHistory as keyword (keyword)}
               <div class="history-item">
-                <button class="history-btn" onclick={() => handleHistoryClick(keyword)}>
+                <Button variant="quiet" fullWidth onclick={() => handleHistoryClick(keyword)} class="history-btn">
                   <Icon name="clock" size={12} />
                   <span class="history-keyword">{keyword}</span>
-                </button>
-                <button class="history-delete" onclick={() => animeStore.removeSearchHistory(keyword)} title="删除">
+                </Button>
+                <Button variant="quiet" size="sm" onclick={() => animeStore.removeSearchHistory(keyword)} ariaLabel="删除" class="history-delete">
                   <Icon name="x" size={12} />
-                </button>
+                </Button>
               </div>
             {/each}
           </div>
@@ -200,11 +196,11 @@
             <div class="result-group">
               <h4 class="result-source">{source}</h4>
               {#each items as item (item.url)}
-                <button class="result-item" onclick={() => openResult(source, item)}>
+                <Button variant="quiet" fullWidth class="result-item" onclick={() => openResult(source, item)}>
                   <Icon name="film" size={14} />
                   <span>{item.name}</span>
                   <Icon name="chevronRight" size={12} />
-                </button>
+                </Button>
               {/each}
             </div>
           {/each}
@@ -213,17 +209,17 @@
       
       <!-- Bottom Actions -->
       <div class="drawer-actions">
-        <button class="action-link" onclick={() => {
+        <Button variant="quiet" size="sm" class="action-link" onclick={() => {
           if (animeStore.detailSubject) {
             const altName = animeStore.detailSubject.name || animeStore.detailSubject.name_cn;
             searchInput = altName;
             handleSearch();
           }
-        }}>别名检索</button>
-        <button class="action-link" onclick={() => {
+        }}>别名检索</Button>
+        <Button variant="quiet" size="sm" class="action-link" onclick={() => {
           searchInput = '';
           (document.querySelector('.drawer-input') as HTMLElement)?.focus();
-        }}>手动检索</button>
+        }}>手动检索</Button>
       </div>
     {/if}
   </div>
@@ -232,7 +228,6 @@
 <style>
   .drawer-backdrop {
     position: fixed; inset: 0; z-index: 100;
-    background: rgba(0,0,0,0.5);
     animation: fade-in 0.2s;
   }
   .drawer-panel {
@@ -262,18 +257,9 @@
   .search-row {
     display: flex; gap: 8px; padding: 0 16px 8px;
   }
-  .drawer-input {
-    flex: 1; padding: 10px 14px; border-radius: 8px;
-    background: #0d1117; border: 1px solid #2d3748;
-    color: #fff; font-size: 14px; outline: none;
+  :global(.ui-input.drawer-input) {
+    flex: 1;
   }
-  .drawer-input:focus { border-color: #E8557F; }
-  .drawer-search-btn {
-    padding: 10px 20px; border-radius: 8px;
-    background: #E8557F; color: #fff; border: none;
-    font-size: 14px; cursor: pointer;
-  }
-  .drawer-search-btn:disabled { opacity: 0.6; cursor: not-allowed; }
   .drawer-results {
     flex: 1; overflow-y: auto; padding: 0 16px;
     min-height: 100px;
@@ -284,23 +270,23 @@
   }
   .result-group { margin-bottom: 12px; }
   .result-source { font-size: 11px; color: #6b7280; margin: 0 0 4px; font-weight: 600; }
-  .result-item {
+  :global(.ui-button.result-item) {
     display: flex; align-items: center; gap: 8px; width: 100%;
     padding: 8px 10px; border: none; background: transparent;
     color: #d1d5db; font-size: 13px; cursor: pointer;
     border-radius: 6px; transition: background 0.1s;
     text-align: left;
   }
-  .result-item:hover { background: rgba(255,255,255,0.05); color: #fff; }
+  :global(.ui-button.result-item:hover) { background: rgba(255,255,255,0.05); color: #fff; }
   .drawer-actions {
     display: flex; justify-content: center; gap: 16px;
     padding: 12px 16px; border-top: 1px solid #2d3748;
   }
-  .action-link {
+  :global(.ui-button.action-link) {
     background: none; border: none; color: #6b7280;
     font-size: 12px; cursor: pointer; text-decoration: underline;
   }
-  .action-link:hover { color: #E8557F; }
+  :global(.ui-button.action-link:hover) { color: #E8557F; }
   .spinner {
     width: 18px; height: 18px; border: 2px solid #374151;
     border-top-color: #E8557F; border-radius: 50%;
@@ -322,22 +308,22 @@
   .image-search-header small {
     color: #6b7280; font-size: 11px; margin-left: auto;
   }
-  .image-search-error {
+  :global(.ui-empty.image-search-error) {
     display: flex; align-items: center; gap: 6px;
     color: #ef4444; font-size: 12px; padding: 8px 0;
   }
-  .image-search-hint {
+  :global(.ui-empty.image-search-hint) {
     display: flex; flex-direction: column; align-items: center;
     gap: 8px; padding: 32px 0; color: #6b7280;
   }
-  .image-search-hint p { font-size: 12px; text-align: center; max-width: 300px; }
+  :global(.ui-empty.image-search-hint p) { font-size: 12px; text-align: center; max-width: 300px; }
   .image-results { padding: 8px 0; }
-  .image-result-item {
+  :global(.ui-card.image-result-item) {
     display: flex; align-items: center; gap: 10px;
     padding: 10px 8px; border-radius: 8px;
     transition: background 0.1s;
   }
-  .image-result-item:hover { background: rgba(255,255,255,0.04); }
+  :global(.ui-card.image-result-item:hover) { background: rgba(255,255,255,0.04); }
   .result-thumbnail {
     width: 64px; height: 40px; border-radius: 4px;
     overflow: hidden; flex-shrink: 0; background: #111;
@@ -372,14 +358,14 @@
     font-size: 10px; color: #4b5563; margin-top: 2px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .preview-btn {
+  :global(.ui-button.preview-btn) {
     flex-shrink: 0; width: 32px; height: 32px;
     border-radius: 50%; border: 1px solid rgba(255,255,255,0.1);
     background: rgba(255,255,255,0.05); color: #9ca3af;
     display: flex; align-items: center; justify-content: center;
     cursor: pointer; transition: all 0.15s;
   }
-  .preview-btn:hover {
+  :global(.ui-button.preview-btn:hover) {
     border-color: var(--accent, #E8557F); color: var(--accent, #E8557F);
     background: rgba(232,85,127,0.1);
   }
@@ -395,31 +381,31 @@
   .history-title {
     font-size: 12px; font-weight: 600; color: #6b7280;
   }
-  .history-clear-btn {
+  :global(.ui-button.history-clear-btn) {
     display: inline-flex; align-items: center; gap: 4px;
     background: none; border: none; color: #6b7280;
     font-size: 11px; cursor: pointer; padding: 2px 6px; border-radius: 4px;
     transition: all 0.15s;
   }
-  .history-clear-btn:hover { color: #ef4444; background: rgba(239,68,68,0.1); }
+  :global(.ui-button.history-clear-btn:hover) { color: #ef4444; background: rgba(239,68,68,0.1); }
   .history-list {
     display: flex; flex-direction: column; gap: 2px;
   }
   .history-item {
     display: flex; align-items: center; gap: 4px;
   }
-  .history-btn {
+  :global(.ui-button.history-btn) {
     flex: 1; display: flex; align-items: center; gap: 8px;
     padding: 7px 10px; border: none; background: transparent;
     color: #d1d5db; font-size: 13px; cursor: pointer;
     border-radius: 6px; transition: background 0.1s;
     text-align: left;
   }
-  .history-btn:hover { background: rgba(255,255,255,0.05); }
+  :global(.ui-button.history-btn:hover) { background: rgba(255,255,255,0.05); }
   .history-keyword {
     flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .history-delete {
+  :global(.ui-button.history-delete) {
     flex-shrink: 0; width: 24px; height: 24px;
     border-radius: 4px; border: none;
     background: transparent; color: #4b5563;
@@ -427,6 +413,6 @@
     cursor: pointer; transition: all 0.15s;
     opacity: 0;
   }
-  .history-item:hover .history-delete { opacity: 1; }
-  .history-delete:hover { color: #ef4444; background: rgba(239,68,68,0.1); }
+  .history-item:hover :global(.ui-button.history-delete) { opacity: 1; }
+  :global(.ui-button.history-delete:hover) { color: #ef4444; background: rgba(239,68,68,0.1); }
 </style>

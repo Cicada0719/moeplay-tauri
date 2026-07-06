@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-remove-screenshot-by-path"
+description = "Enables the remove_screenshot_by_path command without any pre-configured scope."
+commands.allow = ["remove_screenshot_by_path"]
+
+[[permission]]
+identifier = "deny-remove-screenshot-by-path"
+description = "Denies the remove_screenshot_by_path command without any pre-configured scope."
+commands.deny = ["remove_screenshot_by_path"]

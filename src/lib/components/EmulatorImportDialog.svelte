@@ -3,7 +3,7 @@
   import { uiStore } from "../stores/ui.svelte";
   import { searchEmulators, scanRoms, importRomGame, pickDirectory, type ScannedEmulator, type RomFile } from "../api";
   import Icon from "./Icon.svelte";
-  import Button from "./Button.svelte";
+  import Button from "./ui/Button.svelte";
 
   let scanning = $state(false);
   let emulators = $state<ScannedEmulator[]>([]);

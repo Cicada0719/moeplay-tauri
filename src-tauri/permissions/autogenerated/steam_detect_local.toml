@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-steam-detect-local"
+description = "Enables the steam_detect_local command without any pre-configured scope."
+commands.allow = ["steam_detect_local"]
+
+[[permission]]
+identifier = "deny-steam-detect-local"
+description = "Denies the steam_detect_local command without any pre-configured scope."
+commands.deny = ["steam_detect_local"]

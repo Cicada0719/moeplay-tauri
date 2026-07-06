@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-game-background"
+description = "Enables the update_game_background command without any pre-configured scope."
+commands.allow = ["update_game_background"]
+
+[[permission]]
+identifier = "deny-update-game-background"
+description = "Denies the update_game_background command without any pre-configured scope."
+commands.deny = ["update_game_background"]

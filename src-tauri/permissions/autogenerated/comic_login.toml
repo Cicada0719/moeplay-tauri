@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-comic-login"
+description = "Enables the comic_login command without any pre-configured scope."
+commands.allow = ["comic_login"]
+
+[[permission]]
+identifier = "deny-comic-login"
+description = "Denies the comic_login command without any pre-configured scope."
+commands.deny = ["comic_login"]

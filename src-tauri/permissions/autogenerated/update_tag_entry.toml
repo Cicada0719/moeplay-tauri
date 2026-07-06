@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-tag-entry"
+description = "Enables the update_tag_entry command without any pre-configured scope."
+commands.allow = ["update_tag_entry"]
+
+[[permission]]
+identifier = "deny-update-tag-entry"
+description = "Denies the update_tag_entry command without any pre-configured scope."
+commands.deny = ["update_tag_entry"]

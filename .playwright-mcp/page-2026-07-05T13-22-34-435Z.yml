@@ -1,0 +1,111 @@
+- generic [ref=f1e3]:
+  - main [ref=f1e4]:
+    - generic [ref=f1e6]:
+      - generic:
+        - img
+      - generic [ref=f1e7]:
+        - generic [ref=f1e8]:
+          - generic [ref=f1e9]: 萌
+          - generic [ref=f1e10]: 萌游
+        - generic [ref=f1e12]:
+          - generic:
+            - img
+          - searchbox "搜索游戏" [ref=f1e13]
+        - generic [ref=f1e14]: 21:22
+        - button "设置" [ref=f1e15] [cursor=pointer]:
+          - img [ref=f1e17]
+      - generic [ref=f1e19]:
+        - button "星空列车与白的旅行" [ref=f1e20] [cursor=pointer]:
+          - generic [ref=f1e23]:
+            - generic [ref=f1e24]: 继续游玩
+            - heading "星空列车与白的旅行" [level=2] [ref=f1e25]
+            - paragraph [ref=f1e26]: Studioツキ · 2023 · 未开始 · 1h 0m
+            - generic [ref=f1e27]:
+              - button "开始游戏" [ref=f1e28]:
+                - img [ref=f1e29]
+                - generic [ref=f1e31]: 开始游戏
+              - button [ref=f1e32]:
+                - img [ref=f1e33]
+              - button [ref=f1e35]:
+                - img [ref=f1e36]
+        - generic [ref=f1e39]:
+          - generic [ref=f1e40]:
+            - heading "最近游戏" [level=3] [ref=f1e41]
+            - button "查看全部" [ref=f1e42] [cursor=pointer]
+          - generic [ref=f1e43]:
+            - button "星" [ref=f1e44] [cursor=pointer]:
+              - generic [ref=f1e45]: 星
+            - button "S" [ref=f1e46] [cursor=pointer]:
+              - generic [ref=f1e47]: S
+            - button "千" [ref=f1e48] [cursor=pointer]:
+              - generic [ref=f1e49]: 千
+            - button "魔" [ref=f1e50] [cursor=pointer]:
+              - generic [ref=f1e51]: 魔
+            - button "A" [ref=f1e52] [cursor=pointer]:
+              - generic [ref=f1e53]: A
+            - button "M" [ref=f1e54] [cursor=pointer]:
+              - generic [ref=f1e55]: M
+        - generic [ref=f1e57]:
+          - heading "游戏库" [level=3] [ref=f1e58]
+          - generic [ref=f1e59]:
+            - generic [ref=f1e60]:
+              - generic [ref=f1e61]: "6"
+              - generic [ref=f1e62]: 总数
+            - generic [ref=f1e63]:
+              - generic [ref=f1e64]: "6"
+              - generic [ref=f1e65]: 已安装
+            - generic [ref=f1e66]:
+              - generic [ref=f1e67]: "1"
+              - generic [ref=f1e68]: 收藏
+        - button "今日中枢" [ref=f1e69] [cursor=pointer]:
+          - generic [ref=f1e70]:
+            - generic [ref=f1e71]:
+              - img [ref=f1e72]
+              - generic [ref=f1e74]: 继续
+            - paragraph [ref=f1e75]: 暂无进行中内容
+        - button "全部游戏" [ref=f1e76] [cursor=pointer]:
+          - generic [ref=f1e77]:
+            - img [ref=f1e79]
+            - generic [ref=f1e81]: 全部游戏
+            - generic [ref=f1e82]: 6 款
+        - button "随机抽一款" [ref=f1e83] [cursor=pointer]:
+          - generic [ref=f1e84]:
+            - img [ref=f1e86]
+            - generic [ref=f1e88]: 随机推荐
+            - generic [ref=f1e89]: 点我抽签
+  - navigation "系统功能" [ref=f1e91]:
+    - generic [ref=f1e92]:
+      - button "游戏库 1" [ref=f1e93] [cursor=pointer]:
+        - generic [ref=f1e94]:
+          - img [ref=f1e96]
+          - generic [ref=f1e98]: 游戏库
+          - generic [ref=f1e99]: "1"
+      - button "番剧 3" [ref=f1e101] [cursor=pointer]:
+        - generic [ref=f1e102]:
+          - img [ref=f1e104]
+          - generic [ref=f1e106]: 番剧
+          - generic [ref=f1e107]: "3"
+      - button "漫画 4" [ref=f1e108] [cursor=pointer]:
+        - generic [ref=f1e109]:
+          - img [ref=f1e111]
+          - generic [ref=f1e113]: 漫画
+          - generic [ref=f1e114]: "4"
+    - generic [ref=f1e116]:
+      - button "工具 5" [ref=f1e117] [cursor=pointer]:
+        - generic [ref=f1e118]:
+          - img [ref=f1e120]
+          - generic [ref=f1e122]: 工具
+          - generic [ref=f1e123]: "5"
+      - button "设置" [ref=f1e124] [cursor=pointer]:
+        - generic [ref=f1e125]:
+          - img [ref=f1e127]
+          - generic [ref=f1e129]: 设置
+    - generic [ref=f1e131]:
+      - button "全屏" [ref=f1e132] [cursor=pointer]:
+        - generic [ref=f1e133]:
+          - img [ref=f1e135]
+          - generic [ref=f1e137]: 全屏
+      - button "大屏" [ref=f1e138] [cursor=pointer]:
+        - generic [ref=f1e139]:
+          - img [ref=f1e141]
+          - generic [ref=f1e143]: 大屏

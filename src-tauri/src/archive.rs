@@ -6,6 +6,7 @@
 //   - 自动根目录定位（跳过包裹层目录，直接找到游戏根）
 //   - 覆盖策略控制
 
+use crate::security::SecurityScope;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -141,41 +142,60 @@ pub fn extract_archive(
     })
 }
 
-/// 解压 zip 文件（纯 Rust）。
+/// 解压 zip 文件（纯 Rust），并防止 Zip Slip 攻击。
 fn extract_zip(archive_path: &Path, output_dir: &Path) -> Result<usize, String> {
     let file = fs::File::open(archive_path).map_err(|e| format!("打开 zip 失败: {}", e))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("解析 zip 失败: {}", e))?;
 
     fs::create_dir_all(output_dir).map_err(|e| format!("创建目录失败: {}", e))?;
 
+    let mut scope = SecurityScope::new();
+    scope.allow(output_dir);
+
     let total = archive.len();
+    let mut extracted = 0;
     for i in 0..total {
         let mut entry = archive
             .by_index(i)
             .map_err(|e| format!("读取 zip 条目 {}: {}", i, e))?;
-        let name = entry.name().to_string();
+
+        // 使用 enclosed_name 过滤掉 ../ 等越界路径
+        let safe_name = match entry.enclosed_name() {
+            Some(p) => p.to_path_buf(),
+            None => {
+                tracing::warn!("跳过不安全的 zip 条目: {}", entry.name());
+                continue;
+            }
+        };
+
+        let name = safe_name.to_string_lossy().to_string();
 
         // 跳过 macOS 资源文件
         if name.starts_with("__MACOSX") || name.contains(".DS_Store") {
             continue;
         }
 
-        let dest = output_dir.join(&name);
+        let dest = output_dir.join(&safe_name);
 
         if entry.is_dir() {
-            fs::create_dir_all(&dest).map_err(|e| format!("创建目录 {}: {}", name, e))?;
+            fs::create_dir_all(&dest)
+                .map_err(|e| format!("创建目录 {}: {}", name, e))?;
+            let _ = scope.resolve(&dest)?;
         } else {
             if let Some(parent) = dest.parent() {
                 fs::create_dir_all(parent)
                     .map_err(|e| format!("创建父目录 {}: {}", parent.display(), e))?;
             }
+            let dest = scope.resolve(&dest)?;
             let mut out =
                 fs::File::create(&dest).map_err(|e| format!("创建文件 {}: {}", name, e))?;
-            std::io::copy(&mut entry, &mut out).map_err(|e| format!("写入文件 {}: {}", name, e))?;
+            std::io::copy(&mut entry, &mut out)
+                .map_err(|e| format!("写入文件 {}: {}", name, e))?;
+            extracted += 1;
         }
     }
 
-    Ok(total)
+    Ok(extracted)
 }
 
 /// 通过 7z 命令行解压（7z/rar/tar/gz）。
@@ -601,5 +621,36 @@ mod tests {
         assert!(result.starts_with("Steins_Gate"));
         assert!(!result.contains(';'));
         assert!(!result.contains(' '));
+    }
+
+    #[test]
+    fn test_zip_slip_blocks_traversal() {
+        use std::io::Write;
+
+        let tmp = std::env::temp_dir().join("m4_test_zip_slip");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+
+        let zip_path = tmp.join("evil.zip");
+        let output_dir = tmp.join("extracted");
+
+        {
+            let file = fs::File::create(&zip_path).unwrap();
+            let mut writer = zip::ZipWriter::new(file);
+            let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            writer.start_file("safe.txt", options).unwrap();
+            writer.write_all(b"hello").unwrap();
+            writer.start_file("../evil.txt", options).unwrap();
+            writer.write_all(b"bad").unwrap();
+            writer.finish().unwrap();
+        }
+
+        let result = extract_zip(&zip_path, &output_dir);
+        assert!(result.is_ok());
+        assert!(output_dir.join("safe.txt").exists());
+        assert!(!tmp.join("evil.txt").exists());
+
+        fs::remove_dir_all(&tmp).ok();
     }
 }

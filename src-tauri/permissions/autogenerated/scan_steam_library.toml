@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-scan-steam-library"
+description = "Enables the scan_steam_library command without any pre-configured scope."
+commands.allow = ["scan_steam_library"]
+
+[[permission]]
+identifier = "deny-scan-steam-library"
+description = "Denies the scan_steam_library command without any pre-configured scope."
+commands.deny = ["scan_steam_library"]

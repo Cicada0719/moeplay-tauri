@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-developer"
+description = "Enables the update_developer command without any pre-configured scope."
+commands.allow = ["update_developer"]
+
+[[permission]]
+identifier = "deny-update-developer"
+description = "Denies the update_developer command without any pre-configured scope."
+commands.deny = ["update_developer"]

@@ -4,10 +4,16 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { settingsStore } from "../stores/settings.svelte";
   import { uiStore } from "../stores/ui.svelte";
+  import { APP_THEMES } from "../utils/theme";
   import { updateNsfwDisplayMode, setAutostart, syncSteamAchievements, type NsfwDisplayMode } from "../api";
   import { gameStore } from "../stores/games.svelte";
   import { animeStore } from "../stores/anime.svelte";
   import Button from "./ui/Button.svelte";
+  import Card from "./ui/Card.svelte";
+  import SegmentControl from "./ui/SegmentControl.svelte";
+  import Switch from "./ui/Switch.svelte";
+  import Input from "./ui/Input.svelte";
+  import Tag from "./ui/Tag.svelte";
   import Icon from "./Icon.svelte";
   import UpdateDialog from "./UpdateDialog.svelte";
 
@@ -19,11 +25,7 @@
     { id: "hide", label: "隐藏" },
   ];
 
-  const themes = [
-    { id: "dark", label: "深色", icon: "home" },
-    { id: "light", label: "浅色", icon: "lightbulb" },
-    { id: "sakura", label: "樱夜", icon: "heart" },
-  ];
+  const themes = APP_THEMES;
 
   const startupModes = [
     { id: "dashboard", label: "普通模式", desc: "最大化窗口，保留任务栏", icon: "monitor" },
@@ -202,7 +204,7 @@
   <main class="stg-content" bind:this={contentEl}>
 
     <!-- 常用 -->
-    <section class="s-section">
+    <Card class="s-section" padding="lg">
       <div class="s-head">
         <h2 class="s-title"><Icon name="eye" size={17} className="s-title-ic" /> 常用</h2>
       </div>
@@ -212,17 +214,12 @@
           <span class="s-label">主题</span>
           <span class="s-desc">界面色彩方案</span>
         </div>
-        <div class="s-seg">
-          {#each themes as theme}
-            <button
-              class="s-seg-btn"
-              class:active={settingsStore.settings.theme === theme.id}
-              onclick={() => handleThemeChange(theme.id)}
-            >
-              <Icon name={theme.icon} size={13} />{theme.label}
-            </button>
-          {/each}
-        </div>
+        <SegmentControl
+          options={themes.map(t => ({ value: t.id, label: t.label }))}
+          value={settingsStore.settings.theme ?? ""}
+          onChange={handleThemeChange}
+          size="sm"
+        />
       </div>
 
       <div class="s-row">
@@ -230,15 +227,12 @@
           <span class="s-label">敏感内容</span>
           <span class="s-desc">NSFW 封面显示方式</span>
         </div>
-        <div class="s-seg">
-          {#each nsfwModes as mode}
-            <button
-              class="s-seg-btn"
-              class:active={settingsStore.settings.nsfw_display_mode === mode.id}
-              onclick={() => setNsfw(mode.id)}
-            >{mode.label}</button>
-          {/each}
-        </div>
+        <SegmentControl
+          options={nsfwModes.map(m => ({ value: m.id, label: m.label }))}
+          value={settingsStore.settings.nsfw_display_mode ?? ""}
+          onChange={(v) => setNsfw(v as NsfwDisplayMode)}
+          size="sm"
+        />
       </div>
 
       <div class="s-divider"></div>
@@ -248,24 +242,25 @@
       </div>
       <div class="mode-grid">
         {#each startupModes as mode}
-          <button
-            class="mode-card"
-            class:active={(settingsStore.settings.startup_mode ?? "fullscreen") === mode.id}
+          <Card
+            class="mode-card {(settingsStore.settings.startup_mode ?? 'fullscreen') === mode.id ? 'active' : ''}"
+            hoverable
             onclick={() => setStartupMode(mode.id)}
+            padding="md"
           >
             <div class="mode-icon">
               <Icon name={mode.icon} size={22} />
             </div>
             <span class="mode-label">{mode.label}</span>
             <span class="mode-desc">{mode.desc}</span>
-          </button>
+          </Card>
         {/each}
       </div>
       <p class="s-note">普通 / 全屏：选择后立即生效；大屏：下次启动进入大屏中心。</p>
-    </section>
+    </Card>
 
     <!-- 数据源 -->
-    <section class="s-section">
+    <Card class="s-section" padding="lg">
       <div class="s-head">
         <h2 class="s-title"><Icon name="layers" size={17} className="s-title-ic" /> 数据刮削</h2>
         <div class="s-head-actions">
@@ -276,46 +271,39 @@
       <p class="s-note">选择从哪些数据库获取游戏元数据（封面、简介、标签等）</p>
       <div class="src-grid">
         {#each scrapeSources as src}
-          <label class="src-item">
+          <div class="src-item">
             <div class="src-info">
               <span class="src-name">{src.label}</span>
               <span class="src-desc">{src.desc}</span>
             </div>
-            <div class="sw">
-              <input type="checkbox" checked={isSourceEnabled(src.key)} onchange={() => toggleScrapeSetting(src.key)} />
-              <span class="sw-track"><span class="sw-knob"></span></span>
-            </div>
-          </label>
+            <Switch checked={isSourceEnabled(src.key)} onchange={() => toggleScrapeSetting(src.key)} />
+          </div>
         {/each}
       </div>
       <div class="s-divider"></div>
-      <label class="src-item">
+      <div class="src-item">
         <div class="src-info">
           <span class="src-name">自动刮削</span>
           <span class="src-desc">添加游戏时自动搜索并填充元数据</span>
         </div>
-        <div class="sw">
-          <input type="checkbox" checked={settingsStore.settings.auto_scrape} onchange={() => toggleScrapeSetting("auto_scrape")} />
-          <span class="sw-track"><span class="sw-knob"></span></span>
-        </div>
-      </label>
+        <Switch checked={settingsStore.settings.auto_scrape} onchange={() => toggleScrapeSetting("auto_scrape")} />
+      </div>
       <div class="s-divider"></div>
       <div class="s-row" style="flex-direction: column; align-items: stretch; gap: 6px;">
         <div class="s-info">
           <span class="s-label">HTTP 代理</span>
           <span class="s-desc">刮削数据源时使用的代理地址，留空则使用系统代理</span>
         </div>
-        <input
-          class="ai-input"
+        <Input
           bind:value={settingsStore.settings.scraper_proxy}
           onblur={save}
           placeholder="如 http://127.0.0.1:7890（留空 = 系统代理）"
         />
       </div>
-    </section>
+    </Card>
 
     <!-- 库与导入 -->
-    <section class="s-section">
+    <Card class="s-section" padding="lg">
       <div class="s-head">
         <h2 class="s-title"><Icon name="folder" size={17} className="s-title-ic" /> 库与导入</h2>
       </div>
@@ -327,12 +315,12 @@
       {#if settingsStore.settings.watch_dirs.length > 0}
         <div class="dir-list">
           {#each settingsStore.settings.watch_dirs as dir}
-            <div class="dir-item">
+            <Card class="dir-item" padding="sm" hoverable>
               <span class="dir-path">{dir}</span>
-              <button class="dir-remove" onclick={() => settingsStore.removeWatchDir(dir)} title="移除">
+              <button class="dir-remove" onclick={() => settingsStore.removeWatchDir(dir)} title="移除" type="button">
                 <Icon name="x" size={14} />
               </button>
-            </div>
+            </Card>
           {/each}
         </div>
       {:else}
@@ -383,10 +371,10 @@
           <Button variant="primary" size="sm" onclick={() => uiStore.currentView = "migration"}>迁移</Button>
         </div>
       </div>
-    </section>
+    </Card>
 
     <!-- Bangumi 收藏同步 -->
-    <section class="s-section">
+    <Card class="s-section" padding="lg">
       <div class="s-head">
         <h2 class="s-title"><Icon name="heart" size={17} className="s-title-ic" /> Bangumi 收藏同步</h2>
       </div>
@@ -399,13 +387,13 @@
             <span class="s-desc">从 Bangumi 个人设置 → 开发者 → Access Token 获取</span>
           </div>
           <div style="display: flex; gap: 8px; align-items: center;">
-            <input
-              class="ai-input"
-              style="flex: 1;"
-              type="password"
-              bind:value={bangumiTokenInput}
-              placeholder="粘贴你的 Bangumi Access Token"
-            />
+            <div style="flex: 1;">
+              <Input
+                type="password"
+                bind:value={bangumiTokenInput}
+                placeholder="粘贴你的 Bangumi Access Token"
+              />
+            </div>
             {#if animeStore.bangumiConnected}
               <Button variant="ghost" size="sm" onclick={handleBangumiDisconnect}>断开</Button>
             {:else}
@@ -447,18 +435,15 @@
               <span class="s-label" style="margin-left: 26px;">同步优先级</span>
               <span class="s-desc">冲突时以哪方为准</span>
             </div>
-            <div class="s-seg">
-              <button
-                class="s-seg-btn"
-                class:active={animeStore.bangumiSyncPriority === 0}
-                onclick={() => animeStore.bangumiSyncPriority = 0}
-              >本地优先</button>
-              <button
-                class="s-seg-btn"
-                class:active={animeStore.bangumiSyncPriority === 1}
-                onclick={() => animeStore.bangumiSyncPriority = 1}
-              >Bangumi 优先</button>
-            </div>
+            <SegmentControl
+              options={[
+                { value: "0", label: "本地优先" },
+                { value: "1", label: "Bangumi 优先" },
+              ]}
+              value={String(animeStore.bangumiSyncPriority)}
+              onChange={(v) => animeStore.bangumiSyncPriority = parseInt(v)}
+              size="sm"
+            />
           </div>
         </div>
 
@@ -469,35 +454,29 @@
           <div class="ops-msg" style="color: #e8557f;">{animeStore.bangumiSyncError}</div>
         {/if}
       {/if}
-    </section>
+    </Card>
 
     <!-- 番剧播放器 -->
-    <section class="s-section">
+    <Card class="s-section" padding="lg">
       <div class="s-head">
         <h2 class="s-title"><Icon name="film" size={17} className="s-title-ic" /> 番剧播放器</h2>
       </div>
 
-      <label class="src-item">
+      <div class="src-item">
         <div class="src-info">
           <span class="src-name">自动连播</span>
           <span class="src-desc">一集播完后自动播放下一集</span>
         </div>
-        <div class="sw">
-          <input type="checkbox" checked={animeStore.autoNext} onchange={() => animeStore.autoNext = !animeStore.autoNext} />
-          <span class="sw-track"><span class="sw-knob"></span></span>
-        </div>
-      </label>
+        <Switch checked={animeStore.autoNext} onchange={() => animeStore.autoNext = !animeStore.autoNext} />
+      </div>
 
-      <label class="src-item">
+      <div class="src-item">
         <div class="src-info">
           <span class="src-name">默认开启弹幕</span>
           <span class="src-desc">进入播放器时自动加载弹幕</span>
         </div>
-        <div class="sw">
-          <input type="checkbox" checked={animeStore.danmakuEnabled} onchange={() => animeStore.danmakuEnabled = !animeStore.danmakuEnabled} />
-          <span class="sw-track"><span class="sw-knob"></span></span>
-        </div>
-      </label>
+        <Switch checked={animeStore.danmakuEnabled} onchange={() => animeStore.danmakuEnabled = !animeStore.danmakuEnabled} />
+      </div>
 
       <div class="s-divider"></div>
 
@@ -506,11 +485,14 @@
           <span class="s-label">跳过片头（秒）</span>
           <span class="s-desc">每集开始自动跳到第 N 秒，0 表示不跳</span>
         </div>
-        <input
+        <Input
           class="num-input"
-          type="number" min="0" max="300" step="1"
-          value={animeStore.skipOpening}
-          oninput={e => animeStore.skipOpening = Math.max(0, parseInt((e.target as HTMLInputElement).value) || 0)}
+          type="number"
+          min="0"
+          max="300"
+          step="1"
+          value={String(animeStore.skipOpening)}
+          oninput={(e) => animeStore.skipOpening = Math.max(0, parseInt((e.target as HTMLInputElement).value) || 0)}
         />
       </div>
 
@@ -519,11 +501,14 @@
           <span class="s-label">跳过片尾（秒）</span>
           <span class="s-desc">距结尾 N 秒时自动跳下一集，0 表示不跳</span>
         </div>
-        <input
+        <Input
           class="num-input"
-          type="number" min="0" max="300" step="1"
-          value={animeStore.skipEnding}
-          oninput={e => animeStore.skipEnding = Math.max(0, parseInt((e.target as HTMLInputElement).value) || 0)}
+          type="number"
+          min="0"
+          max="300"
+          step="1"
+          value={String(animeStore.skipEnding)}
+          oninput={(e) => animeStore.skipEnding = Math.max(0, parseInt((e.target as HTMLInputElement).value) || 0)}
         />
       </div>
 
@@ -534,11 +519,12 @@
           <span class="s-label">默认倍速</span>
           <span class="s-desc">进入播放器时的初始倍速</span>
         </div>
-        <div class="s-seg">
-          {#each [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0] as rate}
-            <button class="s-seg-btn" class:active={animeStore.playbackRate === rate} onclick={() => animeStore.playbackRate = rate}>{rate}x</button>
-          {/each}
-        </div>
+        <SegmentControl
+          options={[0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0].map(r => ({ value: String(r), label: `${r}x` }))}
+          value={String(animeStore.playbackRate)}
+          onChange={(v) => animeStore.playbackRate = parseFloat(v)}
+          size="sm"
+        />
       </div>
 
       <div class="s-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
@@ -546,36 +532,33 @@
           <span class="s-label">长按倍速</span>
           <span class="s-desc">长按画面时临时切换到的倍速</span>
         </div>
-        <div class="s-seg">
-          {#each [1.5, 2.0, 3.0, 4.0] as rate}
-            <button class="s-seg-btn" class:active={animeStore.longPressRate === rate} onclick={() => animeStore.longPressRate = rate}>{rate}x</button>
-          {/each}
-        </div>
+        <SegmentControl
+          options={[1.5, 2.0, 3.0, 4.0].map(r => ({ value: String(r), label: `${r}x` }))}
+          value={String(animeStore.longPressRate)}
+          onChange={(v) => animeStore.longPressRate = parseFloat(v)}
+          size="sm"
+        />
       </div>
-    </section>
+    </Card>
 
     <!-- 高级 -->
-    <section class="s-section">
+    <Card class="s-section" padding="lg">
       <div class="s-head">
         <h2 class="s-title"><Icon name="toolbox" size={17} className="s-title-ic" /> 高级</h2>
       </div>
 
-      <label class="src-item">
+      <div class="src-item">
         <div class="src-info">
           <span class="src-name">启用 AI 增强</span>
           <span class="src-desc">使用大语言模型辅助刮削和补全</span>
         </div>
-        <div class="sw">
-          <input type="checkbox" bind:checked={settingsStore.settings.ai_enabled} onchange={save} />
-          <span class="sw-track"><span class="sw-knob"></span></span>
-        </div>
-      </label>
+        <Switch checked={settingsStore.settings.ai_enabled} onchange={save} />
+      </div>
       {#if settingsStore.settings.ai_enabled}
         <div class="ai-form">
           <label class="ai-field">
             <span class="ai-label">API 地址</span>
-            <input
-              class="ai-input"
+            <Input
               bind:value={settingsStore.settings.ai_api_url}
               onblur={save}
               placeholder="https://api.openai.com/v1/chat/completions"
@@ -583,18 +566,16 @@
           </label>
           <label class="ai-field">
             <span class="ai-label">API Key</span>
-            <input
-              class="ai-input"
+            <Input
+              type="password"
               bind:value={settingsStore.settings.ai_api_key}
               onblur={save}
               placeholder="sk-..."
-              type="password"
             />
           </label>
           <label class="ai-field">
             <span class="ai-label">模型</span>
-            <input
-              class="ai-input"
+            <Input
               bind:value={settingsStore.settings.ai_model}
               onblur={save}
               placeholder="gpt-4o-mini"
@@ -604,39 +585,35 @@
       {/if}
 
       <div class="s-divider"></div>
-      <label class="src-item">
+      <div class="src-item">
         <div class="src-info">
           <span class="src-name">开机自启动</span>
-          <span class="src-desc">系统启动时自动打开萌游</span>
+          <span class="s-desc">系统启动时自动打开萌游</span>
         </div>
-        <div class="sw">
-          <input
-            type="checkbox"
-            checked={settingsStore.settings.autostart_enabled ?? false}
-            onchange={(e) => toggleAutostart((e.target as HTMLInputElement).checked)}
-            disabled={savingAutostart}
-          />
-          <span class="sw-track"><span class="sw-knob"></span></span>
-        </div>
-      </label>
+        <Switch
+          checked={settingsStore.settings.autostart_enabled ?? false}
+          onchange={(e) => toggleAutostart((e.target as HTMLInputElement).checked)}
+          disabled={savingAutostart}
+        />
+      </div>
 
       <div class="s-divider"></div>
       <div class="about-block">
         <div class="about-name">
           <span class="about-brand">萌游</span>
-          <span class="about-ver">v0.1.1</span>
+          <Tag variant="accent" size="sm" class="about-ver">v0.11.3</Tag>
         </div>
         <p class="about-tagline">可爱的游戏管理器</p>
         <div class="about-stack">
-          <span class="about-chip">Tauri v2</span>
-          <span class="about-chip">Svelte 5</span>
-          <span class="about-chip">Rust</span>
+          <Tag variant="muted" size="sm">Tauri v2</Tag>
+          <Tag variant="muted" size="sm">Svelte 5</Tag>
+          <Tag variant="muted" size="sm">Rust</Tag>
         </div>
-        <button class="about-update-btn" onclick={() => showUpdateDialog = true}>
+        <Button variant="ghost" size="sm" onclick={() => showUpdateDialog = true}>
           <Icon name="download" size={14} /> 检查更新
-        </button>
+        </Button>
       </div>
-    </section>
+    </Card>
 
   </main>
 </section>
@@ -700,16 +677,9 @@
     scroll-behavior: smooth;
   }
 
-  /* ── Section panel (flat: single border, one soft shadow) ── */
-  .s-section {
-    padding: 20px 22px;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: var(--aura-panel-bg, rgba(17, 21, 31, 0.5));
-    box-shadow: 0 6px 20px -14px rgba(0, 0, 0, 0.5);
-    transition: border-color 0.3s ease;
-  }
-  .s-section:hover { border-color: var(--border-hover); }
+  /* ── Section panel ── */
+  :global(.s-section) { transition: border-color 0.3s ease; }
+  :global(.s-section):hover { border-color: var(--border-hover); }
 
   /* ── Section head ── */
   .s-head {
@@ -758,82 +728,7 @@
   }
 
   /* ── Number input for player settings ── */
-  .num-input {
-    width: 72px;
-    padding: 6px 10px;
-    border: 1px solid var(--aura-border, rgba(255,255,255,0.1));
-    border-radius: 8px;
-    background: rgba(255,255,255,0.05);
-    color: var(--text-primary);
-    font-size: 13px;
-    text-align: center;
-    flex-shrink: 0;
-  }
-  .num-input:focus { outline: none; border-color: var(--accent); }
-
-  /* ── Segmented buttons ── */
-  .s-seg { display: flex; gap: 6px; flex-wrap: wrap; }
-  .s-seg-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 7px 14px;
-    border: 1px solid var(--aura-border, rgba(255, 255, 255, 0.1));
-    border-radius: var(--radius-full);
-    background: transparent;
-    color: var(--text-muted);
-    font-family: var(--font-ui);
-    font-size: 12.5px;
-    font-weight: 650;
-    cursor: pointer;
-    transition: all 0.2s ease;
-  }
-  .s-seg-btn:hover {
-    color: var(--text-primary);
-    border-color: var(--border-hover);
-    background: var(--bg-hover);
-  }
-  .s-seg-btn.active {
-    color: #fff;
-    background: var(--accent);
-    border-color: var(--accent);
-  }
-
-  /* ── Toggle switch ── */
-  .sw {
-    position: relative;
-    display: inline-flex;
-    width: 42px; height: 24px;
-    flex-shrink: 0;
-    cursor: pointer;
-  }
-  .sw input { position: absolute; opacity: 0; width: 0; height: 0; }
-  .sw-track {
-    display: block;
-    width: 42px; height: 24px;
-    background: var(--bg-hover);
-    border: 1px solid var(--border);
-    border-radius: 24px;
-    position: relative;
-    transition: background 0.25s cubic-bezier(0.16,1,0.3,1), border-color 0.25s;
-  }
-  .sw-knob {
-    position: absolute;
-    top: 3px; left: 3px;
-    width: 16px; height: 16px;
-    border-radius: 50%;
-    background: var(--text-muted);
-    transition: transform 0.25s cubic-bezier(0.16,1,0.3,1), background 0.25s;
-  }
-  .sw input:checked ~ .sw-track {
-    background: var(--accent-lo);
-    border-color: var(--accent-ring);
-  }
-  .sw input:checked ~ .sw-track .sw-knob {
-    transform: translateX(18px);
-    background: var(--accent);
-  }
-  .sw input:disabled ~ .sw-track { opacity: 0.45; cursor: not-allowed; }
+  :global(.num-input) { max-width: 90px; text-align: center; }
 
   /* ── Source grid ── */
   .src-grid {
@@ -848,7 +743,6 @@
     align-items: center;
     padding: 11px 0;
     border-bottom: 1px solid var(--aura-line, rgba(255, 255, 255, 0.06));
-    cursor: pointer;
   }
   .src-item:last-child { border-bottom: none; }
   .src-info { display: flex; flex-direction: column; gap: 1px; }
@@ -861,27 +755,18 @@
     grid-template-columns: repeat(3, minmax(0,1fr));
     gap: 10px;
   }
-  .mode-card {
+  :global(.mode-card) {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 8px;
-    padding: 18px 12px 14px;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    background: var(--bg-elev);
+    text-align: center;
     color: var(--text-secondary);
-    cursor: pointer;
     font-family: var(--font-ui);
     transition: all 0.25s cubic-bezier(0.16,1,0.3,1);
   }
-  .mode-card:hover {
-    border-color: var(--border-hover);
-    background: var(--bg-hover);
-    transform: translateY(-1px);
-  }
-  .mode-card:active { transform: translateY(0) scale(0.98); }
-  .mode-card.active {
+  :global(.mode-card):active { transform: translateY(0) scale(0.98); }
+  :global(.mode-card.active) {
     border-color: var(--accent-ring);
     background: var(--accent-lo);
     color: var(--text-primary);
@@ -889,14 +774,13 @@
   }
   .mode-icon {
     width: 40px; height: 40px;
-    display: grid;
-    place-items: center;
+    display: grid; place-items: center;
     border-radius: 10px;
     background: rgba(255,255,255,0.04);
     color: var(--text-muted);
     transition: color 0.2s, background 0.2s;
   }
-  .mode-card.active .mode-icon {
+  :global(.mode-card.active) .mode-icon {
     background: var(--accent);
     color: #fff;
   }
@@ -907,7 +791,7 @@
     text-align: center;
     line-height: 1.35;
   }
-  .mode-card.active .mode-desc { color: var(--text-muted); }
+  :global(.mode-card.active) .mode-desc { color: var(--text-muted); }
 
   /* ── AI form ── */
   .ai-form {
@@ -927,32 +811,15 @@
     color: var(--text-muted);
     font-weight: 600;
   }
-  .ai-input {
-    width: 100%;
-    padding: 10px 14px;
-    background: var(--aura-inset, rgba(7,9,15,0.44));
-    border: 1px solid var(--aura-border, rgba(255,255,255,0.1));
-    border-radius: 8px;
-    color: var(--text-primary);
-    font-family: var(--font-mono);
-    font-size: 12.5px;
-    outline: none;
-    transition: border-color 0.2s;
-  }
-  .ai-input:focus { border-color: var(--accent); }
-  .ai-input::placeholder { color: var(--text-dim); }
 
   /* ── Directory list ── */
-  .dir-list { display: flex; flex-direction: column; }
-  .dir-item {
+  .dir-list { display: flex; flex-direction: column; gap: 6px; }
+  :global(.dir-item) {
     display: grid;
     grid-template-columns: minmax(0,1fr) auto;
     gap: 12px;
     align-items: center;
-    padding: 10px 0;
-    border-bottom: 1px solid var(--aura-line, rgba(255, 255, 255, 0.06));
   }
-  .dir-item:last-child { border-bottom: none; }
   .dir-path {
     font-family: var(--font-mono);
     font-size: 12px;
@@ -963,8 +830,7 @@
   }
   .dir-remove {
     width: 28px; height: 28px;
-    display: grid;
-    place-items: center;
+    display: grid; place-items: center;
     border: 1px solid transparent;
     border-radius: 6px;
     background: transparent;
@@ -1004,35 +870,13 @@
     font-weight: 750;
     color: var(--text-primary);
   }
-  .about-ver {
+  :global(.about-ver) {
     font-family: var(--font-mono);
     font-size: 12px;
     font-weight: 600;
-    color: var(--accent);
-    padding: 2px 8px;
-    background: var(--accent-lo);
-    border-radius: var(--radius-full);
   }
   .about-tagline { margin: 0; font-size: 13px; color: var(--text-muted); }
   .about-stack { display: flex; gap: 6px; padding-top: 4px; }
-  .about-chip {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-dim);
-    padding: 3px 10px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-full);
-  }
-  .about-update-btn {
-    display: inline-flex; align-items: center; gap: 6px;
-    margin-top: 4px; padding: 7px 16px;
-    border: 1px solid var(--accent-ring); border-radius: 8px;
-    background: transparent; color: var(--accent);
-    font-size: 12.5px; font-weight: 600; cursor: pointer;
-    transition: all 0.15s; width: fit-content;
-  }
-  .about-update-btn:hover { background: var(--accent); color: #fff; }
 
   /* ── Responsive ── */
   @media (max-width: 720px) {
@@ -1040,7 +884,6 @@
     .mode-grid { grid-template-columns: 1fr; }
     .ai-field { grid-template-columns: 1fr; }
     .s-row { grid-template-columns: 1fr; gap: 10px; }
-    .s-seg { justify-content: flex-start; }
     .stg-content { padding: 8px 16px 36px; }
     .stg-head { padding: 20px 16px 12px; }
   }

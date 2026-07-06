@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-engine"
+description = "Enables the update_engine command without any pre-configured scope."
+commands.allow = ["update_engine"]
+
+[[permission]]
+identifier = "deny-update-engine"
+description = "Denies the update_engine command without any pre-configured scope."
+commands.deny = ["update_engine"]

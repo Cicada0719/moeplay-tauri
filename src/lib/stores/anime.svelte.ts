@@ -1,4 +1,5 @@
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { invokeCmd } from "../api/core";
 import { listen } from "@tauri-apps/api/event";
 
 // ── 类型 ──────────────────────────────────────────────────────────────────
@@ -580,7 +581,7 @@ export const animeStore = {
   async init() {
     if (_rules.length > 0) {
       console.log(`[anime-init] pushing ${_rules.length} rules to backend…`);
-      await invoke("anime_set_rules", { rules: _rules }).catch((e) => {
+      await invokeCmd("anime_set_rules", { rules: _rules }).catch((e) => {
         console.error("[anime-init] anime_set_rules FAILED:", e);
       });
       console.log("[anime-init] rules synced OK");
@@ -592,21 +593,21 @@ export const animeStore = {
   // ── 规则管理 ──────────────────────────────────────────────────────────
 
   async addRule(rule: AnimeRule) {
-    await invoke("anime_add_rule", { rule });
+    await invokeCmd("anime_add_rule", { rule });
     const idx = _rules.findIndex((r) => r.name === rule.name);
     if (idx >= 0) _rules[idx] = rule; else _rules = [..._rules, rule];
     saveJson(RULES_KEY, _rules);
   },
 
   async removeRule(name: string) {
-    await invoke("anime_remove_rule", { name });
+    await invokeCmd("anime_remove_rule", { name });
     _rules = _rules.filter((r) => r.name !== name);
     saveJson(RULES_KEY, _rules);
   },
 
   async importRules(json: string): Promise<number> {
-    const count = await invoke<number>("anime_import_rules", { json });
-    _rules = await invoke<AnimeRule[]>("anime_get_rules");
+    const count = await invokeCmd<number>("anime_import_rules", { json });
+    _rules = await invokeCmd<AnimeRule[]>("anime_get_rules");
     saveJson(RULES_KEY, _rules);
     return count;
   },
@@ -617,7 +618,7 @@ export const animeStore = {
     _catalogLoading = true;
     _catalogError = null;
     try {
-      _catalog = await invoke<RuleCatalogItem[]>("anime_github_rules_index");
+      _catalog = await invokeCmd<RuleCatalogItem[]>("anime_github_rules_index");
     } catch (e) {
       _catalogError = String(e);
     } finally {
@@ -640,7 +641,7 @@ export const animeStore = {
   async installRule(name: string) {
     _installingRules = new Set([..._installingRules, name]);
     try {
-      const rule = await invoke<AnimeRule>("anime_install_github_rule", { name });
+      const rule = await invokeCmd<AnimeRule>("anime_install_github_rule", { name });
       const idx = _rules.findIndex((r) => r.name === rule.name);
       if (idx >= 0) _rules[idx] = rule; else _rules = [..._rules, rule];
       saveJson(RULES_KEY, _rules);
@@ -658,8 +659,8 @@ export const animeStore = {
     const names = _catalog.map((c) => c.name);
     _catalogLoading = true;
     try {
-      const count = await invoke<number>("anime_install_all_github_rules", { names });
-      _rules = await invoke<AnimeRule[]>("anime_get_rules");
+      const count = await invokeCmd<number>("anime_install_all_github_rules", { names });
+      _rules = await invokeCmd<AnimeRule[]>("anime_get_rules");
       saveJson(RULES_KEY, _rules);
       _error = null;
       return count;
@@ -676,7 +677,7 @@ export const animeStore = {
     if (_calendar.length > 0) return;
     _calendarLoading = true;
     try {
-      _calendar = await invoke<BangumiCalendarDay[]>("anime_bangumi_calendar");
+      _calendar = await invokeCmd<BangumiCalendarDay[]>("anime_bangumi_calendar");
       const urls: string[] = [];
       for (const day of _calendar) {
         for (const item of day.items) {
@@ -695,7 +696,7 @@ export const animeStore = {
     const unique = [...new Set(urls)].filter(u => !_imgCache[u]);
     if (unique.length === 0) return;
     for (const url of unique) {
-      invoke<string>("anime_proxy_image", { url }).then(localPath => {
+      invokeCmd<string>("anime_proxy_image", { url }).then(localPath => {
         _imgCache = { ..._imgCache, [url]: convertFileSrc(localPath) };
         trimImgCache();
       }).catch(() => {});
@@ -719,7 +720,7 @@ export const animeStore = {
   async _loadTrending(append: boolean) {
     _recTrendingLoading = true;
     try {
-      const [items, total] = await invoke<[BangumiSubject[], number]>("anime_bangumi_search", {
+      const [items, total] = await invokeCmd<[BangumiSubject[], number]>("anime_bangumi_search", {
         keyword: "", offset: _recTrendingOffset, sort: "heat",
       });
       _recTrending = append ? [..._recTrending, ...items] : items;
@@ -734,7 +735,7 @@ export const animeStore = {
     _recSeasonalLoading = true;
     try {
       const season = currentSeason();
-      const [items, total] = await invoke<[BangumiSubject[], number]>("anime_bangumi_search", {
+      const [items, total] = await invokeCmd<[BangumiSubject[], number]>("anime_bangumi_search", {
         keyword: "", offset: _recSeasonalOffset, sort: "heat",
         airDateGte: season.gte, airDateLte: season.lte,
       });
@@ -749,7 +750,7 @@ export const animeStore = {
   async _loadTopRated(append: boolean) {
     _recTopRatedLoading = true;
     try {
-      const [items, total] = await invoke<[BangumiSubject[], number]>("anime_bangumi_search", {
+      const [items, total] = await invokeCmd<[BangumiSubject[], number]>("anime_bangumi_search", {
         keyword: "", offset: _recTopRatedOffset, sort: "rank",
       });
       _recTopRated = append ? [..._recTopRated, ...items] : items;
@@ -766,7 +767,7 @@ export const animeStore = {
 
   async searchBangumi(keyword: string): Promise<BangumiSubject[]> {
     try {
-      const [items] = await invoke<[BangumiSubject[], number]>("anime_bangumi_search", {
+      const [items] = await invokeCmd<[BangumiSubject[], number]>("anime_bangumi_search", {
         keyword, offset: 0,
       });
       return items;
@@ -785,8 +786,8 @@ export const animeStore = {
     _detailComments = [];
     try {
       const [detail, rating] = await Promise.all([
-        invoke<BangumiSubjectDetail>('anime_bangumi_detail', { subjectId }),
-        invoke<BangumiRatingDetail>('anime_bangumi_rating', { subjectId }),
+        invokeCmd<BangumiSubjectDetail>('anime_bangumi_detail', { subjectId }),
+        invokeCmd<BangumiRatingDetail>('anime_bangumi_rating', { subjectId }),
       ]);
       _detailSubject = detail;
       _detailRating = rating;
@@ -798,7 +799,7 @@ export const animeStore = {
 
   async loadBangumiDetailByName(name: string) {
     try {
-      const [items] = await invoke<[BangumiSubject[], number]>('anime_bangumi_search', {
+      const [items] = await invokeCmd<[BangumiSubject[], number]>('anime_bangumi_search', {
         keyword: name, offset: 0, sort: 'match',
       });
       if (items.length > 0 && items[0].id) {
@@ -811,30 +812,30 @@ export const animeStore = {
 
   async loadBangumiCharacters(subjectId: number) {
     try {
-      _detailCharacters = await invoke<BangumiCharacter[]>('anime_bangumi_characters', { subjectId });
+      _detailCharacters = await invokeCmd<BangumiCharacter[]>('anime_bangumi_characters', { subjectId });
     } catch { /* silent */ }
   },
 
   async loadBangumiPersons(subjectId: number) {
     try {
-      _detailPersons = await invoke<BangumiPerson[]>('anime_bangumi_persons', { subjectId });
+      _detailPersons = await invokeCmd<BangumiPerson[]>('anime_bangumi_persons', { subjectId });
     } catch { /* silent */ }
   },
 
   async loadBangumiComments(subjectId: number) {
     try {
-      _detailComments = await invoke<BangumiComment[]>('anime_bangumi_comments', { subjectId });
+      _detailComments = await invokeCmd<BangumiComment[]>('anime_bangumi_comments', { subjectId });
     } catch { /* silent */ }
   },
 
   async loadBangumiTab(tab: 'comments' | 'characters' | 'staff', subjectId: number) {
     try {
       if (tab === 'characters') {
-        _detailCharacters = await invoke('anime_bangumi_characters', { subjectId });
+        _detailCharacters = await invokeCmd('anime_bangumi_characters', { subjectId });
       } else if (tab === 'staff') {
-        _detailPersons = await invoke('anime_bangumi_persons', { subjectId });
+        _detailPersons = await invokeCmd('anime_bangumi_persons', { subjectId });
       } else if (tab === 'comments') {
-        _detailComments = await invoke('anime_bangumi_comments', { subjectId, offset: 0, limit: 20 });
+        _detailComments = await invokeCmd('anime_bangumi_comments', { subjectId, offset: 0, limit: 20 });
       }
     } catch (e) {
       console.warn(`Failed to load ${tab}:`, e);
@@ -855,7 +856,7 @@ export const animeStore = {
     // 单一来源：直接搜
     if (_selectedRule) {
       try {
-        const items = await invoke<SearchItem[]>("anime_search", { ruleName: _selectedRule, keyword });
+        const items = await invokeCmd<SearchItem[]>("anime_search", { ruleName: _selectedRule, keyword });
         if (token !== _searchToken) return;
         _searchResults = items.length > 0 ? [[_selectedRule, items]] : [];
         if (_searchResults.length === 0) _error = "未找到结果";
@@ -879,7 +880,7 @@ export const animeStore = {
         _searchResults = [..._searchResults, [source, items]];
         _loading = false;
       });
-      await invoke("anime_search_all", { keyword });
+      await invokeCmd("anime_search_all", { keyword });
       if (token !== _searchToken) return;
       if (_searchResults.length === 0) _error = "未找到结果";
     } catch (e) {
@@ -997,7 +998,7 @@ export const animeStore = {
     console.log("[播放] playEpisode", { roadIdx, episodeIdx, rule: _detailRuleName });
 
     try {
-      _playerUrl = await invoke<string>("anime_build_url", {
+      _playerUrl = await invokeCmd<string>("anime_build_url", {
         ruleName: _detailRuleName, url: ep.url,
       });
     } catch {
@@ -1023,9 +1024,11 @@ export const animeStore = {
       const rule = _rules.find(r => r.name === _detailRuleName);
       console.log("[播放] 开始提取视频 URL:", _playerUrl);
       const EXTRACT_TIMEOUT = 35_000;
-      const extractPromise = invoke<{ url: string; tab_url?: string }>('anime_extract_video_url', {
+      const extractPromise = invokeCmd<{ url: string; tab_url?: string }>('anime_extract_video_url', {
         episodeUrl: _playerUrl,
         useLegacyParser: rule?.useLegacyParser ?? false,
+        referer: rule?.referer || rule?.baseUrl || '',
+        userAgent: rule?.userAgent || '',
       });
       const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("提取超时")), EXTRACT_TIMEOUT)
@@ -1034,17 +1037,17 @@ export const animeStore = {
       if (gen !== _playGeneration) return; // 用户切了集数，丢弃旧结果
 
       console.log("[播放] 提取成功:", result.url);
-      invoke('frontend_log', { level: 'info', message: `[播放] 前端收到提取结果: ${result.url.substring(0, 80)}` }).catch(() => {});
+      invokeCmd('frontend_log', { level: 'info', message: `[播放] 前端收到提取结果: ${result.url.substring(0, 80)}` }).catch(() => {});
       // 通过本地代理播放（解决 CORS / 防盗链 Referer）
       // 用播放器页地址做 Referer（CDN 防盗链认的是播放器域名，不是规则 baseUrl）
       const playerPageUrl = result.tab_url || rule?.baseUrl || '';
       console.log("[播放] Referer:", playerPageUrl);
-      const proxyUrl = await invoke<string>('anime_get_proxy_url', {
+      const proxyUrl = await invokeCmd<string>('anime_get_proxy_url', {
         url: result.url,
         referer: playerPageUrl || null,
       });
       console.log("[播放] 代理 URL:", proxyUrl);
-      invoke('frontend_log', { level: 'info', message: `[播放] 前端拿到代理URL: ${proxyUrl.substring(0, 80)}` }).catch(() => {});
+      invokeCmd('frontend_log', { level: 'info', message: `[播放] 前端拿到代理URL: ${proxyUrl.substring(0, 80)}` }).catch(() => {});
       _playerVideoSrc = proxyUrl;
       // isM3u8 的实际语义是"是否优先用 hls.js"。URL 含 m3u8 必然是；否则只要不是明显的直链媒体
       // 文件(mp4/mkv/...)，也默认走 hls.js —— 国产番源绝大多数是 HLS，且流地址常是无扩展名的
@@ -1057,12 +1060,12 @@ export const animeStore = {
       _videoUrlCache.set(_playerUrl, { proxyUrl, isM3u8: _playerIsM3u8, tabUrl: playerPageUrl, ts: Date.now() });
       saveSuccessSource(_detailName, _detailRuleName);
       console.log("[播放] 状态设为 found, isM3u8(优先hls):", _playerIsM3u8, "directFile:", directFile);
-      invoke('frontend_log', { level: 'info', message: `[播放] 状态设为 found, isM3u8=${_playerIsM3u8}, directFile=${directFile}` }).catch(() => {});
+      invokeCmd('frontend_log', { level: 'info', message: `[播放] 状态设为 found, isM3u8=${_playerIsM3u8}, directFile=${directFile}` }).catch(() => {});
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : String(e);
       const isTimeout = errMsg.includes("提取超时") || errMsg.includes("timeout");
       console.error(`[播放] ${isTimeout ? "提取超时" : "提取失败"}:`, e);
-      invoke('frontend_log', { level: 'error', message: `[播放] ${isTimeout ? '提取超时' : '提取失败'}: ${errMsg}` }).catch(() => {});
+      invokeCmd('frontend_log', { level: 'error', message: `[播放] ${isTimeout ? '提取超时' : '提取失败'}: ${errMsg}` }).catch(() => {});
       if (gen !== _playGeneration) return;
       // 有备用源 → 保持 'extracting' 状态让换源 UI 显示；无备用源 → 直接判 timeout/error
       const hasAlternatives = _rules.filter(r => !_failoverTriedSources.has(r.name)).length > 0;
@@ -1122,24 +1125,34 @@ export const animeStore = {
 
     const candidatePromises = availableRules.map(async (rule): Promise<Candidate | null> => {
       try {
-        const items = await invoke<SearchItem[]>('anime_search', {
+        const items = await invokeCmd<SearchItem[]>('anime_search', {
           ruleName: rule.name, keyword: _detailName,
         });
         if (items.length === 0) { console.log(`[换源] ${rule.name}: 未找到`); return null; }
 
         const searchItem = items[0];
-        const roads = await invoke<Road[]>('anime_fetch_roads', {
+        const roads = await invokeCmd<Road[]>('anime_fetch_roads', {
           ruleName: rule.name, pageUrl: searchItem.url,
         });
         if (roads.length === 0) { console.log(`[换源] ${rule.name}: 无线路`); return null; }
 
         const targetRoad = roads[0];
-        const targetEp = targetRoad.episodes[_playerEpisodeIdx]
+        // 尽量保持原集数：先按索引，再按标题，再按标题中的数字，最后兜底第 1 集
+        const originalIdx = _playerEpisodeIdx;
+        const epNumMatch = episodeName.match(/(\d+)/);
+        const epNum = epNumMatch ? parseInt(epNumMatch[1]) : null;
+        const targetEp = targetRoad.episodes[originalIdx]
           || targetRoad.episodes.find(ep => ep.name === episodeName)
+          || (epNum !== null
+              ? targetRoad.episodes.find(ep => {
+                  const m = ep.name.match(/(\d+)/);
+                  return m ? parseInt(m[1]) === epNum : false;
+                })
+              : undefined)
           || targetRoad.episodes[0];
         if (!targetEp) { console.log(`[换源] ${rule.name}: 无匹配集数`); return null; }
 
-        const pageUrl = await invoke<string>("anime_build_url", {
+        const pageUrl = await invokeCmd<string>("anime_build_url", {
           ruleName: rule.name, url: targetEp.url,
         }).catch(() => targetEp.url);
 
@@ -1186,9 +1199,11 @@ export const animeStore = {
       try {
         const FAILOVER_EXTRACT_TIMEOUT = 20_000;
         const result = await Promise.race([
-          invoke<{ url: string; tab_url?: string }>('anime_extract_video_url', {
+          invokeCmd<{ url: string; tab_url?: string }>('anime_extract_video_url', {
             episodeUrl: pageUrl,
             useLegacyParser: rule.useLegacyParser ?? false,
+            referer: rule.referer || rule.baseUrl || '',
+            userAgent: rule.userAgent || '',
           }),
           new Promise<never>((_, reject) =>
             setTimeout(() => reject(new Error("换源提取超时")), FAILOVER_EXTRACT_TIMEOUT)
@@ -1197,7 +1212,7 @@ export const animeStore = {
         if (failoverGen !== _failoverGeneration) return;
 
         const playerPageUrl = result.tab_url || rule.baseUrl || '';
-        const proxyUrl = await invoke<string>('anime_get_proxy_url', {
+        const proxyUrl = await invokeCmd<string>('anime_get_proxy_url', {
           url: result.url, referer: playerPageUrl || null,
         });
         if (failoverGen !== _failoverGeneration) return;
@@ -1247,20 +1262,22 @@ export const animeStore = {
     const ruleName = _detailRuleName;
 
     try {
-      const nextPageUrl = await invoke<string>("anime_build_url", {
+      const nextPageUrl = await invokeCmd<string>("anime_build_url", {
         ruleName, url: nextEp.url,
       }).catch(() => nextEp.url);
 
       if (_videoUrlCache.has(nextPageUrl)) return;
 
       const rule = _rules.find(r => r.name === ruleName);
-      const result = await invoke<{ url: string; tab_url?: string }>('anime_extract_video_url', {
+      const result = await invokeCmd<{ url: string; tab_url?: string }>('anime_extract_video_url', {
         episodeUrl: nextPageUrl,
         useLegacyParser: rule?.useLegacyParser ?? false,
+        referer: rule?.referer || rule?.baseUrl || '',
+        userAgent: rule?.userAgent || '',
       });
 
       const playerPageUrl = result.tab_url || rule?.baseUrl || '';
-      const proxyUrl = await invoke<string>('anime_get_proxy_url', {
+      const proxyUrl = await invokeCmd<string>('anime_get_proxy_url', {
         url: result.url, referer: playerPageUrl || null,
       });
 
@@ -1283,7 +1300,7 @@ export const animeStore = {
     _danmakuAnimeId = 0;
     _danmakuEpisodeId = 0;
     try {
-      const animes = await invoke<DanmakuAnime[]>('anime_danmaku_search', { keyword: animeName });
+      const animes = await invokeCmd<DanmakuAnime[]>('anime_danmaku_search', { keyword: animeName });
       if (animes.length === 0) {
         _danmakuLoading = false;
         return;
@@ -1316,7 +1333,7 @@ export const animeStore = {
   async loadDanmaku(episodeId: number) {
     _danmakuLoading = true;
     try {
-      _danmakuComments = await invoke<DanmakuComment[]>('anime_danmaku_get_comments', { episodeId });
+      _danmakuComments = await invokeCmd<DanmakuComment[]>('anime_danmaku_get_comments', { episodeId });
       _danmakuEpisodeId = episodeId;
     } catch (e) {
       console.warn('弹幕加载失败:', e);
@@ -1435,6 +1452,40 @@ export const animeStore = {
     saveJson(HISTORY_KEY, _history);
   },
 
+  /// 从历史记录恢复播放：打开详情页并直接续播到上次进度。
+  async resumeHistory(entry: AnimeHistory) {
+    if (!entry.ruleName || !entry.sourceUrl) return;
+    _error = null;
+    _detailName = entry.name;
+    _detailUrl = entry.sourceUrl;
+    _detailRuleName = entry.ruleName;
+    _detailImage = entry.image;
+    _roads = [];
+    _detailSubject = null;
+    _detailRating = null;
+    _detailCharacters = [];
+    _detailPersons = [];
+    _detailComments = [];
+    _detailTab = 'overview';
+    _sourceSheetOpen = false;
+    _view = "detail";
+
+    try {
+      const roads = await invokeCmd<Road[]>('anime_fetch_roads', {
+        ruleName: entry.ruleName,
+        pageUrl: entry.sourceUrl,
+      });
+      _roads = roads;
+      const road = roads[entry.lastRoad];
+      const ep = road?.episodes[entry.lastEpisode];
+      if (road && ep) {
+        this.playEpisode(entry.lastRoad, entry.lastEpisode, entry.progressMs);
+      }
+    } catch (e) {
+      console.warn("[anime] 恢复历史记录失败:", e);
+    }
+  },
+
   // ── Bangumi 收藏同步 ──────────────────────────────────────────────────
 
   /** 设置 Bangumi token 并测试连接 */
@@ -1448,7 +1499,7 @@ export const animeStore = {
       return "";
     }
     try {
-      const username = await invoke<string>("anime_bangumi_get_username", { token });
+      const username = await invokeCmd<string>("anime_bangumi_get_username", { token });
       _bangumiToken = token;
       _bangumiUsername = username;
       saveJson(BANGUMI_TOKEN_KEY, token);
@@ -1476,7 +1527,7 @@ export const animeStore = {
     _bangumiSyncError = null;
     _bangumiSyncProgress = "正在拉取远程收藏...";
     try {
-      const remote = await invoke<BangumiCollectionEntry[]>(
+      const remote = await invokeCmd<BangumiCollectionEntry[]>(
         "anime_bangumi_get_all_collections",
         { token: _bangumiToken, username: _bangumiUsername || null },
       );
@@ -1545,7 +1596,7 @@ export const animeStore = {
       );
       if (!remote) continue;
       try {
-        await invoke<boolean>("anime_bangumi_update_collection", {
+        await invokeCmd<boolean>("anime_bangumi_update_collection", {
           token: _bangumiToken,
           subjectId: remote.subject_id,
           collectionType: c.collectType,
@@ -1568,7 +1619,7 @@ export const animeStore = {
     );
     if (!remote) return; // 没有对应 Bangumi 条目，跳过
     try {
-      await invoke<boolean>("anime_bangumi_update_collection", {
+      await invokeCmd<boolean>("anime_bangumi_update_collection", {
         token: _bangumiToken,
         subjectId: remote.subject_id,
         collectionType: collectType,
@@ -1609,7 +1660,7 @@ export const animeStore = {
     _imageSearchError = null;
     _imageSearchResults = [];
     try {
-      _imageSearchResults = await invoke<TraceMoeResult[]>('anime_image_search', { imageUrl });
+      _imageSearchResults = await invokeCmd<TraceMoeResult[]>('anime_image_search', { imageUrl });
     } catch (e) {
       _imageSearchError = String(e);
       _imageSearchResults = [];
@@ -1629,7 +1680,7 @@ export const animeStore = {
     _episodeCommentsLoading = true;
     _episodeComments = [];
     try {
-      _episodeComments = await invoke<BangumiEpisodeComment[]>('anime_bangumi_episode_comments', { episodeId });
+      _episodeComments = await invokeCmd<BangumiEpisodeComment[]>('anime_bangumi_episode_comments', { episodeId });
     } catch (e) {
       console.warn('章节评论加载失败:', e);
       _episodeComments = [];

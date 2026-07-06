@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-save-dir"
+description = "Enables the set_save_dir command without any pre-configured scope."
+commands.allow = ["set_save_dir"]
+
+[[permission]]
+identifier = "deny-set-save-dir"
+description = "Denies the set_save_dir command without any pre-configured scope."
+commands.deny = ["set_save_dir"]

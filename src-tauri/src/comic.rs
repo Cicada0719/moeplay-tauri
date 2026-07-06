@@ -37,9 +37,12 @@ fn client() -> &'static reqwest::Client {
         reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
             .connect_timeout(std::time::Duration::from_secs(10))
-            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_certs(crate::http_client::insecure_tls_enabled())
             .build()
-            .expect("failed to build HTTP client")
+            .unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "Failed to build custom HTTP client, falling back to default");
+                reqwest::Client::new()
+            })
     })
 }
 
@@ -53,19 +56,20 @@ fn unix_ts() -> String {
         .to_string()
 }
 
-pub fn sign(path: &str, timestamp: &str, method: &str) -> String {
+pub fn sign(path: &str, timestamp: &str, method: &str) -> Result<String, String> {
     let msg = format!("{}{}{}{}{}", path, timestamp, NONCE, method, API_KEY).to_lowercase();
-    let mut mac = HmacSha256::new_from_slice(SECRET_KEY.as_bytes()).expect("HMAC key");
+    let mut mac = HmacSha256::new_from_slice(SECRET_KEY.as_bytes())
+        .map_err(|e| format!("HMAC key invalid: {}", e))?;
     mac.update(msg.as_bytes());
-    hex::encode(mac.finalize().into_bytes())
+    Ok(hex::encode(mac.finalize().into_bytes()))
 }
 
-fn build_headers(sig_path: &str, method: &str, token: &str) -> reqwest::header::HeaderMap {
+fn build_headers(sig_path: &str, method: &str, token: &str) -> Result<reqwest::header::HeaderMap, String> {
     use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
     use std::str::FromStr;
 
     let ts = unix_ts();
-    let sig = sign(sig_path, &ts, method);
+    let sig = sign(sig_path, &ts, method)?;
     let mut map = HeaderMap::new();
 
     for (k, v) in &[
@@ -95,7 +99,7 @@ fn build_headers(sig_path: &str, method: &str, token: &str) -> reqwest::header::
             map.insert(n, v);
         }
     }
-    map
+    Ok(map)
 }
 
 async fn parse_resp(resp: reqwest::Response) -> Result<serde_json::Value, String> {
@@ -134,7 +138,7 @@ pub async fn api_get(
     let url = format!("{}/{}", BASE_URL, sig_path);
     let resp = client()
         .get(&url)
-        .headers(build_headers(&sig_path, "GET", token))
+        .headers(build_headers(&sig_path, "GET", token)?)
         .send()
         .await
         .map_err(|e| format!("网络错误: {}", e))?;
@@ -149,7 +153,7 @@ pub async fn api_post(
     let url = format!("{}/{}", BASE_URL, path);
     let resp = client()
         .post(&url)
-        .headers(build_headers(path, "POST", token))
+        .headers(build_headers(path, "POST", token)?)
         .json(body)
         .send()
         .await
@@ -165,7 +169,7 @@ pub async fn api_put(
     let url = format!("{}/{}", BASE_URL, path);
     let resp = client()
         .put(&url)
-        .headers(build_headers(path, "PUT", token))
+        .headers(build_headers(path, "PUT", token)?)
         .json(body)
         .send()
         .await

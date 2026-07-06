@@ -6,7 +6,7 @@
   import { uiStore } from "../stores/ui.svelte";
   import { pickDirectory, migrateFromCsharp, verifyMigrationIds, openPath, type MigrationReport, type MigrationVerifyReport } from "../api";
   import Icon from "./Icon.svelte";
-  import Button from "./Button.svelte";
+  import Button from "./ui/Button.svelte";
 
   type MigrationProgress = {
     stage: string;

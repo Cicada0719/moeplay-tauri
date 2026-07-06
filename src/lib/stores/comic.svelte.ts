@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invokeCmd } from "../api/core";
 
 // ── 类型 ──────────────────────────────────────────────────────────────────
 
@@ -263,7 +263,7 @@ export const comicStore = {
 
   async rehydrate() {
     if (_token) {
-      await invoke("comic_set_token", { token: _token }).catch(() => {});
+      await invokeCmd("comic_set_token", { token: _token }).catch(() => {});
     }
   },
 
@@ -271,7 +271,7 @@ export const comicStore = {
     _loading = true;
     _error = null;
     try {
-      const token = await invoke<string>("comic_login", { email, password });
+      const token = await invokeCmd<string>("comic_login", { email, password });
       _token = token;
       _savedEmail = email;
       localStorage.setItem(TOKEN_KEY, token);
@@ -287,7 +287,7 @@ export const comicStore = {
   logout() {
     _token = "";
     localStorage.removeItem(TOKEN_KEY);
-    invoke("comic_set_token", { token: "" }).catch(() => {});
+    invokeCmd("comic_set_token", { token: "" }).catch(() => {});
     _view = "home";
     _activeTab = "explore";
     _profile = null;
@@ -309,13 +309,13 @@ export const comicStore = {
 
   async loadProfile() {
     try {
-      _profile = await invoke<ComicUserProfile>("comic_profile");
+      _profile = await invokeCmd<ComicUserProfile>("comic_profile");
     } catch { /* silent — profile is optional */ }
   },
 
   async punchIn(): Promise<boolean> {
     try {
-      await invoke("comic_punch_in");
+      await invokeCmd("comic_punch_in");
       if (_profile) _profile = { ..._profile, is_punched: true };
       return true;
     } catch (e) {
@@ -331,7 +331,7 @@ export const comicStore = {
     _loading = true;
     _error = null;
     try {
-      _categories = await invoke<ComicCategory[]>("comic_categories");
+      _categories = await invokeCmd<ComicCategory[]>("comic_categories");
       _categoriesLoaded = true;
       if (_categories.length > 0 && !_selectedCategory) {
         await this.selectCategory(null);
@@ -362,7 +362,7 @@ export const comicStore = {
     _loading = true;
     _error = null;
     try {
-      const result = await invoke<ComicListPage>("comic_list", {
+      const result = await invokeCmd<ComicListPage>("comic_list", {
         page,
         category: _selectedCategory,
         sort: _sort,
@@ -392,7 +392,7 @@ export const comicStore = {
     _loading = true;
     _error = null;
     try {
-      const result = await invoke<ComicListPage>("comic_search", {
+      const result = await invokeCmd<ComicListPage>("comic_search", {
         keyword, page: 1, sort: _sort,
       });
       _searchResults = result.docs;
@@ -409,7 +409,7 @@ export const comicStore = {
     if (_searchPage >= _searchPages || _loading) return;
     _loading = true;
     try {
-      const result = await invoke<ComicListPage>("comic_search", {
+      const result = await invokeCmd<ComicListPage>("comic_search", {
         keyword: _searchKeyword,
         page: _searchPage + 1,
         sort: _sort,
@@ -431,7 +431,7 @@ export const comicStore = {
     _loading = true;
     _error = null;
     try {
-      _ranking = await invoke<ComicSummary[]>("comic_ranking", { timeType: type });
+      _ranking = await invokeCmd<ComicSummary[]>("comic_ranking", { timeType: type });
       _rankingLoaded = true;
     } catch (e) {
       _error = String(e);
@@ -446,7 +446,7 @@ export const comicStore = {
     _loading = true;
     _error = null;
     try {
-      _randomList = await invoke<ComicSummary[]>("comic_random");
+      _randomList = await invokeCmd<ComicSummary[]>("comic_random");
     } catch (e) {
       _error = String(e);
     } finally {
@@ -460,7 +460,7 @@ export const comicStore = {
     _loading = true;
     _error = null;
     try {
-      const result = await invoke<ComicListPage>("comic_favorites", { page, sort: _sort });
+      const result = await invokeCmd<ComicListPage>("comic_favorites", { page, sort: _sort });
       _favorites = page === 1 ? result.docs : [..._favorites, ...result.docs];
       _favPage = result.page;
       _favPages = result.pages;
@@ -473,7 +473,7 @@ export const comicStore = {
 
   async toggleFavourite(id: string) {
     try {
-      const action = await invoke<string>("comic_toggle_favourite", { id });
+      const action = await invokeCmd<string>("comic_toggle_favourite", { id });
       if (_currentComic && _currentComic.id === id) {
         _currentComic = { ..._currentComic, is_favourite: action === "favourite" };
       }
@@ -487,7 +487,7 @@ export const comicStore = {
 
   async toggleLike(id: string) {
     try {
-      const action = await invoke<string>("comic_like", { id });
+      const action = await invokeCmd<string>("comic_like", { id });
       if (_currentComic && _currentComic.id === id) {
         const liked = action === "like";
         _currentComic = {
@@ -513,8 +513,8 @@ export const comicStore = {
     _recommendations = [];
     try {
       const [detail, chapters] = await Promise.all([
-        invoke<ComicDetail>("comic_detail", { id }),
-        invoke<ComicChapter[]>("comic_chapters", { id }),
+        invokeCmd<ComicDetail>("comic_detail", { id }),
+        invokeCmd<ComicChapter[]>("comic_chapters", { id }),
       ]);
       _currentComic = detail;
       _chapters = chapters;
@@ -542,7 +542,7 @@ export const comicStore = {
   async loadComments(comicId: string, page: number) {
     _commentsLoading = true;
     try {
-      const result = await invoke<CommentsPage>("comic_comments", { id: comicId, page });
+      const result = await invokeCmd<CommentsPage>("comic_comments", { id: comicId, page });
       if (page === 1) {
         _comments = result.docs;
       } else {
@@ -557,7 +557,7 @@ export const comicStore = {
 
   async postComment(comicId: string, content: string): Promise<boolean> {
     try {
-      await invoke("comic_post_comment", { id: comicId, content });
+      await invokeCmd("comic_post_comment", { id: comicId, content });
       await this.loadComments(comicId, 1);
       return true;
     } catch (e) {
@@ -568,7 +568,7 @@ export const comicStore = {
 
   async likeComment(commentId: string) {
     try {
-      const action = await invoke<string>("comic_comment_like", { commentId });
+      const action = await invokeCmd<string>("comic_comment_like", { commentId });
       const liked = action === "like";
       _comments = _comments.map(c =>
         c.id === commentId
@@ -587,7 +587,7 @@ export const comicStore = {
 
   async loadRecommendations(comicId: string) {
     try {
-      _recommendations = await invoke<ComicSummary[]>("comic_recommendation", { id: comicId });
+      _recommendations = await invokeCmd<ComicSummary[]>("comic_recommendation", { id: comicId });
     } catch { /* silent */ }
   },
 
@@ -601,7 +601,7 @@ export const comicStore = {
     _readerImages = [];
     _view = "reader";
     try {
-      _readerImages = await invoke<ComicImage[]>("comic_chapter_images", {
+      _readerImages = await invokeCmd<ComicImage[]>("comic_chapter_images", {
         id: _currentComic.id,
         order,
       });

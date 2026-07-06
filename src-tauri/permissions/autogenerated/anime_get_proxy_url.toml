@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-get-proxy-url"
+description = "Enables the anime_get_proxy_url command without any pre-configured scope."
+commands.allow = ["anime_get_proxy_url"]
+
+[[permission]]
+identifier = "deny-anime-get-proxy-url"
+description = "Denies the anime_get_proxy_url command without any pre-configured scope."
+commands.deny = ["anime_get_proxy_url"]

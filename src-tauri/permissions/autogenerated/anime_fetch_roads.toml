@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-fetch-roads"
+description = "Enables the anime_fetch_roads command without any pre-configured scope."
+commands.allow = ["anime_fetch_roads"]
+
+[[permission]]
+identifier = "deny-anime-fetch-roads"
+description = "Denies the anime_fetch_roads command without any pre-configured scope."
+commands.deny = ["anime_fetch_roads"]

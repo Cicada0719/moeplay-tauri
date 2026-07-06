@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-import-steam-game"
+description = "Enables the import_steam_game command without any pre-configured scope."
+commands.allow = ["import_steam_game"]
+
+[[permission]]
+identifier = "deny-import-steam-game"
+description = "Denies the import_steam_game command without any pre-configured scope."
+commands.deny = ["import_steam_game"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-import-platform-library"
+description = "Enables the import_platform_library command without any pre-configured scope."
+commands.allow = ["import_platform_library"]
+
+[[permission]]
+identifier = "deny-import-platform-library"
+description = "Denies the import_platform_library command without any pre-configured scope."
+commands.deny = ["import_platform_library"]

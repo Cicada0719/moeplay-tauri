@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-platform-import-status"
+description = "Enables the get_platform_import_status command without any pre-configured scope."
+commands.allow = ["get_platform_import_status"]
+
+[[permission]]
+identifier = "deny-get-platform-import-status"
+description = "Denies the get_platform_import_status command without any pre-configured scope."
+commands.deny = ["get_platform_import_status"]
