@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { check } from "@tauri-apps/plugin-updater";
   import { fly, fade, scale } from "svelte/transition";
   import { quintOut, cubicOut } from "svelte/easing";
   import { shortcut } from "@svelte-put/shortcut";
@@ -13,6 +14,7 @@
   import Notifications from "./lib/components/Notifications.svelte";
   import BigPicturePage from "./lib/components/BigPicturePage.svelte";
   import ShortcutHelp from "./lib/components/ShortcutHelp.svelte";
+  import UpdateDialog from "./lib/components/UpdateDialog.svelte";
   import Icon from "./lib/components/Icon.svelte";
   import { attachGamepad } from "./lib/components/switch/useGamepad.svelte";
   import { DOCK_ITEMS, TOOL_ITEMS } from "./lib/nav";
@@ -127,6 +129,7 @@
   let booted = $state(false);
   let _detachGamepad = () => {};
   let showShortcutHelp = $state(false);
+  let showUpdateDialog = $state(false);
   onMount(() => {
     if (!booted) {
       booted = true;
@@ -136,12 +139,20 @@
     }
     getCurrentWindow().isFullscreen().then(v => { isWindowFullscreen = v; }).catch(() => {});
     window.addEventListener("keydown", onKeydown);
+    // 启动 5 秒后静默检查更新（避免和首屏加载冲突）
+    const updateTimer = setTimeout(async () => {
+      try {
+        const update = await check();
+        if (update) showUpdateDialog = true;
+      } catch {}
+    }, 5000);
     // disable shortcuts while help is open to avoid double-firing from action
     _detachGamepad = attachGamepad({ back: () => {
       if (toolsDrawerOpen) { toolsDrawerOpen = false; return; }
       if (exitable()) goHome();
     }});
     return () => {
+      clearTimeout(updateTimer);
       window.removeEventListener("keydown", onKeydown);
       _detachGamepad();
     };
@@ -309,6 +320,8 @@
 {/if}
 
 <ShortcutHelp open={showShortcutHelp} onclose={() => (showShortcutHelp = false)} />
+
+<UpdateDialog bind:open={showUpdateDialog} />
 
 <Notifications />
 

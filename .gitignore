@@ -28,6 +28,8 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+tauri-signer.key
+tauri-signer.key.pub
 
 # Dev temp
 _dev/
