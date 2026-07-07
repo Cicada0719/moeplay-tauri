@@ -16,10 +16,11 @@ import { invokeCmd } from '../../api/core';
     animeStore.sourceSheetNonce === readyNonce
   );
 
-  type SourceStatus = 'pending' | 'success' | 'error' | 'noResult';
+  type SourceStatus = 'pending' | 'success' | 'error' | 'noResult' | 'captchaRequired' | 'verifying';
+  type SourceResult = { items: SearchItem[]; status: SourceStatus; message?: string };
 
   // ── 第一步：搜索状态 (组件内部管理, 不污染 store) ──
-  let searchResults = $state<Map<string, { items: SearchItem[]; status: SourceStatus }>>(new Map());
+  let searchResults = $state<Map<string, SourceResult>>(new Map());
   let activeSourceIdx = $state(0);
   let searchToken = 0;
 
@@ -58,7 +59,7 @@ import { invokeCmd } from '../../api/core';
     const token = ++searchToken;
     loadError = null;
     activeSourceIdx = 0;
-    const init = new Map<string, { items: SearchItem[]; status: SourceStatus }>();
+    const init = new Map<string, SourceResult>();
     for (const rule of rules) init.set(rule.name, { items: [], status: 'pending' });
     searchResults = init;
     debugLog(`[SourceSheet] searching "${detailName}" across ${rules.length} rules (token=${token})`);
@@ -83,10 +84,15 @@ import { invokeCmd } from '../../api/core';
           console.error(`[SourceSheet] ${ruleName} FAILED (token=${token}, current=${searchToken}):`, err);
           if (token !== searchToken) return;
           const next = new Map(searchResults);
-          next.set(ruleName, { items: [], status: 'error' });
+          next.set(ruleName, { items: [], status: isCaptchaError(err) ? 'captchaRequired' : 'error', message: String(err) });
           searchResults = next;
         });
     }
+  }
+
+  function isCaptchaError(err: unknown): boolean {
+    const msg = String(err ?? '');
+    return msg.includes('CAPTCHA_REQUIRED') || msg.includes('需要验证') || msg.toLowerCase().includes('captcha');
   }
 
   // 单源重试：只重新搜索指定的源，不动其它源
@@ -104,10 +110,28 @@ import { invokeCmd } from '../../api/core';
         n.set(ruleName, { items, status: ok ? 'success' : 'noResult' });
         searchResults = n;
       })
-      .catch(() => {
+      .catch((err) => {
         if (token !== searchToken) return;
         const n = new Map(searchResults);
-        n.set(ruleName, { items: [], status: 'error' });
+        n.set(ruleName, { items: [], status: isCaptchaError(err) ? 'captchaRequired' : 'error', message: String(err) });
+        searchResults = n;
+      });
+  }
+
+  function verifySource(ruleName: string) {
+    if (!detailName) return;
+    const next = new Map(searchResults);
+    next.set(ruleName, { items: [], status: 'verifying', message: '验证窗口已打开' });
+    searchResults = next;
+    invokeCmd('anime_verify_rule_webview', { ruleName, keywordOrUrl: detailName, mode: 'search' })
+      .then(() => {
+        const n = new Map(searchResults);
+        n.set(ruleName, { items: [], status: 'captchaRequired', message: '完成源站验证后，点击重试该源' });
+        searchResults = n;
+      })
+      .catch((err) => {
+        const n = new Map(searchResults);
+        n.set(ruleName, { items: [], status: 'captchaRequired', message: String(err) || '验证窗口打开失败' });
         searchResults = n;
       });
   }
@@ -158,6 +182,8 @@ import { invokeCmd } from '../../api/core';
     switch (status) {
       case 'success': return '#4ade80';
       case 'noResult': return '#fb923c';
+      case 'captchaRequired': return '#facc15';
+      case 'verifying': return '#60a5fa';
       case 'error': return '#f87171';
       default: return '#6b7280';
     }
@@ -270,6 +296,22 @@ import { invokeCmd } from '../../api/core';
             <div class="source-loading">
               <div class="spinner"></div>
               <span>搜索中...</span>
+            </div>
+          {:else if currentResult.status === 'verifying'}
+            <div class="source-loading">
+              <div class="spinner"></div>
+              <span>等待源站验证...</span>
+            </div>
+          {:else if currentResult.status === 'captchaRequired'}
+            <EmptyState
+              icon="shield"
+              title="该源需要验证"
+              description={currentResult.message || '完成验证后可只重试该源'}
+              action={{ label: '验证并重试', onclick: () => currentSource && verifySource(currentSource.name) }}
+              class="source-empty"
+            />
+            <div class="captcha-actions">
+              <Button variant="quiet" onclick={() => currentSource && retrySource(currentSource.name)}>重试该源</Button>
             </div>
           {:else if currentResult.status === 'error'}
             <EmptyState
@@ -460,6 +502,11 @@ import { invokeCmd } from '../../api/core';
     font-size: 13px;
   }
   :global(.ui-empty.source-empty p) { margin: 0; }
+  .captcha-actions {
+    display: flex;
+    justify-content: center;
+    padding: 0 20px 24px;
+  }
   .result-list {
     display: flex;
     flex-direction: column;

@@ -549,7 +549,11 @@ fn sniff_js() -> String {
 
 /// 来源可信度：实际验证过 m3u8 内容的最高；URL 模式匹配次之；DOM/media 再次。
 fn source_score(source: &str) -> i32 {
-    if source.contains("m3u8-body") || source.contains("resp.text:m3u8") || source.contains("fetch-m3u8") || source.contains("xhr-m3u8") {
+    if source.contains("m3u8-body")
+        || source.contains("resp.text:m3u8")
+        || source.contains("fetch-m3u8")
+        || source.contains("xhr-m3u8")
+    {
         100
     } else if source.contains("webresource") {
         90
@@ -557,9 +561,17 @@ fn source_score(source: &str) -> i32 {
         80
     } else if source.contains("performance") || source.contains("websocket") {
         75
-    } else if source.contains("media") || source.contains("dplayer") || source.contains("artplayer") || source.contains("videojs") || source.contains("plyr") {
+    } else if source.contains("media")
+        || source.contains("dplayer")
+        || source.contains("artplayer")
+        || source.contains("videojs")
+        || source.contains("plyr")
+    {
         70
-    } else if source.contains("dom") || source.contains("source-el") || source.contains("currentSrc") {
+    } else if source.contains("dom")
+        || source.contains("source-el")
+        || source.contains("currentSrc")
+    {
         60
     } else if source.contains("iframe") || source.contains("page-url") {
         50
@@ -582,7 +594,8 @@ fn url_score(url: &str) -> i32 {
 }
 
 fn is_better_result(new: &VideoUrlResult, old: &VideoUrlResult) -> bool {
-    source_score(&new.source) + url_score(&new.url) > source_score(&old.source) + url_score(&old.url)
+    source_score(&new.source) + url_score(&new.url)
+        > source_score(&old.source) + url_score(&old.url)
 }
 
 /// Shared implementation: open a hidden window, inject the sniffer, wait for a
@@ -670,10 +683,21 @@ async fn run_sniff(
                     } else {
                         String::new()
                     };
-                    let candidate = VideoUrlResult { url: found, source, tab_url };
+                    let candidate = VideoUrlResult {
+                        url: found,
+                        source,
+                        tab_url,
+                    };
                     let mut guard = best_nav.lock().unwrap();
-                    if guard.as_ref().map_or(true, |old| is_better_result(&candidate, old)) {
-                        tracing::info!("[sniff] sentinel 记录候选: source={}, url={}", candidate.source, candidate.url);
+                    if guard
+                        .as_ref()
+                        .map_or(true, |old| is_better_result(&candidate, old))
+                    {
+                        tracing::info!(
+                            "[sniff] sentinel 记录候选: source={}, url={}",
+                            candidate.source,
+                            candidate.url
+                        );
                         *guard = Some(candidate);
                         notify_nav.notify_one();
                     }
@@ -692,7 +716,10 @@ async fn run_sniff(
                 candidate = Some(VideoUrlResult {
                     url: url.clone(),
                     source: "webresource:url".into(),
-                    tab_url: current_url_resource.lock().map(|g| g.clone()).unwrap_or_default(),
+                    tab_url: current_url_resource
+                        .lock()
+                        .map(|g| g.clone())
+                        .unwrap_or_default(),
                 });
             } else {
                 // 检查响应内容：m3u8 master/media playlist 通常以 #EXTM3U 开头。
@@ -701,13 +728,20 @@ async fn run_sniff(
                     candidate = Some(VideoUrlResult {
                         url: url.clone(),
                         source: "webresource:m3u8-body".into(),
-                        tab_url: current_url_resource.lock().map(|g| g.clone()).unwrap_or_default(),
+                        tab_url: current_url_resource
+                            .lock()
+                            .map(|g| g.clone())
+                            .unwrap_or_default(),
                     });
                 }
             }
 
             if let Some(c) = candidate {
-                tracing::info!("[sniff] web_resource 命中: source={}, url={}", c.source, c.url);
+                tracing::info!(
+                    "[sniff] web_resource 命中: source={}, url={}",
+                    c.source,
+                    c.url
+                );
                 let mut guard = best_resource.lock().unwrap();
                 if guard.as_ref().map_or(true, |old| is_better_result(&c, old)) {
                     *guard = Some(c);
@@ -768,7 +802,10 @@ async fn run_sniff(
     // Phase 2: settle 窗口，继续收集更优/更晚的地址，并给页面激活回调留出时间
     let result = match first_found {
         Ok(()) => {
-            tracing::info!("[sniff] 找到候选，进入 {}ms settle 窗口", SETTLE_DURATION.as_millis());
+            tracing::info!(
+                "[sniff] 找到候选，进入 {}ms settle 窗口",
+                SETTLE_DURATION.as_millis()
+            );
             tokio::time::sleep(SETTLE_DURATION).await;
             best.lock().unwrap().clone()
         }
@@ -971,23 +1008,14 @@ pub async fn anime_extract_video_url(
     tracing::info!("开始提取视频 URL: {}", episode_url);
 
     let mut result = if use_legacy_parser {
-        legacy_extract(&episode_url,
-            referer.as_deref(),
-            user_agent.as_deref(),
-        )
-        .await
+        legacy_extract(&episode_url, referer.as_deref(), user_agent.as_deref()).await
     } else {
         let mut res = run_sniff(app, episode_url.clone(), user_agent.clone()).await;
         if let Err(ref e) = res {
             let msg = e.to_lowercase();
             if msg.contains("timeout") || msg.contains("video-url-timeout") {
                 tracing::info!("[提取] WebView 嗅探超时，回退到传统解析: {}", episode_url);
-                res = legacy_extract(
-                    &episode_url,
-                    referer.as_deref(),
-                    user_agent.as_deref(),
-                )
-                .await;
+                res = legacy_extract(&episode_url, referer.as_deref(), user_agent.as_deref()).await;
             }
         }
         res

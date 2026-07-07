@@ -387,6 +387,9 @@ pub fn run() {
             commands::anime_search_all,
             commands::anime_fetch_roads,
             commands::anime_build_url,
+            commands::anime_verify_rule_webview,
+            commands::anime_record_source_health,
+            commands::anime_get_source_health,
             commands::anime_fetch_page,
             // ---- 番剧 GitHub 规则仓库 + Bangumi ----
             commands::anime_github_rules_index,

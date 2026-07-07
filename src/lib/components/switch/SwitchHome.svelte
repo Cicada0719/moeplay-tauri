@@ -159,7 +159,7 @@
   }
 </script>
 
-<div class="switch-home" data-testid="switch-home">
+<div class="switch-home" class:grid-mode={showGrid} data-testid="switch-home">
   <div class="sw-bg" class:hidden={showGrid} aria-hidden="true">
     <div class="sw-bg-layer" class:cover={bgIsCover} style={`background-image:url("${bgArt}")`}></div>
     <div class="sw-bg-scrim"></div>
@@ -342,6 +342,10 @@
 
   /* ── 动态背景层（与大屏模式一致）── */
   .sw-bg { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+  .sw-bg.hidden {
+    opacity: 0;
+    visibility: hidden;
+  }
   .sw-bg-layer {
     position: absolute; inset: 0;
     background-size: cover; background-position: center 28%;
@@ -361,6 +365,10 @@
         rgba(7,9,15,0.62) 82%,
         rgba(7,9,15,0.92) 100%
       );
+  }
+
+  .switch-home.grid-mode {
+    background: linear-gradient(180deg, #07140d 0%, #041008 48%, #020503 100%);
   }
 
   .topbar, .stage, .all-panel, .all-grid, .empty-wrap, .rail-skel { position: relative; z-index: 1; }
@@ -506,10 +514,7 @@
     gap: 12px;
     padding: 6px 28px 12px;
     border-bottom: 1px solid var(--border);
-    background:
-      radial-gradient(140% 90% at 50% -18%, rgba(0, 255, 153, 0.10), transparent 60%),
-      radial-gradient(120% 80% at 100% 120%, rgba(0, 200, 120, 0.06), transparent 55%),
-      linear-gradient(165deg, #0b1a13 0%, #081109 55%, #050a07 100%);
+    background: linear-gradient(180deg, #07140d 0%, #041008 100%);
     flex-shrink: 0;
   }
   .all-head {
@@ -634,7 +639,12 @@
     border-color: var(--accent-ring);
     box-shadow: var(--focus-ring);
   }
-  .all-grid { flex: 1; min-height: 0; display: flex; }
+  .all-grid {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    background: linear-gradient(180deg, #041008 0%, #020503 100%);
+  }
 
   @media (max-width: 760px) {
     .topbar {

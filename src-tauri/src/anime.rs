@@ -1,6 +1,6 @@
 //! 番剧规则引擎 — 兼容 Kazumi 社区规则 JSON（XPath → CSS 自动转换）
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::sync::Mutex;
 
 // ── 规则(Plugin)模型 — 1:1 映射 Kazumi JSON ─────────────────────────────
@@ -8,7 +8,7 @@ use std::sync::Mutex;
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct AnimeRule {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_api")]
     pub api: String,
     #[serde(default = "default_type")]
     pub r#type: String,
@@ -17,7 +17,7 @@ pub struct AnimeRule {
     pub version: String,
     #[serde(default = "bool_true")]
     pub muli_sources: bool,
-    #[serde(default = "bool_true")]
+    #[serde(default)]
     pub use_webview: bool,
     #[serde(default = "bool_true")]
     pub use_native_player: bool,
@@ -40,6 +40,29 @@ pub struct AnimeRule {
     pub chapter_result: String,
     #[serde(default)]
     pub referer: String,
+    #[serde(default)]
+    pub anti_crawler_config: AntiCrawlerConfig,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AntiCrawlerConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub captcha_type: String,
+    #[serde(default)]
+    pub captcha_image: String,
+    #[serde(default)]
+    pub captcha_input: String,
+    #[serde(default)]
+    pub captcha_button: String,
+    #[serde(default)]
+    pub captcha_detect_type: String,
+    #[serde(default)]
+    pub captcha_detect_value: String,
+    #[serde(default)]
+    pub captcha_script: String,
 }
 
 fn default_type() -> String {
@@ -47,6 +70,20 @@ fn default_type() -> String {
 }
 fn bool_true() -> bool {
     true
+}
+
+fn deserialize_api<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(match value {
+        Some(serde_json::Value::String(s)) => s,
+        Some(serde_json::Value::Number(n)) => n.to_string(),
+        Some(serde_json::Value::Bool(b)) => b.to_string(),
+        Some(other) => other.to_string(),
+        None => String::new(),
+    })
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -210,9 +247,10 @@ fn shared_client() -> &'static reqwest::Client {
 }
 
 pub async fn search_anime(rule: &AnimeRule, keyword: &str) -> Result<Vec<SearchItem>, String> {
-    let query_url = rule
+    let query_path = rule
         .search_url
         .replace("@keyword", &urlencoding::encode(keyword));
+    let query_url = build_full_url(rule, &query_path);
 
     let client = shared_client();
     let mut headers = reqwest::header::HeaderMap::new();
@@ -231,12 +269,7 @@ pub async fn search_anime(rule: &AnimeRule, keyword: &str) -> Result<Vec<SearchI
             .query_pairs()
             .map(|(k, v)| (k.into_owned(), v.into_owned()))
             .collect();
-        let post_url = format!(
-            "{}://{}{}",
-            uri.scheme(),
-            uri.host_str().unwrap_or(""),
-            uri.path()
-        );
+        let post_url = url_origin_and_path(&uri);
         client
             .post(&post_url)
             .headers(headers)
@@ -258,6 +291,10 @@ pub async fn search_anime(rule: &AnimeRule, keyword: &str) -> Result<Vec<SearchI
             .await
             .map_err(|e| e.to_string())?
     };
+
+    if is_captcha_page(rule, &html) {
+        return Err("CAPTCHA_REQUIRED: 源站需要验证".into());
+    }
 
     let list_css = xpath_to_css(&rule.search_list);
     let name_css = xpath_to_css(&rule.search_name);
@@ -309,19 +346,7 @@ pub async fn search_anime(rule: &AnimeRule, keyword: &str) -> Result<Vec<SearchI
 }
 
 pub async fn fetch_roads(rule: &AnimeRule, page_url: &str) -> Result<Vec<Road>, String> {
-    let full_url = if page_url.starts_with("http") {
-        page_url.to_string()
-    } else {
-        format!(
-            "{}{}",
-            rule.base_url.trim_end_matches('/'),
-            if page_url.starts_with('/') {
-                page_url.to_string()
-            } else {
-                format!("/{}", page_url)
-            }
-        )
-    };
+    let full_url = build_full_url(rule, page_url);
 
     let client = shared_client();
     let mut headers = reqwest::header::HeaderMap::new();
@@ -343,6 +368,10 @@ pub async fn fetch_roads(rule: &AnimeRule, page_url: &str) -> Result<Vec<Road>, 
         .text()
         .await
         .map_err(|e| e.to_string())?;
+
+    if is_captcha_page(rule, &html) {
+        return Err("CAPTCHA_REQUIRED: 源站需要验证".into());
+    }
 
     let roads_css = xpath_to_css(&rule.chapter_roads);
     let chapters_css = xpath_to_css(&rule.chapter_result);
@@ -389,18 +418,204 @@ pub async fn fetch_roads(rule: &AnimeRule, page_url: &str) -> Result<Vec<Road>, 
 }
 
 pub fn build_full_url(rule: &AnimeRule, url: &str) -> String {
-    if url.contains(&rule.base_url) || url.starts_with("http") {
-        url.to_string()
-    } else {
-        format!(
-            "{}{}",
-            rule.base_url.trim_end_matches('/'),
-            if url.starts_with('/') {
-                url.to_string()
-            } else {
-                format!("/{}", url)
+    join_rule_url(&rule.base_url, url)
+}
+
+pub fn join_rule_url(base_url: &str, url: &str) -> String {
+    let raw = url.trim();
+    if raw.is_empty() {
+        return base_url.to_string();
+    }
+    if raw.starts_with("http://") || raw.starts_with("https://") {
+        return raw.to_string();
+    }
+    if raw.starts_with("//") {
+        let scheme = url::Url::parse(base_url)
+            .ok()
+            .map(|u| u.scheme().to_string())
+            .unwrap_or_else(|| "https".into());
+        return format!("{}:{}", scheme, raw);
+    }
+
+    if let Ok(base) = url::Url::parse(base_url) {
+        if raw.starts_with('/') {
+            let mut joined = format!("{}://{}", base.scheme(), base.host_str().unwrap_or(""));
+            if let Some(port) = base.port() {
+                joined.push_str(&format!(":{}", port));
             }
-        )
+            joined.push_str(raw);
+            return joined;
+        }
+
+        if base_url.ends_with('/') {
+            return format!("{}{}", base_url, raw);
+        }
+        return format!("{}/{}", base_url.trim_end_matches('/'), raw);
+    }
+
+    format!(
+        "{}/{}",
+        base_url.trim_end_matches('/'),
+        raw.trim_start_matches('/')
+    )
+}
+
+fn url_origin_and_path(uri: &url::Url) -> String {
+    let mut output = format!("{}://{}", uri.scheme(), uri.host_str().unwrap_or(""));
+    if let Some(port) = uri.port() {
+        output.push_str(&format!(":{}", port));
+    }
+    output.push_str(uri.path());
+    output
+}
+
+pub fn is_captcha_page(rule: &AnimeRule, html: &str) -> bool {
+    let config = &rule.anti_crawler_config;
+    if !config.enabled || html.trim().is_empty() {
+        return false;
+    }
+
+    let detect_value = config.captcha_detect_value.trim();
+    let detect_type = config.captcha_detect_type.trim();
+    if !detect_value.is_empty() {
+        if detect_type == "2" || detect_type.eq_ignore_ascii_case("text") {
+            if html.contains(detect_value) {
+                return true;
+            }
+        } else if detect_type == "3" || detect_type.eq_ignore_ascii_case("regex") {
+            if regex::Regex::new(detect_value)
+                .map(|re| re.is_match(html))
+                .unwrap_or(false)
+            {
+                return true;
+            }
+        } else if captcha_selector_matches(html, detect_value) {
+            return true;
+        }
+    }
+
+    [
+        &config.captcha_image,
+        &config.captcha_input,
+        &config.captcha_button,
+    ]
+    .iter()
+    .any(|selector| captcha_selector_matches(html, selector))
+}
+
+fn captcha_selector_matches(html: &str, xpath: &str) -> bool {
+    let css = xpath_to_css(xpath);
+    if css.is_empty() {
+        return false;
+    }
+    let Ok(selector) = scraper::Selector::parse(&css) else {
+        return false;
+    };
+    let doc = scraper::Html::parse_document(html);
+    doc.select(&selector).next().is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn base_rule() -> AnimeRule {
+        AnimeRule {
+            api: String::new(),
+            r#type: "anime".into(),
+            name: "fixture".into(),
+            version: String::new(),
+            muli_sources: true,
+            use_webview: false,
+            use_native_player: true,
+            use_post: false,
+            use_legacy_parser: false,
+            ad_blocker: false,
+            user_agent: String::new(),
+            base_url: "https://example.com/root".into(),
+            search_url: "/search?wd=@keyword".into(),
+            search_list: "//div".into(),
+            search_name: ".//a".into(),
+            search_result: ".//a".into(),
+            chapter_roads: "//div".into(),
+            chapter_result: ".//a".into(),
+            referer: String::new(),
+            anti_crawler_config: AntiCrawlerConfig::default(),
+        }
+    }
+
+    #[test]
+    fn kazumi_rule_accepts_numeric_api_and_anti_crawler_config() {
+        let rule: AnimeRule = serde_json::from_value(serde_json::json!({
+            "api": 13,
+            "name": "fixture",
+            "baseUrl": "https://example.com",
+            "searchUrl": "/search?wd=@keyword",
+            "searchList": "//div[@class='item']",
+            "searchName": ".//a",
+            "searchResult": ".//a",
+            "chapterRoads": "//div[@class='road']",
+            "chapterResult": ".//a",
+            "antiCrawlerConfig": {
+                "enabled": true,
+                "captchaType": "2",
+                "captchaButton": "//button[@id='verify']",
+                "captchaDetectType": "2",
+                "captchaDetectValue": "验证"
+            }
+        }))
+        .expect("rule should deserialize");
+
+        assert_eq!(rule.api, "13");
+        assert!(!rule.use_webview);
+        assert!(rule.use_native_player);
+        assert!(rule.anti_crawler_config.enabled);
+        assert_eq!(rule.anti_crawler_config.captcha_type, "2");
+    }
+
+    #[test]
+    fn build_full_url_handles_kazumi_url_shapes() {
+        let rule = base_rule();
+        assert_eq!(build_full_url(&rule, ""), "https://example.com/root");
+        assert_eq!(
+            build_full_url(&rule, "https://cdn.test/a.m3u8"),
+            "https://cdn.test/a.m3u8"
+        );
+        assert_eq!(
+            build_full_url(&rule, "//cdn.test/a.m3u8"),
+            "https://cdn.test/a.m3u8"
+        );
+        assert_eq!(
+            build_full_url(&rule, "/play/1"),
+            "https://example.com/play/1"
+        );
+        assert_eq!(
+            build_full_url(&rule, "play/1"),
+            "https://example.com/root/play/1"
+        );
+    }
+
+    #[test]
+    fn captcha_detection_uses_configured_text_or_selector() {
+        let mut rule = base_rule();
+        rule.anti_crawler_config = AntiCrawlerConfig {
+            enabled: true,
+            captcha_type: "1".into(),
+            captcha_image: String::new(),
+            captcha_input: "//input[@id='captcha']".into(),
+            captcha_button: String::new(),
+            captcha_detect_type: String::new(),
+            captcha_detect_value: String::new(),
+            captcha_script: String::new(),
+        };
+        assert!(is_captcha_page(
+            &rule,
+            "<html><input id='captcha' /></html>"
+        ));
+
+        rule.anti_crawler_config.captcha_detect_type = "2".into();
+        rule.anti_crawler_config.captcha_detect_value = "请完成验证".into();
+        assert!(is_captcha_page(&rule, "<html>请完成验证后继续</html>"));
     }
 }
 

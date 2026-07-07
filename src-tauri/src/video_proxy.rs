@@ -199,12 +199,15 @@ fn fetch_with_redirects(
         if is_redirect_status(status) && redirects < MAX_REDIRECTS {
             if let Some(loc) = resp.header("location") {
                 redirects += 1;
-                let base = url::Url::parse(&url)
-                    .unwrap_or_else(|_| url::Url::parse("http://x").unwrap());
+                let base =
+                    url::Url::parse(&url).unwrap_or_else(|_| url::Url::parse("http://x").unwrap());
                 let resolved = resolve_url(&base, loc);
                 tracing::info!(
                     "[proxy] HTTP {} redirect #{}: {} -> {}",
-                    status, redirects, url, resolved
+                    status,
+                    redirects,
+                    url,
+                    resolved
                 );
                 url = resolved;
                 continue;
@@ -314,7 +317,11 @@ fn handle_connection(mut stream: std::net::TcpStream) {
     };
     tracing::info!(
         "[proxy] {} → {}",
-        if is_m3u8_url(&target_url) { "m3u8" } else { "media" },
+        if is_m3u8_url(&target_url) {
+            "m3u8"
+        } else {
+            "media"
+        },
         short_url
     );
     if !referer.is_empty() {
@@ -338,18 +345,19 @@ fn handle_connection(mut stream: std::net::TcpStream) {
     }
 
     // 发起上游请求并手动跟随重定向
-    let (resp, final_url, redirects) = match fetch_with_redirects(&target_url, &referer, range_header.as_deref()) {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!("[proxy] 请求失败: {} → {}", e, short_url);
-            let body = format!(
-                "HTTP/1.1 502 Bad Gateway\r\nAccess-Control-Allow-Origin: *\r\n\r\n{}",
-                e
-            );
-            let _ = stream.write_all(body.as_bytes());
-            return;
-        }
-    };
+    let (resp, final_url, redirects) =
+        match fetch_with_redirects(&target_url, &referer, range_header.as_deref()) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!("[proxy] 请求失败: {} → {}", e, short_url);
+                let body = format!(
+                    "HTTP/1.1 502 Bad Gateway\r\nAccess-Control-Allow-Origin: *\r\n\r\n{}",
+                    e
+                );
+                let _ = stream.write_all(body.as_bytes());
+                return;
+            }
+        };
 
     let status = resp.status();
     let content_type = resp
@@ -360,7 +368,11 @@ fn handle_connection(mut stream: std::net::TcpStream) {
     let content_range = resp.header("content-range").map(|s| s.to_string());
 
     if redirects > 0 {
-        tracing::info!("[proxy] 最终 URL (after {} redirect(s)): {}", redirects, final_url);
+        tracing::info!(
+            "[proxy] 最终 URL (after {} redirect(s)): {}",
+            redirects,
+            final_url
+        );
     }
     tracing::debug!(
         "[proxy] upstream response: status={} content-type={} content-length={:?}",
@@ -516,10 +528,7 @@ fn looks_like_m3u8(bytes: &[u8]) -> bool {
         i += 3;
     }
     while i < bytes.len()
-        && (bytes[i] == b' '
-            || bytes[i] == b'\t'
-            || bytes[i] == b'\r'
-            || bytes[i] == b'\n')
+        && (bytes[i] == b' ' || bytes[i] == b'\t' || bytes[i] == b'\r' || bytes[i] == b'\n')
     {
         i += 1;
     }
@@ -609,9 +618,14 @@ mod tests {
 
     #[test]
     fn rewrite_m3u8_handles_single_quotes_and_whitespace() {
-        let bytes = b"\xEF\xBB\xBF\n\n   #EXT-X-KEY:METHOD=AES-128,URI='key.bin'\n#EXTINF:5,\nseg.ts\n";
+        let bytes =
+            b"\xEF\xBB\xBF\n\n   #EXT-X-KEY:METHOD=AES-128,URI='key.bin'\n#EXTINF:5,\nseg.ts\n";
         let m3u8 = String::from_utf8_lossy(bytes);
-        let out = rewrite_m3u8(&m3u8, "https://cdn.example.com/hls/index.m3u8", "https://site.com/");
+        let out = rewrite_m3u8(
+            &m3u8,
+            "https://cdn.example.com/hls/index.m3u8",
+            "https://site.com/",
+        );
         assert!(out.contains("URI='http://127.0.0.1"));
     }
 

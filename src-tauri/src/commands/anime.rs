@@ -1,7 +1,92 @@
 //! Tauri commands for the anime rule engine
 
 use crate::anime::{self, AnimeRule, AnimeState};
-use tauri::{Emitter, State};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::HashMap,
+    fs,
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
+use tauri::{Emitter, State, WebviewUrl, WebviewWindowBuilder};
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleWebviewQueryResult {
+    pub status: String,
+    pub message: String,
+    pub url: String,
+    pub items: Vec<anime::SearchItem>,
+    pub roads: Vec<anime::Road>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceHealthEvent {
+    pub success: bool,
+    #[serde(default)]
+    pub failure_kind: Option<String>,
+    #[serde(default)]
+    pub elapsed_ms: Option<u64>,
+    #[serde(default)]
+    pub anime_name: Option<String>,
+    #[serde(default)]
+    pub timestamp: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+struct SourceHealthRecord {
+    success: bool,
+    #[serde(default)]
+    failure_kind: Option<String>,
+    #[serde(default)]
+    elapsed_ms: Option<u64>,
+    #[serde(default)]
+    anime_name: Option<String>,
+    timestamp: i64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceHealthSummary {
+    pub rule_name: String,
+    pub recent_success_at: Option<i64>,
+    pub failure_rate: f64,
+    pub consecutive_failures: u32,
+    pub avg_extract_ms: u64,
+}
+
+fn now_millis() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or_default()
+}
+
+fn source_health_path() -> PathBuf {
+    dirs::data_dir()
+        .unwrap_or_else(|| std::env::temp_dir())
+        .join("moeplay")
+        .join("anime_source_health.json")
+}
+
+fn read_source_health() -> HashMap<String, Vec<SourceHealthRecord>> {
+    let path = source_health_path();
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+fn write_source_health(map: &HashMap<String, Vec<SourceHealthRecord>>) -> Result<(), String> {
+    let path = source_health_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let json = serde_json::to_string_pretty(map).map_err(|e| e.to_string())?;
+    fs::write(path, json).map_err(|e| e.to_string())
+}
 
 // ── 规则管理 ─────────────────────────────────────────────────────────────
 
@@ -183,6 +268,170 @@ pub async fn anime_build_url(
             .ok_or_else(|| format!("规则 '{}' 不存在", rule_name))?
     };
     Ok(anime::build_full_url(&rule, &url))
+}
+
+#[tauri::command]
+pub async fn anime_verify_rule_webview(
+    app: tauri::AppHandle,
+    state: State<'_, AnimeState>,
+    rule_name: String,
+    keyword_or_url: String,
+    mode: String,
+) -> Result<RuleWebviewQueryResult, String> {
+    let rule = {
+        let store = state.rules.lock().map_err(|e| e.to_string())?;
+        store
+            .iter()
+            .find(|r| r.name == rule_name)
+            .cloned()
+            .ok_or_else(|| format!("规则 '{}' 不存在", rule_name))?
+    };
+
+    let target_url = if mode == "roads" {
+        anime::build_full_url(&rule, &keyword_or_url)
+    } else {
+        let search_path = rule
+            .search_url
+            .replace("@keyword", &urlencoding::encode(&keyword_or_url));
+        anime::build_full_url(&rule, &search_path)
+    };
+    let parsed = target_url
+        .parse()
+        .map_err(|e| format!("验证页 URL 无效: {}", e))?;
+    let label = format!(
+        "anime-verify-{}-{}",
+        sanitize_label(&rule.name),
+        now_millis()
+    );
+    let init_script = verification_init_script(&rule);
+    let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parsed))
+        .title(format!("源站验证 · {}", rule.name))
+        .inner_size(980.0, 720.0)
+        .min_inner_size(720.0, 520.0)
+        .resizable(true)
+        .center()
+        .initialization_script(&init_script);
+    if !rule.user_agent.is_empty() {
+        builder = builder.user_agent(&rule.user_agent);
+    }
+
+    builder
+        .build()
+        .map_err(|e| format!("打开验证窗口失败: {}", e))?;
+
+    Ok(RuleWebviewQueryResult {
+        status: "opened".into(),
+        message: "已打开源站验证窗口，完成后请重试该源".into(),
+        url: target_url,
+        items: Vec::new(),
+        roads: Vec::new(),
+    })
+}
+
+#[tauri::command]
+pub fn anime_record_source_health(
+    rule_name: String,
+    result: SourceHealthEvent,
+) -> Result<(), String> {
+    if rule_name.trim().is_empty() {
+        return Ok(());
+    }
+    let mut map = read_source_health();
+    let records = map.entry(rule_name).or_default();
+    records.push(SourceHealthRecord {
+        success: result.success,
+        failure_kind: result.failure_kind,
+        elapsed_ms: result.elapsed_ms,
+        anime_name: result.anime_name,
+        timestamp: result.timestamp.unwrap_or_else(now_millis),
+    });
+    if records.len() > 20 {
+        let keep_from = records.len().saturating_sub(20);
+        records.drain(0..keep_from);
+    }
+    write_source_health(&map)
+}
+
+#[tauri::command]
+pub fn anime_get_source_health() -> Result<Vec<SourceHealthSummary>, String> {
+    let map = read_source_health();
+    let summaries = map
+        .into_iter()
+        .map(|(rule_name, records)| summarize_source_health(rule_name, &records))
+        .collect();
+    Ok(summaries)
+}
+
+fn sanitize_label(input: &str) -> String {
+    input
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .trim_matches('-')
+        .chars()
+        .take(40)
+        .collect()
+}
+
+fn verification_init_script(rule: &AnimeRule) -> String {
+    let config = &rule.anti_crawler_config;
+    let button = serde_json::to_string(&config.captcha_button).unwrap_or_else(|_| "\"\"".into());
+    let script = serde_json::to_string(&config.captcha_script).unwrap_or_else(|_| "\"\"".into());
+    let captcha_type =
+        serde_json::to_string(&config.captcha_type).unwrap_or_else(|_| "\"\"".into());
+    format!(
+        r#"
+(() => {{
+  const captchaType = {captcha_type};
+  const buttonXPath = {button};
+  const customScript = {script};
+  const firstByXPath = (xpath) => {{
+    if (!xpath) return null;
+    try {{
+      return document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+    }} catch (_) {{ return null; }}
+  }};
+  window.addEventListener('DOMContentLoaded', () => {{
+    window.setTimeout(() => {{
+      if (captchaType === '2') {{
+        const button = firstByXPath(buttonXPath);
+        if (button && typeof button.click === 'function') button.click();
+      }}
+      if (captchaType === '3' && customScript) {{
+        try {{ (0, eval)(customScript); }} catch (_) {{}}
+      }}
+    }}, 900);
+  }});
+}})();
+"#
+    )
+}
+
+fn summarize_source_health(
+    rule_name: String,
+    records: &[SourceHealthRecord],
+) -> SourceHealthSummary {
+    let total = records.len().max(1) as f64;
+    let failures = records.iter().filter(|r| !r.success).count() as f64;
+    let recent_success_at = records
+        .iter()
+        .rev()
+        .find(|r| r.success)
+        .map(|r| r.timestamp);
+    let consecutive_failures = records.iter().rev().take_while(|r| !r.success).count() as u32;
+    let elapsed: Vec<u64> = records.iter().filter_map(|r| r.elapsed_ms).collect();
+    let avg_extract_ms = if elapsed.is_empty() {
+        0
+    } else {
+        elapsed.iter().sum::<u64>() / elapsed.len() as u64
+    };
+    SourceHealthSummary {
+        rule_name,
+        recent_success_at,
+        failure_rate: failures / total,
+        consecutive_failures,
+        avg_extract_ms,
+    }
 }
 
 // ── GitHub 规则仓库 ────────────────────────────────────────────────────

@@ -12,7 +12,10 @@
   const status = $derived(animeStore.playerExtractStatus); // extracting | found | timeout | error
   const videoSrc = $derived(animeStore.playerVideoSrc);
   const isM3u8 = $derived(animeStore.playerIsM3u8);
-  const pageUrl = $derived(animeStore.playerUrl); // 原始剧集页（解析失败时降级用）
+  const pageUrl = $derived(animeStore.playerWebUrl || animeStore.playerPageUrl || animeStore.playerUrl); // 源站播放页（解析失败时降级用）
+  const nativePageUrl = $derived(animeStore.playerPageUrl || animeStore.playerUrl);
+  const failureKind = $derived(animeStore.playerFailureKind);
+  const failureMessage = $derived(animeStore.playerFailureMessage);
   const epName = $derived(animeStore.playerEpisodeName);
   const roads = $derived(animeStore.roads);
   const roadIdx = $derived(animeStore.playerRoadIdx);
@@ -39,6 +42,9 @@
   let videoEl = $state<HTMLVideoElement | null>(null);
   let overlayEl = $state<HTMLDivElement | null>(null);
   let useWebFallback = $state(false); // 用户选择「用网页播放」时加载站点自带播放器
+  let webFrameLoaded = $state(false);
+  let webFrameTimedOut = $state(false);
+  let webFrameKey = $state(0);
   let isFullscreen = $state(false);
   let currentTime = $state(0);
   let showCommentsPanel = $state(false);
@@ -128,9 +134,24 @@
   });
 
   const currentRule = $derived(animeStore.rules.find(r => r.name === animeStore.playerRuleName));
-  const prefersWebPlayback = $derived(!!currentRule && (currentRule.useWebview || currentRule.useNativePlayer === false));
+  const prefersWebPlayback = $derived(!!currentRule && currentRule.useNativePlayer === false);
 
-  // 对明确标记 WebView / 非原生播放的源，直接切源站播放器，避免先走一次必失败的地址提取。
+  $effect(() => {
+    const active = useWebFallback;
+    const url = pageUrl;
+    if (!active || !url) return;
+    webFrameLoaded = false;
+    webFrameTimedOut = false;
+    const timer = window.setTimeout(() => {
+      if (!webFrameLoaded) {
+        webFrameTimedOut = true;
+        animeStore.markPlayerFailure('iframeBlocked', '源站禁止嵌入播放或加载超时，可用浏览器打开');
+      }
+    }, 12_000);
+    return () => clearTimeout(timer);
+  });
+
+  // 只有明确禁用原生播放器的源，才直接切源站播放器；useWebview 仅代表规则允许网页能力。
   $effect(() => {
     if ((status === 'extracting' || status === 'error' || status === 'timeout') && !useWebFallback && pageUrl && prefersWebPlayback) {
       console.log('[播放器] 规则要求网页播放，自动切换源站播放器');
@@ -192,6 +213,9 @@
 
   function switchToWebFallback(cancelRunningExtract = false) {
     if (!pageUrl) return;
+    webFrameLoaded = false;
+    webFrameTimedOut = false;
+    webFrameKey += 1;
     useWebFallback = true;
     if (cancelRunningExtract && (status === 'extracting' || failoverStatus === 'trying')) {
       animeStore.cancelExtract();
@@ -480,13 +504,31 @@
   }
   function retry() {
     useWebFallback = false;
+    webFrameLoaded = false;
+    webFrameTimedOut = false;
     animeStore.playEpisode(roadIdx, epIdx);
   }
+
+  function refreshWebFrame() {
+    if (!pageUrl) return;
+    webFrameLoaded = false;
+    webFrameTimedOut = false;
+    webFrameKey += 1;
+  }
+
   function openInBrowser() {
     if (pageUrl) invokeCmd("open_url", { url: pageUrl }).catch(() => {});
   }
+
+  async function switchSource() {
+    await setPlayerFullscreen(false);
+    animeStore.closePlayer();
+    animeStore.openSourceSheet();
+  }
+
   async function launchExternalPlayer() {
-    if (!pageUrl) return;
+    const targetUrl = videoSrc || nativePageUrl || pageUrl;
+    if (!targetUrl) return;
     try {
       const players = await invokeCmd<{ name: string; display_name: string; available: boolean }[]>("anime_get_external_players");
       const available = players.filter(p => p.available);
@@ -497,17 +539,17 @@
       // 优先选 mpv，否则选第一个可用的
       const player = available.find(p => p.name === "mpv") || available[0];
       const msg = await invokeCmd<string>("anime_launch_external_player", {
-        url: pageUrl,
+        url: targetUrl,
         player: player.name,
-        referer: animeStore.rules.find(r => r.name === animeStore.playerRuleName)?.baseUrl || null,
+        referer: animeStore.playerReferer || animeStore.rules.find(r => r.name === animeStore.playerRuleName)?.baseUrl || null,
       });
       debugLog("External player:", msg);
     } catch (e) {
       console.warn("外部播放器启动失败:", e);
     }
   }
-  function goPrev() { useWebFallback = false; animeStore.prevEpisode(); }
-  function goNext() { useWebFallback = false; animeStore.nextEpisode(); }
+  function goPrev() { useWebFallback = false; webFrameLoaded = false; webFrameTimedOut = false; animeStore.prevEpisode(); }
+  function goNext() { useWebFallback = false; webFrameLoaded = false; webFrameTimedOut = false; animeStore.nextEpisode(); }
 
   // 倍速切换
   function setPlaybackRate(rate: number) {
@@ -910,14 +952,39 @@
       onpointerleave={onPointerUp}
     >
       {#if useWebFallback && pageUrl}
-        <iframe
-          src={pageUrl}
-          title={epName}
-          class="player-iframe"
-          allow="fullscreen; autoplay; encrypted-media; picture-in-picture; clipboard-write"
-          allowfullscreen
-          sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms allow-presentation"
-        ></iframe>
+        <div class="web-player-shell" class:loaded={webFrameLoaded}>
+          {#if !webFrameLoaded && !webFrameTimedOut}
+            <div class="web-player-loading" aria-live="polite">
+              <div class="spinner"></div>
+              <span>正在打开源站播放器…</span>
+            </div>
+          {/if}
+          {#if webFrameTimedOut}
+            <div class="web-fallback-panel" aria-live="polite">
+              <Icon name="externalLink" size={28} />
+              <span>{failureKind === 'iframeBlocked' ? '源站禁止嵌入播放' : '源站网页加载超时'}</span>
+              <small>可以刷新网页、换源，或在外部浏览器打开源站页面。</small>
+              <div class="state-actions">
+                <button class="state-btn primary" onclick={retry}>重试原生提取</button>
+                <button class="state-btn" onclick={refreshWebFrame}>刷新网页</button>
+                <button class="state-btn" onclick={switchSource}>换源</button>
+                <button class="state-btn" onclick={openInBrowser}>外部浏览器打开</button>
+                <button class="state-btn" onclick={launchExternalPlayer}>外部播放器播放</button>
+              </div>
+            </div>
+          {/if}
+          {#key `${pageUrl}:${webFrameKey}`}
+            <iframe
+              src={pageUrl}
+              title={epName}
+              class="player-iframe"
+              allow="fullscreen; autoplay; encrypted-media; picture-in-picture; clipboard-write"
+              allowfullscreen
+              sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms allow-presentation"
+              onload={() => { webFrameLoaded = true; webFrameTimedOut = false; }}
+            ></iframe>
+          {/key}
+        </div>
       {:else if status === "extracting"}
         <div class="player-state">
           <div class="extract-indicator">
@@ -983,11 +1050,11 @@
           {:else if status === "timeout"}
             <small>播放页响应过慢或被反爬拦截，可重试、换源或用网页播放</small>
           {:else}
-            <small>视频地址提取失败（可能被加密或反爬），可重试、换源或用网页播放</small>
+            <small>{failureMessage || '视频地址提取失败（可能被加密或反爬），可重试、换源或用网页播放'}</small>
           {/if}
           <div class="state-actions">
             <button class="state-btn primary" onclick={retry}>重试解析</button>
-            <button class="state-btn" onclick={() => animeStore.openSourceSheet()}>手动选源</button>
+            <button class="state-btn" onclick={switchSource}>手动选源</button>
             {#if pageUrl}
               <button class="state-btn" onclick={() => switchToWebFallback()}>用网页播放</button>
               <button class="state-btn" onclick={openInBrowser}>浏览器打开</button>
@@ -1093,7 +1160,7 @@
   .player-overlay {
     position: absolute;
     inset: 0;
-    background: #0a0c12;
+    background: linear-gradient(180deg, #07110d 0%, #020503 100%);
     z-index: 30;
     display: flex;
     flex-direction: column;
@@ -1335,15 +1402,76 @@
   .player-body {
     flex: 1; min-height: 0;
     display: flex; align-items: center; justify-content: center;
-    background: #000;
+    background: linear-gradient(180deg, #020503 0%, #000 100%);
     position: relative;
     transition: flex 0.2s;
   }
   .player-body.with-panel {
     flex: 1;
   }
-  .player-video, .player-iframe {
+  .player-video {
     width: 100%; height: 100%; border: none; outline: none; background: #000;
+  }
+  .web-player-shell {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: linear-gradient(180deg, #031008 0%, #000 100%);
+  }
+  .web-player-shell::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(34, 197, 94, 0.08), transparent 36%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .web-player-shell.loaded::before {
+    opacity: 0;
+  }
+  .player-iframe {
+    position: relative;
+    z-index: 1;
+    width: 100%; height: 100%; border: none; outline: none; background: #000;
+  }
+  .web-fallback-panel {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 24px;
+    background: linear-gradient(180deg, rgba(2, 9, 6, 0.9), rgba(0, 0, 0, 0.94));
+    color: var(--text-muted);
+    text-align: center;
+  }
+  .web-fallback-panel span {
+    color: var(--text-primary);
+    font-size: 15px;
+    font-weight: 650;
+  }
+  .web-fallback-panel small {
+    max-width: 420px;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .web-player-loading {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 12px;
+    background: linear-gradient(180deg, rgba(2, 5, 3, 0.78), rgba(0, 0, 0, 0.88));
+    color: var(--text-secondary);
+    font-size: 13px;
+    pointer-events: none;
   }
   .player-state {
     display: flex; flex-direction: column; align-items: center; gap: 12px;
