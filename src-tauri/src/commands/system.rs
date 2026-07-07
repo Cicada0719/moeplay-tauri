@@ -48,6 +48,19 @@ pub fn pick_directory() -> Result<String, String> {
 }
 
 #[tauri::command]
+pub fn pick_image_file() -> Result<String, String> {
+    let file = rfd::FileDialog::new()
+        .set_title("选择看板娘图片")
+        .add_filter("图片", &["png", "jpg", "jpeg", "webp", "svg"])
+        .pick_file();
+
+    match file {
+        Some(path) => Ok(path.to_string_lossy().to_string()),
+        None => Err("已取消".to_string()),
+    }
+}
+
+#[tauri::command]
 pub fn open_url(url: String) -> Result<(), String> {
     open::that(&url).map_err(|e| format!("打开 URL 失败: {}", e))
 }

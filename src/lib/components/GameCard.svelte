@@ -19,6 +19,9 @@
 
   let { game }: { game: Game } = $props();
   let el = $state<HTMLElement>();
+  let menuOpen = $state(false);
+  let menuX = $state(0);
+  let menuY = $state(0);
 
   const statusLabels: Record<string, string> = {
     playing: "游玩中",
@@ -75,9 +78,38 @@
     if (uiStore.currentView === "home") uiStore.libraryMode = "all";
     uiStore.currentView = "game-detail";
   }
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.shiftKey && e.key === "Delete") {
+      e.preventDefault();
+      e.stopPropagation();
+      confirmDelete();
+      return;
+    }
+    handleClick(e);
+  }
   function toggleFavorite(e: MouseEvent) {
     e.stopPropagation();
     gameStore.toggleFavorite(game.id);
+  }
+  function openMenu(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    menuX = e.clientX;
+    menuY = e.clientY;
+    menuOpen = true;
+  }
+  function closeMenu() {
+    menuOpen = false;
+  }
+  async function confirmDelete() {
+    if (!window.confirm(`确定要从游戏库中删除「${game.name}」吗？\n删除后不会移除本地文件。`)) return;
+    try {
+      await gameStore.deleteGame(game.id);
+      uiStore.notify(`已删除 ${game.name}`, "success");
+    } catch (e) {
+      uiStore.notify(`删除失败：${e}`, "error");
+    }
+    closeMenu();
   }
 </script>
 
@@ -90,7 +122,8 @@
   role="button"
   ariaLabel={game.name}
   onclick={handleClick}
-  onkeydown={handleClick}
+  onkeydown={handleKeydown}
+  oncontextmenu={openMenu}
 >
   <div class="cover" class:cover-blur={isNsfw && nsfwMode === "blur"} class:cover-hidden={isNsfw && nsfwMode === "hide"}>
     {#if coverSource}
@@ -145,6 +178,28 @@
     </div>
   </div>
 </Card>
+
+<svelte:window onclick={closeMenu} />
+
+{#if menuOpen}
+  <div
+    class="ctx-menu"
+    style="position: fixed; left: {menuX}px; top: {menuY}px; z-index: 1000;"
+    role="menu"
+    tabindex="-1"
+    onclick={(e) => e.stopPropagation()}
+    onkeydown={(e) => e.stopPropagation()}
+  >
+    <button role="menuitem" onclick={() => { gameStore.toggleFavorite(game.id); closeMenu(); }}>
+      <Icon name={game.favorite ? "heartFill" : "heart"} size={14} />
+      <span>{game.favorite ? "取消收藏" : "收藏"}</span>
+    </button>
+    <button role="menuitem" class="danger" onclick={confirmDelete}>
+      <Icon name="trash" size={14} />
+      <span>删除</span>
+    </button>
+  </div>
+{/if}
 
 <style>
   :global(.game-card) {
@@ -281,5 +336,39 @@
     font-size: 11px; font-weight: 800; letter-spacing: 0.14em;
     color: rgba(255,255,255,.7);
     pointer-events: none;
+  }
+
+  .ctx-menu {
+    min-width: 120px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+    padding: 6px;
+    display: grid;
+    gap: 2px;
+  }
+  .ctx-menu button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    text-align: left;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    padding: 7px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .ctx-menu button:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+  .ctx-menu button.danger:hover {
+    color: #f87171;
+    background: rgba(248,113,113,0.10);
   }
 </style>

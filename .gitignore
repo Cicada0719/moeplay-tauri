@@ -48,3 +48,6 @@ reasonix.toml
 # Test reports
 test-results/
 playwright-report/
+nul
+.workbuddy/
+scripts/open-test-shot.mjs

@@ -124,6 +124,8 @@ pub fn run() {
             commands::import_games_from_dir,
             // ---- M4 自动化 ----
             commands::scan_directory_for_games,
+            commands::preview_directory_for_games,
+            commands::import_selected_candidates,
             commands::extract_archive_command,
             commands::start_import_watcher_cmd,
             commands::stop_import_watcher_cmd,
@@ -266,6 +268,7 @@ pub fn run() {
             commands::add_watch_dir,
             commands::remove_watch_dir,
             commands::pick_directory,
+            commands::pick_image_file,
             // ---- 数据库信息 ----
             commands::get_schema_version,
             commands::get_game_count,

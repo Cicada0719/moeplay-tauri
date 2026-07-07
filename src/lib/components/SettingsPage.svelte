@@ -5,7 +5,7 @@
   import { settingsStore } from "../stores/settings.svelte";
   import { uiStore } from "../stores/ui.svelte";
   import { APP_THEMES } from "../utils/theme";
-  import { updateNsfwDisplayMode, setAutostart, syncSteamAchievements, type NsfwDisplayMode } from "../api";
+  import { updateNsfwDisplayMode, setAutostart, syncSteamAchievements, pickImageFile, type NsfwDisplayMode } from "../api";
   import { gameStore } from "../stores/games.svelte";
   import { animeStore } from "../stores/anime.svelte";
   import Button from "./ui/Button.svelte";
@@ -233,6 +233,41 @@
           onChange={(v) => setNsfw(v as NsfwDisplayMode)}
           size="sm"
         />
+      </div>
+
+      <div class="s-row" style="align-items: flex-start;">
+        <div class="s-info">
+          <span class="s-label">首页看板娘</span>
+          <span class="s-desc">在最近游戏右下角显示二次元角色立绘</span>
+        </div>
+        <div class="s-col">
+          <Switch
+            checked={settingsStore.settings.home_mascot_enabled ?? true}
+            onchange={async () => {
+              settingsStore.settings.home_mascot_enabled = !(settingsStore.settings.home_mascot_enabled ?? true);
+              await save();
+            }}
+          />
+          {#if settingsStore.settings.home_mascot_enabled !== false}
+            <div class="mascot-path-row">
+              <Input
+                value={settingsStore.settings.home_mascot_path ?? ""}
+                placeholder="使用默认立绘"
+                onblur={async (e: Event) => {
+                  settingsStore.settings.home_mascot_path = (e.target as HTMLInputElement).value;
+                  await save();
+                }}
+              />
+              <Button variant="ghost" size="sm" onclick={async () => {
+                try {
+                  const path = await pickImageFile();
+                  settingsStore.settings.home_mascot_path = path;
+                  await save();
+                } catch { /* 取消 */ }
+              }}>选择图片</Button>
+            </div>
+          {/if}
+        </div>
       </div>
 
       <div class="s-divider"></div>
@@ -715,6 +750,9 @@
   .s-info { display: flex; flex-direction: column; gap: 2px; }
   .s-label { font-size: 13.5px; font-weight: 650; color: var(--text-primary); }
   .s-desc { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+  .s-col { display: flex; flex-direction: column; gap: 10px; align-items: flex-end; }
+  .mascot-path-row { display: flex; gap: 8px; align-items: center; width: 260px; }
+  .mascot-path-row :global(.ui-input) { flex: 1; font-size: 12px; padding: 8px 10px; }
   .s-note { margin: 0; padding: 8px 0 2px; font-size: 12.5px; color: var(--text-muted); line-height: 1.5; }
   .s-divider { height: 1px; background: var(--aura-line, rgba(255, 255, 255, 0.06)); margin: 14px 0; }
   .s-empty {

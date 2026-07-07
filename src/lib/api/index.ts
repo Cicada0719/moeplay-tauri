@@ -1,6 +1,6 @@
 // 萌游 MoeGame · API 调用入口（Phase A 拆分类型与核心调用）
 
-import type { CompletionStatus, TagCategory, TagSource, GamePlatform, StoreLink, GameAlias, Tag, GameMetadata, PlaySession, PlaySessionEntry, DailyPlaytime, MonthlyPlaytime, GamePlaytimeRank, PlaytimeSummary, PlayTracker, SaveBackup, SaveData, Game, ScrapeResult, ScrapeSourceStatus, ScrapeResponse, ScrapeDetail, SaveInfo, SaveCandidateDir, SaveSnapshot, SnapshotDiff, SaveConflict, CloudProvider, CloudSyncConfig, Settings, NsfwDisplayMode, NsfwDecision, ChineseMeta, ScrapeMarker, Recommendation, MonthActivity, Collection, DashboardData, ThumbnailInfo, TaskStatus, AppTask, MigrationInfo, ImageCandidate, PerformanceSnapshot, Severity, Issue, SystemInfo, AppInfo, DiagnosticsReport, DownloadStatus, DownloadTask } from "./types";
+import type { CompletionStatus, TagCategory, TagSource, GamePlatform, StoreLink, GameAlias, Tag, GameMetadata, PlaySession, PlaySessionEntry, DailyPlaytime, MonthlyPlaytime, GamePlaytimeRank, PlaytimeSummary, PlayTracker, SaveBackup, SaveData, Game, ImportPreviewCandidate, ScrapeResult, ScrapeSourceStatus, ScrapeResponse, ScrapeDetail, SaveInfo, SaveCandidateDir, SaveSnapshot, SnapshotDiff, SaveConflict, CloudProvider, CloudSyncConfig, Settings, NsfwDisplayMode, NsfwDecision, ChineseMeta, ScrapeMarker, Recommendation, MonthActivity, Collection, DashboardData, ThumbnailInfo, TaskStatus, AppTask, MigrationInfo, ImageCandidate, PerformanceSnapshot, Severity, Issue, SystemInfo, AppInfo, DiagnosticsReport, DownloadStatus, DownloadTask } from "./types";
 export type * from "./types";
 
 import { invokeCmd } from "./core";
@@ -786,8 +786,20 @@ export async function pickDirectory(): Promise<string> {
   return invokeCmd("pick_directory");
 }
 
+export async function pickImageFile(): Promise<string> {
+  return invokeCmd("pick_image_file");
+}
+
 export async function scanDirectoryForGames(dir: string): Promise<{ imported: number; skipped: number }> {
   return invokeCmd("scan_directory_for_games", { dir });
+}
+
+export async function previewDirectoryForGames(dir: string): Promise<ImportPreviewCandidate[]> {
+  return invokeCmd("preview_directory_for_games", { dir });
+}
+
+export async function importSelectedCandidates(paths: string[]): Promise<{ imported: number; skipped: number }> {
+  return invokeCmd("import_selected_candidates", { paths });
 }
 
 // ===== 数据库信息 =====

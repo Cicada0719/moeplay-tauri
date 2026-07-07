@@ -189,6 +189,14 @@ export interface Game {
   add_date?: string;
 }
 
+export interface ImportPreviewCandidate {
+  name: string;
+  exe_path: string;
+  install_dir: string;
+  engine?: string;
+  is_duplicate: boolean;
+}
+
 export interface ScrapeResult {
   title: string;
   description?: string;
@@ -317,6 +325,8 @@ export interface Settings {
   steam_api_key?: string;
   autostart_enabled?: boolean;
   startup_mode?: string;
+  home_mascot_enabled?: boolean;
+  home_mascot_path?: string;
 }
 
 export type NsfwDisplayMode = "show" | "blur" | "hide";

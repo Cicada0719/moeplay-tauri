@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 640" fill="none">
+  <defs>
+    <linearGradient id="hairGrad" x1="210" y1="60" x2="210" y2="360" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ff9ed8"/>
+      <stop offset="100%" stop-color="#c084fc"/>
+    </linearGradient>
+    <linearGradient id="dressGrad" x1="210" y1="300" x2="210" y2="620" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+    <radialGradient id="cheekGrad" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(0 0) scale(26)">
+      <stop offset="0%" stop-color="#fda4af" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#fda4af" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- 后发 / 双马尾 -->
+  <path d="M130 140 C60 160 30 280 50 460 C60 520 90 560 120 580 L140 560 C110 520 100 400 130 260 Z" fill="url(#hairGrad)" opacity="0.95"/>
+  <path d="M290 140 C360 160 390 280 370 460 C360 520 330 560 300 580 L280 560 C310 520 320 400 290 260 Z" fill="url(#hairGrad)" opacity="0.95"/>
+
+  <!-- 身体 / 连衣裙 -->
+  <path d="M150 300 C120 320 100 420 90 620 L330 620 C320 420 300 320 270 300 Z" fill="url(#dressGrad)"/>
+  <path d="M150 300 C150 300 180 340 210 340 C240 340 270 300 270 300 L270 360 C270 360 240 380 210 380 C180 380 150 360 150 360 Z" fill="#93c5fd"/>
+
+  <!-- 脖子 -->
+  <rect x="190" y="270" width="40" height="40" rx="12" fill="#ffe4d6"/>
+
+  <!-- 脸部 -->
+  <ellipse cx="210" cy="180" rx="78" ry="88" fill="#ffe4d6"/>
+
+  <!-- 前发 -->
+  <path d="M135 130 C135 80 170 50 210 50 C250 50 285 80 285 130 C285 170 260 190 245 180 C230 170 230 140 210 140 C190 140 190 170 175 180 C160 190 135 170 135 130 Z" fill="url(#hairGrad)"/>
+  <path d="M210 50 C190 70 190 120 210 150 C230 120 230 70 210 50 Z" fill="#e879f9" opacity="0.35"/>
+
+  <!-- 眼睛 -->
+  <g fill="#1f2937">
+    <ellipse cx="175" cy="185" rx="14" ry="20"/>
+    <ellipse cx="245" cy="185" rx="14" ry="20"/>
+  </g>
+  <g fill="#fff">
+    <circle cx="179" cy="178" r="5"/>
+    <circle cx="249" cy="178" r="5"/>
+    <circle cx="172" cy="192" r="3"/>
+    <circle cx="242" cy="192" r="3"/>
+  </g>
+
+  <!-- 腮红 -->
+  <ellipse cx="150" cy="210" rx="22" ry="14" fill="url(#cheekGrad)"/>
+  <ellipse cx="270" cy="210" rx="22" ry="14" fill="url(#cheekGrad)"/>
+
+  <!-- 嘴巴 -->
+  <path d="M198 225 Q210 238 222 225" stroke="#f472b6" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- 手臂 -->
+  <path d="M140 340 C110 380 120 440 150 470" stroke="#ffe4d6" stroke-width="28" stroke-linecap="round"/>
+  <path d="M280 340 C310 380 300 440 270 470" stroke="#ffe4d6" stroke-width="28" stroke-linecap="round"/>
+
+  <!-- 游戏手柄 -->
+  <rect x="175" y="455" width="70" height="40" rx="14" fill="#374151"/>
+  <circle cx="192" cy="475" r="5" fill="#f87171"/>
+  <circle cx="228" cy="475" r="5" fill="#60a5fa"/>
+  <rect x="205" y="470" width="10" height="10" rx="2" fill="#fbbf24"/>
+</svg>

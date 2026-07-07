@@ -16,9 +16,11 @@
   import { fileSrc } from "../../utils";
   import { heroImageOf as gameHeroImageOf, hasHeroBackground } from "../../utils/game";
   import defaultLibraryBackdrop from "../../assets/default-library-backdrop.png";
+  import defaultHomeMascot from "../../assets/home-mascot.svg";
   import EmptyState from "../EmptyState.svelte";
   import GameGrid from "../GameGrid.svelte";
   import TileRail from "./TileRail.svelte";
+  import { settingsStore } from "../../stores/settings.svelte";
 
   const STATUS: Record<string, string> = {
     not_started: "未开始", playing: "游玩中", completed: "已通关",
@@ -96,6 +98,12 @@
     selected ? (fileSrc(gameHeroImageOf(selected)) ?? defaultLibraryBackdrop) : defaultLibraryBackdrop
   );
   const bgIsCover = $derived(!hasHeroBackground(selected));
+  const mascotEnabled = $derived(settingsStore.settings?.home_mascot_enabled ?? true);
+  const mascotSrc = $derived(
+    settingsStore.settings?.home_mascot_path
+      ? (fileSrc(settingsStore.settings.home_mascot_path) ?? defaultHomeMascot)
+      : defaultHomeMascot
+  );
 
   function metaLine(g: Game | null): string {
     if (!g) return "";
@@ -291,22 +299,28 @@
       />
 
       <div class="info">
-        <h1 class="title">{selected?.name ?? ""}</h1>
-        <p class="sub">{metaLine(selected)}</p>
-        <div class="actions">
-          <button class="play" onclick={() => selected && onlaunch(selected.id)}>
-            <Icon name="play" size={18} /><span>开始游戏</span>
-          </button>
-          <button class:active={selected?.favorite} onclick={onfavorite}>
-            <Icon name={selected?.favorite ? "heartFill" : "heart"} size={16} />
-            <span>{selected?.favorite ? "已收藏" : "收藏"}</span>
-          </button>
-          <button onclick={() => selected && onactivate(selected.id)}>
-            <Icon name="database" size={16} /><span>详情</span>
-          </button>
+        <div class="info-card">
+          <h1 class="title">{selected?.name ?? ""}</h1>
+          <p class="sub">{metaLine(selected)}</p>
+          <div class="actions">
+            <button class="play" onclick={() => selected && onlaunch(selected.id)}>
+              <Icon name="play" size={18} /><span>开始游戏</span>
+            </button>
+            <button class:active={selected?.favorite} onclick={onfavorite}>
+              <Icon name={selected?.favorite ? "heartFill" : "heart"} size={16} />
+              <span>{selected?.favorite ? "已收藏" : "收藏"}</span>
+            </button>
+            <button onclick={() => selected && onactivate(selected.id)}>
+              <Icon name="database" size={16} /><span>详情</span>
+            </button>
+          </div>
         </div>
       </div>
     </section>
+
+    {#if mascotEnabled}
+      <img class="home-mascot" src={mascotSrc} alt="" aria-hidden="true" />
+    {/if}
   {/if}
 </div>
 
@@ -337,7 +351,13 @@
   .sw-bg-scrim {
     position: absolute; inset: 0;
     background:
-      linear-gradient(180deg, rgba(7,9,15,0.35) 0%, rgba(7,9,15,0.08) 28%, rgba(7,9,15,0.45) 78%, var(--sw-bg) 100%);
+      linear-gradient(180deg,
+        rgba(7,9,15,0.35) 0%,
+        rgba(7,9,15,0.06) 28%,
+        rgba(7,9,15,0.06) 55%,
+        rgba(7,9,15,0.62) 82%,
+        rgba(7,9,15,0.92) 100%
+      );
   }
 
   .topbar, .stage, .all-panel, .all-grid, .empty-wrap, .rail-skel { position: relative; z-index: 1; }
@@ -409,16 +429,27 @@
     padding: 4px 12px; border-radius: var(--radius-full); font-size: 12px;
   }
 
-  .stage { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
+  .stage { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; position: relative; }
 
-  .info { padding: 0 8vw 10px; min-height: 124px; }
+  .info { padding: 0 8vw 16px; min-height: 124px; position: relative; z-index: 2; }
+  .info-card {
+    display: inline-block;
+    padding: 18px 22px;
+    border-radius: var(--radius-lg);
+    background: rgba(10, 13, 20, 0.42);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.25);
+  }
   .info .title {
     font-family: var(--font-display);
     font-size: clamp(26px, 3.4vw, 38px);
     font-weight: 700; line-height: 1.15;
     margin: 0 0 6px;
+    text-shadow: 0 2px 16px rgba(0,0,0,0.45);
   }
-  .info .sub { color: var(--text-muted); font-size: 13px; margin: 0 0 16px; min-height: 18px; }
+  .info .sub { color: var(--text-muted); font-size: 13px; margin: 0 0 16px; min-height: 18px; text-shadow: 0 1px 10px rgba(0,0,0,0.45); }
   .actions { display: flex; gap: 12px; flex-wrap: wrap; }
   .actions button {
     display: inline-flex; align-items: center; gap: 8px;
@@ -434,6 +465,21 @@
   .actions .play { background: var(--accent); border-color: transparent; color: #fff; }
   .actions .play:hover { background: var(--accent-hi); transform: translateY(-1px); }
   .actions button.active { color: var(--accent); }
+
+  .home-mascot {
+    position: absolute;
+    right: -2vw;
+    bottom: 0;
+    height: min(72vh, 520px);
+    max-width: 45vw;
+    object-fit: contain;
+    object-position: right bottom;
+    pointer-events: none;
+    z-index: 0;
+    mask-image: linear-gradient(to top, transparent 0%, black 18%);
+    -webkit-mask-image: linear-gradient(to top, transparent 0%, black 18%);
+    filter: drop-shadow(0 0 28px rgba(0,0,0,0.25));
+  }
 
   .rail-skel { display: flex; gap: 18px; padding: 44px 8vw; }
   .rail-skel .b { width: var(--sw-tile-width); aspect-ratio: 3 / 4; border-radius: var(--sw-tile-radius); flex: 0 0 auto; }
@@ -589,8 +635,17 @@
     }
     .clock { margin-left: auto; }
     .info {
-      padding: 0 18px 8px;
+      padding: 0 18px 12px;
       min-height: 150px;
+    }
+    .info-card {
+      display: block;
+      padding: 14px 16px;
+    }
+    .home-mascot {
+      height: min(48vh, 280px);
+      right: -4vw;
+      max-width: 58vw;
     }
     .actions button {
       padding: 9px 13px;

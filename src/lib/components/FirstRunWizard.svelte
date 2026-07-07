@@ -2,7 +2,8 @@
   import { gameStore } from "../stores/games.svelte";
   import { settingsStore } from "../stores/settings.svelte";
   import { uiStore } from "../stores/ui.svelte";
-  import { pickDirectory, scanDirectoryForGames } from "../api";
+  import { pickDirectory, previewDirectoryForGames, importSelectedCandidates } from "../api";
+  import type { ImportPreviewCandidate } from "../api";
   import Icon from "./Icon.svelte";
 
   let step = $state(0);
@@ -13,6 +14,8 @@
   let scanDirs = $state<string[]>([]);
   let scanRunning = $state(false);
   let scanResult = $state<{ imported: number; skipped: number } | null>(null);
+  let candidates = $state<Array<ImportPreviewCandidate & { selected: boolean }>>([]);
+  let previewDone = $state(false);
 
   // Step 1: AI
   let aiKey = $state(settingsStore.settings?.ai_api_key ?? "");
@@ -59,24 +62,50 @@
     scanDirs = scanDirs.filter(d => d !== dir);
   }
 
-  async function scanFolders() {
+  async function previewFolders() {
     if (scanDirs.length === 0) return;
     scanRunning = true;
     scanResult = null;
-    let totalImported = 0;
-    let totalSkipped = 0;
+    previewDone = false;
+    let all: Array<ImportPreviewCandidate & { selected: boolean }> = [];
     for (const dir of scanDirs) {
       try {
-        const r = await scanDirectoryForGames(dir);
-        totalImported += r.imported;
-        totalSkipped += r.skipped;
+        const list = await previewDirectoryForGames(dir);
+        all = all.concat(list.map((c) => ({ ...c, selected: !c.is_duplicate })));
       } catch (e) {
-        console.error("Scan failed for", dir, e);
+        console.error("Preview failed for", dir, e);
       }
     }
-    scanResult = { imported: totalImported, skipped: totalSkipped };
+    candidates = all;
+    previewDone = true;
     scanRunning = false;
-    await gameStore.load();
+  }
+
+  async function importSelected() {
+    const paths = candidates.filter((c) => c.selected).map((c) => c.exe_path);
+    if (paths.length === 0) {
+      scanResult = { imported: 0, skipped: 0 };
+      return;
+    }
+    scanRunning = true;
+    try {
+      const r = await importSelectedCandidates(paths);
+      scanResult = r;
+      await gameStore.load();
+    } catch (e) {
+      console.error("Import selected failed", e);
+      scanResult = { imported: 0, skipped: paths.length };
+    } finally {
+      scanRunning = false;
+    }
+  }
+
+  async function scanFolders() {
+    if (scanDirs.length === 0) return;
+    if (!previewDone) {
+      await previewFolders();
+    }
+    await importSelected();
   }
 
   async function saveAndFinish(targetView = "home") {
@@ -178,7 +207,7 @@
         <Icon name="folder" size={18} /> 选择文件夹
       </button>
 
-      {#if scanRunning}
+      {#if scanRunning && !previewDone}
         <div class="scan-status">正在扫描 {scanDirs.length} 个目录...</div>
       {:else if scanResult}
         <div class="scan-status success">
@@ -186,12 +215,58 @@
         </div>
       {/if}
 
+      {#if previewDone && candidates.length > 0}
+        <div class="candidate-panel">
+          <div class="candidate-head">
+            <span>发现 {candidates.length} 个候选</span>
+            <label class="candidate-toggle">
+              <input
+                type="checkbox"
+                checked={candidates.every((c) => c.selected)}
+                indeterminate={candidates.some((c) => c.selected) && candidates.some((c) => !c.selected)}
+                onchange={(e) => {
+                  const checked = (e.target as HTMLInputElement).checked;
+                  candidates = candidates.map((c) => ({ ...c, selected: checked }));
+                }}
+              />
+              全选
+            </label>
+          </div>
+          <div class="candidate-list">
+            {#each candidates as c, i (c.exe_path)}
+              <label class="candidate-row" class:duplicate={c.is_duplicate}>
+                <input type="checkbox" bind:checked={candidates[i].selected} />
+                <div class="candidate-meta">
+                  <span class="candidate-name">{c.name}</span>
+                  <span class="candidate-path">{c.exe_path}</span>
+                </div>
+                {#if c.engine}
+                  <span class="candidate-engine">{c.engine}</span>
+                {/if}
+                {#if c.is_duplicate}
+                  <span class="candidate-dup">已存在</span>
+                {/if}
+              </label>
+            {/each}
+          </div>
+        </div>
+      {:else if previewDone && candidates.length === 0}
+        <div class="scan-status">未检测到可导入的游戏。</div>
+      {/if}
+
       <div class="actions">
         <button class="btn-ghost" onclick={() => step = 1}>跳过</button>
         {#if scanDirs.length > 0}
-          <button class="btn-ghost" onclick={scanFolders} disabled={scanRunning}>立即扫描</button>
+          {#if previewDone}
+            <button class="btn-ghost" onclick={previewFolders} disabled={scanRunning}>重新扫描</button>
+            <button class="btn-primary" onclick={importSelected} disabled={scanRunning || candidates.every((c) => !c.selected)}>
+              导入选中
+            </button>
+          {:else}
+            <button class="btn-ghost" onclick={previewFolders} disabled={scanRunning}>扫描预览</button>
+          {/if}
         {/if}
-        <button class="btn-primary" onclick={() => step = 1}>下一步</button>
+        <button class="btn-primary" onclick={() => step = 1} disabled={scanRunning}>下一步</button>
       </div>
 
     <!-- Step 1: AI config -->
@@ -448,6 +523,63 @@
     font-size: 0.75rem;
     line-height: 1.35;
   }
+  .candidate-panel {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-secondary);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    max-height: 260px;
+  }
+  .candidate-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: var(--bg-elev);
+    border-bottom: 1px solid var(--border);
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+  }
+  .candidate-toggle {
+    display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.78rem;
+  }
+  .candidate-list {
+    overflow-y: auto;
+    padding: 4px;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .candidate-row {
+    display: grid;
+    grid-template-columns: 22px 1fr auto auto;
+    gap: 8px;
+    align-items: center;
+    padding: 7px 8px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background 0.15s ease;
+    font-size: 0.8rem;
+  }
+  .candidate-row:hover { background: var(--bg-hover); }
+  .candidate-row.duplicate { opacity: 0.6; }
+  .candidate-row input { accent-color: var(--accent); }
+  .candidate-meta {
+    min-width: 0;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .candidate-name { color: var(--text-primary); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .candidate-path { color: var(--text-muted); font-size: 0.72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .candidate-engine {
+    font-size: 0.7rem; padding: 2px 6px; border-radius: var(--radius-full);
+    background: var(--accent-lo); color: var(--accent); border: 1px solid var(--accent-ring);
+  }
+  .candidate-dup {
+    font-size: 0.7rem; padding: 2px 6px; border-radius: var(--radius-full);
+    background: rgba(248,113,113,0.12); color: #f87171; border: 1px solid rgba(248,113,113,0.25);
+  }
+
   @media (max-width: 600px) {
     .aura-head {
       grid-template-columns: 42px minmax(0, 1fr);

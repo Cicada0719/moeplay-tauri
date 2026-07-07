@@ -554,7 +554,7 @@ pub fn scan_directory(app_handle: &tauri::AppHandle, dir: &Path) -> (usize, usiz
 }
 
 /// 智能导入：从 exe 路径导入，使用安装目录作为 game_dir。
-fn import_game_smart(
+pub fn import_game_smart(
     app_handle: &tauri::AppHandle,
     exe_path: &Path,
     install_dir: &Path,
@@ -625,11 +625,23 @@ const SKIP_EXE_KEYWORDS: &[&str] = &[
     "config",
     "launcher_patch",
     "patcher",
+    "patch",
     "cleanup",
     "remove",
     "vc_redist",
     "dxsetup",
     "vcredist",
+    // 常见 galgame 汉化/补丁/转区工具名
+    "汉化",
+    "中文化",
+    "chinese",
+    "cn",
+    "补丁",
+    "修正",
+    "繁体",
+    "简体",
+    "locale",
+    "转区",
 ];
 
 pub fn is_executable(path: &Path) -> bool {
@@ -654,4 +666,26 @@ pub fn is_archive(path: &Path) -> bool {
         .and_then(|e| e.to_str())
         .map(|e| ARCHIVE_EXTENSIONS.contains(&e.to_lowercase().as_str()))
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_is_skip_exe_chinese_locale_keywords() {
+        assert!(is_skip_exe(&PathBuf::from("game_汉化.exe")));
+        assert!(is_skip_exe(&PathBuf::from("patch_cn.exe")));
+        assert!(is_skip_exe(&PathBuf::from("中文补丁.exe")));
+        assert!(is_skip_exe(&PathBuf::from("繁体修正.exe")));
+        assert!(is_skip_exe(&PathBuf::from("转区工具.exe")));
+    }
+
+    #[test]
+    fn test_is_skip_exe_keeps_main_executable() {
+        assert!(!is_skip_exe(&PathBuf::from("clannad.exe")));
+        assert!(!is_skip_exe(&PathBuf::from("game.exe")));
+        assert!(!is_skip_exe(&PathBuf::from("SiglusEngine.exe")));
+    }
 }

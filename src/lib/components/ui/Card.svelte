@@ -11,6 +11,7 @@
     focusable = false,
     onclick,
     onkeydown,
+    oncontextmenu,
     role,
     ariaLabel,
     ref = $bindable<HTMLElement | undefined>(undefined),
@@ -22,6 +23,7 @@
     focusable?: boolean;
     onclick?: (e: MouseEvent) => void;
     onkeydown?: (e: KeyboardEvent) => void;
+    oncontextmenu?: (e: MouseEvent) => void;
     role?: string;
     ariaLabel?: string;
     ref?: HTMLElement | undefined;
@@ -34,7 +36,7 @@
 </script>
 
 {#if isButton}
-  <button bind:this={ref as any} class={classes} type="button" aria-label={ariaLabel} onclick={onclick} onkeydown={onkeydown}>
+  <button bind:this={ref as any} class={classes} type="button" aria-label={ariaLabel} onclick={onclick} onkeydown={onkeydown} oncontextmenu={oncontextmenu}>
     {@render children?.()}
   </button>
 {:else}
@@ -46,6 +48,7 @@
     aria-label={ariaLabel}
     onclick={onclick}
     onkeydown={onkeydown}
+    oncontextmenu={oncontextmenu}
     tabindex={focusable ? 0 : undefined}
   >
     {@render children?.()}

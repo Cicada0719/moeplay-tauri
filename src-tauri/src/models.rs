@@ -811,6 +811,12 @@ pub struct Settings {
     /// Steam Web API Key，仅保存在本机设置
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub steam_api_key: Option<String>,
+    /// 首页是否显示看板娘立绘
+    #[serde(default = "Settings::default_true")]
+    pub home_mascot_enabled: bool,
+    /// 首页看板娘自定义图片路径（空=使用默认）
+    #[serde(default)]
+    pub home_mascot_path: String,
 }
 
 impl Default for Settings {
@@ -840,6 +846,8 @@ impl Default for Settings {
             startup_mode: Self::default_startup_mode(),
             steam_id: None,
             steam_api_key: None,
+            home_mascot_enabled: true,
+            home_mascot_path: String::new(),
         }
     }
 }

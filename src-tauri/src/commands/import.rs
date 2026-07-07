@@ -65,3 +65,82 @@ pub fn stop_import_watcher_cmd(
 pub fn get_import_watcher_status(watcher: State<'_, crate::import::ImportWatcher>) -> bool {
     watcher.is_running()
 }
+
+/// 导入候选预览（不去重写入，只返回候选列表供前端勾选）
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ImportPreviewCandidate {
+    pub name: String,
+    pub exe_path: String,
+    pub install_dir: String,
+    pub engine: Option<String>,
+    pub is_duplicate: bool,
+}
+
+#[tauri::command]
+pub fn preview_directory_for_games(
+    db: State<'_, Database>,
+    dir: String,
+) -> Result<Vec<ImportPreviewCandidate>, String> {
+    use std::path::PathBuf;
+
+    let dir_path = PathBuf::from(&dir);
+    if !dir_path.is_dir() {
+        return Err("Directory does not exist".into());
+    }
+
+    let mut state = crate::auto_scrape::PipelineState::default();
+    let candidates = crate::auto_scrape::detect_games(&dir_path, &mut state);
+    let existing = db.get_games();
+
+    let mut out = Vec::new();
+    for c in candidates {
+        // 预览阶段暂不展示压缩包候选
+        if c.is_archive {
+            continue;
+        }
+        let Some(ref exe_path) = c.best_exe else { continue };
+        let exe = exe_path.to_string_lossy().to_string();
+        let name = crate::auto_scrape::infer_title_from_folder(&c.suggested_name);
+        let is_duplicate = crate::auto_scrape::is_duplicate(&name, &exe, &existing);
+        let install_dir = exe_path
+            .parent()
+            .unwrap_or(&dir_path)
+            .to_string_lossy()
+            .to_string();
+
+        out.push(ImportPreviewCandidate {
+            name,
+            exe_path: exe,
+            install_dir,
+            engine: c.engine,
+            is_duplicate,
+        });
+    }
+
+    Ok(out)
+}
+
+/// 根据用户勾选的 exe 路径批量导入
+#[tauri::command]
+pub fn import_selected_candidates(
+    app_handle: tauri::AppHandle,
+    paths: Vec<String>,
+) -> Result<(usize, usize), String> {
+    use std::path::PathBuf;
+
+    let mut imported = 0;
+    let mut skipped = 0;
+    for path_str in paths {
+        let path = PathBuf::from(&path_str);
+        if !crate::import::is_executable(&path) {
+            skipped += 1;
+            continue;
+        }
+        let install_dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+        match crate::import::import_game_smart(&app_handle, &path, install_dir) {
+            Ok(_) => imported += 1,
+            Err(_) => skipped += 1,
+        }
+    }
+    Ok((imported, skipped))
+}
