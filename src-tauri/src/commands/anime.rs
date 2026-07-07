@@ -12,7 +12,10 @@ pub async fn anime_get_rules(state: State<'_, AnimeState>) -> Result<Vec<AnimeRu
 }
 
 #[tauri::command]
-pub async fn anime_set_rules(state: State<'_, AnimeState>, rules: Vec<AnimeRule>) -> Result<(), String> {
+pub async fn anime_set_rules(
+    state: State<'_, AnimeState>,
+    rules: Vec<AnimeRule>,
+) -> Result<(), String> {
     let mut store = state.rules.lock().map_err(|e| e.to_string())?;
     *store = rules;
     Ok(())
@@ -37,9 +40,12 @@ pub async fn anime_remove_rule(state: State<'_, AnimeState>, name: String) -> Re
 }
 
 #[tauri::command]
-pub async fn anime_import_rules(state: State<'_, AnimeState>, json: String) -> Result<usize, String> {
-    let imported: Vec<AnimeRule> = serde_json::from_str(&json)
-        .map_err(|e| format!("JSON 解析失败: {}", e))?;
+pub async fn anime_import_rules(
+    state: State<'_, AnimeState>,
+    json: String,
+) -> Result<usize, String> {
+    let imported: Vec<AnimeRule> =
+        serde_json::from_str(&json).map_err(|e| format!("JSON 解析失败: {}", e))?;
     let count = imported.len();
     let mut store = state.rules.lock().map_err(|e| e.to_string())?;
     for rule in imported {
@@ -55,17 +61,36 @@ pub async fn anime_import_rules(state: State<'_, AnimeState>, json: String) -> R
 // ── 搜索 & 章节 ────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn anime_search(state: State<'_, AnimeState>, rule_name: String, keyword: String) -> Result<Vec<anime::SearchItem>, String> {
+pub async fn anime_search(
+    state: State<'_, AnimeState>,
+    rule_name: String,
+    keyword: String,
+) -> Result<Vec<anime::SearchItem>, String> {
     let rule = {
         let store = state.rules.lock().map_err(|e| e.to_string())?;
         let count = store.len();
         let found = store.iter().find(|r| r.name == rule_name).cloned();
-        eprintln!("[anime_search] rule='{}' keyword='{}' backend_rules={} found={}", rule_name, keyword, count, found.is_some());
+        eprintln!(
+            "[anime_search] rule='{}' keyword='{}' backend_rules={} found={}",
+            rule_name,
+            keyword,
+            count,
+            found.is_some()
+        );
         found.ok_or_else(|| format!("规则 '{}' 不存在 (backend has {} rules)", rule_name, count))?
     };
-    match tokio::time::timeout(std::time::Duration::from_secs(12), anime::search_anime(&rule, &keyword)).await {
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(12),
+        anime::search_anime(&rule, &keyword),
+    )
+    .await
+    {
         Ok(Ok(items)) => {
-            eprintln!("[anime_search] rule='{}' → {} results", rule_name, items.len());
+            eprintln!(
+                "[anime_search] rule='{}' → {} results",
+                rule_name,
+                items.len()
+            );
             Ok(items)
         }
         Ok(Err(e)) => {
@@ -80,50 +105,81 @@ pub async fn anime_search(state: State<'_, AnimeState>, rule_name: String, keywo
 }
 
 #[tauri::command]
-pub async fn anime_search_all(app: tauri::AppHandle, state: State<'_, AnimeState>, keyword: String) -> Result<Vec<(String, Vec<anime::SearchItem>)>, String> {
+pub async fn anime_search_all(
+    app: tauri::AppHandle,
+    state: State<'_, AnimeState>,
+    keyword: String,
+) -> Result<Vec<(String, Vec<anime::SearchItem>)>, String> {
     let rules = {
         let store = state.rules.lock().map_err(|e| e.to_string())?;
         store.clone()
     };
-    let futures: Vec<_> = rules.iter().map(|rule| {
-        let rule = rule.clone();
-        let kw = keyword.clone();
-        let app = app.clone();
-        async move {
-            // 每条规则独立硬超时；一出结果就「流式」推给前端 —— 边搜边显示，不等全部完成（Kazumi 式体验）
-            match tokio::time::timeout(std::time::Duration::from_secs(10), anime::search_anime(&rule, &kw)).await {
-                Ok(Ok(items)) if !items.is_empty() => {
-                    let _ = app.emit("anime-search-result", (rule.name.clone(), items.clone()));
-                    Some((rule.name.clone(), items))
+    let futures: Vec<_> = rules
+        .iter()
+        .map(|rule| {
+            let rule = rule.clone();
+            let kw = keyword.clone();
+            let app = app.clone();
+            async move {
+                // 每条规则独立硬超时；一出结果就「流式」推给前端 —— 边搜边显示，不等全部完成（Kazumi 式体验）
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(10),
+                    anime::search_anime(&rule, &kw),
+                )
+                .await
+                {
+                    Ok(Ok(items)) if !items.is_empty() => {
+                        let _ = app.emit("anime-search-result", (rule.name.clone(), items.clone()));
+                        Some((rule.name.clone(), items))
+                    }
+                    _ => None,
                 }
-                _ => None,
             }
-        }
-    }).collect();
+        })
+        .collect();
     let all = futures_util::future::join_all(futures).await;
     let _ = app.emit("anime-search-done", ());
     Ok(all.into_iter().flatten().collect())
 }
 
 #[tauri::command]
-pub async fn anime_fetch_roads(state: State<'_, AnimeState>, rule_name: String, page_url: String) -> Result<Vec<anime::Road>, String> {
+pub async fn anime_fetch_roads(
+    state: State<'_, AnimeState>,
+    rule_name: String,
+    page_url: String,
+) -> Result<Vec<anime::Road>, String> {
     let rule = {
         let store = state.rules.lock().map_err(|e| e.to_string())?;
-        store.iter().find(|r| r.name == rule_name).cloned()
+        store
+            .iter()
+            .find(|r| r.name == rule_name)
+            .cloned()
             .ok_or_else(|| format!("规则 '{}' 不存在", rule_name))?
     };
     // 硬超时 15s — 防止 TLS 握手/响应卡死导致前端永远「获取线路中」
-    match tokio::time::timeout(std::time::Duration::from_secs(15), anime::fetch_roads(&rule, &page_url)).await {
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        anime::fetch_roads(&rule, &page_url),
+    )
+    .await
+    {
         Ok(res) => res,
         Err(_) => Err(format!("规则 '{}' 获取线路超时 (15s)", rule_name)),
     }
 }
 
 #[tauri::command]
-pub async fn anime_build_url(state: State<'_, AnimeState>, rule_name: String, url: String) -> Result<String, String> {
+pub async fn anime_build_url(
+    state: State<'_, AnimeState>,
+    rule_name: String,
+    url: String,
+) -> Result<String, String> {
     let rule = {
         let store = state.rules.lock().map_err(|e| e.to_string())?;
-        store.iter().find(|r| r.name == rule_name).cloned()
+        store
+            .iter()
+            .find(|r| r.name == rule_name)
+            .cloned()
             .ok_or_else(|| format!("规则 '{}' 不存在", rule_name))?
     };
     Ok(anime::build_full_url(&rule, &url))
@@ -197,7 +253,8 @@ pub async fn anime_bangumi_search(
         &sort.unwrap_or_default(),
         &air_date_gte.unwrap_or_default(),
         &air_date_lte.unwrap_or_default(),
-    ).await
+    )
+    .await
 }
 
 // ── 图片代理 ────────────────────────────────────────────────────────────
@@ -215,7 +272,11 @@ pub async fn anime_proxy_images_batch(urls: Vec<String>) -> Result<Vec<(String, 
 // ── 收藏 & 历史（前端 localStorage 持久化，这里提供代理 fetch）─────────
 
 #[tauri::command]
-pub async fn anime_fetch_page(url: String, referer: Option<String>, user_agent: Option<String>) -> Result<String, String> {
+pub async fn anime_fetch_page(
+    url: String,
+    referer: Option<String>,
+    user_agent: Option<String>,
+) -> Result<String, String> {
     let ua = user_agent.unwrap_or_else(|| "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36".into());
     let client = crate::http_client::build_reqwest_client(15, &ua);
     let mut req = client.get(&url);
@@ -241,7 +302,9 @@ pub async fn anime_bangumi_rating(subject_id: i64) -> Result<anime::BangumiRatin
 }
 
 #[tauri::command]
-pub async fn anime_bangumi_characters(subject_id: i64) -> Result<Vec<anime::BangumiCharacter>, String> {
+pub async fn anime_bangumi_characters(
+    subject_id: i64,
+) -> Result<Vec<anime::BangumiCharacter>, String> {
     anime::fetch_bangumi_characters(subject_id).await
 }
 
@@ -251,12 +314,19 @@ pub async fn anime_bangumi_persons(subject_id: i64) -> Result<Vec<anime::Bangumi
 }
 
 #[tauri::command]
-pub async fn anime_bangumi_comments(subject_id: i64, offset: Option<u32>) -> Result<Vec<anime::BangumiComment>, String> {
+pub async fn anime_bangumi_comments(
+    subject_id: i64,
+    offset: Option<u32>,
+) -> Result<Vec<anime::BangumiComment>, String> {
     anime::fetch_bangumi_comments(subject_id, offset.unwrap_or(0)).await
 }
 
 #[tauri::command]
-pub async fn anime_bangumi_episodes_list(subject_id: i64, offset: Option<u32>, limit: Option<u32>) -> Result<Vec<anime::BangumiEpisodeInfo>, String> {
+pub async fn anime_bangumi_episodes_list(
+    subject_id: i64,
+    offset: Option<u32>,
+    limit: Option<u32>,
+) -> Result<Vec<anime::BangumiEpisodeInfo>, String> {
     anime::fetch_bangumi_episodes_list(subject_id, offset.unwrap_or(0), limit.unwrap_or(20)).await
 }
 
@@ -288,7 +358,8 @@ pub async fn anime_bangumi_get_user_collection(
         &token,
         offset.unwrap_or(0),
         limit.unwrap_or(30),
-    ).await
+    )
+    .await
 }
 
 #[tauri::command]
@@ -327,7 +398,12 @@ pub async fn anime_bangumi_update_collection(
 #[tauri::command]
 pub fn anime_get_proxy_url(url: String, referer: Option<String>) -> String {
     let result = crate::video_proxy::to_proxy_url(&url, referer.as_deref());
-    tracing::info!("[前端调用] anime_get_proxy_url: url={}, referer={:?} → {}", &url[..url.len().min(80)], referer, &result[..result.len().min(80)]);
+    tracing::info!(
+        "[前端调用] anime_get_proxy_url: url={}, referer={:?} → {}",
+        &url[..url.len().min(80)],
+        referer,
+        &result[..result.len().min(80)]
+    );
     result
 }
 
@@ -345,7 +421,12 @@ pub fn frontend_log(level: String, message: String) {
 
 #[tauri::command]
 pub async fn anime_image_search(image_url: String) -> Result<Vec<anime::TraceMoeResult>, String> {
-    match tokio::time::timeout(std::time::Duration::from_secs(25), anime::trace_moe_search(&image_url)).await {
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(25),
+        anime::trace_moe_search(&image_url),
+    )
+    .await
+    {
         Ok(res) => res,
         Err(_) => Err("图片搜番超时".into()),
     }
@@ -354,7 +435,9 @@ pub async fn anime_image_search(image_url: String) -> Result<Vec<anime::TraceMoe
 // ── Bangumi 章节评论 ──────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn anime_bangumi_episode_comments(episode_id: i64) -> Result<Vec<anime::BangumiEpisodeComment>, String> {
+pub async fn anime_bangumi_episode_comments(
+    episode_id: i64,
+) -> Result<Vec<anime::BangumiEpisodeComment>, String> {
     anime::fetch_bangumi_episode_comments(episode_id).await
 }
 
@@ -362,23 +445,42 @@ pub async fn anime_bangumi_episode_comments(episode_id: i64) -> Result<Vec<anime
 
 #[tauri::command]
 pub async fn anime_danmaku_search(keyword: String) -> Result<Vec<anime::DanmakuAnime>, String> {
-    match tokio::time::timeout(std::time::Duration::from_secs(12), anime::danmaku_search(&keyword)).await {
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(12),
+        anime::danmaku_search(&keyword),
+    )
+    .await
+    {
         Ok(res) => res,
         Err(_) => Err("弹幕搜索超时".into()),
     }
 }
 
 #[tauri::command]
-pub async fn anime_danmaku_get_episodes(anime_id: u32) -> Result<Vec<anime::DanmakuEpisode>, String> {
-    match tokio::time::timeout(std::time::Duration::from_secs(12), anime::danmaku_get_episodes(anime_id)).await {
+pub async fn anime_danmaku_get_episodes(
+    anime_id: u32,
+) -> Result<Vec<anime::DanmakuEpisode>, String> {
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(12),
+        anime::danmaku_get_episodes(anime_id),
+    )
+    .await
+    {
         Ok(res) => res,
         Err(_) => Err("获取弹幕分集超时".into()),
     }
 }
 
 #[tauri::command]
-pub async fn anime_danmaku_get_comments(episode_id: u32) -> Result<Vec<anime::DanmakuComment>, String> {
-    match tokio::time::timeout(std::time::Duration::from_secs(12), anime::danmaku_get_comments(episode_id)).await {
+pub async fn anime_danmaku_get_comments(
+    episode_id: u32,
+) -> Result<Vec<anime::DanmakuComment>, String> {
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(12),
+        anime::danmaku_get_comments(episode_id),
+    )
+    .await
+    {
         Ok(res) => res,
         Err(_) => Err("获取弹幕超时".into()),
     }

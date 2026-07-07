@@ -84,7 +84,7 @@
   --focus-ring:    0 0 0 2px var(--accent);
   --shadow-tile:   0 8px 24px -14px rgba(0, 0, 0, 0.7);
   --shadow-lift:   0 18px 40px -18px rgba(0, 0, 0, 0.78);
-  --sw-bg:         var(--bg-void);
+  --sw-bg:         #0c1a17;
   --sw-tile-radius: var(--radius-lg);
   --sw-tile-width: clamp(118px, 11.2vw, 156px);
   --sw-tile-selected-width: clamp(174px, 18vw, 300px);

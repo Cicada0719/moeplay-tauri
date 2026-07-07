@@ -41,7 +41,11 @@ pub async fn scrape_games(
     }
 
     let settings = db.get_settings();
-    let proxy = if settings.scraper_proxy.trim().is_empty() { None } else { Some(settings.scraper_proxy.clone()) };
+    let proxy = if settings.scraper_proxy.trim().is_empty() {
+        None
+    } else {
+        Some(settings.scraper_proxy.clone())
+    };
     scraper::utils::set_proxy(proxy);
 
     let (results, source_status) = scraper::search_all(
@@ -57,7 +61,10 @@ pub async fn scrape_games(
         pcgw,
     )
     .await;
-    Ok(ScrapeResponse { results, source_status })
+    Ok(ScrapeResponse {
+        results,
+        source_status,
+    })
 }
 
 /// 按 DLsite 产品 ID 获取详情
@@ -145,7 +152,11 @@ pub async fn scrape_game(
     }
 
     let settings = db.get_settings();
-    let proxy = if settings.scraper_proxy.trim().is_empty() { None } else { Some(settings.scraper_proxy.clone()) };
+    let proxy = if settings.scraper_proxy.trim().is_empty() {
+        None
+    } else {
+        Some(settings.scraper_proxy.clone())
+    };
     scraper::utils::set_proxy(proxy);
 
     let ai_config = if settings.ai_enabled && !settings.ai_api_key.is_empty() {
@@ -181,12 +192,18 @@ pub async fn scrape_game(
         }
         if let Some(ref url) = r.background {
             if url.starts_with("http") {
-                r.background = Some(crate::commands::fetch_cover_to_local(url, &format!("{}_bg", r.source_id)).await);
+                r.background = Some(
+                    crate::commands::fetch_cover_to_local(url, &format!("{}_bg", r.source_id))
+                        .await,
+                );
             }
         }
     }
 
-    Ok(ScrapeResponse { results, source_status })
+    Ok(ScrapeResponse {
+        results,
+        source_status,
+    })
 }
 
 /// 应用刮削结果到游戏记录
@@ -357,7 +374,11 @@ pub async fn scrape_game_merged(
         _ => scraper::strategy::ScrapeStrategy::Full,
     };
 
-    let proxy = if settings.scraper_proxy.trim().is_empty() { None } else { Some(settings.scraper_proxy.clone()) };
+    let proxy = if settings.scraper_proxy.trim().is_empty() {
+        None
+    } else {
+        Some(settings.scraper_proxy.clone())
+    };
     scraper::utils::set_proxy(proxy);
 
     let route = scraper::strategy::ScrapeRouter::plan(source_hint.as_deref(), false, false);
@@ -419,7 +440,11 @@ pub async fn scrape_game_merged(
         }
         if let Some(ref url) = mr.result.background {
             if url.starts_with("http") {
-                let local = crate::commands::fetch_cover_to_local(url, &format!("{}_bg", mr.result.source_id)).await;
+                let local = crate::commands::fetch_cover_to_local(
+                    url,
+                    &format!("{}_bg", mr.result.source_id),
+                )
+                .await;
                 mr.result.background = Some(local);
             }
         }

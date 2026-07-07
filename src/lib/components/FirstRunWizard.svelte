@@ -314,11 +314,6 @@
           <strong>Steam / Epic 导入</strong>
           <span>同步平台库、游玩时长和封面</span>
         </button>
-        <button class="entry-card" onclick={() => finishTo("migration")} disabled={saving}>
-          <Icon name="database" size={20} />
-          <strong>旧版迁移桥</strong>
-          <span>从 MoeGame / Playnite 旧库恢复数据</span>
-        </button>
       </div>
 
       {#if saveError}

@@ -257,10 +257,6 @@
             {#await import("./lib/components/SteamImportDialog.svelte") then { default: Comp }}
               <Comp />
             {/await}
-          {:else if uiStore.currentView === "migration"}
-            {#await import("./lib/components/MigrationPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
           {:else if uiStore.currentView === "emulator"}
             {#await import("./lib/components/EmulatorImportDialog.svelte") then { default: Comp }}
               <Comp />
@@ -351,8 +347,9 @@
   }
 
   .view-wrapper {
-    flex: 1; display: flex; flex-direction: column; overflow: hidden;
-    position: relative; z-index: 1;
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; overflow: hidden;
+    z-index: 1;
   }
 
   /* ── Tools drawer ── */

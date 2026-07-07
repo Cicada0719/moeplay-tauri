@@ -1227,50 +1227,6 @@ export async function importSteamGame(
   return invokeCmd("import_steam_game", { name, installPath, appId, coverUrl, platform });
 }
 
-// ===== M1 C# 迁移桥 =====
-
-export interface MigrationReport {
-  total_found: number;
-  imported: number;
-  updated: number;
-  skipped: number;
-  media_copied: number;
-  media_missing: number;
-  errors: string[];
-  duration_secs: number;
-  source_label: string;
-  source_ids: string[];
-  backup_dir: string | null;
-}
-
-export interface MigrationVerifyReport {
-  expected_count: number;
-  actual_count: number;
-  matched_count: number;
-  missing_count: number;
-  missing_ids: string[];
-  count_match: boolean;
-  with_cover: number;
-  with_background: number;
-  with_description: number;
-  cover_rate: number;
-  issues: string[];
-}
-
-/// 从 C# 旧版数据迁移
-export async function migrateFromCsharp(sourcePath: string): Promise<MigrationReport> {
-  return invokeCmd("migrate_from_csharp", { sourcePath });
-}
-
-/// 校验迁移结果
-export async function verifyMigration(expectedCount: number): Promise<MigrationVerifyReport> {
-  return invokeCmd("verify_migration", { expectedCount });
-}
-
-export async function verifyMigrationIds(expectedCount: number, sourceIds: string[]): Promise<MigrationVerifyReport> {
-  return invokeCmd("verify_migration_ids", { expectedCount, sourceIds });
-}
-
 // ===== M6 自动入库刮削 =====
 
 export interface PipelineState {

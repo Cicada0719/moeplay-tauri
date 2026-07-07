@@ -51,3 +51,9 @@ playwright-report/
 nul
 .workbuddy/
 scripts/open-test-shot.mjs
+
+# Design screenshots (kept locally, not committed)
+design-assets/
+
+# Playwright MCP session cache (temp, auto-recreated)
+.playwright-mcp/

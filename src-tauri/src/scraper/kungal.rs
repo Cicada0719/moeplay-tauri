@@ -52,7 +52,10 @@ pub async fn get_detail(game_id: &str) -> Result<ScrapeResult, ScrapeError> {
         return Err(ScrapeError::NotFound);
     }
     // 现行 API 把字段包在 data 下：{"code":0,"data":{...}}；兼容直接返回对象的旧形态。
-    let data = detail.get("data").filter(|d| d.is_object()).unwrap_or(&detail);
+    let data = detail
+        .get("data")
+        .filter(|d| d.is_object())
+        .unwrap_or(&detail);
     Ok(parse_detail(data, game_id))
 }
 

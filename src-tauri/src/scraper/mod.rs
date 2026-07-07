@@ -24,6 +24,9 @@ pub use vndb::VndbDetail;
 use crate::models::{ScrapeResult, ScrapeSourceStatus};
 use cache::ScrapeCache;
 
+/// 单个数据源刮削任务的 JoinHandle（避免手写超长元组类型触发 clippy::type_complexity）
+type ScrapeJoinHandle = tokio::task::JoinHandle<Result<Vec<ScrapeResult>, String>>;
+
 /// 全局刮削缓存（1h TTL）
 static CACHE: std::sync::LazyLock<ScrapeCache> =
     std::sync::LazyLock::new(|| ScrapeCache::new(3600));
@@ -47,7 +50,7 @@ pub async fn search_all(
     pcgw_enabled: bool,
 ) -> (Vec<ScrapeResult>, Vec<ScrapeSourceStatus>) {
     let cache = global_cache();
-    let mut handles: Vec<(String, tokio::task::JoinHandle<Result<Vec<ScrapeResult>, String>>)> = vec![];
+    let mut handles: Vec<(String, ScrapeJoinHandle)> = vec![];
     let mut cached_results: Vec<ScrapeResult> = vec![];
     let mut statuses: Vec<ScrapeSourceStatus> = vec![];
 
@@ -67,13 +70,16 @@ pub async fn search_all(
                 } else {
                     let q2 = q.clone();
                     let src_name = $name.to_string();
-                    handles.push((src_name, tokio::spawn(async move {
-                        let r = $search_fn(&q2).await;
-                        if let Ok(ref results) = r {
-                            cache.set(&q2, $name, results.clone());
-                        }
-                        r
-                    })));
+                    handles.push((
+                        src_name,
+                        tokio::spawn(async move {
+                            let r = $search_fn(&q2).await;
+                            if let Ok(ref results) = r {
+                                cache.set(&q2, $name, results.clone());
+                            }
+                            r
+                        }),
+                    ));
                 }
             }
         };
@@ -98,15 +104,30 @@ pub async fn search_all(
             Ok(Ok(mut r)) => {
                 let count = r.len();
                 cached_results.append(&mut r);
-                statuses.push(ScrapeSourceStatus { source: name, ok: true, count, error: None });
+                statuses.push(ScrapeSourceStatus {
+                    source: name,
+                    ok: true,
+                    count,
+                    error: None,
+                });
             }
             Ok(Err(e)) => {
                 tracing::warn!(source = %name, error = %e, "Scrape source failed");
-                statuses.push(ScrapeSourceStatus { source: name, ok: false, count: 0, error: Some(e) });
+                statuses.push(ScrapeSourceStatus {
+                    source: name,
+                    ok: false,
+                    count: 0,
+                    error: Some(e),
+                });
             }
             Err(e) => {
                 tracing::warn!(source = %name, error = %e, "Scrape task panicked");
-                statuses.push(ScrapeSourceStatus { source: name, ok: false, count: 0, error: Some(e.to_string()) });
+                statuses.push(ScrapeSourceStatus {
+                    source: name,
+                    ok: false,
+                    count: 0,
+                    error: Some(e.to_string()),
+                });
             }
         }
     }

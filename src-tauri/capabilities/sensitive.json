@@ -11,7 +11,6 @@
     "allow-restore-save",
     "allow-import-database",
     "allow-export-database",
-    "allow-migrate-from-csharp",
     "allow-set-autostart",
     "allow-pick-directory",
     "allow-add-game-by-path",

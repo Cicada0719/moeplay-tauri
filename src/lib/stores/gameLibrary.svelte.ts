@@ -327,8 +327,11 @@ export const libraryStore = {
       await addGameByDialog();
       await this.load();
     } catch (e) {
+      const msg = userFacingErrorMessage(e);
+      // 用户在文件选择框中点「取消」属于正常操作，不应显示为错误横幅。
+      if (/已取消|cancelled|cancel/i.test(msg)) return;
       console.error("Import failed:", e);
-      _loadError = userFacingErrorMessage(e);
+      _loadError = msg;
     }
   },
 

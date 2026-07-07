@@ -7,6 +7,7 @@
   import Icon from "../Icon.svelte";
   import DanmakuOverlay from "./DanmakuOverlay.svelte";
   import { animeDownloadEpisode } from "../../api";
+  import { debugLog } from "../../utils/debug";
 
   const status = $derived(animeStore.playerExtractStatus); // extracting | found | timeout | error
   const videoSrc = $derived(animeStore.playerVideoSrc);
@@ -99,10 +100,11 @@
   // ── PiP (画中画) ────────────────────────────────────────────────────────
   let isPipSupported = $state(false);
   let isPipActive = $state(false);
-  let savedWindowFullscreen = false;
+  let windowFullscreenBeforePlayer = false;
+  let playerOwnsWindowFullscreen = false;
 
   onMount(async () => {
-    try { savedWindowFullscreen = await getCurrentWindow().isFullscreen(); } catch {}
+    try { windowFullscreenBeforePlayer = await getCurrentWindow().isFullscreen(); } catch {}
     document.addEventListener('fullscreenchange', onFullscreenChange);
     document.addEventListener('keydown', onKeyDown);
     isPipSupported = !!document.pictureInPictureEnabled;
@@ -111,6 +113,9 @@
     document.removeEventListener('fullscreenchange', onFullscreenChange);
     document.removeEventListener('keydown', onKeyDown);
     if (extractTimer) clearInterval(extractTimer);
+    if (playerOwnsWindowFullscreen) {
+      getCurrentWindow().setFullscreen(windowFullscreenBeforePlayer).catch(() => {});
+    }
   });
 
   // 离开 found 状态时关闭视频相关弹出面板
@@ -119,6 +124,28 @@
       showSpeedMenu = false;
       showDanmakuSettings = false;
       showCommentsPanel = false;
+    }
+  });
+
+  const currentRule = $derived(animeStore.rules.find(r => r.name === animeStore.playerRuleName));
+  const prefersWebPlayback = $derived(!!currentRule && (currentRule.useWebview || currentRule.useNativePlayer === false));
+
+  // 对明确标记 WebView / 非原生播放的源，直接切源站播放器，避免先走一次必失败的地址提取。
+  $effect(() => {
+    if ((status === 'extracting' || status === 'error' || status === 'timeout') && !useWebFallback && pageUrl && prefersWebPlayback) {
+      console.log('[播放器] 规则要求网页播放，自动切换源站播放器');
+      invokeCmd('frontend_log', { level: 'info', message: '[播放器] 规则要求网页播放，自动切换源站播放器' }).catch(() => {});
+      switchToWebFallback(status === 'extracting');
+    }
+  });
+
+  // 全局兜底：只要提取失败/超时且用户启用了自动网页播放，就自动切到网页播放。
+  // 这是 Kazumi 风格的兼容策略——当内置解析搞不定时，直接用源站播放器。
+  $effect(() => {
+    if ((status === 'error' || status === 'timeout') && !useWebFallback && pageUrl && animeStore.autoWebFallback) {
+      console.log('[播放器] 内置解析失败，自动切换网页播放兜底');
+      invokeCmd('frontend_log', { level: 'info', message: '[播放器] 内置解析失败，自动切换网页播放兜底' }).catch(() => {});
+      switchToWebFallback();
     }
   });
 
@@ -163,19 +190,52 @@
     }
   }
 
-  // 全屏切换（纯 CSS，不使用 DOM Fullscreen API 以避免影响 Tauri 窗口状态）
-  function toggleFullscreen() {
-    isFullscreen = !isFullscreen;
-  }
-  async function onFullscreenChange() {
-    // 用户可能通过原生 <video controls> 全屏按钮触发 DOM 全屏
-    // 当 DOM 全屏退出时，恢复 Tauri 窗口的全屏状态
-    if (!document.fullscreenElement && savedWindowFullscreen) {
-      try { await getCurrentWindow().setFullscreen(true); } catch {}
+  function switchToWebFallback(cancelRunningExtract = false) {
+    if (!pageUrl) return;
+    useWebFallback = true;
+    if (cancelRunningExtract && (status === 'extracting' || failoverStatus === 'trying')) {
+      animeStore.cancelExtract();
     }
   }
 
-  // HLS.js ↔ 原生双模兜底：15s 看门狗，一种方式超时就自动换另一种
+  async function setPlayerFullscreen(next: boolean) {
+    if (next === isFullscreen) return;
+
+    showSpeedMenu = false;
+    showDanmakuSettings = false;
+    showEpisodePanel = false;
+    showCommentsPanel = false;
+
+    const win = getCurrentWindow();
+    if (next) {
+      try { windowFullscreenBeforePlayer = await win.isFullscreen(); } catch { windowFullscreenBeforePlayer = false; }
+      playerOwnsWindowFullscreen = !windowFullscreenBeforePlayer;
+      isFullscreen = true;
+      try { await win.setFullscreen(true); } catch (e) { console.warn('进入窗口全屏失败:', e); }
+      return;
+    }
+
+    isFullscreen = false;
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+    } catch {}
+    try { await win.setFullscreen(windowFullscreenBeforePlayer); } catch (e) { console.warn('退出窗口全屏失败:', e); }
+    playerOwnsWindowFullscreen = false;
+  }
+
+  function toggleFullscreen() {
+    void setPlayerFullscreen(!isFullscreen);
+  }
+
+  async function closePlayer() {
+    await setPlayerFullscreen(false);
+    animeStore.closePlayer();
+  }
+  async function onFullscreenChange() {
+    // 原生 video / 源站 iframe 可能自己进入 DOM fullscreen；这里不抢状态，避免退出后又被强制拉回全屏。
+  }
+
+  // HLS.js ↔ 原生双模兜底：加载阶段和播放阶段各自有看门狗，避免灰屏/黑屏空转。
   $effect(() => {
     const el = videoEl;
     const src = videoSrc;
@@ -183,7 +243,7 @@
     invokeCmd('frontend_log', { level: 'info', message: `[播放器$effect] el=${!!el} status=${status} src=${src ? src.substring(0, 60) : 'null'}` }).catch(() => {});
     if (!el || status !== "found" || !src) return;
     const v: HTMLVideoElement = el;
-    console.log("[播放器] 初始化视频", { src: src.substring(0, 120), m3u8 });
+    debugLog("[播放器] 初始化视频", { src: src.substring(0, 120), m3u8 });
     invokeCmd('frontend_log', { level: 'info', message: `[播放器] 初始化视频: m3u8=${m3u8}, src=${src.substring(0, 80)}` }).catch(() => {});
 
     let hls: Hls | null = null;
@@ -192,44 +252,80 @@
     let attempt = 0;        // 0=未开始 1=首选方式 2=兜底方式
     let settled = false;    // 已成功加载到元数据 或 已最终判 error —— 之后不再做初次兜底
     let watchdog: number | null = null;
+    let playbackWatchdog: number | null = null;
     const nativeHls = v.canPlayType("application/vnd.apple.mpegurl") !== "";
     // 首选方式：能用 hls.js 且看着像 m3u8 就先 hls，否则先原生
     const firstIsHls = m3u8 && !nativeHls && Hls.isSupported();
 
     const clearWatchdog = () => { if (watchdog !== null) { clearTimeout(watchdog); watchdog = null; } };
+    const clearPlaybackWatchdog = () => {
+      if (playbackWatchdog !== null) {
+        clearTimeout(playbackWatchdog);
+        playbackWatchdog = null;
+      }
+    };
     const armWatchdog = () => {
       clearWatchdog();
-      // 15s 内拿不到元数据视为这条 src 放不出来（黑屏静默失败的兜底信号）
+      // 10s 内拿不到元数据视为这条 src 放不出来（黑屏静默失败的兜底信号）
       watchdog = window.setTimeout(() => {
         if (settled) return;
         if (v.readyState >= 1) return; // 已有元数据，别误杀慢源
-        console.warn("[播放器] 15s 未加载到元数据，触发兜底");
+        console.warn("[播放器] 10s 未加载到元数据，触发兜底");
         fail("timeout");
+      }, 10000);
+    };
+
+    const markPlaybackReady = () => {
+      if (v.readyState >= 3 || v.currentTime > 0) clearPlaybackWatchdog();
+    };
+
+    const armPlaybackWatchdog = () => {
+      clearPlaybackWatchdog();
+      // 有些反爬/CDN 会让 video 拿到元数据但永远没有可播放帧，表现为黑屏或灰屏。
+      playbackWatchdog = window.setTimeout(() => {
+        if (!settled) return;
+        if (v.readyState >= 3 || v.currentTime > 0) return;
+        console.warn('[播放器] 元数据已加载但长时间无可播放帧，触发兜底');
+        fail('playback stalled');
       }, 15000);
     };
 
     // 成功拿到元数据：标记 settled，停掉看门狗
-    const succeed = () => { settled = true; clearWatchdog(); };
+    const succeed = () => {
+      settled = true;
+      clearWatchdog();
+      armPlaybackWatchdog();
+    };
 
     // 加载失败：首次失败且还有备用方式 → 换方式；否则判 error 让用户换源/网页播放
     const fail = (why: string) => {
       clearWatchdog();
+      clearPlaybackWatchdog();
       if (hls) { try { hls.destroy(); } catch {} hls = null; }
-      if (!settled && attempt < 2) {
+      const canTryAlternate = attempt < 2 && (!settled || (v.currentTime === 0 && v.readyState < 3));
+      if (canTryAlternate) {
         console.warn(`[播放器] 第${attempt}次加载失败(${why})，自动切换播放方式兜底`);
+        settled = false;
         v.removeAttribute("src");
         try { v.load(); } catch {}
         startAttempt();
       } else {
         console.error(`[播放器] 加载失败(${why})，判定 error`);
         settled = true;
+        // 缓存地址可能已过期/无效，避免重试时立即命中同一 broken URL
+        if (pageUrl) animeStore.invalidateVideoCache(pageUrl);
         animeStore.playerExtractStatus = "error";
+        // 若用户开启自动网页播放兜底，或当前规则本来就要求网页播放，直接切到源站播放器。
+        if ((animeStore.autoWebFallback || prefersWebPlayback) && pageUrl) {
+          invokeCmd('frontend_log', { level: 'info', message: '[播放器] 视频加载失败，自动切换网页播放兜底' }).catch(() => {});
+          switchToWebFallback();
+        }
       }
     };
 
     // 续播 + 倍速 + 跳片头：元数据就绪后执行
     const onLoadedMetadata = () => {
-      console.log("[播放器] loadedmetadata, duration:", v.duration);
+      debugLog("[播放器] loadedmetadata, duration:", v.duration);
       succeed();
       v.playbackRate = playbackRate;
       if (pendingSeekMs > 0) {
@@ -242,17 +338,21 @@
     };
     v.addEventListener('loadedmetadata', onLoadedMetadata);
 
-    // video 元素错误：初次加载阶段触发兜底
+    // video 元素错误：加载后也要兜底，避免元数据就绪后黑屏卡死。
     const onVideoError = () => {
       const err = v.error;
       console.error("[播放器] video 元素错误:", err ? `code=${err.code} message=${err.message}` : "未知");
-      if (!settled) fail("video error");
+      fail("video error");
     };
     v.addEventListener('error', onVideoError);
 
+    v.addEventListener('canplay', markPlaybackReady);
+    v.addEventListener('playing', markPlaybackReady);
+    v.addEventListener('timeupdate', markPlaybackReady);
+
     // 自动连播 + 跳片尾
     const onEnded = () => {
-      console.log("[播放器] 视频播放结束");
+      debugLog("[播放器] 视频播放结束");
       if (autoNext && hasNext) {
         animeStore.nextEpisode();
       }
@@ -269,26 +369,44 @@
     v.addEventListener('timeupdate', onTimeUpdateForSkip);
 
     function attachHls() {
-      console.log("[播放器] 使用 HLS.js 播放");
-      // 缓冲更激进 + 分片/清单加载多重试：给慢 CDN 留余量，避免十几秒后缓冲枯竭卡死
+      debugLog("[播放器] 使用 HLS.js 播放");
+      // 从代理 URL 提取 Referer 供 xhrSetup 使用
+      const extractReferer = (): string => {
+        try {
+          const u = new URL(src);
+          const r = u.searchParams.get("referer");
+          return r ? decodeURIComponent(r) : "";
+        } catch { return ""; }
+      };
+      const hlsReferer = extractReferer();
+      const hlsOrigin = hlsReferer ? (() => { try { return new URL(hlsReferer).origin; } catch { return ""; } })() : "";
+
       hls = new Hls({
         maxBufferLength: 60,
         maxMaxBufferLength: 120,
         backBufferLength: 30,
         enableWorker: true,
         lowLatencyMode: false,
-        fragLoadingMaxRetry: 6,
+        fragLoadingMaxRetry: 11,
         fragLoadingRetryDelay: 1000,
         fragLoadingMaxRetryTimeout: 64000,
-        manifestLoadingMaxRetry: 4,
+        manifestLoadingMaxRetry: 6,
         manifestLoadingRetryDelay: 1000,
-        levelLoadingMaxRetry: 4,
+        levelLoadingMaxRetry: 6,
         nudgeMaxRetry: 10,
+        xhrSetup: function(xhr: XMLHttpRequest) {
+          if (hlsReferer) {
+            try { xhr.setRequestHeader("Referer", hlsReferer); } catch {}
+          }
+          if (hlsOrigin) {
+            try { xhr.setRequestHeader("Origin", hlsOrigin); } catch {}
+          }
+        }
       });
       hls.loadSource(src);
       hls.attachMedia(v);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        console.log("[播放器] HLS manifest 已解析，开始播放");
+        debugLog("[播放器] HLS manifest 已解析，开始播放");
         v.play().catch(() => {});
       });
       // 致命错误要自愈而不是直接判死（旧逻辑一遇 fatal 就 error → 播一会儿就卡死、必须退出重进）
@@ -323,7 +441,7 @@
     }
 
     function attachNative() {
-      console.log("[播放器] 原生 <video> 直接播放");
+      debugLog("[播放器] 原生 <video> 直接播放");
       v.src = src;
       try { v.load(); } catch {}
       v.play().catch(() => {});
@@ -342,8 +460,12 @@
 
     return () => {
       clearWatchdog();
+      clearPlaybackWatchdog();
       v.removeEventListener('loadedmetadata', onLoadedMetadata);
       v.removeEventListener('error', onVideoError);
+      v.removeEventListener('canplay', markPlaybackReady);
+      v.removeEventListener('playing', markPlaybackReady);
+      v.removeEventListener('timeupdate', markPlaybackReady);
       v.removeEventListener('ended', onEnded);
       v.removeEventListener('timeupdate', onTimeUpdateForSkip);
       if (hls) { try { hls.destroy(); } catch {} }
@@ -379,7 +501,7 @@
         player: player.name,
         referer: animeStore.rules.find(r => r.name === animeStore.playerRuleName)?.baseUrl || null,
       });
-      console.log("External player:", msg);
+      debugLog("External player:", msg);
     } catch (e) {
       console.warn("外部播放器启动失败:", e);
     }
@@ -508,6 +630,20 @@
     // 输入框聚焦时不拦截
     const target = e.target as HTMLElement;
     if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+
+    if (e.key === 'f' || e.key === 'F') {
+      e.preventDefault();
+      toggleFullscreen();
+      return;
+    }
+
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      if (isFullscreen) toggleFullscreen();
+      else void closePlayer();
+      return;
+    }
+
     if (useWebFallback) return;
 
     switch (e.key) {
@@ -532,11 +668,6 @@
         e.preventDefault();
         if (videoEl) videoEl.volume = Math.max(0, videoEl.volume - 0.1);
         break;
-      case 'f':
-      case 'F':
-        e.preventDefault();
-        toggleFullscreen();
-        break;
       case 'd':
       case 'D':
         e.preventDefault();
@@ -551,11 +682,6 @@
       case 'P':
         e.preventDefault();
         goPrev();
-        break;
-      case 'Escape':
-        e.preventDefault();
-        if (isFullscreen) toggleFullscreen();
-        else animeStore.closePlayer();
         break;
     }
   }
@@ -617,7 +743,7 @@
 
 <div class="player-overlay" class:fullscreen={isFullscreen} role="dialog" bind:this={overlayEl}>
   <div class="player-toolbar" role="toolbar" aria-label="播放器工具栏" tabindex="-1" onclick={handleToolbarClickOutside} onkeydown={(e) => { if (e.key === "Escape") { showSpeedMenu = false; showDanmakuSettings = false; showEpisodePanel = false; showCommentsPanel = false; } }}>
-    <button class="tool-btn" onclick={() => animeStore.closePlayer()}>
+    <button class="tool-btn" onclick={() => void closePlayer()}>
       <Icon name="x" size={16} /> 关闭
     </button>
     <div class="toolbar-sep"></div>
@@ -788,8 +914,9 @@
           src={pageUrl}
           title={epName}
           class="player-iframe"
+          allow="fullscreen; autoplay; encrypted-media; picture-in-picture; clipboard-write"
           allowfullscreen
-          sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-presentation"
+          sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms allow-presentation"
         ></iframe>
       {:else if status === "extracting"}
         <div class="player-state">
@@ -815,9 +942,9 @@
             {#if failoverStatus === 'trying'}
               <button class="state-btn" onclick={() => animeStore.cancelFailover()}>仅取消换源</button>
             {/if}
-            <button class="state-btn" onclick={() => animeStore.closePlayer()}>返回详情</button>
+            <button class="state-btn" onclick={() => void closePlayer()}>返回详情</button>
             {#if pageUrl}
-              <button class="state-btn" onclick={() => (useWebFallback = true)}>用网页播放</button>
+              <button class="state-btn" onclick={() => switchToWebFallback(true)}>用网页播放</button>
             {/if}
           </div>
         </div>
@@ -862,7 +989,7 @@
             <button class="state-btn primary" onclick={retry}>重试解析</button>
             <button class="state-btn" onclick={() => animeStore.openSourceSheet()}>手动选源</button>
             {#if pageUrl}
-              <button class="state-btn" onclick={() => (useWebFallback = true)}>用网页播放</button>
+              <button class="state-btn" onclick={() => switchToWebFallback()}>用网页播放</button>
               <button class="state-btn" onclick={openInBrowser}>浏览器打开</button>
               <button class="state-btn" onclick={launchExternalPlayer}>
                 <Icon name="externalLink" size={13} /> 外部播放
@@ -954,7 +1081,7 @@
       <button class="bottom-btn" onclick={goPrev} disabled={!hasPrev}>
         <Icon name="chevronLeft" size={16} /> 上一集
       </button>
-      <button class="bottom-btn close" onclick={() => animeStore.closePlayer()}>返回详情</button>
+      <button class="bottom-btn close" onclick={() => void closePlayer()}>返回详情</button>
       <button class="bottom-btn" onclick={goNext} disabled={!hasNext}>
         下一集 <Icon name="chevronRight" size={16} />
       </button>
@@ -973,7 +1100,31 @@
     overflow: hidden;
   }
   .player-overlay.fullscreen {
+    position: fixed;
+    inset: 0;
     z-index: 9999;
+    background: #000;
+  }
+  .player-overlay.fullscreen .player-toolbar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 40;
+    background: linear-gradient(180deg, rgba(0,0,0,0.86), rgba(0,0,0,0.28));
+    border-bottom: 0;
+  }
+  .player-overlay.fullscreen .player-body-wrap {
+    position: absolute;
+    inset: 0;
+  }
+  .player-overlay.fullscreen .player-body {
+    width: 100%;
+    height: 100%;
+  }
+  .player-overlay.fullscreen .player-video,
+  .player-overlay.fullscreen .player-iframe {
+    height: 100%;
   }
   .fullscreen-toggle {
     border-color: rgba(255,255,255,0.2) !important;

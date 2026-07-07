@@ -160,7 +160,7 @@
 </script>
 
 <div class="switch-home" data-testid="switch-home">
-  <div class="sw-bg" aria-hidden="true">
+  <div class="sw-bg" class:hidden={showGrid} aria-hidden="true">
     <div class="sw-bg-layer" class:cover={bgIsCover} style={`background-image:url("${bgArt}")`}></div>
     <div class="sw-bg-scrim"></div>
   </div>
@@ -208,6 +208,9 @@
         {#if searching || gameStore.quickFilter || gameStore.filterTag || gameStore.sortBy !== "recent"}
           <button class="reset" onclick={clearGridFilters}>清除筛选</button>
         {/if}
+        <button class="add-game" onclick={() => gameStore.importGame()} title="添加游戏">
+          <Icon name="plus" size={15} /> 添加游戏
+        </button>
       </div>
 
       <div class="filterbar" aria-label="全库筛选">
@@ -274,9 +277,9 @@
     <div class="empty-wrap" data-testid="switch-home-empty">
       <EmptyState
         title="还没有游戏"
-        description="从旧版 MoeGame 一键迁移你的游戏库，或同步 Steam / Epic、添加本地游戏。"
-        actionLabel="从旧版 MoeGame 导入"
-        onAction={() => (uiStore.currentView = "migration")}
+        description="同步 Steam / Epic、添加本地游戏，开始建立你的游戏库。"
+        actionLabel="添加本地游戏"
+        onAction={() => gameStore.importGame()}
       />
       <div class="empty-actions">
         <button onclick={() => (uiStore.currentView = "steam-import")}>Steam / Epic 导入</button>
@@ -503,7 +506,10 @@
     gap: 12px;
     padding: 6px 28px 12px;
     border-bottom: 1px solid var(--border);
-    background: var(--bg-void);
+    background:
+      radial-gradient(140% 90% at 50% -18%, rgba(0, 255, 153, 0.10), transparent 60%),
+      radial-gradient(120% 80% at 100% 120%, rgba(0, 200, 120, 0.06), transparent 55%),
+      linear-gradient(165deg, #0b1a13 0%, #081109 55%, #050a07 100%);
     flex-shrink: 0;
   }
   .all-head {
@@ -521,6 +527,16 @@
     padding: 6px 12px; border-radius: var(--radius-full); font-size: 13px;
   }
   .all-head .reset { margin-left: auto; }
+  .all-head .add-game {
+    display: inline-flex; align-items: center; gap: 5px;
+    margin-left: auto;
+    border: 1px solid var(--accent-ring);
+    background: var(--accent);
+    color: #fff; cursor: pointer;
+    padding: 6px 14px; border-radius: var(--radius-full); font-size: 13px; font-weight: 650;
+    transition: background 0.18s ease, transform 0.15s ease;
+  }
+  .all-head .add-game:hover { background: var(--accent-hi); transform: translateY(-1px); }
   .all-head .back:hover,
   .all-head .reset:hover { color: var(--text-primary); border-color: var(--border-hover); }
   .filterbar {

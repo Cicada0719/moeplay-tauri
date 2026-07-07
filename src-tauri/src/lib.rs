@@ -2,13 +2,12 @@
 #![allow(clippy::field_reassign_with_default, clippy::too_many_arguments)]
 
 pub mod anime;
-pub mod comic;
 pub mod archive;
 pub mod auto_scrape;
 pub mod autostart;
 pub mod cloud_save;
+pub mod comic;
 pub mod commands;
-pub mod csharp_migration;
 pub mod db;
 pub mod db_sqlite;
 pub mod diagnostics;
@@ -38,13 +37,13 @@ pub mod thumbnail;
 pub mod translator;
 pub mod utils;
 
+pub mod anime_download;
+pub mod external_player;
 pub mod video_extractor;
 pub mod video_proxy;
-pub mod external_player;
-pub mod anime_download;
+use anime_download::AnimeDownloader;
 use db::Database;
 use downloader::Downloader;
-use anime_download::AnimeDownloader;
 use import::ImportWatcher;
 use locale::LocaleEmulatorManager;
 use process_monitor::ProcessMonitor;
@@ -55,10 +54,17 @@ use tauri::Manager;
 /// 启动 Tauri 应用（桌面入口）
 pub fn crash_log(msg: &str) {
     use std::io::Write;
-    let dir = dirs::data_dir().unwrap_or_else(|| std::path::PathBuf::from(".")).join("moeplay").join("logs");
+    let dir = dirs::data_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("moeplay")
+        .join("logs");
     let _ = std::fs::create_dir_all(&dir);
     let path = dir.join("crash.log");
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
         let ts = chrono::Local::now().format("%H:%M:%S%.3f");
         let _ = writeln!(f, "[{}] {}", ts, msg);
         let _ = f.flush();
@@ -306,10 +312,6 @@ pub fn run() {
             commands::get_download_speed_limit,
             commands::set_download_max_concurrent,
             commands::get_download_max_concurrent,
-            // ---- M1 C# 迁移桥 ----
-            commands::migrate_from_csharp,
-            commands::verify_migration,
-            commands::verify_migration_ids,
             // ---- 工具 ----
             commands::open_url,
             commands::open_path,
@@ -413,6 +415,8 @@ pub fn run() {
             // ---- 视频提取 ----
             video_extractor::extract_video_url,
             video_extractor::anime_extract_video_url,
+            // ---- 视频代理 ----
+            video_proxy::get_video_proxy_port,
             // ---- DanDanPlay 弹幕 ----
             commands::anime_danmaku_search,
             commands::anime_danmaku_get_episodes,

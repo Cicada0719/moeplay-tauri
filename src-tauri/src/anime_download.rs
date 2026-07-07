@@ -7,7 +7,7 @@ use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -129,8 +129,7 @@ fn parse_master_playlist(content: &str, base_url: &str) -> Option<M3u8Variant> {
 
     for i in 0..lines.len() {
         let line = lines[i];
-        if line.starts_with("#EXT-X-STREAM-INF:") {
-            let attrs = &line["#EXT-X-STREAM-INF:".len()..];
+        if let Some(attrs) = line.strip_prefix("#EXT-X-STREAM-INF:") {
             let bandwidth = attrs
                 .split(',')
                 .find(|a| a.trim().starts_with("BANDWIDTH="))
@@ -145,7 +144,7 @@ fn parse_master_playlist(content: &str, base_url: &str) -> Option<M3u8Variant> {
         }
     }
 
-    variants.sort_by(|a, b| b.bandwidth.cmp(&a.bandwidth));
+    variants.sort_by_key(|v| std::cmp::Reverse(v.bandwidth));
     variants.into_iter().next()
 }
 
@@ -159,8 +158,7 @@ fn parse_media_playlist(content: &str, base_url: &str) -> Vec<M3u8Segment> {
     for line in &lines {
         if line.starts_with("#EXT-X-TARGETDURATION:") {
             // parsed but not stored (not needed for download)
-        } else if line.starts_with("#EXT-X-KEY:") {
-            let attrs = &line["#EXT-X-KEY:".len()..];
+        } else if let Some(attrs) = line.strip_prefix("#EXT-X-KEY:") {
             let method = attrs
                 .split(',')
                 .find(|a| a.trim().starts_with("METHOD="))
@@ -190,8 +188,7 @@ fn parse_media_playlist(content: &str, base_url: &str) -> Vec<M3u8Segment> {
             } else {
                 current_key = None;
             }
-        } else if line.starts_with("#EXTINF:") {
-            let duration_str = &line["#EXTINF:".len()..];
+        } else if let Some(duration_str) = line.strip_prefix("#EXTINF:") {
             let duration_part = duration_str.split(',').next().unwrap_or("0");
             current_duration = duration_part.parse::<f64>().unwrap_or(0.0);
         } else if !line.is_empty() && !line.starts_with('#') {
@@ -390,14 +387,30 @@ impl AnimeDownloader {
 
     // ---- 内部方法 ----
 
-    fn spawn_download(&self, task_id: String, url: String, output_path: PathBuf, referer: Option<String>) {
+    fn spawn_download(
+        &self,
+        task_id: String,
+        url: String,
+        output_path: PathBuf,
+        referer: Option<String>,
+    ) {
         let tasks = self.tasks.clone();
         let controls = self.controls.clone();
         let client = self.client.clone();
         let max_parallel = self.max_parallel_segments;
 
         tokio::spawn(async move {
-            Self::execute_download(task_id, url, output_path, referer, tasks, controls, client, max_parallel).await;
+            Self::execute_download(
+                task_id,
+                url,
+                output_path,
+                referer,
+                tasks,
+                controls,
+                client,
+                max_parallel,
+            )
+            .await;
         });
     }
 
@@ -484,7 +497,7 @@ impl AnimeDownloader {
     async fn download_m3u8(
         task_id: &str,
         url: &str,
-        output_path: &PathBuf,
+        output_path: &Path,
         referer: Option<&str>,
         tasks: &Arc<Mutex<HashMap<String, AnimeDownloadTask>>>,
         ctrl: &Arc<TaskControl>,
@@ -635,9 +648,13 @@ impl AnimeDownloader {
             };
 
             tokio::spawn(async move {
-                let result =
-                    Self::download_segment(&seg_client, &seg_url, &seg_path, seg_referer.as_deref())
-                        .await;
+                let result = Self::download_segment(
+                    &seg_client,
+                    &seg_url,
+                    &seg_path,
+                    seg_referer.as_deref(),
+                )
+                .await;
 
                 match result {
                     Ok(bytes) => {
@@ -694,12 +711,7 @@ impl AnimeDownloader {
 
         let final_failures = failed_count.load(Ordering::Relaxed);
         if final_failures > 0 {
-            Self::set_error(
-                tasks,
-                task_id,
-                format!("{} 个分片下载失败", final_failures),
-            )
-            .await;
+            Self::set_error(tasks, task_id, format!("{} 个分片下载失败", final_failures)).await;
             return;
         }
 
@@ -743,7 +755,7 @@ impl AnimeDownloader {
     async fn download_direct(
         task_id: &str,
         url: &str,
-        output_path: &PathBuf,
+        output_path: &Path,
         referer: Option<&str>,
         tasks: &Arc<Mutex<HashMap<String, AnimeDownloadTask>>>,
         ctrl: &Arc<TaskControl>,
@@ -757,9 +769,7 @@ impl AnimeDownloader {
         let tmp_path = output_path.with_extension("tmp");
 
         // Check for resume
-        let existing_bytes = std::fs::metadata(&tmp_path)
-            .map(|m| m.len())
-            .unwrap_or(0);
+        let existing_bytes = std::fs::metadata(&tmp_path).map(|m| m.len()).unwrap_or(0);
 
         {
             let mut t = tasks.lock().await;
@@ -839,23 +849,20 @@ impl AnimeDownloader {
                 return;
             }
 
-            let chunk = match tokio::time::timeout(
-                std::time::Duration::from_secs(30),
-                stream.next(),
-            )
-            .await
-            {
-                Ok(Some(Ok(d))) => d,
-                Ok(Some(Err(e))) => {
-                    Self::set_error(tasks, task_id, format!("下载流错误: {}", e)).await;
-                    return;
-                }
-                Ok(None) => break,
-                Err(_) => {
-                    Self::set_error(tasks, task_id, "下载超时".into()).await;
-                    return;
-                }
-            };
+            let chunk =
+                match tokio::time::timeout(std::time::Duration::from_secs(30), stream.next()).await
+                {
+                    Ok(Some(Ok(d))) => d,
+                    Ok(Some(Err(e))) => {
+                        Self::set_error(tasks, task_id, format!("下载流错误: {}", e)).await;
+                        return;
+                    }
+                    Ok(None) => break,
+                    Err(_) => {
+                        Self::set_error(tasks, task_id, "下载超时".into()).await;
+                        return;
+                    }
+                };
 
             if file.write_all(&chunk).is_err() {
                 Self::set_error(tasks, task_id, "写入失败".into()).await;
@@ -911,7 +918,7 @@ impl AnimeDownloader {
     async fn download_segment(
         client: &reqwest::Client,
         url: &str,
-        path: &PathBuf,
+        path: &Path,
         referer: Option<&str>,
     ) -> Result<u64, String> {
         let tmp_path = path.with_extension("ts.tmp");
@@ -972,7 +979,7 @@ impl AnimeDownloader {
     }
 
     /// 拼接 .ts 分片为单个文件
-    fn merge_segments(seg_dir: &PathBuf, count: usize, output: &PathBuf) -> Result<u64, String> {
+    fn merge_segments(seg_dir: &Path, count: usize, output: &Path) -> Result<u64, String> {
         if let Some(parent) = output.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {}", e))?;
         }
@@ -988,8 +995,8 @@ impl AnimeDownloader {
                 return Err(format!("分片 {} 不存在", i));
             }
             let mut seg_data = Vec::new();
-            let mut f =
-                std::fs::File::open(&seg_path).map_err(|e| format!("打开分片 {} 失败: {}", i, e))?;
+            let mut f = std::fs::File::open(&seg_path)
+                .map_err(|e| format!("打开分片 {} 失败: {}", i, e))?;
             std::io::Read::read_to_end(&mut f, &mut seg_data)
                 .map_err(|e| format!("读取分片 {} 失败: {}", i, e))?;
             total_size += seg_data.len() as u64;
@@ -1015,10 +1022,7 @@ impl AnimeDownloader {
         if let Some(r) = referer {
             req = req.header("Referer", r);
         }
-        let resp = req
-            .send()
-            .await
-            .map_err(|e| format!("请求失败: {}", e))?;
+        let resp = req.send().await.map_err(|e| format!("请求失败: {}", e))?;
         resp.text()
             .await
             .map_err(|e| format!("读取响应失败: {}", e))

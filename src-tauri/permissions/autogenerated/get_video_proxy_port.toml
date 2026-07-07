@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-video-proxy-port"
+description = "Enables the get_video_proxy_port command without any pre-configured scope."
+commands.allow = ["get_video_proxy_port"]
+
+[[permission]]
+identifier = "deny-get-video-proxy-port"
+description = "Denies the get_video_proxy_port command without any pre-configured scope."
+commands.deny = ["get_video_proxy_port"]

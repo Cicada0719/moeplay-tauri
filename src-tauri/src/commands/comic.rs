@@ -14,10 +14,7 @@ fn require_token(state: &State<'_, ComicState>) -> Result<String, String> {
 // ── 认证 ──────────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn comic_set_token(
-    token: String,
-    state: State<'_, ComicState>,
-) -> Result<(), String> {
+pub async fn comic_set_token(token: String, state: State<'_, ComicState>) -> Result<(), String> {
     let mut guard = state.token.lock().map_err(|e| e.to_string())?;
     *guard = token;
     Ok(())
@@ -83,10 +80,7 @@ pub async fn comic_list(
     let page_s = page.to_string();
     let sort_s = sort.unwrap_or_else(|| "dd".into());
 
-    let mut params: Vec<(&str, String)> = vec![
-        ("page", page_s),
-        ("s", sort_s),
-    ];
+    let mut params: Vec<(&str, String)> = vec![("page", page_s), ("s", sort_s)];
     if let Some(c) = &category {
         params.push(("c", c.clone()));
     }
@@ -285,10 +279,7 @@ pub async fn comic_toggle_favourite(
 // ── 点赞 ──────────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn comic_like(
-    id: String,
-    state: State<'_, ComicState>,
-) -> Result<String, String> {
+pub async fn comic_like(id: String, state: State<'_, ComicState>) -> Result<String, String> {
     let token = require_token(&state)?;
     let path = format!("comics/{}/like", id);
     let resp = comic::api_post(&path, &token, &serde_json::json!({})).await?;
@@ -373,9 +364,7 @@ pub async fn comic_recommendation(
 // ── 打卡 ──────────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn comic_punch_in(
-    state: State<'_, ComicState>,
-) -> Result<serde_json::Value, String> {
+pub async fn comic_punch_in(state: State<'_, ComicState>) -> Result<serde_json::Value, String> {
     let token = require_token(&state)?;
     let resp = comic::api_post("users/punch-in", &token, &serde_json::json!({})).await?;
     Ok(resp["data"].clone())

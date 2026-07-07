@@ -1,6 +1,6 @@
 [package]
 name = "moeplay"
-version = "0.11.5"
+version = "0.11.7"
 description = "萌游 MoeGame — 游戏与番剧管理器"
 authors = ["MoeGame Dev"]
 edition = "2021"

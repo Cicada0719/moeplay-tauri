@@ -22,7 +22,8 @@ pub fn set_proxy(proxy: Option<String>) {
 fn apply_proxy(builder: reqwest::ClientBuilder) -> Result<reqwest::ClientBuilder, ScrapeError> {
     let guard = SCRAPER_PROXY.read().unwrap();
     if let Some(url) = guard.as_ref().filter(|u| !u.trim().is_empty()) {
-        let proxy = reqwest::Proxy::all(url).map_err(|e| ScrapeError::Network(format!("proxy config error: {e}")))?;
+        let proxy = reqwest::Proxy::all(url)
+            .map_err(|e| ScrapeError::Network(format!("proxy config error: {e}")))?;
         Ok(builder.proxy(proxy))
     } else {
         Ok(builder)

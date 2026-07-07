@@ -73,16 +73,15 @@ impl SecurityScope {
             return Err("父目录不存在".to_string());
         }
 
-        let canon_parent = std::fs::canonicalize(parent)
-            .map_err(|e| format!("规范化父目录失败: {}", e))?;
+        let canon_parent =
+            std::fs::canonicalize(parent).map_err(|e| format!("规范化父目录失败: {}", e))?;
 
         if !self.is_under_any_prefix(&canon_parent) {
             return Err("路径不在允许范围内".to_string());
         }
 
         if candidate.exists() {
-            std::fs::canonicalize(&candidate)
-                .map_err(|e| format!("规范化路径失败: {}", e))
+            std::fs::canonicalize(&candidate).map_err(|e| format!("规范化路径失败: {}", e))
         } else {
             let file_name = candidate
                 .file_name()
@@ -141,8 +140,7 @@ fn normalize_path(path: &Path) -> PathBuf {
 }
 
 fn has_parent_component(path: &Path) -> bool {
-    path.components()
-        .any(|c| matches!(c, Component::ParentDir))
+    path.components().any(|c| matches!(c, Component::ParentDir))
 }
 
 fn is_path_under_prefix(child: &Path, prefix: &Path) -> bool {
@@ -155,8 +153,14 @@ fn is_path_under_prefix(child: &Path, prefix: &Path) -> bool {
 
     for i in 0..prefix_components.len() {
         if cfg!(windows) {
-            let a = prefix_components[i].as_os_str().to_string_lossy().to_lowercase();
-            let b = child_components[i].as_os_str().to_string_lossy().to_lowercase();
+            let a = prefix_components[i]
+                .as_os_str()
+                .to_string_lossy()
+                .to_lowercase();
+            let b = child_components[i]
+                .as_os_str()
+                .to_string_lossy()
+                .to_lowercase();
             if a != b {
                 return false;
             }

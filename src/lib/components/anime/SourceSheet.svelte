@@ -4,6 +4,7 @@ import { invokeCmd } from '../../api/core';
   import type { SearchItem, Road } from '../../stores/anime.svelte';
   import Icon from '../Icon.svelte';
   import { Button, EmptyState, Overlay, Tag } from '../ui';
+  import { debugLog } from '../../utils/debug';
 
   const rules = $derived(animeStore.rules);
   const detailName = $derived(animeStore.detailName);
@@ -60,13 +61,13 @@ import { invokeCmd } from '../../api/core';
     const init = new Map<string, { items: SearchItem[]; status: SourceStatus }>();
     for (const rule of rules) init.set(rule.name, { items: [], status: 'pending' });
     searchResults = init;
-    console.log(`[SourceSheet] searching "${detailName}" across ${rules.length} rules (token=${token})`);
+    debugLog(`[SourceSheet] searching "${detailName}" across ${rules.length} rules (token=${token})`);
 
     for (const rule of rules) {
       const ruleName = rule.name;
       invokeCmd<SearchItem[]>('anime_search', { ruleName, keyword: detailName })
         .then(items => {
-          console.log(`[SourceSheet] ${ruleName}: ${items.length} results (token=${token}, current=${searchToken})`);
+          debugLog(`[SourceSheet] ${ruleName}: ${items.length} results (token=${token}, current=${searchToken})`);
           if (token !== searchToken) return;
           const ok = items.length > 0;
           const next = new Map(searchResults);

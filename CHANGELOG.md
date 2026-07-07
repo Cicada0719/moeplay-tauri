@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.11.7 - 2026-07-07
+
+### 番剧播放提取与全屏稳定性修复
+- 增强 Kazumi 风格视频地址嗅探：补充 PerformanceResourceTiming、Response.text、MediaSource、WebSocket 等路径，并在命中候选地址后保留短暂 settle 窗口，兼容需要播放页激活回调的源站。
+- 修复播放源提取卡死：前端提取和自动换源增加超时保护、代际校验和错误兜底，避免一直停在“连接播放源”或灰屏/黑屏转圈。
+- 优化网页播放兜底：规则声明 WebView / 非原生播放时直接使用源站播放器；提取失败或超时时可自动切换网页播放。
+- 强化本地视频代理：补充代理端口查询命令及 Tauri ACL 权限，播放代理保留正确 Referer / Origin，降低防盗链导致的空白播放概率。
+- 修复播放器灰屏/黑屏：HLS.js 与原生 video 增加元数据和可播放帧双阶段 watchdog，坏缓存会失效并触发重试或网页兜底。
+- 重做播放器全屏路径：使用 Tauri 窗口级全屏作为主逻辑，iframe 增加 fullscreen / autoplay / encrypted-media / picture-in-picture 权限，`F` / `Esc` 与“返回详情”会正确恢复窗口状态。
+- 统一版本号至 `0.11.7`。
+
+## 0.11.6 - 2026-07-07
+
+### 全仓代码质量与可维护性优化
+- **Rust 格式化全量达标**：对 `src-tauri` 全部源码执行 `cargo fmt`，消除历史累积的格式差异，CI `cargo fmt --check` 通过。
+- **Clippy 零警告**：修复 10 条 clippy lint（m3u8 解析手写切片改用 `strip_prefix`、分片合并/下载参数 `&PathBuf` → `&Path`、`sort_by_key`、刮削任务 `JoinHandle` 超长类型抽取为类型别名 `ScrapeJoinHandle`、嗅探脚本借用优化），`cargo clippy -- -D warnings` 通过。
+- **前端调试日志治理**：新增 `src/lib/utils/debug.ts` 的 `debugLog`，将番剧播放 / 换源链路 28 处 `console.log` 改为仅在开发环境（`import.meta.env.DEV`）输出，生产构建经摇树消除，运行时控制台不再有噪声。
+- 统一版本号至 `0.11.6`（package.json / Cargo.toml / tauri.conf.json）。
+
 ## 0.11.5 - 2026-07-07
 
 ### 导入体验与首页个性化增强

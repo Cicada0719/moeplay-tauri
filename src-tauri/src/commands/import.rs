@@ -98,7 +98,9 @@ pub fn preview_directory_for_games(
         if c.is_archive {
             continue;
         }
-        let Some(ref exe_path) = c.best_exe else { continue };
+        let Some(ref exe_path) = c.best_exe else {
+            continue;
+        };
         let exe = exe_path.to_string_lossy().to_string();
         let name = crate::auto_scrape::infer_title_from_folder(&c.suggested_name);
         let is_duplicate = crate::auto_scrape::is_duplicate(&name, &exe, &existing);

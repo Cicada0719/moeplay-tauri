@@ -391,7 +391,11 @@ fn process_archive(app_handle: &tauri::AppHandle, archive_path: &Path) {
                             tauri::async_runtime::spawn(async move {
                                 let db2 = handle.state::<Database>();
                                 let s = db2.get_settings();
-                                let proxy = if s.scraper_proxy.trim().is_empty() { None } else { Some(s.scraper_proxy.clone()) };
+                                let proxy = if s.scraper_proxy.trim().is_empty() {
+                                    None
+                                } else {
+                                    Some(s.scraper_proxy.clone())
+                                };
                                 crate::scraper::utils::set_proxy(proxy);
                                 let (raw, _) = crate::scraper::search_all(
                                     &gname,
@@ -416,15 +420,25 @@ fn process_archive(app_handle: &tauri::AppHandle, archive_path: &Path) {
                                     );
                                     if let Some(best) = merged.first() {
                                         let cover = if let Some(ref url) = best.result.cover {
-                                            Some(crate::commands::fetch_cover_to_local(url, &gid).await)
+                                            Some(
+                                                crate::commands::fetch_cover_to_local(url, &gid)
+                                                    .await,
+                                            )
                                         } else {
                                             None
                                         };
-                                        let background = if let Some(ref url) = best.result.background {
-                                            Some(crate::commands::fetch_cover_to_local(url, &format!("{gid}_bg")).await)
-                                        } else {
-                                            None
-                                        };
+                                        let background =
+                                            if let Some(ref url) = best.result.background {
+                                                Some(
+                                                    crate::commands::fetch_cover_to_local(
+                                                        url,
+                                                        &format!("{gid}_bg"),
+                                                    )
+                                                    .await,
+                                                )
+                                            } else {
+                                                None
+                                            };
                                         let _ = db2.apply_scrape_result_ext(
                                             &gid,
                                             Some(best.result.title.clone()),
