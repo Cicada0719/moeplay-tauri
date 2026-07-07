@@ -151,7 +151,6 @@ const COMMANDS: &[&str] = &[
     "launch_game",
     "list_save_snapshots",
     "mark_game_finished",
-    "migrate_from_csharp",
     "open_path",
     "open_url",
     "parse_chinese_metadata",
@@ -272,8 +271,6 @@ const COMMANDS: &[&str] = &[
     "update_vndb_id",
     "update_vndb_rating",
     "validate_steam_api_key",
-    "verify_migration",
-    "verify_migration_ids",
 ];
 
 fn main() {

@@ -178,8 +178,7 @@ fn extract_zip(archive_path: &Path, output_dir: &Path) -> Result<usize, String> 
         let dest = output_dir.join(&safe_name);
 
         if entry.is_dir() {
-            fs::create_dir_all(&dest)
-                .map_err(|e| format!("创建目录 {}: {}", name, e))?;
+            fs::create_dir_all(&dest).map_err(|e| format!("创建目录 {}: {}", name, e))?;
             let _ = scope.resolve(&dest)?;
         } else {
             if let Some(parent) = dest.parent() {
@@ -189,8 +188,7 @@ fn extract_zip(archive_path: &Path, output_dir: &Path) -> Result<usize, String> 
             let dest = scope.resolve(&dest)?;
             let mut out =
                 fs::File::create(&dest).map_err(|e| format!("创建文件 {}: {}", name, e))?;
-            std::io::copy(&mut entry, &mut out)
-                .map_err(|e| format!("写入文件 {}: {}", name, e))?;
+            std::io::copy(&mut entry, &mut out).map_err(|e| format!("写入文件 {}: {}", name, e))?;
             extracted += 1;
         }
     }

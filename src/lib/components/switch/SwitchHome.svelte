@@ -159,8 +159,8 @@
   }
 </script>
 
-<div class="switch-home" data-testid="switch-home">
-  <div class="sw-bg" aria-hidden="true">
+<div class="switch-home" class:grid-mode={showGrid} data-testid="switch-home">
+  <div class="sw-bg" class:hidden={showGrid} aria-hidden="true">
     <div class="sw-bg-layer" class:cover={bgIsCover} style={`background-image:url("${bgArt}")`}></div>
     <div class="sw-bg-scrim"></div>
   </div>
@@ -208,6 +208,9 @@
         {#if searching || gameStore.quickFilter || gameStore.filterTag || gameStore.sortBy !== "recent"}
           <button class="reset" onclick={clearGridFilters}>清除筛选</button>
         {/if}
+        <button class="add-game" onclick={() => gameStore.importGame()} title="添加游戏">
+          <Icon name="plus" size={15} /> 添加游戏
+        </button>
       </div>
 
       <div class="filterbar" aria-label="全库筛选">
@@ -274,9 +277,9 @@
     <div class="empty-wrap" data-testid="switch-home-empty">
       <EmptyState
         title="还没有游戏"
-        description="从旧版 MoeGame 一键迁移你的游戏库，或同步 Steam / Epic、添加本地游戏。"
-        actionLabel="从旧版 MoeGame 导入"
-        onAction={() => (uiStore.currentView = "migration")}
+        description="同步 Steam / Epic、添加本地游戏，开始建立你的游戏库。"
+        actionLabel="添加本地游戏"
+        onAction={() => gameStore.importGame()}
       />
       <div class="empty-actions">
         <button onclick={() => (uiStore.currentView = "steam-import")}>Steam / Epic 导入</button>
@@ -339,6 +342,10 @@
 
   /* ── 动态背景层（与大屏模式一致）── */
   .sw-bg { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+  .sw-bg.hidden {
+    opacity: 0;
+    visibility: hidden;
+  }
   .sw-bg-layer {
     position: absolute; inset: 0;
     background-size: cover; background-position: center 28%;
@@ -358,6 +365,10 @@
         rgba(7,9,15,0.62) 82%,
         rgba(7,9,15,0.92) 100%
       );
+  }
+
+  .switch-home.grid-mode {
+    background: linear-gradient(180deg, #07140d 0%, #041008 48%, #020503 100%);
   }
 
   .topbar, .stage, .all-panel, .all-grid, .empty-wrap, .rail-skel { position: relative; z-index: 1; }
@@ -503,7 +514,7 @@
     gap: 12px;
     padding: 6px 28px 12px;
     border-bottom: 1px solid var(--border);
-    background: var(--bg-void);
+    background: linear-gradient(180deg, #07140d 0%, #041008 100%);
     flex-shrink: 0;
   }
   .all-head {
@@ -521,6 +532,16 @@
     padding: 6px 12px; border-radius: var(--radius-full); font-size: 13px;
   }
   .all-head .reset { margin-left: auto; }
+  .all-head .add-game {
+    display: inline-flex; align-items: center; gap: 5px;
+    margin-left: auto;
+    border: 1px solid var(--accent-ring);
+    background: var(--accent);
+    color: #fff; cursor: pointer;
+    padding: 6px 14px; border-radius: var(--radius-full); font-size: 13px; font-weight: 650;
+    transition: background 0.18s ease, transform 0.15s ease;
+  }
+  .all-head .add-game:hover { background: var(--accent-hi); transform: translateY(-1px); }
   .all-head .back:hover,
   .all-head .reset:hover { color: var(--text-primary); border-color: var(--border-hover); }
   .filterbar {
@@ -618,7 +639,12 @@
     border-color: var(--accent-ring);
     box-shadow: var(--focus-ring);
   }
-  .all-grid { flex: 1; min-height: 0; display: flex; }
+  .all-grid {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    background: linear-gradient(180deg, #041008 0%, #020503 100%);
+  }
 
   @media (max-width: 760px) {
     .topbar {

@@ -385,7 +385,10 @@ pub fn import_steam_session_games(
     db: State<'_, Database>,
     games: Vec<SessionScrapedGame>,
 ) -> PlatformImportResult {
-    crate::crash_log(&format!("import_steam_session_games: START ({} games)", games.len()));
+    crate::crash_log(&format!(
+        "import_steam_session_games: START ({} games)",
+        games.len()
+    ));
     // 账号自有库（rgGames 网页会话抓取）
     let owned: Vec<PlatformGameCandidate> = games
         .into_iter()
@@ -1027,7 +1030,11 @@ pub fn import_platform_library(
                         tauri::async_runtime::spawn(async move {
                             let db2 = crate::db::Database::new();
                             let s = db2.get_settings();
-                            let proxy = if s.scraper_proxy.trim().is_empty() { None } else { Some(s.scraper_proxy.clone()) };
+                            let proxy = if s.scraper_proxy.trim().is_empty() {
+                                None
+                            } else {
+                                Some(s.scraper_proxy.clone())
+                            };
                             crate::scraper::utils::set_proxy(proxy);
                             let (raw, _) = crate::scraper::search_all(
                                 &gname,
@@ -1040,7 +1047,8 @@ pub fn import_platform_library(
                                 s.kungal_enabled,
                                 s.steam_enabled,
                                 s.pcgw_enabled,
-                            ).await;
+                            )
+                            .await;
                             if !raw.is_empty() {
                                 let merged = crate::scraper::merge::merge_results(
                                     raw,
@@ -1071,18 +1079,36 @@ pub fn import_platform_library(
                                         best.result.release_year,
                                         Some(&best.result.source),
                                         Some(best.result.source_id.clone()),
-                                        best.result.detail.as_ref().and_then(|d| d.developer.clone()),
-                                        best.result.detail.as_ref().and_then(|d| d.publisher.clone()),
+                                        best.result
+                                            .detail
+                                            .as_ref()
+                                            .and_then(|d| d.developer.clone()),
+                                        best.result
+                                            .detail
+                                            .as_ref()
+                                            .and_then(|d| d.publisher.clone()),
                                         best.result.detail.as_ref().map(|d| d.genres.clone()),
                                         best.result.detail.as_ref().map(|d| d.languages.clone()),
                                         best.result.detail.as_ref().and_then(|d| d.engine.clone()),
-                                        best.result.detail.as_ref().and_then(|d| d.age_rating.clone()),
+                                        best.result
+                                            .detail
+                                            .as_ref()
+                                            .and_then(|d| d.age_rating.clone()),
                                         best.result.detail.as_ref().and_then(|d| d.series.clone()),
-                                        best.result.detail.as_ref().and_then(|d| d.release_date.clone()),
-                                        best.result.detail.as_ref().map(|d| d.voice_languages.clone()),
+                                        best.result
+                                            .detail
+                                            .as_ref()
+                                            .and_then(|d| d.release_date.clone()),
+                                        best.result
+                                            .detail
+                                            .as_ref()
+                                            .map(|d| d.voice_languages.clone()),
                                         best.result.detail.as_ref().map(|d| d.aliases.clone()),
                                         best.result.detail.as_ref().map(|d| d.screenshots.clone()),
-                                        best.result.detail.as_ref().and_then(|d| d.homepage.clone()),
+                                        best.result
+                                            .detail
+                                            .as_ref()
+                                            .and_then(|d| d.homepage.clone()),
                                     );
                                 }
                             }

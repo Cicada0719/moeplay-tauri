@@ -6,8 +6,6 @@ mod emulators;
 pub use emulators::*;
 mod media;
 pub use media::*;
-mod migration;
-pub use migration::*;
 mod import;
 pub use import::*;
 mod settings;

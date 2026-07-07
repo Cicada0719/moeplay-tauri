@@ -13,7 +13,6 @@
   let SettingsPage: any = $state(null);
   let SteamImportDialog: any = $state(null);
   let EmulatorImportDialog: any = $state(null);
-  let MigrationPage: any = $state(null);
 
   const navItems = [
     { id: "discovery",    label: "资源发现", icon: "compass" },
@@ -24,7 +23,6 @@
     { id: "steam-import", label: "平台导入", icon: "database" },
     { id: "emulator",     label: "模拟器",   icon: "gamepad" },
     { id: "diagnostics",  label: "诊断",     icon: "toolbox" },
-    { id: "migration",    label: "数据迁移", icon: "download" },
     { id: "settings",     label: "设置",     icon: "gear" },
   ];
 
@@ -42,7 +40,6 @@
     if (v === "settings" && !SettingsPage) import("./SettingsPage.svelte").then(m => SettingsPage = m.default);
     if (v === "steam-import" && !SteamImportDialog) import("./SteamImportDialog.svelte").then(m => SteamImportDialog = m.default);
     if (v === "emulator" && !EmulatorImportDialog) import("./EmulatorImportDialog.svelte").then(m => EmulatorImportDialog = m.default);
-    if (v === "migration" && !MigrationPage) import("./MigrationPage.svelte").then(m => MigrationPage = m.default);
   });
 
   function close() {
@@ -113,8 +110,6 @@
             <SteamImportDialog />
           {:else if activeView === "emulator" && EmulatorImportDialog}
             <EmulatorImportDialog />
-          {:else if activeView === "migration" && MigrationPage}
-            <MigrationPage />
           {:else}
             <div class="drawer-loading">
               <div class="drawer-spinner"></div>

@@ -50,10 +50,8 @@ fn find_steam_from_registry() -> Option<PathBuf> {
     {
         use winreg::enums::*;
         let hklm = winreg::RegKey::predef(HKEY_LOCAL_MACHINE);
-        if let Ok(key) = hklm.open_subkey_with_flags(
-            r"SOFTWARE\WOW6432Node\Valve\Steam",
-            KEY_READ,
-        ) {
+        if let Ok(key) = hklm.open_subkey_with_flags(r"SOFTWARE\WOW6432Node\Valve\Steam", KEY_READ)
+        {
             if let Ok(path) = key.get_value::<String, _>("InstallPath") {
                 let p = PathBuf::from(&path);
                 if p.exists() {
@@ -371,7 +369,11 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
     }
     for i in 1..=n {
         for j in 1..=m {
-            let cost = if a_chars[i - 1] == b_chars[j - 1] { 0 } else { 1 };
+            let cost = if a_chars[i - 1] == b_chars[j - 1] {
+                0
+            } else {
+                1
+            };
             dp[i][j] = (dp[i - 1][j] + 1)
                 .min(dp[i][j - 1] + 1)
                 .min(dp[i - 1][j - 1] + cost);

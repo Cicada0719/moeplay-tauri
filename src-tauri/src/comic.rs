@@ -2,8 +2,8 @@
 //! 参考: pikapika / PicACG 开源实现
 
 use hmac::{Hmac, Mac};
-use sha2::Sha256;
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -24,7 +24,9 @@ pub struct ComicState {
 
 impl Default for ComicState {
     fn default() -> Self {
-        Self { token: Mutex::new(String::new()) }
+        Self {
+            token: Mutex::new(String::new()),
+        }
     }
 }
 
@@ -64,7 +66,11 @@ pub fn sign(path: &str, timestamp: &str, method: &str) -> Result<String, String>
     Ok(hex::encode(mac.finalize().into_bytes()))
 }
 
-fn build_headers(sig_path: &str, method: &str, token: &str) -> Result<reqwest::header::HeaderMap, String> {
+fn build_headers(
+    sig_path: &str,
+    method: &str,
+    token: &str,
+) -> Result<reqwest::header::HeaderMap, String> {
     use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
     use std::str::FromStr;
 
@@ -73,17 +79,17 @@ fn build_headers(sig_path: &str, method: &str, token: &str) -> Result<reqwest::h
     let mut map = HeaderMap::new();
 
     for (k, v) in &[
-        ("accept",            "application/vnd.picacomic.com.v1+json"),
-        ("user-agent",        "okhttp/3.8.1"),
-        ("content-type",      "application/json; charset=UTF-8"),
-        ("api-key",           API_KEY),
+        ("accept", "application/vnd.picacomic.com.v1+json"),
+        ("user-agent", "okhttp/3.8.1"),
+        ("content-type", "application/json; charset=UTF-8"),
+        ("api-key", API_KEY),
         ("app-build-version", "45"),
-        ("app-platform",      "android"),
-        ("app-uuid",          "defaultUuid"),
-        ("app-version",       "2.2.1.3.3.4"),
-        ("nonce",             NONCE),
-        ("app-channel",       "2"),
-        ("image-quality",     "original"),
+        ("app-platform", "android"),
+        ("app-uuid", "defaultUuid"),
+        ("app-version", "2.2.1.3.3.4"),
+        ("nonce", NONCE),
+        ("app-channel", "2"),
+        ("image-quality", "original"),
     ] {
         if let (Ok(n), Ok(v)) = (HeaderName::from_str(k), HeaderValue::from_str(v)) {
             map.insert(n, v);
@@ -95,7 +101,10 @@ fn build_headers(sig_path: &str, method: &str, token: &str) -> Result<reqwest::h
         }
     }
     if !token.is_empty() {
-        if let (Ok(n), Ok(v)) = (HeaderName::from_str("authorization"), HeaderValue::from_str(token)) {
+        if let (Ok(n), Ok(v)) = (
+            HeaderName::from_str("authorization"),
+            HeaderValue::from_str(token),
+        ) {
             map.insert(n, v);
         }
     }
@@ -104,15 +113,26 @@ fn build_headers(sig_path: &str, method: &str, token: &str) -> Result<reqwest::h
 
 async fn parse_resp(resp: reqwest::Response) -> Result<serde_json::Value, String> {
     let status = resp.status().as_u16();
-    let text = resp.text().await.map_err(|e| format!("读取响应失败: {}", e))?;
-    let json: serde_json::Value = serde_json::from_str(&text)
-        .map_err(|_| format!("解析响应失败 (HTTP {}): {}", status, &text[..text.len().min(200)]))?;
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| format!("读取响应失败: {}", e))?;
+    let json: serde_json::Value = serde_json::from_str(&text).map_err(|_| {
+        format!(
+            "解析响应失败 (HTTP {}): {}",
+            status,
+            &text[..text.len().min(200)]
+        )
+    })?;
     match status {
         200 => Ok(json),
         400 => Err(json["message"].as_str().unwrap_or("请求错误").to_string()),
         401 => Err("登录已过期，请重新登录哔咔账号".to_string()),
-        _ => Err(format!("服务器返回 HTTP {}: {}", status,
-            json["message"].as_str().unwrap_or("未知错误"))),
+        _ => Err(format!(
+            "服务器返回 HTTP {}: {}",
+            status,
+            json["message"].as_str().unwrap_or("未知错误")
+        )),
     }
 }
 
@@ -232,7 +252,8 @@ impl ComicSummary {
                 .filter_map(|x| x.as_str().map(|s| s.to_string()))
                 .collect(),
             likes_count: v["likesCount"].as_i64().unwrap_or(0),
-            total_views: v["totalViews"].as_i64()
+            total_views: v["totalViews"]
+                .as_i64()
                 .or_else(|| v["viewsCount"].as_i64())
                 .unwrap_or(0),
             eps_count: v["epsCount"].as_i64().unwrap_or(0),
@@ -289,7 +310,8 @@ impl ComicDetail {
                 .filter_map(|x| x.as_str().map(|s| s.to_string()))
                 .collect(),
             likes_count: v["likesCount"].as_i64().unwrap_or(0),
-            total_views: v["totalViews"].as_i64()
+            total_views: v["totalViews"]
+                .as_i64()
                 .or_else(|| v["viewsCount"].as_i64())
                 .unwrap_or(0),
             eps_count: v["epsCount"].as_i64().unwrap_or(0),
@@ -320,9 +342,11 @@ impl ComicChapter {
             id: v["_id"].as_str()?.to_string(),
             title: v["title"].as_str().unwrap_or("").to_string(),
             order: v["order"].as_i64().unwrap_or(0),
-            updated_at: v["updatedAt"].as_str()
+            updated_at: v["updatedAt"]
+                .as_str()
                 .or_else(|| v["updated_at"].as_str())
-                .unwrap_or("").to_string(),
+                .unwrap_or("")
+                .to_string(),
         })
     }
 }

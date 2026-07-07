@@ -395,16 +395,6 @@
         {#if achievementMsg}
           <div class="ops-msg">{achievementMsg}</div>
         {/if}
-        <div class="ops-item">
-          <div class="ops-info">
-            <Icon name="refresh" size={18} className="ops-icon" />
-            <div>
-              <span class="s-label">旧版萌游迁移</span>
-              <span class="s-desc">从 C# 版萌游一键迁移游戏库和元数据</span>
-            </div>
-          </div>
-          <Button variant="primary" size="sm" onclick={() => uiStore.currentView = "migration"}>迁移</Button>
-        </div>
       </div>
     </Card>
 

@@ -19,9 +19,7 @@
 
   let { game }: { game: Game } = $props();
   let el = $state<HTMLElement>();
-  let menuOpen = $state(false);
-  let menuX = $state(0);
-  let menuY = $state(0);
+  let coverFailed = $state(false);
 
   const statusLabels: Record<string, string> = {
     playing: "游玩中",
@@ -91,16 +89,6 @@
     e.stopPropagation();
     gameStore.toggleFavorite(game.id);
   }
-  function openMenu(e: MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    menuX = e.clientX;
-    menuY = e.clientY;
-    menuOpen = true;
-  }
-  function closeMenu() {
-    menuOpen = false;
-  }
   async function confirmDelete() {
     if (!window.confirm(`确定要从游戏库中删除「${game.name}」吗？\n删除后不会移除本地文件。`)) return;
     try {
@@ -109,7 +97,6 @@
     } catch (e) {
       uiStore.notify(`删除失败：${e}`, "error");
     }
-    closeMenu();
   }
 </script>
 
@@ -123,7 +110,6 @@
   ariaLabel={game.name}
   onclick={handleClick}
   onkeydown={handleKeydown}
-  oncontextmenu={openMenu}
 >
   <div class="cover" class:cover-blur={isNsfw && nsfwMode === "blur"} class:cover-hidden={isNsfw && nsfwMode === "hide"}>
     {#if coverSource}
@@ -147,9 +133,14 @@
     {/if}
 
     {#if !inSelectionMode}
-      <button class="fav-btn" class:active={game.favorite} onclick={toggleFavorite} aria-label="收藏">
-        <Icon name={game.favorite ? "heartFill" : "heart"} size={16} />
-      </button>
+      <div class="card-actions">
+        <button class="fav-btn" class:active={game.favorite} onclick={toggleFavorite} aria-label="收藏" title="收藏">
+          <Icon name={game.favorite ? "heartFill" : "heart"} size={16} />
+        </button>
+        <button class="del-btn" onclick={(e) => { e.stopPropagation(); confirmDelete(); }} aria-label="删除游戏" title="删除游戏">
+          <Icon name="trash" size={16} />
+        </button>
+      </div>
     {/if}
 
     <div class="gradient-overlay"></div>
@@ -178,28 +169,6 @@
     </div>
   </div>
 </Card>
-
-<svelte:window onclick={closeMenu} />
-
-{#if menuOpen}
-  <div
-    class="ctx-menu"
-    style="position: fixed; left: {menuX}px; top: {menuY}px; z-index: 1000;"
-    role="menu"
-    tabindex="-1"
-    onclick={(e) => e.stopPropagation()}
-    onkeydown={(e) => e.stopPropagation()}
-  >
-    <button role="menuitem" onclick={() => { gameStore.toggleFavorite(game.id); closeMenu(); }}>
-      <Icon name={game.favorite ? "heartFill" : "heart"} size={14} />
-      <span>{game.favorite ? "取消收藏" : "收藏"}</span>
-    </button>
-    <button role="menuitem" class="danger" onclick={confirmDelete}>
-      <Icon name="trash" size={14} />
-      <span>删除</span>
-    </button>
-  </div>
-{/if}
 
 <style>
   :global(.game-card) {
@@ -230,7 +199,9 @@
   .cover-placeholder {
     width: 100%; height: 100%;
     display: flex; align-items: center; justify-content: center;
-    background: linear-gradient(135deg, rgba(255,126,173,.22), rgba(167,139,250,.22));
+    background:
+      radial-gradient(120% 100% at 50% 0%, rgba(0, 255, 153, 0.16), transparent 60%),
+      linear-gradient(135deg, rgba(0, 200, 120, 0.18), rgba(0, 90, 70, 0.20));
   }
   .monogram {
     font-family: var(--font-display, var(--font-ui));
@@ -261,10 +232,14 @@
     backdrop-filter: blur(6px);
   }
 
-  .fav-btn {
-    position: absolute; top: 8px; right: 8px;
+  /* Fixed action cluster — always visible, anchored next to the heart (top-right) */
+  .card-actions {
+    position: absolute; top: 8px; right: 8px; z-index: 6;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .fav-btn, .del-btn {
     display: inline-flex; align-items: center; justify-content: center;
-    border: none; background: rgba(10, 13, 20, 0.45);
+    border: none; background: rgba(10, 13, 20, 0.5);
     color: var(--text-secondary);
     width: 28px; height: 28px;
     border-radius: var(--radius-full);
@@ -272,8 +247,9 @@
     transition: transform 0.18s ease, color 0.18s ease, background 0.18s ease;
     backdrop-filter: blur(6px);
   }
-  .fav-btn:hover { transform: scale(1.12); color: var(--text-primary); }
+  .fav-btn:hover, .del-btn:hover { transform: scale(1.12); color: var(--text-primary); }
   .fav-btn.active { color: var(--accent-pink); }
+  .del-btn:hover { color: #f87171; background: rgba(248, 113, 113, 0.18); }
 
   .gradient-overlay {
     position: absolute; inset: auto 0 0 0; height: 56px;
@@ -324,7 +300,7 @@
   :global(.game-card--list) .info { flex: 1; padding: 0; }
   :global(.game-card--list) .gradient-overlay,
   :global(.game-card--list) .status-badge,
-  :global(.game-card--list) .fav-btn { display: none; }
+  :global(.game-card--list) .card-actions { display: none; }
 
   /* NSFW */
   .cover-hidden { display: none; }
@@ -336,39 +312,5 @@
     font-size: 11px; font-weight: 800; letter-spacing: 0.14em;
     color: rgba(255,255,255,.7);
     pointer-events: none;
-  }
-
-  .ctx-menu {
-    min-width: 120px;
-    background: var(--bg-elev);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
-    padding: 6px;
-    display: grid;
-    gap: 2px;
-  }
-  .ctx-menu button {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    text-align: left;
-    border: none;
-    background: transparent;
-    color: var(--text-secondary);
-    padding: 7px 10px;
-    border-radius: var(--radius-sm);
-    font-size: 13px;
-    cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease;
-  }
-  .ctx-menu button:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-  }
-  .ctx-menu button.danger:hover {
-    color: #f87171;
-    background: rgba(248,113,113,0.10);
   }
 </style>
