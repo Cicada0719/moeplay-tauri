@@ -180,7 +180,7 @@ fn fetch_with_redirects(
     initial_url: &str,
     referer: &str,
     range_header: Option<&str>,
-) -> Result<(ureq::Response, String, u32), ureq::Error> {
+) -> Result<(ureq::Response, String, u32), Box<ureq::Error>> {
     let mut url = initial_url.to_string();
     let mut redirects: u32 = 0;
 
@@ -193,7 +193,7 @@ fn fetch_with_redirects(
                 (r, s)
             }
             Err(ureq::Error::Status(s, r)) => (r, s),
-            Err(e) => return Err(e),
+            Err(e) => return Err(Box::new(e)),
         };
 
         if is_redirect_status(status) && redirects < MAX_REDIRECTS {

@@ -63,7 +63,7 @@ fn is_video_stream_url(url: &str) -> bool {
 /// 尝试判断字符串是否为 base64 编码的 URL
 fn looks_like_base64_url(value: &str) -> bool {
     let trimmed = value.trim();
-    if trimmed.len() < 12 || trimmed.len() % 4 != 0 {
+    if trimmed.len() < 12 || !trimmed.len().is_multiple_of(4) {
         return false;
     }
     let allowed = trimmed
@@ -642,7 +642,7 @@ async fn run_sniff(
 
     let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url_parsed))
         .visible(false)
-        .initialization_script(&sniff_js())
+        .initialization_script(sniff_js())
         .inner_size(1280.0, 720.0);
 
     if let Some(ref ua) = user_agent {
@@ -691,7 +691,7 @@ async fn run_sniff(
                     let mut guard = best_nav.lock().unwrap();
                     if guard
                         .as_ref()
-                        .map_or(true, |old| is_better_result(&candidate, old))
+                        .is_none_or(|old| is_better_result(&candidate, old))
                     {
                         tracing::info!(
                             "[sniff] sentinel 记录候选: source={}, url={}",
@@ -743,7 +743,7 @@ async fn run_sniff(
                     c.url
                 );
                 let mut guard = best_resource.lock().unwrap();
-                if guard.as_ref().map_or(true, |old| is_better_result(&c, old)) {
+                if guard.as_ref().is_none_or(|old| is_better_result(&c, old)) {
                     *guard = Some(c);
                     notify_resource.notify_one();
                 }
@@ -1069,12 +1069,12 @@ mod base64 {
         while chars.peek().is_some() {
             let mut buf = [0u8; 4];
             let mut pad = 0usize;
-            for i in 0..4 {
+            for item in &mut buf {
                 match chars.next() {
                     Some('=') | None => {
                         pad += 1;
                     }
-                    Some(c) => buf[i] = table(c)?,
+                    Some(c) => *item = table(c)?,
                 }
             }
             if pad > 2 {

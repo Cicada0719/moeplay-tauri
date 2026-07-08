@@ -66,7 +66,7 @@ fn now_millis() -> i64 {
 
 fn source_health_path() -> PathBuf {
     dirs::data_dir()
-        .unwrap_or_else(|| std::env::temp_dir())
+        .unwrap_or_else(std::env::temp_dir)
         .join("moeplay")
         .join("anime_source_health.json")
 }
