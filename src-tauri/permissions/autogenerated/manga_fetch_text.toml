@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-manga-fetch-text"
+description = "Enables the manga_fetch_text command without any pre-configured scope."
+commands.allow = ["manga_fetch_text"]
+
+[[permission]]
+identifier = "deny-manga-fetch-text"
+description = "Denies the manga_fetch_text command without any pre-configured scope."
+commands.deny = ["manga_fetch_text"]

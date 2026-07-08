@@ -2722,7 +2722,7 @@ dependencies = [
 
 [[package]]
 name = "moeplay"
-version = "0.11.8"
+version = "0.12.0"
 dependencies = [
  "chrono",
  "dirs 5.0.1",

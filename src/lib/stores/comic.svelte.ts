@@ -1,4 +1,18 @@
 import { invokeCmd } from "../api/core";
+import {
+  DM5_SOURCE_CONFIG,
+  loadDm5Detail,
+  searchDm5,
+  type Dm5SourceKey,
+  type Dm5TextFetch,
+} from "../sources/dm5Provider";
+import {
+  loadMangaDexChapterImages,
+  loadMangaDexChapters,
+  loadMangaDexDetail,
+  searchMangaDex,
+  type MangaDexFetch,
+} from "../sources/mangadexProvider";
 
 // ── 类型 ──────────────────────────────────────────────────────────────────
 
@@ -54,6 +68,9 @@ export interface ComicImage {
   id: string;
   url: string;
 }
+
+export type ComicProvider = "mangadex" | "dm5" | "picacg";
+export type OrdinaryComicSource = "auto" | "mangadex" | Dm5SourceKey;
 
 export interface ComicListPage {
   docs: ComicSummary[];
@@ -129,6 +146,33 @@ export interface ReadRecord {
 const HISTORY_KEY = "picacg-history";
 const MAX_HISTORY = 100;
 
+function stripProviderPrefix(id: string, provider: ComicProvider): string {
+  return id.startsWith(`${provider}:`) ? id.slice(provider.length + 1) : id;
+}
+
+const mangaDexFetcher: MangaDexFetch = async (url, init) => {
+  const method = init?.method ? String(init.method).toUpperCase() : "GET";
+  if (method === "GET" && typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+    const body = await invokeCmd<unknown>("manga_fetch_json", { url });
+    return {
+      ok: true,
+      status: 200,
+      json: async () => body,
+    };
+  }
+
+  return fetch(url, init);
+};
+
+const mangaTextFetcher: Dm5TextFetch = async (url) => {
+  if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+    return invokeCmd<string>("manga_fetch_text", { url });
+  }
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`漫画源返回 HTTP ${response.status}`);
+  return response.text();
+};
+
 function loadHistory(): ReadRecord[] {
   try {
     return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "[]");
@@ -191,11 +235,17 @@ let _searchKeyword = $state("");
 let _searchResults = $state<ComicSummary[]>([]);
 let _searchPage = $state(1);
 let _searchPages = $state(1);
+let _mangaDexResults = $state<ComicSummary[]>([]);
+let _mangaDexLoading = $state(false);
+let _mangaDexError = $state<string | null>(null);
+let _ordinarySource = $state<OrdinaryComicSource>("auto");
 
 // 详情
 let _currentComic = $state<ComicDetail | null>(null);
 let _chapters = $state<ComicChapter[]>([]);
 let _recommendations = $state<ComicSummary[]>([]);
+let _currentProvider = $state<ComicProvider>("mangadex");
+let _currentExternalId = $state("");
 
 // 评论
 let _comments = $state<ComicComment[]>([]);
@@ -206,6 +256,7 @@ let _commentsLoading = $state(false);
 
 // 阅读器
 let _readerImages = $state<ComicImage[]>([]);
+let _readerWebUrl = $state("");
 let _readerChapterOrder = $state(1);
 let _readerChapterTitle = $state("");
 let _readerLoading = $state(false);
@@ -243,21 +294,29 @@ export const comicStore = {
   get searchResults() { return _searchResults; },
   get searchPage() { return _searchPage; },
   get searchPages() { return _searchPages; },
+  get mangaDexResults() { return _mangaDexResults; },
+  get mangaDexLoading() { return _mangaDexLoading; },
+  get mangaDexError() { return _mangaDexError; },
+  get ordinarySource() { return _ordinarySource; },
   get currentComic() { return _currentComic; },
   get chapters() { return _chapters; },
   get recommendations() { return _recommendations; },
+  get currentProvider() { return _currentProvider; },
+  get isPicacgDetail() { return _currentProvider === "picacg"; },
   get comments() { return _comments; },
   get commentsPage() { return _commentsPage; },
   get commentsPages() { return _commentsPages; },
   get commentsTotal() { return _commentsTotal; },
   get commentsLoading() { return _commentsLoading; },
   get readerImages() { return _readerImages; },
+  get readerWebUrl() { return _readerWebUrl; },
   get readerChapterOrder() { return _readerChapterOrder; },
   get readerChapterTitle() { return _readerChapterTitle; },
   get readerLoading() { return _readerLoading; },
   get readHistory() { return _readHistory; },
 
   clearError() { _error = null; },
+  setOrdinarySource(source: OrdinaryComicSource) { _ordinarySource = source; },
 
   // ── 认证 ────────────────────────────────────────────────────────────────
 
@@ -296,6 +355,8 @@ export const comicStore = {
     _comicList = [];
     _currentComic = null;
     _chapters = [];
+    _currentProvider = "mangadex";
+    _currentExternalId = "";
     _readerImages = [];
     _comments = [];
     _recommendations = [];
@@ -303,6 +364,7 @@ export const comicStore = {
     _ranking = [];
     _favorites = [];
     _searchResults = [];
+    _mangaDexError = null;
   },
 
   // ── 用户资料 ────────────────────────────────────────────────────────────
@@ -423,6 +485,71 @@ export const comicStore = {
     }
   },
 
+  async searchMangaDex(keyword: string) {
+    _mangaDexLoading = true;
+    _mangaDexError = null;
+    _mangaDexResults = [];
+    try {
+      _mangaDexResults = await searchMangaDex(mangaDexFetcher, keyword);
+    } catch (e) {
+      _mangaDexError = String(e);
+    } finally {
+      _mangaDexLoading = false;
+    }
+  },
+
+  async searchDm5Source(keyword: string, source: Dm5SourceKey) {
+    _mangaDexLoading = true;
+    _mangaDexError = null;
+    _mangaDexResults = [];
+    try {
+      _mangaDexResults = await searchDm5(mangaTextFetcher, keyword, source);
+    } catch (e) {
+      _mangaDexError = `${DM5_SOURCE_CONFIG[source].label} 失败: ${String(e)}`;
+    } finally {
+      _mangaDexLoading = false;
+    }
+  },
+
+  async searchOrdinary(keyword: string) {
+    if (_ordinarySource === "mangadex") {
+      await this.searchMangaDex(keyword);
+      return;
+    }
+    if (_ordinarySource === "dm5" || _ordinarySource === "ikkk") {
+      await this.searchDm5Source(keyword, _ordinarySource);
+      return;
+    }
+
+    _mangaDexLoading = true;
+    _mangaDexError = null;
+    _mangaDexResults = [];
+    const errors: string[] = [];
+    const results: ComicSummary[] = [];
+    try {
+      try {
+        results.push(...await searchMangaDex(mangaDexFetcher, keyword));
+      } catch (e) {
+        errors.push(`MangaDex: ${String(e)}`);
+      }
+
+      for (const source of ["dm5", "ikkk"] as Dm5SourceKey[]) {
+        try {
+          results.push(...await searchDm5(mangaTextFetcher, keyword, source));
+        } catch (e) {
+          errors.push(`${DM5_SOURCE_CONFIG[source].label}: ${String(e)}`);
+        }
+      }
+
+      _mangaDexResults = results;
+      _mangaDexError = results.length === 0
+        ? (errors.join("；") || "没有找到普通漫画结果")
+        : null;
+    } finally {
+      _mangaDexLoading = false;
+    }
+  },
+
   // ── 排行榜 ───────────────────────────────────────────────────────────────
 
   async loadRanking(type: "H24" | "D7" | "D30" = "H24") {
@@ -508,6 +635,8 @@ export const comicStore = {
     _loading = true;
     _error = null;
     _view = "detail";
+    _currentProvider = "picacg";
+    _currentExternalId = id;
     _comments = [];
     _commentsPage = 1;
     _recommendations = [];
@@ -533,8 +662,64 @@ export const comicStore = {
     _view = "home";
     _currentComic = null;
     _chapters = [];
+    _currentProvider = "mangadex";
+    _currentExternalId = "";
     _comments = [];
     _recommendations = [];
+  },
+
+  async openMangaDexComic(id: string) {
+    if (id.startsWith("dm5:") || id.startsWith("ikkk:")) {
+      await this.openDm5Comic(id);
+      return;
+    }
+    const mangaId = stripProviderPrefix(id, "mangadex");
+    _loading = true;
+    _error = null;
+    _view = "detail";
+    _currentProvider = "mangadex";
+    _currentExternalId = mangaId;
+    _comments = [];
+    _commentsPage = 1;
+    _commentsTotal = 0;
+    _recommendations = [];
+    try {
+      const [detail, chapters] = await Promise.all([
+        loadMangaDexDetail(mangaDexFetcher, mangaId),
+        loadMangaDexChapters(mangaDexFetcher, mangaId),
+      ]);
+      _currentComic = { ...detail, eps_count: chapters.length };
+      _chapters = chapters;
+    } catch (e) {
+      _error = String(e);
+      _view = "home";
+      _currentExternalId = "";
+    } finally {
+      _loading = false;
+    }
+  },
+
+  async openDm5Comic(id: string) {
+    _loading = true;
+    _error = null;
+    _view = "detail";
+    _currentProvider = "dm5";
+    _currentExternalId = id;
+    _comments = [];
+    _commentsPage = 1;
+    _commentsTotal = 0;
+    _recommendations = [];
+    try {
+      const { detail, chapters } = await loadDm5Detail(mangaTextFetcher, id);
+      _currentComic = detail;
+      _chapters = chapters;
+    } catch (e) {
+      _error = String(e);
+      _view = "home";
+      _currentExternalId = "";
+    } finally {
+      _loading = false;
+    }
   },
 
   // ── 评论 ────────────────────────────────────────────────────────────────
@@ -599,12 +784,23 @@ export const comicStore = {
     _readerChapterOrder = order;
     _readerChapterTitle = title;
     _readerImages = [];
+    _readerWebUrl = "";
     _view = "reader";
     try {
-      _readerImages = await invokeCmd<ComicImage[]>("comic_chapter_images", {
-        id: _currentComic.id,
-        order,
-      });
+      if (_currentProvider === "dm5") {
+        const chapter = _chapters.find((c) => c.order === order);
+        if (!chapter) throw new Error("未找到 DM5 章节");
+        _readerWebUrl = chapter.id;
+      } else if (_currentProvider === "mangadex") {
+        const chapter = _chapters.find((c) => c.order === order);
+        if (!chapter) throw new Error("未找到 MangaDex 章节");
+        _readerImages = await loadMangaDexChapterImages(mangaDexFetcher, chapter.id);
+      } else {
+        _readerImages = await invokeCmd<ComicImage[]>("comic_chapter_images", {
+          id: _currentComic.id,
+          order,
+        });
+      }
       // 记录阅读历史
       this._recordHistory(order, title);
     } catch (e) {
@@ -618,6 +814,7 @@ export const comicStore = {
   closeReader() {
     _view = "detail";
     _readerImages = [];
+    _readerWebUrl = "";
   },
 
   async prevChapter() {
@@ -641,9 +838,10 @@ export const comicStore = {
   _recordHistory(order: number, chapterTitle: string) {
     if (!_currentComic) return;
     const comic = _currentComic;
-    const existing = _readHistory.filter(r => r.id !== comic.id);
+    const historyId = _currentProvider === "mangadex" ? `mangadex:${_currentExternalId}` : comic.id;
+    const existing = _readHistory.filter(r => r.id !== historyId);
     const record: ReadRecord = {
-      id: comic.id,
+      id: historyId,
       title: comic.title,
       thumb_url: comic.thumb_url,
       author: comic.author,
@@ -663,6 +861,16 @@ export const comicStore = {
   clearHistory() {
     _readHistory = [];
     saveHistory([]);
+  },
+
+  async resumeHistory(record: ReadRecord) {
+    if (!record?.id) return;
+    if (record.id.startsWith("mangadex:") || record.id.startsWith("dm5:") || record.id.startsWith("ikkk:")) {
+      await this.openMangaDexComic(record.id);
+    } else {
+      await this.openComic(record.id);
+    }
+    await this.openChapter(record.last_order, record.last_title);
   },
 
   // ── Tab 切换 ────────────────────────────────────────────────────────────

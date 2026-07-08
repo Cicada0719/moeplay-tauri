@@ -6,8 +6,11 @@
 
   const comic = $derived(comicStore.currentComic);
   const chapters = $derived(comicStore.chapters);
+  const isPicacg = $derived(comicStore.isPicacgDetail);
+  const latestChapter = $derived(chapters[chapters.length - 1]);
   let favouriting = $state(false);
   let liking = $state(false);
+  let descExpanded = $state(false);
 
   // 评论
   let commentInput = $state("");
@@ -56,7 +59,7 @@
   ];
 
   const subTabOptions = $derived(
-    subTabs.map((o) => ({
+    subTabs.filter((o) => isPicacg || o.value === "chapters").map((o) => ({
       ...o,
       label:
         o.value === "chapters"
@@ -70,6 +73,12 @@
   function handleSubTabChange(value: string) {
     detailTab = value as typeof detailTab;
   }
+
+  $effect(() => {
+    if (!isPicacg && detailTab !== "chapters") {
+      detailTab = "chapters";
+    }
+  });
 </script>
 
 <div class="detail-overlay" role="dialog">
@@ -90,23 +99,25 @@
         <img src={comic.thumb_url} alt={comic.title} class="detail-cover"
           onerror={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
 
-        <div class="action-row">
-          <Button variant={comic.is_liked ? "primary" : "ghost"} size="sm" fullWidth
-            press={handleLike} disabled={liking} title="喜欢">
-            <Icon name={comic.is_liked ? "heartFill" : "heart"} size={15} />
-            <span>{fmtNum(comic.likes_count)}</span>
-          </Button>
-          <Button variant={comic.is_favourite ? "primary" : "ghost"} size="sm" fullWidth
-            press={handleFavourite} disabled={favouriting} title="收藏">
-            <Icon name={comic.is_favourite ? "star" : "star"} size={15} />
-            <span>{comic.is_favourite ? "已收藏" : "收藏"}</span>
-          </Button>
-        </div>
+        {#if isPicacg}
+          <div class="action-row">
+            <Button variant={comic.is_liked ? "primary" : "ghost"} size="sm" fullWidth
+              press={handleLike} disabled={liking} title="喜欢">
+              <Icon name={comic.is_liked ? "heartFill" : "heart"} size={15} />
+              <span>{fmtNum(comic.likes_count)}</span>
+            </Button>
+            <Button variant={comic.is_favourite ? "primary" : "ghost"} size="sm" fullWidth
+              press={handleFavourite} disabled={favouriting} title="收藏">
+              <Icon name={comic.is_favourite ? "star" : "star"} size={15} />
+              <span>{comic.is_favourite ? "已收藏" : "收藏"}</span>
+            </Button>
+          </div>
+        {/if}
 
         <div class="detail-stats-col">
           <div class="stat-item"><Icon name="eye" size={12} /><span>{fmtNum(comic.total_views)}</span></div>
           <div class="stat-item"><Icon name="collection" size={12} /><span>{comic.eps_count} 话 / {comic.pages_count} 页</span></div>
-          {#if comic.comments_count > 0}
+          {#if isPicacg && comic.comments_count > 0}
             <div class="stat-item"><Icon name="paperclip" size={12} /><span>{fmtNum(comic.comments_count)} 评论</span></div>
           {/if}
         </div>
@@ -144,7 +155,31 @@
         {/if}
 
         {#if comic.description}
-          <p class="detail-desc">{comic.description}</p>
+          <div class="desc-block">
+            <p class="detail-desc" class:expanded={descExpanded}>{comic.description}</p>
+            {#if comic.description.length > 72}
+              <button class="desc-toggle" type="button" onclick={() => descExpanded = !descExpanded}>
+                {descExpanded ? "收起简介" : "展开简介"}
+              </button>
+            {/if}
+          </div>
+        {/if}
+
+        {#if !isPicacg}
+          <div class="source-facts">
+            <div>
+              <span>来源</span>
+              <b>{comic.categories[0] ?? comic.chinese_team ?? "普通源"}</b>
+            </div>
+            <div>
+              <span>章节</span>
+              <b>{chapters.length} 话</b>
+            </div>
+            <div>
+              <span>最新</span>
+              <b>{latestChapter?.title ?? "暂无"}</b>
+            </div>
+          </div>
         {/if}
 
         <!-- 子 tab 切换 -->
@@ -170,7 +205,7 @@
           </div>
 
         <!-- 评论区 -->
-        {:else if detailTab === "comments"}
+        {:else if detailTab === "comments" && isPicacg}
           <div class="comments-section">
             {#if comic.allow_comment}
               <form class="comment-form" onsubmit={handlePostComment}>
@@ -227,7 +262,7 @@
           </div>
 
         <!-- 推荐 -->
-        {:else if detailTab === "recommend"}
+        {:else if detailTab === "recommend" && isPicacg}
           <div class="recommend-section">
             {#if comicStore.recommendations.length > 0}
               <div class="recommend-grid">
@@ -280,7 +315,73 @@
 
   .tags-row { display: flex; flex-wrap: wrap; gap: 5px; }
 
-  .detail-desc { font-size: 13px; color: var(--text-muted); line-height: 1.7; margin: 0; max-height: 80px; overflow-y: auto; }
+  .desc-block {
+    display: grid;
+    gap: 6px;
+  }
+
+  .detail-desc {
+    min-width: 0;
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.7;
+    margin: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .detail-desc.expanded {
+    display: block;
+    max-height: 180px;
+    overflow-y: auto;
+  }
+
+  .desc-toggle {
+    justify-self: start;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: var(--accent);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .source-facts {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .source-facts > div {
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.025);
+    padding: 8px 10px;
+    display: grid;
+    gap: 3px;
+  }
+
+  .source-facts span {
+    color: var(--text-dim, var(--text-muted));
+    font-size: 10.5px;
+  }
+
+  .source-facts b {
+    min-width: 0;
+    color: var(--text-primary);
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 
   /* ── Sub tabs ── */
   .sub-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }

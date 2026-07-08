@@ -24,8 +24,10 @@ describe("source registry", () => {
   it("tracks GitHub reference ecosystems for manga and video expansion", () => {
     const references = getSourceAdaptersByLifecycle("reference");
     expect(references.some((source) => source.id === "tachiyomi-mihon-model")).toBe(true);
+    expect(references.some((source) => source.id === "keiyoushi-extensions")).toBe(true);
     expect(references.some((source) => source.id === "kotatsu-parser-model")).toBe(true);
     expect(references.some((source) => source.id === "aniyomi-model")).toBe(true);
+    expect(references.some((source) => source.id === "mangayomi-extensions")).toBe(true);
     expect(references.some((source) => source.id === "cloudstream-model")).toBe(true);
     expect(references.every((source) => source.referenceUrl)).toBe(true);
   });
@@ -33,9 +35,10 @@ describe("source registry", () => {
   it("marks index import ecosystems separately from license-only references", () => {
     const importable = getSourceAdaptersReadyForIndexImport();
     expect(importable.map((source) => source.id)).toEqual(
-      expect.arrayContaining(["tachiyomi-mihon-model", "aniyomi-model"]),
+      expect.arrayContaining(["tachiyomi-mihon-model", "keiyoushi-extensions", "aniyomi-model", "mangayomi-extensions"]),
     );
     expect(importable.every((source) => source.indexUrl)).toBe(true);
+    expect(importable.every((source) => source.connectorKind === "index")).toBe(true);
 
     const kotatsu = getSourceAdaptersByEcosystem("kotatsu");
     expect(kotatsu).toHaveLength(1);
@@ -53,8 +56,8 @@ describe("source registry", () => {
     expect(summary.total).toBe(SOURCE_ADAPTER_MANIFESTS.length);
     expect(summary.byMediaType.anime).toBe(getSourceAdaptersByMediaType("anime").length);
     expect(summary.byMediaType.comic).toBeGreaterThanOrEqual(2);
-    expect(summary.indexImportable).toBe(2);
-    expect(summary.highLicenseRisk).toBe(2);
+    expect(summary.indexImportable).toBe(4);
+    expect(summary.highLicenseRisk).toBe(3);
     expect(summary.requiresVerification).toBeGreaterThan(0);
   });
 });

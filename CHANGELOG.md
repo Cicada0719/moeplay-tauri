@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.12.0 - 2026-07-08
+
+### 漫画、番剧播放与综合记录发布版
+- 普通漫画页升级为默认入口：支持 MangaDex、DM5、1kkk 多源搜索、详情和章节阅读，PicACG 调整为右下角 `18+` 独立入口，避免普通漫画状态混入成人源结果。
+- 修复 DM5 / 1kkk 章节解析：详情页章节数以真实章节列表为准，支持 `/manhua-xxx/`、`/manhua12345/`、`/m123/`、`/ch0-123/` 等路径，并避免推荐漫画章节误计入。
+- 优化漫画详情页：展示更完整简介、来源、状态、真实章节数和最新章节；普通漫画隐藏 PicACG 专属点赞、收藏、评论和推荐。
+- 增强 Kazumi 规则兼容与番剧网页播放兜底：提取失败、iframe 被阻止、反爬验证和源健康度均进入可操作流程，减少黑屏/灰屏卡死。
+- 优化记录仪表盘：整合游戏游玩、番剧观看和漫画阅读历史，新增最近继续、媒体占比、番剧/漫画最近记录与全屏响应式布局。
+- 补齐漫画运行时/扩展生态基础：加入 Keiyoushi、Suwayomi、Komga、LANraragi、Kavita、Mangayomi、Paperback、MangaDex 等源目录和连接器草案。
+- 统一版本号至 `0.12.0`。
+
+## 0.11.9 - 2026-07-08
+
+### 普通漫画阅读器与多源入口
+- 新增漫画源生态模型：补入 Keiyoushi、Suwayomi、Komga、LANraragi、Kavita、Mangayomi、Paperback、MangaDex 等通道，并记录连接器类型、索引格式、认证方式、NSFW 策略和运行时要求。
+- 扩展扩展索引归一：Tachiyomi/Mihon 索引兼容 Keiyoushi，新增 Mangayomi `index.json` 归一，保留 `typeSource`、`sourceCodeUrl`、`apiUrl`、Cloudflare 与 NSFW 信息，不执行第三方插件代码。
+- 新增漫画运行时连接器草案：为 Suwayomi、Komga、LANraragi、Kavita 提供只读探测、端点构建、认证头和库列表归一，GPL 服务保持外部 API 边界。
+- 漫画页默认改为普通漫画阅读器：MangaDex 作为首个普通漫画源，搜索结果可直接进入详情、章节和统一漫画阅读器。
+- 新增 `manga_fetch_json` Tauri 命令：普通漫画源请求走 Rust 侧白名单 HTTP，规避 WebView CORS，同时只允许 MangaDex API/图片域名。
+- PicACG 不再作为漫画页门禁：改为右下角 `18+` 胶囊入口，点击后才弹出登录与 PicACG 搜索，和普通漫画搜索隔离。
+- PR CI 调整：完整 Tauri 打包、portable 和发布 artifact 校验仅在 push/release 路径执行，PR 保留前端、Rust、Playwright 质量门。
+- 统一版本号至 `0.11.9`。
+
 ## 0.11.8 - 2026-07-07
 
 ### Kazumi 规则兼容与网页播放兜底

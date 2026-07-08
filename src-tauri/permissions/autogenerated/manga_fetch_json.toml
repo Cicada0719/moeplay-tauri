@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-manga-fetch-json"
+description = "Enables the manga_fetch_json command without any pre-configured scope."
+commands.allow = ["manga_fetch_json"]
+
+[[permission]]
+identifier = "deny-manga-fetch-json"
+description = "Denies the manga_fetch_json command without any pre-configured scope."
+commands.deny = ["manga_fetch_json"]

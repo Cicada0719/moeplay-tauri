@@ -5,6 +5,7 @@ import {
   filterExtensionSourceCandidates,
   loadExtensionIndexSnapshots,
   normalizeExtensionIndex,
+  normalizeMangayomiIndex,
   summarizeExtensionCandidateStatuses,
   summarizeImportedExtensionSources,
   toExtensionSourceCandidates,
@@ -77,6 +78,42 @@ describe("extension index normalization", () => {
     expect(sources.every((source) => source.packageName.includes("animeextension"))).toBe(true);
   });
 
+  it("normalizes Mangayomi index sources without executing Dart or JavaScript plugins", () => {
+    const sources = normalizeMangayomiIndex(
+      [
+        {
+          name: "1st Kiss-Manga (unoriginal)",
+          id: 638504049,
+          baseUrl: "https://1stkissmanga.org",
+          lang: "en",
+          typeSource: "madara",
+          iconUrl: "https://example.test/icon.png",
+          isNsfw: false,
+          hasCloudflare: false,
+          sourceCodeUrl: "https://raw.githubusercontent.com/kodjodevf/mangayomi-extensions/main/dart/manga/madara.dart",
+          apiUrl: "",
+          version: "0.1.3",
+          isManga: true,
+        },
+      ],
+      { mediaType: "comic", ecosystem: "mangayomi", indexFormat: "mangayomi" },
+    );
+
+    expect(sources).toHaveLength(1);
+    expect(sources[0]).toMatchObject({
+      id: "mangayomi:638504049",
+      extensionName: "Mangayomi: madara",
+      sourceName: "1st Kiss-Manga (unoriginal)",
+      baseUrl: "https://1stkissmanga.org",
+      language: "en",
+      version: "0.1.3",
+      indexFormat: "mangayomi",
+      typeSource: "madara",
+      sourceCodeUrl: "https://raw.githubusercontent.com/kodjodevf/mangayomi-extensions/main/dart/manga/madara.dart",
+      requiresExternalRuntime: true,
+    });
+  });
+
   it("summarizes imported source language, nsfw, cloudflare, and baseUrl coverage", () => {
     const sources = normalizeExtensionIndex(
       [
@@ -108,9 +145,12 @@ describe("extension index normalization", () => {
 
     expect(repositories.map((repository) => repository.id)).toEqual([
       "tachiyomi-mihon-model",
+      "keiyoushi-extensions",
       "aniyomi-model",
+      "mangayomi-extensions",
     ]);
-    expect(repositories.every((repository) => repository.indexUrl.endsWith("index.min.json"))).toBe(true);
+    expect(repositories.filter((repository) => repository.indexFormat === "tachiyomi")).toHaveLength(3);
+    expect(repositories.find((repository) => repository.id === "mangayomi-extensions")?.indexFormat).toBe("mangayomi");
     expect(repositories.every((repository) => repository.licenseRisk === "low")).toBe(true);
   });
 
@@ -128,6 +168,19 @@ describe("extension index normalization", () => {
           },
         ];
       }
+      if (repository.ecosystem === "mangayomi") {
+        return [
+          {
+            name: "MangaDex",
+            id: 1,
+            lang: "all",
+            version: "0.1.0",
+            baseUrl: "https://mangadex.org",
+            typeSource: "mangadex",
+            isManga: true,
+          },
+        ];
+      }
 
       return JSON.stringify([
         {
@@ -140,40 +193,51 @@ describe("extension index normalization", () => {
       ]);
     }, repositories);
 
-    expect(snapshots).toHaveLength(2);
-    expect(snapshots.map((snapshot) => snapshot.summary.total)).toEqual([1, 1]);
+    expect(snapshots).toHaveLength(4);
+    expect(snapshots.map((snapshot) => snapshot.summary.total)).toEqual([1, 1, 1, 1]);
     expect(snapshots[0].sources[0].id).toBe("tachiyomi:4508733312114627536");
-    expect(snapshots[1].sources[0].id).toBe("aniyomi:4222017068256633289");
-    expect(snapshots[1].summary.withBaseUrl).toBe(1);
+    expect(snapshots[2].sources[0].id).toBe("aniyomi:4222017068256633289");
+    expect(snapshots[2].summary.withBaseUrl).toBe(1);
+    expect(snapshots[3].sources[0].id).toBe("mangayomi:1");
   });
 
   it("classifies imported sources into candidate statuses", async () => {
     const repositories = getExtensionIndexRepositories(SOURCE_ADAPTER_MANIFESTS);
-    const snapshots = await loadExtensionIndexSnapshots(async (repository) => [
-      {
-        name: `${repository.name}: Fixture`,
-        pkg: `fixture.${repository.ecosystem}`,
-        lang: repository.ecosystem === "tachiyomi" ? "en" : "all",
-        version: "1.0.0",
-        sources: [
-          { name: "Runtime Only", id: `${repository.ecosystem}-runtime`, baseUrl: "" },
-          { name: "Native Candidate", id: `${repository.ecosystem}-native`, baseUrl: "https://example.test" },
-          { name: "Cloudflare Candidate", id: `${repository.ecosystem}-cf`, baseUrl: "https://cf.example.test", hasCloudflare: 1 },
-        ],
-      },
-    ], repositories);
+    const snapshots = await loadExtensionIndexSnapshots(async (repository) => {
+      if (repository.ecosystem === "mangayomi") {
+        return [
+          { name: "Mangayomi Runtime", id: "mangayomi-runtime", baseUrl: "", typeSource: "custom", isManga: true },
+          { name: "Mangayomi Native", id: "mangayomi-native", baseUrl: "https://example.test", typeSource: "madara", isManga: true },
+          { name: "Mangayomi CF", id: "mangayomi-cf", baseUrl: "https://cf.example.test", hasCloudflare: true, typeSource: "madara", isManga: true },
+        ];
+      }
+
+      return [
+        {
+          name: `${repository.name}: Fixture`,
+          pkg: `fixture.${repository.ecosystem}`,
+          lang: repository.ecosystem === "tachiyomi" ? "en" : "all",
+          version: "1.0.0",
+          sources: [
+            { name: "Runtime Only", id: `${repository.ecosystem}-runtime`, baseUrl: "" },
+            { name: "Native Candidate", id: `${repository.ecosystem}-native`, baseUrl: "https://example.test" },
+            { name: "Cloudflare Candidate", id: `${repository.ecosystem}-cf`, baseUrl: "https://cf.example.test", hasCloudflare: 1 },
+          ],
+        },
+      ];
+    }, repositories);
 
     const candidates = toExtensionSourceCandidates(snapshots);
     expect(summarizeExtensionCandidateStatuses(candidates)).toEqual({
       discoverable: 0,
-      requiresRuntime: 4,
-      nativeAdapterPlanned: 2,
+      requiresRuntime: 9,
+      nativeAdapterPlanned: 3,
       unsupported: 0,
     });
-    expect(filterExtensionSourceCandidates(candidates, { hasBaseUrl: true })).toHaveLength(4);
-    expect(filterExtensionSourceCandidates(candidates, { cloudflare: true })).toHaveLength(2);
-    expect(filterExtensionSourceCandidates(candidates, { mediaType: "comic" })).toHaveLength(3);
-    expect(filterExtensionSourceCandidates(candidates, { status: "nativeAdapterPlanned" })).toHaveLength(2);
+    expect(filterExtensionSourceCandidates(candidates, { hasBaseUrl: true })).toHaveLength(8);
+    expect(filterExtensionSourceCandidates(candidates, { cloudflare: true })).toHaveLength(4);
+    expect(filterExtensionSourceCandidates(candidates, { mediaType: "comic" })).toHaveLength(9);
+    expect(filterExtensionSourceCandidates(candidates, { status: "nativeAdapterPlanned" })).toHaveLength(3);
     expect(candidates.every((candidate) => candidate.repositoryId && candidate.statusReason)).toBe(true);
   });
 

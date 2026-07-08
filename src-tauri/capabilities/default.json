@@ -235,6 +235,8 @@
     "allow-comic-punch-in",
     "allow-comic-knight-leaderboard",
     "allow-comic-my-comments",
+    "allow-manga-fetch-json",
+    "allow-manga-fetch-text",
     "allow-anime-get-rules",
     "allow-anime-set-rules",
     "allow-anime-add-rule",

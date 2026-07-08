@@ -4,6 +4,7 @@
   import { Button, EmptyState } from "../ui";
 
   const images = $derived(comicStore.readerImages);
+  const webUrl = $derived(comicStore.readerWebUrl);
   const chapters = $derived(comicStore.chapters);
   const order = $derived(comicStore.readerChapterOrder);
   const title = $derived(comicStore.readerChapterTitle);
@@ -51,6 +52,14 @@
         <div class="spinner"></div>
         <span>加载图片中...</span>
       </div>
+    {:else if webUrl}
+      <iframe
+        class="web-reader"
+        src={webUrl}
+        title={title || `第 ${order} 话`}
+        allow="fullscreen; autoplay; encrypted-media; picture-in-picture"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation-by-user-activation"
+      ></iframe>
     {:else if images.length === 0}
       <EmptyState class="reader-empty" icon="x" title="未能加载图片" />
     {:else}
@@ -145,6 +154,14 @@
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
+    background: #111318;
+  }
+  .web-reader {
+    width: 100%;
+    height: 100%;
+    min-height: 100%;
+    border: 0;
+    display: block;
     background: #111318;
   }
   .images-list {

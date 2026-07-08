@@ -151,6 +151,8 @@ const COMMANDS: &[&str] = &[
     "launch_game",
     "list_save_snapshots",
     "mark_game_finished",
+    "manga_fetch_json",
+    "manga_fetch_text",
     "open_path",
     "open_url",
     "parse_chinese_metadata",

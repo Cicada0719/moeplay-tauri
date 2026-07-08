@@ -62,15 +62,19 @@ jobs:
           if-no-files-found: ignore
 
       - name: Tauri build smoke
+        if: github.event_name == 'push'
         run: npm run tauri -- build --config src-tauri/tauri.ci.conf.json --ci
 
       - name: Portable package
+        if: github.event_name == 'push'
         run: npm run package:portable
 
       - name: Release artifact self-check
+        if: github.event_name == 'push'
         run: npm run verify:artifacts
 
       - name: Upload release artifacts
+        if: github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
           name: moeplay-windows-artifacts

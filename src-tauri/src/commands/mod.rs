@@ -48,5 +48,8 @@ pub use scrape::*;
 mod comic;
 pub use comic::*;
 
+mod manga;
+pub use manga::*;
+
 mod anime;
 pub use anime::*;

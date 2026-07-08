@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { animeStore, type AnimeHistory } from "../stores/anime.svelte";
+  import { comicStore, type ReadRecord } from "../stores/comic.svelte";
   import { gameStore } from "../stores/games.svelte";
   import { uiStore } from "../stores/ui.svelte";
   import { fileSrc } from "../utils";
@@ -14,14 +16,34 @@
 
   const localSummary = $derived(buildLocalSummary(gameStore.allGames));
   const activeSummary = $derived(summary ?? localSummary);
-  const hasRecords = $derived(activeSummary.session_count > 0 || activeSummary.total_seconds > 0);
+  const mediaActivities = $derived(buildMediaActivities(activeSummary.recent_sessions, animeStore.history, comicStore.readHistory));
+  const recentActivityCount = $derived(countRecentActivities(mediaActivities, 14));
+  const hasRecords = $derived(activeSummary.session_count > 0 || activeSummary.total_seconds > 0 || animeStore.history.length > 0 || comicStore.readHistory.length > 0);
   const topGames = $derived(activeSummary.top_games.slice(0, 5));
   const recentSessions = $derived(activeSummary.recent_sessions.slice(0, 7));
   const dailyBars = $derived(fillDailyBars(activeSummary.daily, 14));
+  const activityBars = $derived(fillActivityBars(mediaActivities, 14));
   const monthlyBars = $derived(activeSummary.monthly.slice(-8));
   const dailyMax = $derived(Math.max(1, ...dailyBars.map(d => d.seconds)));
+  const activityMax = $derived(Math.max(1, ...activityBars.map(d => d.count)));
   const monthlyMax = $derived(Math.max(1, ...monthlyBars.map(m => m.seconds)));
+  const mediaCounts = $derived(countMediaKinds(mediaActivities));
+  const mediaTotal = $derived(Math.max(1, mediaCounts.game + mediaCounts.anime + mediaCounts.comic));
+  const continueItems = $derived(mediaActivities.slice(0, 5));
+  const animeRecent = $derived(animeStore.history.slice(0, 4));
+  const comicRecent = $derived(comicStore.readHistory.slice(0, 4));
   const lastPlayedGame = $derived(findGame(topGames[0]?.game_id));
+  const latestActivity = $derived(mediaActivities[0] ?? null);
+
+  type MediaActivity = {
+    id: string;
+    kind: "game" | "anime" | "comic";
+    title: string;
+    subtitle: string;
+    timeLabel: string;
+    timestamp: number;
+    payload?: PlaySessionEntry | AnimeHistory | ReadRecord;
+  };
 
   onMount(() => {
     void loadSummary();
@@ -107,6 +129,82 @@
     return list;
   }
 
+  function buildMediaActivities(
+    sessions: PlaySessionEntry[],
+    animeHistory: AnimeHistory[],
+    comicHistory: ReadRecord[],
+  ): MediaActivity[] {
+    const gameItems = sessions.map((entry) => ({
+      id: `game:${entry.game_id}:${entry.session.id}`,
+      kind: "game" as const,
+      title: entry.game_name,
+      subtitle: `游玩 ${formatCompactSeconds(entry.session.duration_seconds)}`,
+      timeLabel: formatDateTime(entry.session.start_time),
+      timestamp: toTs(entry.session.start_time),
+      payload: entry,
+    }));
+    const animeItems = animeHistory.map((entry) => ({
+      id: `anime:${entry.key}`,
+      kind: "anime" as const,
+      title: entry.name,
+      subtitle: `看到 ${entry.lastEpisodeName || `第 ${entry.lastEpisode + 1} 集`}`,
+      timeLabel: formatDateTime(entry.updatedAt),
+      timestamp: toTs(entry.updatedAt),
+      payload: entry,
+    }));
+    const comicItems = comicHistory.map((entry) => ({
+      id: `comic:${entry.id}`,
+      kind: "comic" as const,
+      title: entry.title,
+      subtitle: `读到 ${entry.last_title || `第 ${entry.last_order} 话`}`,
+      timeLabel: formatDateTime(new Date(entry.ts).toISOString()),
+      timestamp: entry.ts || 0,
+      payload: entry,
+    }));
+
+    return [...gameItems, ...animeItems, ...comicItems]
+      .filter(item => item.timestamp > 0)
+      .sort((a, b) => b.timestamp - a.timestamp);
+  }
+
+  function fillActivityBars(items: MediaActivity[], count: number) {
+    const byDate = new Map<string, number>();
+    for (const item of items) {
+      const key = dateKey(new Date(item.timestamp).toISOString());
+      byDate.set(key, (byDate.get(key) ?? 0) + 1);
+    }
+    const list: { date: string; count: number }[] = [];
+    const now = new Date();
+    for (let i = count - 1; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(now.getDate() - i);
+      const key = dateKey(d.toISOString());
+      list.push({ date: key, count: byDate.get(key) ?? 0 });
+    }
+    return list;
+  }
+
+  function countRecentActivities(items: MediaActivity[], days: number): number {
+    const since = Date.now() - days * 24 * 60 * 60 * 1000;
+    return items.filter(item => item.timestamp >= since).length;
+  }
+
+  function countMediaKinds(items: MediaActivity[]) {
+    return items.reduce(
+      (acc, item) => {
+        acc[item.kind] += 1;
+        return acc;
+      },
+      { game: 0, anime: 0, comic: 0 },
+    );
+  }
+
+  function toTs(value: string | undefined): number {
+    if (!value) return 0;
+    const ts = new Date(value).getTime();
+    return Number.isNaN(ts) ? 0 : ts;
+  }
+
   function dateKey(value: string): string {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return new Date().toISOString().slice(0, 10);
@@ -153,11 +251,69 @@
     return fileSrc(coverOf(game));
   }
 
+  function activityCover(item: MediaActivity): string | null {
+    if (item.kind === "game") return coverFor((item.payload as PlaySessionEntry | undefined)?.game_id);
+    if (item.kind === "anime") return (item.payload as AnimeHistory | undefined)?.image ?? null;
+    return (item.payload as ReadRecord | undefined)?.thumb_url ?? null;
+  }
+
+  function kindLabel(kind: MediaActivity["kind"]): string {
+    if (kind === "game") return "游戏";
+    if (kind === "anime") return "番剧";
+    return "漫画";
+  }
+
+  function kindIcon(kind: MediaActivity["kind"]): "gamepad" | "film" | "book" {
+    return kind === "game" ? "gamepad" : kind === "anime" ? "film" : "book";
+  }
+
+  function animeActivity(entry: AnimeHistory): MediaActivity {
+    return {
+      id: `anime:${entry.key}`,
+      kind: "anime",
+      title: entry.name,
+      subtitle: `看到 ${entry.lastEpisodeName || `第 ${entry.lastEpisode + 1} 集`}`,
+      timeLabel: formatDateTime(entry.updatedAt),
+      timestamp: toTs(entry.updatedAt),
+      payload: entry,
+    };
+  }
+
+  function comicActivity(entry: ReadRecord): MediaActivity {
+    return {
+      id: `comic:${entry.id}`,
+      kind: "comic",
+      title: entry.title,
+      subtitle: `读到 ${entry.last_title || `第 ${entry.last_order} 话`}`,
+      timeLabel: formatDateTime(new Date(entry.ts).toISOString()),
+      timestamp: entry.ts || 0,
+      payload: entry,
+    };
+  }
+
+  function percent(value: number, total: number): number {
+    return Math.max(4, Math.round((value / Math.max(1, total)) * 100));
+  }
+
   function openGame(gameId: string | undefined) {
     const game = findGame(gameId);
     if (!game) return;
     gameStore.selectGame(game.id);
     uiStore.currentView = "game-detail";
+  }
+
+  async function openActivity(item: MediaActivity) {
+    if (item.kind === "game") {
+      openGame((item.payload as PlaySessionEntry | undefined)?.game_id);
+      return;
+    }
+    if (item.kind === "anime") {
+      uiStore.currentView = "anime";
+      await animeStore.resumeHistory(item.payload as AnimeHistory);
+      return;
+    }
+    uiStore.currentView = "comic";
+    await comicStore.resumeHistory(item.payload as ReadRecord);
   }
 
   async function launchGame(gameId: string | undefined) {
@@ -171,18 +327,30 @@
     <div class="hero-copy">
       <span class="eyebrow">Play Records</span>
       <h1>游玩记录</h1>
-      <p>把最近玩了什么、玩了多久、什么时候继续，整理成一个安静的仪表盘。</p>
+      <p>把最近玩了什么、看了什么、读到哪里，整理成一个安静的综合记录仪表盘。</p>
+      <div class="hero-meta" aria-label="记录概览">
+        <span><Icon name="gamepad" size={14} /> {activeSummary.session_count} 次游戏会话</span>
+        <span><Icon name="film" size={14} /> {animeStore.history.length} 条番剧历史</span>
+        <span><Icon name="book" size={14} /> {comicStore.readHistory.length} 条漫画历史</span>
+      </div>
       <div class="hero-actions">
-        {#if lastPlayedGame}
+        {#if latestActivity}
+          <Button variant="primary" size="sm" press={() => openActivity(latestActivity)}>
+            <Icon name={latestActivity.kind === "game" ? "play" : latestActivity.kind === "anime" ? "film" : "book"} size={16} />
+            <span>继续 {latestActivity.title}</span>
+          </Button>
+        {:else if lastPlayedGame}
           <Button variant="primary" size="sm" press={() => launchGame(lastPlayedGame?.id)}>
             <Icon name="play" size={16} />
             <span>继续 {lastPlayedGame.name}</span>
           </Button>
+        {/if}
+        {#if lastPlayedGame}
           <Button variant="secondary" size="sm" press={() => openGame(lastPlayedGame?.id)}>
             <Icon name="info" size={16} />
             <span>查看详情</span>
           </Button>
-        {:else}
+        {:else if !latestActivity}
           <Button variant="primary" size="sm" press={() => (uiStore.currentView = "steam-import")}>
             <Icon name="database" size={16} />
             <span>导入游戏</span>
@@ -191,29 +359,40 @@
       </div>
     </div>
 
-    <div class="hero-template" aria-hidden="true">
-      <div class="template-glow"></div>
-      <div class="template-card template-card-main">
-        <div class="template-line wide"></div>
-        <div class="template-bars">
-          <span style="height: 38%"></span>
-          <span style="height: 62%"></span>
-          <span style="height: 48%"></span>
-          <span style="height: 76%"></span>
-          <span style="height: 58%"></span>
-          <span style="height: 86%"></span>
-          <span style="height: 44%"></span>
+    <div class="hero-console" aria-label="最近继续">
+      <div class="console-head">
+        <span>最近继续</span>
+        {#if latestActivity}<b>{kindLabel(latestActivity.kind)}</b>{/if}
+      </div>
+      {#if continueItems.length > 0}
+        <div class="continue-stack">
+          {#each continueItems.slice(0, 3) as item (item.id)}
+            <button class="continue-card kind-{item.kind}" type="button" onclick={() => openActivity(item)}>
+              <span class="continue-cover">
+                {#if activityCover(item)}
+                  <img src={activityCover(item)!} alt="" loading="lazy" />
+                {:else}
+                  <Icon name={kindIcon(item.kind)} size={18} />
+                {/if}
+              </span>
+              <span class="continue-main">
+                <small>{kindLabel(item.kind)} · {item.timeLabel}</small>
+                <b>{item.title}</b>
+                <em>{item.subtitle}</em>
+              </span>
+            </button>
+          {/each}
         </div>
-      </div>
-      <div class="template-card template-card-side">
-        <div class="template-ring"></div>
-        <div class="template-line"></div>
-        <div class="template-line short"></div>
-      </div>
-      <div class="template-pad">
-        <span></span>
-        <i></i>
-        <b></b>
+      {:else}
+        <div class="console-empty">
+          <Icon name="chart" size={22} />
+          <span>开始游玩、追番或阅读后会出现在这里</span>
+        </div>
+      {/if}
+      <div class="media-mix" aria-label="媒体占比">
+        <span class="mix-game" style={`width: ${percent(mediaCounts.game, mediaTotal)}%`}></span>
+        <span class="mix-anime" style={`width: ${percent(mediaCounts.anime, mediaTotal)}%`}></span>
+        <span class="mix-comic" style={`width: ${percent(mediaCounts.comic, mediaTotal)}%`}></span>
       </div>
     </div>
   </header>
@@ -238,21 +417,36 @@
         <small>{activeSummary.play_days} 个活跃日</small>
       </Card>
       <Card class="record-metric">
-        <span class="metric-label">近期开局</span>
-        <strong>{activeSummary.session_count}</strong>
-        <small>记录到的游玩会话</small>
+        <span class="metric-label">番剧历史</span>
+        <strong>{animeStore.history.length}</strong>
+        <small>{animeStore.history[0]?.lastEpisodeName ?? "开始观看后自动记录"}</small>
       </Card>
       <Card class="record-metric">
-        <span class="metric-label">平均一局</span>
-        <strong>{formatCompactSeconds(activeSummary.average_session_seconds)}</strong>
-        <small>按会话时长计算</small>
+        <span class="metric-label">漫画历史</span>
+        <strong>{comicStore.readHistory.length}</strong>
+        <small>{comicStore.readHistory[0]?.last_title ?? "开始阅读后自动记录"}</small>
       </Card>
       <Card class="record-metric">
-        <span class="metric-label">最常打开</span>
-        <strong>{topGames[0]?.game_name ?? "暂无"}</strong>
-        <small>{topGames[0] ? formatCompactSeconds(topGames[0].total_seconds) : "导入并游玩后出现"}</small>
+        <span class="metric-label">近 14 天活动</span>
+        <strong>{recentActivityCount}</strong>
+        <small>游戏 / 番剧 / 漫画合计</small>
       </Card>
     </section>
+
+    {#if continueItems.length > 0}
+      <section class="quick-continue" aria-label="继续项目">
+        {#each continueItems as item (item.id)}
+          <button class="quick-item kind-{item.kind}" type="button" onclick={() => openActivity(item)}>
+            <span class="quick-icon"><Icon name={kindIcon(item.kind)} size={15} /></span>
+            <span class="quick-text">
+              <b>{item.title}</b>
+              <small>{item.subtitle}</small>
+            </span>
+            <span class="quick-time">{item.timeLabel}</span>
+          </button>
+        {/each}
+      </section>
+    {/if}
 
     {#if hasRecords}
       <main class="records-layout">
@@ -271,6 +465,61 @@
                 <small>{dayLabel(day.date)}</small>
               </div>
             {/each}
+          </div>
+        </Card>
+
+        <Card class="panel media-panel">
+          <div class="panel-head">
+            <div>
+              <span class="panel-kicker">Media Mix</span>
+              <h2>媒体记录</h2>
+            </div>
+            <Tag variant="muted">{mediaActivities.length} 条</Tag>
+          </div>
+          <div class="media-stats">
+            <div class="media-stat">
+              <span class="kind-dot game"></span>
+              <b>{mediaCounts.game}</b>
+              <small>游戏</small>
+            </div>
+            <div class="media-stat">
+              <span class="kind-dot anime"></span>
+              <b>{mediaCounts.anime}</b>
+              <small>番剧</small>
+            </div>
+            <div class="media-stat">
+              <span class="kind-dot comic"></span>
+              <b>{mediaCounts.comic}</b>
+              <small>漫画</small>
+            </div>
+          </div>
+          <div class="media-split">
+            <div>
+              <span class="split-title">最近番剧</span>
+              {#if animeRecent.length > 0}
+                {#each animeRecent as item (item.key)}
+                  <button class="mini-media-row" type="button" onclick={() => openActivity(animeActivity(item))}>
+                    <span>{item.name}</span>
+                    <small>{item.lastEpisodeName || `第 ${item.lastEpisode + 1} 集`}</small>
+                  </button>
+                {/each}
+              {:else}
+                <p>暂无番剧观看记录</p>
+              {/if}
+            </div>
+            <div>
+              <span class="split-title">最近漫画</span>
+              {#if comicRecent.length > 0}
+                {#each comicRecent as item (item.id)}
+                  <button class="mini-media-row" type="button" onclick={() => openActivity(comicActivity(item))}>
+                    <span>{item.title}</span>
+                    <small>{item.last_title || `第 ${item.last_order} 话`}</small>
+                  </button>
+                {/each}
+              {:else}
+                <p>暂无漫画阅读记录</p>
+              {/if}
+            </div>
           </div>
         </Card>
 
@@ -297,6 +546,30 @@
                   <small>{formatDateTime(item.last_played)}</small>
                 </span>
                 <span class="time">{formatCompactSeconds(item.total_seconds)}</span>
+              </button>
+            {/each}
+          </div>
+        </Card>
+
+        <Card class="panel activity-panel">
+          <div class="panel-head">
+            <div>
+              <span class="panel-kicker">All Media</span>
+              <h2>综合时间线</h2>
+            </div>
+            <Tag variant="muted">{mediaActivities.length} 条</Tag>
+          </div>
+          <div class="activity-list">
+            {#each mediaActivities.slice(0, 8) as item (item.id)}
+              <button class="activity-row" type="button" onclick={() => openActivity(item)}>
+                <span class="activity-kind kind-{item.kind}">
+                  <Icon name={item.kind === "game" ? "gamepad" : item.kind === "anime" ? "film" : "book"} size={15} />
+                </span>
+                <span class="activity-main">
+                  <b>{item.title}</b>
+                  <small>{item.subtitle}</small>
+                </span>
+                <span class="activity-time">{item.timeLabel}</span>
               </button>
             {/each}
           </div>
@@ -344,6 +617,23 @@
             <EmptyState title="暂无月度记录" description="启动游戏后，这里会自动沉淀游玩节奏。" />
           {/if}
         </Card>
+
+        <Card class="panel rhythm-panel">
+          <div class="panel-head">
+            <div>
+              <span class="panel-kicker">Activity Rhythm</span>
+              <h2>综合活跃度</h2>
+            </div>
+          </div>
+          <div class="activity-bars" aria-label="最近两周综合活动">
+            {#each activityBars as day}
+              <div class="activity-bar" title={`${dayLabel(day.date)} · ${day.count} 次活动`}>
+                <span style={`height: ${Math.max(day.count ? 14 : 4, Math.round(day.count / activityMax * 100))}%`}></span>
+                <small>{dayLabel(day.date)}</small>
+              </div>
+            {/each}
+          </div>
+        </Card>
       </main>
     {:else}
       <Card class="empty-records">
@@ -363,26 +653,28 @@
 
 <style>
   .records-page {
+    --records-max: min(1680px, calc(100vw - 48px));
     min-width: 0;
     height: 100%;
-    padding: 24px;
+    padding: clamp(16px, 2vw, 28px);
     overflow: auto;
     display: grid;
+    justify-items: center;
     align-content: start;
-    gap: 16px;
+    gap: clamp(12px, 1.4vw, 18px);
     background:
-      radial-gradient(circle at 15% 0%, rgba(31, 185, 120, 0.14), transparent 34%),
-      linear-gradient(155deg, #050806 0%, #08120d 44%, #030504 100%);
+      repeating-linear-gradient(90deg, rgba(116, 255, 184, 0.035) 0 1px, transparent 1px 76px),
+      linear-gradient(160deg, #050806 0%, #07100b 42%, #020403 100%);
   }
 
   .records-hero {
     position: relative;
-    min-height: 224px;
-    width: min(1180px, 100%);
+    min-height: clamp(176px, 20dvh, 238px);
+    width: var(--records-max);
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(320px, 440px);
-    gap: 22px;
-    padding: 26px;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 34%);
+    gap: clamp(16px, 2vw, 28px);
+    padding: clamp(18px, 2vw, 28px);
     overflow: hidden;
     border: 1px solid rgba(97, 255, 180, 0.12);
     border-radius: 8px;
@@ -396,7 +688,7 @@
     min-width: 0;
     display: grid;
     align-content: center;
-    gap: 12px;
+    gap: 10px;
     z-index: 1;
   }
 
@@ -417,12 +709,12 @@
   }
 
   .hero-copy h1 {
-    font-size: clamp(32px, 5vw, 58px);
+    font-size: clamp(30px, 3.8vw, 56px);
     font-weight: 820;
   }
 
   .hero-copy p {
-    max-width: 520px;
+    max-width: 620px;
     margin: 0;
     color: var(--text-secondary);
     line-height: 1.7;
@@ -435,6 +727,27 @@
     gap: 10px;
   }
 
+  .hero-meta {
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .hero-meta span {
+    height: 28px;
+    padding: 0 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid rgba(139, 255, 192, 0.1);
+    border-radius: 999px;
+    background: rgba(255,255,255,0.035);
+    color: rgba(214, 236, 222, 0.82);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
   .hero-actions :global(.ui-button__content) {
     min-width: 0;
   }
@@ -445,136 +758,142 @@
     white-space: nowrap;
   }
 
-  .hero-template {
-    position: relative;
-    min-height: 176px;
+  .hero-console {
+    min-width: 0;
+    min-height: 166px;
     border-radius: 8px;
     overflow: hidden;
+    border: 1px solid rgba(139, 255, 192, 0.12);
     background:
-      linear-gradient(135deg, rgba(6, 18, 12, 0.68), rgba(9, 15, 12, 0.38)),
-      radial-gradient(circle at 72% 20%, rgba(83, 255, 169, 0.24), transparent 30%);
-    border: 1px solid rgba(139, 255, 192, 0.1);
-  }
-
-  .template-glow {
-    position: absolute;
-    inset: -30%;
-    background:
-      radial-gradient(circle at 62% 42%, rgba(88, 255, 174, 0.25), transparent 20%),
-      radial-gradient(circle at 30% 72%, rgba(46, 139, 95, 0.22), transparent 26%);
-    filter: blur(8px);
-  }
-
-  .template-card {
-    position: absolute;
-    border: 1px solid rgba(177, 255, 211, 0.16);
-    border-radius: 8px;
-    background: rgba(5, 13, 9, 0.68);
+      linear-gradient(145deg, rgba(8, 18, 13, 0.92), rgba(5, 10, 8, 0.72)),
+      radial-gradient(circle at 84% 16%, rgba(88, 255, 174, 0.16), transparent 34%);
     box-shadow: inset 0 1px rgba(255,255,255,0.05);
-  }
-
-  .template-card-main {
-    left: 28px;
-    bottom: 24px;
-    width: 56%;
-    height: 62%;
-    padding: 18px;
     display: grid;
-    gap: 16px;
-  }
-
-  .template-card-side {
-    right: 28px;
-    top: 24px;
-    width: 30%;
-    height: 54%;
-    padding: 16px;
-    display: grid;
-    align-content: center;
-    justify-items: center;
+    grid-template-rows: auto 1fr auto;
     gap: 10px;
+    padding: 12px;
   }
 
-  .template-line {
-    height: 7px;
-    width: 58%;
-    border-radius: 999px;
-    background: rgba(142, 255, 195, 0.18);
-  }
-
-  .template-line.wide {
-    width: 72%;
-  }
-
-  .template-line.short {
-    width: 38%;
-  }
-
-  .template-bars {
-    height: 78px;
+  .console-head {
     display: flex;
-    align-items: end;
-    gap: 9px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: rgba(214, 236, 222, 0.8);
+    font-size: 12px;
   }
 
-  .template-bars span {
-    flex: 1;
-    min-width: 8px;
-    border-radius: 999px 999px 3px 3px;
-    background: linear-gradient(180deg, rgba(103, 255, 174, 0.9), rgba(38, 112, 76, 0.55));
+  .console-head b {
+    color: rgba(133, 242, 186, 0.92);
+    font-family: var(--font-mono);
+    font-size: 11px;
   }
 
-  .template-ring {
-    width: 58px;
-    height: 58px;
-    border-radius: 50%;
-    border: 10px solid rgba(112, 255, 184, 0.2);
-    border-top-color: rgba(112, 255, 184, 0.78);
+  .continue-stack {
+    min-width: 0;
+    display: grid;
+    gap: 8px;
   }
 
-  .template-pad {
-    position: absolute;
-    right: 76px;
-    bottom: 20px;
-    width: 92px;
-    height: 52px;
-    border-radius: 24px;
-    border: 1px solid rgba(177, 255, 211, 0.18);
-    background: rgba(4, 11, 8, 0.72);
+  .continue-card {
+    min-width: 0;
+    width: 100%;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.035);
+    color: var(--text-secondary);
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    padding: 8px;
+    text-align: left;
+    cursor: pointer;
+    transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
   }
 
-  .template-pad span,
-  .template-pad i,
-  .template-pad b {
-    position: absolute;
-    display: block;
-    background: rgba(139, 255, 192, 0.62);
+  .continue-card:hover {
+    transform: translateY(-1px);
+    border-color: rgba(117, 255, 186, 0.2);
+    background: rgba(117, 255, 186, 0.07);
   }
 
-  .template-pad span {
-    left: 18px;
-    top: 24px;
-    width: 22px;
-    height: 4px;
-    box-shadow: 9px -9px 0 -1px rgba(139, 255, 192, 0.62), 9px 9px 0 -1px rgba(139, 255, 192, 0.62);
+  .continue-card:active,
+  .quick-item:active,
+  .mini-media-row:active {
+    transform: scale(0.985);
   }
 
-  .template-pad i,
-  .template-pad b {
-    right: 20px;
-    top: 18px;
-    width: 8px;
+  .continue-cover {
+    width: 44px;
+    height: 54px;
+    border-radius: 7px;
+    overflow: hidden;
+    display: grid;
+    place-items: center;
+    background: rgba(255,255,255,0.06);
+    color: rgba(133, 242, 186, 0.9);
+  }
+
+  .continue-cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .continue-main {
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+  }
+
+  .continue-main small,
+  .continue-main em {
+    min-width: 0;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-style: normal;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .continue-main b {
+    min-width: 0;
+    color: var(--text-primary);
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .console-empty {
+    min-height: 96px;
+    display: grid;
+    place-items: center;
+    gap: 8px;
+    color: var(--text-muted);
+    text-align: center;
+    font-size: 12px;
+  }
+
+  .media-mix {
     height: 8px;
-    border-radius: 50%;
+    display: flex;
+    gap: 3px;
   }
 
-  .template-pad b {
-    right: 34px;
-    top: 30px;
+  .media-mix span {
+    min-width: 4px;
+    border-radius: 999px;
   }
+
+  .mix-game { background: rgba(104, 255, 178, 0.86); }
+  .mix-anime { background: rgba(139, 184, 255, 0.78); }
+  .mix-comic { background: rgba(245, 188, 119, 0.82); }
 
   .soft-warning {
-    width: min(1180px, 100%);
+    width: var(--records-max);
     min-height: 40px;
     padding: 10px 12px;
     display: flex;
@@ -588,9 +907,10 @@
 
   .records-loading,
   .metric-grid,
+  .quick-continue,
   .records-layout,
   :global(.ui-card.empty-records) {
-    width: min(1180px, 100%);
+    width: var(--records-max);
   }
 
   .records-loading {
@@ -600,18 +920,26 @@
 
   .metric-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(12, minmax(0, 1fr));
     gap: 12px;
   }
 
   :global(.ui-card.record-metric) {
     min-width: 0;
-    min-height: 118px;
+    min-height: clamp(96px, 11dvh, 124px);
     display: grid;
     align-content: center;
     gap: 8px;
     background: rgba(8, 17, 12, 0.78);
     border-color: rgba(139, 255, 192, 0.12);
+  }
+
+  :global(.ui-card.record-metric) {
+    grid-column: span 3;
+  }
+
+  :global(.ui-card.record-metric.total) {
+    grid-column: span 3;
   }
 
   :global(.ui-card.record-metric.total) {
@@ -633,14 +961,91 @@
     color: var(--text-muted);
   }
 
+  .quick-continue {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .quick-item {
+    min-width: 0;
+    min-height: 64px;
+    border: 1px solid rgba(139, 255, 192, 0.1);
+    border-radius: 8px;
+    background: rgba(8, 17, 12, 0.64);
+    color: var(--text-secondary);
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    gap: 9px;
+    align-items: center;
+    padding: 9px 10px;
+    text-align: left;
+    cursor: pointer;
+    transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+  }
+
+  .quick-item:hover {
+    transform: translateY(-1px);
+    border-color: rgba(117, 255, 186, 0.22);
+    background: rgba(117, 255, 186, 0.07);
+  }
+
+  .quick-icon {
+    width: 32px;
+    height: 32px;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px;
+    display: grid;
+    place-items: center;
+    background: rgba(255,255,255,0.04);
+  }
+
+  .quick-item.kind-game .quick-icon { color: rgba(133, 242, 186, 0.92); }
+  .quick-item.kind-anime .quick-icon { color: rgba(139, 184, 255, 0.92); }
+  .quick-item.kind-comic .quick-icon { color: rgba(245, 188, 119, 0.92); }
+
+  .quick-text {
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+  }
+
+  .quick-text b,
+  .quick-text small {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .quick-text b {
+    color: var(--text-primary);
+    font-size: 13px;
+  }
+
+  .quick-text small,
+  .quick-time {
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+
+  .quick-time {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
   .records-layout {
     display: grid;
-    grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.9fr);
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-auto-flow: dense;
+    align-items: stretch;
     gap: 12px;
   }
 
   :global(.ui-card.panel) {
     min-width: 0;
+    min-height: 0;
     display: grid;
     gap: 14px;
     background: rgba(8, 17, 12, 0.78);
@@ -648,13 +1053,16 @@
   }
 
   :global(.ui-card.daily-panel),
+  :global(.ui-card.activity-panel),
   :global(.ui-card.sessions-panel) {
-    grid-column: 1;
+    grid-column: span 7;
   }
 
   :global(.ui-card.top-panel),
-  :global(.ui-card.month-panel) {
-    grid-column: 2;
+  :global(.ui-card.rhythm-panel),
+  :global(.ui-card.month-panel),
+  :global(.ui-card.media-panel) {
+    grid-column: span 5;
   }
 
   .panel-head {
@@ -672,7 +1080,7 @@
   }
 
   .daily-bars {
-    height: 184px;
+    height: clamp(132px, 18dvh, 210px);
     display: grid;
     grid-template-columns: repeat(14, minmax(0, 1fr));
     gap: 8px;
@@ -703,6 +1111,7 @@
   }
 
   .top-list,
+  .activity-list,
   .session-list,
   .month-bars {
     min-width: 0;
@@ -711,6 +1120,7 @@
   }
 
   .top-row,
+  .activity-row,
   .session-row {
     min-width: 0;
     width: 100%;
@@ -723,6 +1133,7 @@
   }
 
   .top-row:hover,
+  .activity-row:hover,
   .session-row:hover {
     border-color: rgba(117, 255, 186, 0.22);
     background: rgba(117, 255, 186, 0.07);
@@ -731,10 +1142,10 @@
 
   .top-row {
     display: grid;
-    grid-template-columns: 24px 42px minmax(0, 1fr) auto;
+    grid-template-columns: 24px 40px minmax(0, 1fr) auto;
     gap: 10px;
     align-items: center;
-    padding: 8px;
+    padding: 7px 8px;
     text-align: left;
   }
 
@@ -746,8 +1157,8 @@
   }
 
   .cover {
-    width: 42px;
-    height: 56px;
+    width: 40px;
+    height: 52px;
     display: grid;
     place-items: center;
     overflow: hidden;
@@ -795,8 +1206,65 @@
     grid-template-columns: 14px minmax(0, 1fr) auto;
     gap: 10px;
     align-items: center;
-    padding: 12px;
+    padding: 11px 12px;
     text-align: left;
+  }
+
+  .activity-row {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 12px;
+    text-align: left;
+  }
+
+  .activity-kind {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.06);
+    background: rgba(255,255,255,0.04);
+  }
+
+  .activity-kind.kind-game {
+    color: rgba(133, 242, 186, 0.92);
+  }
+
+  .activity-kind.kind-anime {
+    color: rgba(139, 184, 255, 0.92);
+  }
+
+  .activity-kind.kind-comic {
+    color: rgba(245, 188, 119, 0.92);
+  }
+
+  .activity-main {
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+  }
+
+  .activity-main b {
+    min-width: 0;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .activity-main small,
+  .activity-time {
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  .activity-time {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
 
   .session-dot {
@@ -829,6 +1297,135 @@
     font-weight: 700;
   }
 
+  .activity-bars {
+    height: clamp(112px, 15dvh, 168px);
+    display: grid;
+    grid-template-columns: repeat(14, minmax(0, 1fr));
+    gap: 7px;
+    align-items: end;
+  }
+
+  .activity-bar {
+    min-width: 0;
+    height: 100%;
+    display: grid;
+    grid-template-rows: 1fr auto;
+    gap: 8px;
+    align-items: end;
+  }
+
+  .activity-bar span {
+    width: 100%;
+    min-height: 4px;
+    border-radius: 999px 999px 3px 3px;
+    background: linear-gradient(180deg, rgba(160, 211, 255, 0.86), rgba(80, 255, 162, 0.52));
+  }
+
+  .activity-bar small {
+    color: var(--text-muted);
+    font-size: 10px;
+    text-align: center;
+  }
+
+  .media-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .media-stat {
+    min-width: 0;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.03);
+    padding: 10px;
+    display: grid;
+    gap: 4px;
+  }
+
+  .media-stat b {
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 22px;
+    line-height: 1;
+  }
+
+  .media-stat small {
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+
+  .kind-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+  }
+
+  .kind-dot.game { background: rgba(104, 255, 178, 0.88); }
+  .kind-dot.anime { background: rgba(139, 184, 255, 0.86); }
+  .kind-dot.comic { background: rgba(245, 188, 119, 0.86); }
+
+  .media-split {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .media-split > div {
+    min-width: 0;
+    display: grid;
+    align-content: start;
+    gap: 6px;
+  }
+
+  .split-title {
+    color: rgba(214, 236, 222, 0.76);
+    font-size: 12px;
+    font-weight: 720;
+  }
+
+  .mini-media-row {
+    min-width: 0;
+    width: 100%;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    background: rgba(255,255,255,0.025);
+    color: var(--text-secondary);
+    display: grid;
+    gap: 2px;
+    padding: 7px 8px;
+    text-align: left;
+    cursor: pointer;
+    transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+  }
+
+  .mini-media-row:hover {
+    transform: translateY(-1px);
+    border-color: rgba(117, 255, 186, 0.18);
+    background: rgba(117, 255, 186, 0.06);
+  }
+
+  .mini-media-row span,
+  .mini-media-row small {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mini-media-row span {
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 650;
+  }
+
+  .mini-media-row small,
+  .media-split p {
+    color: var(--text-muted);
+    font-size: 11px;
+    margin: 0;
+  }
+
   :global(.ui-card.empty-records) {
     min-height: 300px;
     display: grid;
@@ -846,25 +1443,42 @@
   }
 
   @media (max-width: 940px) {
+    .records-page {
+      --records-max: calc(100vw - 32px);
+    }
+
     .records-hero,
     .records-layout {
       grid-template-columns: 1fr;
     }
 
     :global(.ui-card.daily-panel),
+    :global(.ui-card.activity-panel),
     :global(.ui-card.sessions-panel),
     :global(.ui-card.top-panel),
-    :global(.ui-card.month-panel) {
+    :global(.ui-card.rhythm-panel),
+    :global(.ui-card.month-panel),
+    :global(.ui-card.media-panel) {
       grid-column: 1;
     }
 
     .metric-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+
+    .quick-continue {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    :global(.ui-card.record-metric),
+    :global(.ui-card.record-metric.total) {
+      grid-column: auto;
+    }
   }
 
   @media (max-width: 620px) {
     .records-page {
+      --records-max: calc(100vw - 32px);
       padding: 16px;
     }
 
@@ -876,11 +1490,29 @@
       grid-template-columns: 1fr;
     }
 
+    .quick-continue,
+    .media-split {
+      grid-template-columns: 1fr;
+    }
+
+    .quick-item {
+      grid-template-columns: 32px minmax(0, 1fr);
+    }
+
+    .quick-time {
+      grid-column: 2;
+    }
+
     .daily-bars {
       gap: 5px;
     }
 
-    .day-bar small {
+    .activity-bars {
+      gap: 5px;
+    }
+
+    .day-bar small,
+    .activity-bar small {
       display: none;
     }
 
@@ -890,6 +1522,80 @@
 
     .top-row .time {
       grid-column: 3;
+    }
+  }
+
+  @media (min-width: 1440px) {
+    .records-page {
+      --records-max: min(1760px, calc(100vw - 64px));
+    }
+
+    .records-layout {
+      grid-template-columns: repeat(16, minmax(0, 1fr));
+    }
+
+    :global(.ui-card.daily-panel) {
+      grid-column: span 10;
+    }
+
+    :global(.ui-card.activity-panel) {
+      grid-column: span 9;
+    }
+
+    :global(.ui-card.top-panel) {
+      grid-column: span 6;
+    }
+
+    :global(.ui-card.sessions-panel) {
+      grid-column: span 9;
+    }
+
+    :global(.ui-card.rhythm-panel) {
+      grid-column: span 7;
+    }
+
+    :global(.ui-card.month-panel) {
+      grid-column: span 7;
+    }
+
+    :global(.ui-card.media-panel) {
+      grid-column: span 6;
+    }
+
+    .top-list,
+    .session-list {
+      gap: 7px;
+    }
+  }
+
+  @media (min-width: 1280px) and (max-height: 820px) {
+    .records-page {
+      gap: 12px;
+      padding-block: 16px;
+    }
+
+    .records-hero {
+      min-height: 154px;
+    }
+
+    .hero-console {
+      min-height: 124px;
+    }
+
+    :global(.ui-card.record-metric) {
+      min-height: 88px;
+    }
+
+    .daily-bars {
+      height: 126px;
+    }
+
+    .activity-bars {
+      height: 106px;
+    }
+
+    .records-layout {
+      gap: 10px;
     }
   }
 </style>

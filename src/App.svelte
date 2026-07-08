@@ -339,7 +339,7 @@
 
 <style>
   .app-container {
-    display: flex; flex-direction: column; height: 100vh; width: 100vw;
+    display: flex; flex-direction: column; height: 100dvh; width: 100vw;
     background: var(--bg-deep);
     position: relative; overflow: hidden;
   }

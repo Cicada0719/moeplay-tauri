@@ -1,5 +1,13 @@
-import type { MediaType, SourceAdapterManifest, SourceEcosystem, SourceLicenseRisk } from "./sourceRegistry";
+import type {
+  ExtensionIndexFormat,
+  MediaType,
+  SourceAdapterManifest,
+  SourceEcosystem,
+  SourceLicenseRisk,
+} from "./sourceRegistry";
 import { getSourceAdaptersReadyForIndexImport } from "./sourceRegistry";
+
+type IndexableExtensionEcosystem = Extract<SourceEcosystem, "tachiyomi" | "keiyoushi" | "aniyomi" | "mangayomi">;
 
 export interface ExtensionIndexSource {
   name?: unknown;
@@ -19,6 +27,16 @@ export interface ExtensionIndexEntry {
   version?: unknown;
   nsfw?: unknown;
   sources?: unknown;
+  id?: unknown;
+  baseUrl?: unknown;
+  typeSource?: unknown;
+  iconUrl?: unknown;
+  dateFormat?: unknown;
+  isNsfw?: unknown;
+  hasCloudflare?: unknown;
+  sourceCodeUrl?: unknown;
+  apiUrl?: unknown;
+  isManga?: unknown;
 }
 
 export interface ImportedExtensionSource {
@@ -35,6 +53,11 @@ export interface ImportedExtensionSource {
   hasCloudflare: boolean;
   licenseRisk: SourceLicenseRisk;
   requiresExternalRuntime: boolean;
+  indexFormat?: ExtensionIndexFormat;
+  typeSource?: string;
+  sourceCodeUrl?: string;
+  apiUrl?: string;
+  iconUrl?: string;
 }
 
 export type ExtensionCandidateStatus =
@@ -72,7 +95,8 @@ export interface ExtensionIndexCacheSummary {
 
 export interface NormalizeExtensionIndexOptions {
   mediaType: MediaType;
-  ecosystem: Extract<SourceEcosystem, "tachiyomi" | "aniyomi">;
+  ecosystem: IndexableExtensionEcosystem;
+  indexFormat?: ExtensionIndexFormat;
   licenseRisk?: SourceLicenseRisk;
 }
 
@@ -80,7 +104,8 @@ export interface ExtensionIndexRepository {
   id: string;
   name: string;
   mediaType: MediaType;
-  ecosystem: Extract<SourceEcosystem, "tachiyomi" | "aniyomi">;
+  ecosystem: IndexableExtensionEcosystem;
+  indexFormat: ExtensionIndexFormat;
   indexUrl: string;
   licenseRisk: SourceLicenseRisk;
 }
@@ -99,8 +124,18 @@ function asString(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;
 }
 
+function asScalarString(value: unknown, fallback = ""): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return fallback;
+}
+
 function asBooleanFlag(value: unknown): boolean {
   return value === true || value === 1 || value === "1";
+}
+
+function asBooleanish(value: unknown): boolean {
+  return value === true || value === 1 || value === "1" || value === "true";
 }
 
 function makeFallbackId(packageName: string, sourceName: string, index: number): string {
@@ -121,6 +156,10 @@ export function normalizeExtensionIndex(
   payload: string | unknown,
   options: NormalizeExtensionIndexOptions,
 ): ImportedExtensionSource[] {
+  if (options.indexFormat === "mangayomi" || options.ecosystem === "mangayomi") {
+    return normalizeMangayomiIndex(payload, options);
+  }
+
   const entries = parseExtensionIndexPayload(payload);
 
   return entries.flatMap((entry, entryIndex) => {
@@ -151,13 +190,52 @@ export function normalizeExtensionIndex(
         hasCloudflare: asBooleanFlag(source.hasCloudflare),
         licenseRisk: options.licenseRisk ?? "low",
         requiresExternalRuntime: true,
+        indexFormat: options.indexFormat ?? "tachiyomi",
       } satisfies ImportedExtensionSource;
     });
   });
 }
 
-function isIndexEcosystem(ecosystem: SourceEcosystem): ecosystem is Extract<SourceEcosystem, "tachiyomi" | "aniyomi"> {
-  return ecosystem === "tachiyomi" || ecosystem === "aniyomi";
+export function normalizeMangayomiIndex(
+  payload: string | unknown,
+  options: NormalizeExtensionIndexOptions,
+): ImportedExtensionSource[] {
+  const entries = parseExtensionIndexPayload(payload);
+
+  return entries
+    .filter((entry) => asBooleanish(entry.isManga) || options.mediaType === "comic")
+    .map((entry, index) => {
+      const sourceName = asString(entry.name, `Mangayomi Source ${index + 1}`);
+      const sourceId = asScalarString(entry.id, makeFallbackId("mangayomi", sourceName, index));
+      const typeSource = asString(entry.typeSource, "custom");
+      const sourceCodeUrl = asString(entry.sourceCodeUrl);
+      const apiUrl = asString(entry.apiUrl);
+
+      return {
+        id: `${options.ecosystem}:${sourceId}`,
+        extensionName: `Mangayomi: ${typeSource}`,
+        sourceName,
+        packageName: sourceCodeUrl || `mangayomi.${typeSource}.${sourceId}`,
+        mediaType: options.mediaType,
+        language: asString(entry.lang, "all"),
+        version: asString(entry.version, "draft"),
+        baseUrl: asString(entry.baseUrl),
+        apkName: "",
+        nsfw: asBooleanish(entry.isNsfw),
+        hasCloudflare: asBooleanish(entry.hasCloudflare),
+        licenseRisk: options.licenseRisk ?? "low",
+        requiresExternalRuntime: true,
+        indexFormat: "mangayomi",
+        typeSource,
+        sourceCodeUrl,
+        apiUrl,
+        iconUrl: asString(entry.iconUrl),
+      } satisfies ImportedExtensionSource;
+    });
+}
+
+function isIndexEcosystem(ecosystem: SourceEcosystem): ecosystem is IndexableExtensionEcosystem {
+  return ecosystem === "tachiyomi" || ecosystem === "keiyoushi" || ecosystem === "aniyomi" || ecosystem === "mangayomi";
 }
 
 export function getExtensionIndexRepositories(
@@ -174,6 +252,7 @@ export function getExtensionIndexRepositories(
         name: manifest.name,
         mediaType: manifest.mediaType,
         ecosystem: manifest.ecosystem,
+        indexFormat: manifest.indexFormat ?? "tachiyomi",
         indexUrl: manifest.indexUrl,
         licenseRisk: manifest.licenseRisk,
       },
@@ -191,6 +270,7 @@ export async function loadExtensionIndexSnapshots(
       const sources = normalizeExtensionIndex(payload, {
         mediaType: repository.mediaType,
         ecosystem: repository.ecosystem,
+        indexFormat: repository.indexFormat,
         licenseRisk: repository.licenseRisk,
       });
 
@@ -212,6 +292,10 @@ export function getExtensionCandidateStatus(source: ImportedExtensionSource): Pi
 
   if (source.hasCloudflare) {
     return { status: "requiresRuntime", statusReason: "源声明 Cloudflare，优先交给兼容运行时或网页验证" };
+  }
+
+  if (source.indexFormat === "mangayomi") {
+    return { status: "requiresRuntime", statusReason: "Mangayomi 索引可发现，需外部运行时或手写适配后阅读" };
   }
 
   if (source.baseUrl) {

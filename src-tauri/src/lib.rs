@@ -377,6 +377,9 @@ pub fn run() {
             commands::comic_punch_in,
             commands::comic_knight_leaderboard,
             commands::comic_my_comments,
+            // ---- 普通漫画源 ----
+            commands::manga_fetch_json,
+            commands::manga_fetch_text,
             // ---- 番剧规则引擎 ----
             commands::anime_get_rules,
             commands::anime_set_rules,
