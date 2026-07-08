@@ -139,10 +139,10 @@
       {:else if !hasScanned && emulators.length === 0}
         <div class="aura-empty aura-inset">点击下方按钮扫描已安装的模拟器，或手动选择模拟器目录。</div>
         <div class="btn-row">
-          <Button onclick={doScanEmulators} disabled={scanning}>
+          <Button press={doScanEmulators} disabled={scanning}>
             <Icon name="search" size={14} /> 扫描常见路径
           </Button>
-          <Button variant="secondary" onclick={pickEmuFolder} disabled={scanning}>
+          <Button variant="secondary" press={pickEmuFolder} disabled={scanning}>
             <Icon name="folder" size={14} /> 手动选择目录
           </Button>
         </div>
@@ -165,10 +165,10 @@
         </div>
       {/if}
       <div class="btn-row section-actions">
-        <Button variant="secondary" onclick={doScanEmulators} disabled={scanning}>
+        <Button variant="secondary" press={doScanEmulators} disabled={scanning}>
           <Icon name="refresh" size={14} /> {scanning ? "扫描中..." : "重新扫描"}
         </Button>
-        <Button variant="secondary" onclick={pickEmuFolder} disabled={scanning}>
+        <Button variant="secondary" press={pickEmuFolder} disabled={scanning}>
           <Icon name="folder" size={14} /> 手动选择目录
         </Button>
       </div>
@@ -195,11 +195,11 @@
 
         <div class="input-row">
           <input type="text" bind:value={romDir} readonly placeholder="点击选择 ROM 文件夹" />
-          <Button variant="secondary" onclick={selectRomDir}>
+          <Button variant="secondary" press={selectRomDir}>
             <Icon name="folder" size={14} /> 选择
           </Button>
           {#if romDir}
-            <Button onclick={doScanRoms} disabled={scanningRoms}>
+            <Button press={doScanRoms} disabled={scanningRoms}>
               <Icon name="search" size={14} /> {scanningRoms ? "扫描中..." : "扫描 ROM"}
             </Button>
           {/if}
@@ -228,8 +228,8 @@
         {/each}
       </div>
       <div class="actions">
-        <Button variant="ghost" onclick={close}>取消</Button>
-        <Button onclick={doImport} disabled={importing || selectedRoms.size === 0}>
+        <Button variant="ghost" press={close}>取消</Button>
+        <Button press={doImport} disabled={importing || selectedRoms.size === 0}>
           {importing ? "导入中..." : `导入 ${selectedRoms.size} 个游戏`}
         </Button>
       </div>
@@ -240,7 +240,7 @@
         <p><Icon name="check" size={16} /> 导入成功: <strong class="aura-num">{importResult.ok}</strong></p>
         {#if importResult.fail > 0}<p><Icon name="x" size={16} /> 失败: <strong class="aura-num">{importResult.fail}</strong></p>{/if}
       </div>
-      <Button onclick={close}>完成</Button>
+      <Button press={close}>完成</Button>
     {/if}
   </div>
 </div>

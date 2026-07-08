@@ -30,6 +30,15 @@
   const TOOL_VIEWS = new Set(TOOL_ITEMS.map(t => t.view));
   const isToolView = $derived(TOOL_VIEWS.has(uiStore.currentView));
 
+  function appWindow() {
+    if (typeof window === "undefined" || !(window as any).__TAURI_INTERNALS__) return null;
+    try {
+      return getCurrentWindow();
+    } catch {
+      return null;
+    }
+  }
+
   function pickDock(view: string) {
     if (view === "__bigpicture") {
       toolsDrawerOpen = false;
@@ -115,7 +124,8 @@
 
   async function toggleWindowFullscreen() {
     try {
-      const win = getCurrentWindow();
+      const win = appWindow();
+      if (!win) return;
       if (isWindowFullscreen) {
         await win.setFullscreen(false);
         await win.maximize();
@@ -137,7 +147,7 @@
       settingsStore.load();
       initRouter();
     }
-    getCurrentWindow().isFullscreen().then(v => { isWindowFullscreen = v; }).catch(() => {});
+    appWindow()?.isFullscreen().then(v => { isWindowFullscreen = v; }).catch(() => {});
     window.addEventListener("keydown", onKeydown);
     // 启动 5 秒后静默检查更新（避免和首屏加载冲突）
     const updateTimer = setTimeout(async () => {
@@ -165,18 +175,20 @@
     _startupApplied = true;
 
     const mode = settingsStore.settings.startup_mode ?? "fullscreen";
-    const win = getCurrentWindow();
+    const win = appWindow();
     if (mode === "big-picture") {
       uiStore.setBigPicture(true);
     } else if (mode === "fullscreen") {
       // 已由 tauri.conf.json fullscreen:true 原生全屏，无需处理
     } else if (mode === "windowed") {
+      if (!win) return;
       import("@tauri-apps/api/dpi").then(({ LogicalSize }) => {
         win.setFullscreen(false).then(() =>
           win.setSize(new LogicalSize(1200, 800)).then(() => win.center())
         ).catch(() => {});
       });
     } else {
+      if (!win) return;
       win.setFullscreen(false).then(() => win.maximize()).catch(() => {});
     }
   });
@@ -227,6 +239,10 @@
             {/await}
           {:else if uiStore.currentView === "discovery"}
             {#await import("./lib/components/DiscoveryPage.svelte") then { default: Comp }}
+              <Comp />
+            {/await}
+          {:else if uiStore.currentView === "records"}
+            {#await import("./lib/components/PlayRecordsDashboard.svelte") then { default: Comp }}
               <Comp />
             {/await}
           {:else if uiStore.currentView === "anime"}

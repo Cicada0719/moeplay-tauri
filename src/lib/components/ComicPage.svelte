@@ -147,7 +147,7 @@
               <span class="user-name">{comicStore.profile.name}</span>
             </Tag>
             {#if !comicStore.profile.is_punched}
-              <Button variant="ghost" size="sm" class="punch-btn" onclick={handlePunchIn} disabled={punchingIn}
+              <Button variant="ghost" size="sm" class="punch-btn" press={handlePunchIn} disabled={punchingIn}
                 title="每日打卡" ariaLabel="每日打卡">
                 <Icon name="zap" size={13} />
               </Button>
@@ -155,7 +155,7 @@
               <Tag variant="accent" size="sm" class="punched-badge" title="今日已打卡"><Icon name="check" size={13} /></Tag>
             {/if}
           {/if}
-          <Button variant="ghost" size="sm" class="logout-btn" onclick={() => comicStore.logout()} title="退出登录" ariaLabel="退出登录">
+          <Button variant="ghost" size="sm" class="logout-btn" press={() => comicStore.logout()} title="退出登录" ariaLabel="退出登录">
             <Icon name="x" size={14} />
           </Button>
         </div>
@@ -187,7 +187,7 @@
               {/each}
             </select>
           </div>
-          <Button variant="ghost" size="sm" onclick={clearSearch}>清除</Button>
+          <Button variant="ghost" size="sm" press={clearSearch}>清除</Button>
         {/if}
       </div>
 
@@ -210,7 +210,7 @@
             {/each}
           </div>
           {#if comicStore.searchPage < comicStore.searchPages}
-            <Button variant="ghost" class="load-more" onclick={() => comicStore.searchNextPage()}
+            <Button variant="ghost" class="load-more" press={() => comicStore.searchNextPage()}
               disabled={comicStore.loading} loading={comicStore.loading}>
               加载更多
             </Button>
@@ -241,7 +241,7 @@
             <EmptyState icon="book" title="暂无漫画" />
           {/if}
           {#if comicStore.comicPage < comicStore.comicPages}
-            <Button variant="ghost" class="load-more" onclick={() => comicStore.loadMoreComics()}
+            <Button variant="ghost" class="load-more" press={() => comicStore.loadMoreComics()}
               disabled={comicStore.loading} loading={comicStore.loading}>
               加载更多
             </Button>
@@ -270,7 +270,7 @@
         <!-- 随机本子 -->
         {:else if comicStore.activeTab === "random"}
           <div class="random-header">
-            <Button variant="ghost" size="sm" onclick={() => comicStore.loadRandom()}
+            <Button variant="ghost" size="sm" press={() => comicStore.loadRandom()}
               disabled={comicStore.loading} loading={comicStore.loading}>
               <Icon name="refresh" size={15} />
               换一批
@@ -296,7 +296,7 @@
             <EmptyState icon="heart" title="还没有收藏的漫画" />
           {/if}
           {#if comicStore.favPage < comicStore.favPages}
-            <Button variant="ghost" class="load-more" onclick={() => comicStore.loadFavorites(comicStore.favPage + 1)}
+            <Button variant="ghost" class="load-more" press={() => comicStore.loadFavorites(comicStore.favPage + 1)}
               disabled={comicStore.loading} loading={comicStore.loading}>
               加载更多
             </Button>
@@ -307,7 +307,7 @@
           {#if comicStore.readHistory.length > 0}
             <div class="history-header">
               <span class="history-count">{comicStore.readHistory.length} 条记录</span>
-              <Button variant="ghost" size="sm" onclick={() => comicStore.clearHistory()}>清空</Button>
+              <Button variant="ghost" size="sm" press={() => comicStore.clearHistory()}>清空</Button>
             </div>
             <div class="history-list">
               {#each comicStore.readHistory as rec (rec.id)}
@@ -321,7 +321,7 @@
                     <p class="history-progress">读到: {rec.last_title || `第${rec.last_order}话`}</p>
                   </div>
                   <span class="history-time">{fmtDate(rec.ts)}</span>
-                  <Button variant="quiet" size="sm" class="history-del" onclick={(e) => { e.stopPropagation(); comicStore.removeHistory(rec.id); }}
+                  <Button variant="quiet" size="sm" class="history-del" press={(e) => { e.stopPropagation(); comicStore.removeHistory(rec.id); }}
                     title="删除记录" ariaLabel="删除记录">
                     <Icon name="x" size={12} />
                   </Button>

@@ -94,7 +94,7 @@
 
   <!-- Top header -->
   <header class="detail-header">
-    <Button variant="ghost" size="sm" onclick={() => animeStore.closeDetail()} ariaLabel="返回" class="header-btn">
+    <Button variant="ghost" size="sm" press={() => animeStore.closeDetail()} ariaLabel="返回" class="header-btn">
       <Icon name="chevronLeft" size={20} />
     </Button>
     <div class="header-center">

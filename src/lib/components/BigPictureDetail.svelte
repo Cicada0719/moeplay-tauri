@@ -194,28 +194,28 @@
 
   <footer class="d-foot">
     <div class="d-actions-main">
-      <Button onclick={handleLaunch} disabled={busy !== null}>
+      <Button press={handleLaunch} disabled={busy !== null}>
         <Icon name="play" size={14} /> 启动
       </Button>
-      <Button variant="secondary" onclick={handleRevealInstall} disabled={!installDir || busy !== null}>
+      <Button variant="secondary" press={handleRevealInstall} disabled={!installDir || busy !== null}>
         <Icon name="folder" size={14} /> 安装目录
       </Button>
-      <Button variant="secondary" onclick={handleRevealSave} disabled={!saveDir || busy !== null}>
+      <Button variant="secondary" press={handleRevealSave} disabled={!saveDir || busy !== null}>
         <Icon name="save" size={14} /> 存档位置
       </Button>
-      <Button variant="secondary" onclick={handleSetSaveDir} disabled={busy !== null}>
+      <Button variant="secondary" press={handleSetSaveDir} disabled={busy !== null}>
         <Icon name="tag" size={14} /> 改存档目录
       </Button>
     </div>
     <div class="d-actions-sub">
-      <Button variant="ghost" onclick={handleFavorite} disabled={busy !== null}>
+      <Button variant="ghost" press={handleFavorite} disabled={busy !== null}>
         <Icon name={game.favorite ? "heartFill" : "heart"} size={14} />
         {game.favorite ? "已收藏" : "收藏"}
       </Button>
-      <Button variant="ghost" onclick={handleCopyPath} disabled={!installDir}>
+      <Button variant="ghost" press={handleCopyPath} disabled={!installDir}>
         <Icon name="paperclip" size={14} /> 复制路径
       </Button>
-      <Button variant="ghost" onclick={handleRemove} disabled={busy !== null}>
+      <Button variant="ghost" press={handleRemove} disabled={busy !== null}>
         <Icon name="trash" size={14} />
         {confirmRemove ? "确认移除？" : "从库移除"}
       </Button>

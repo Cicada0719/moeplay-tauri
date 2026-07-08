@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { createEventDispatcher } from "svelte";
   import type { Snippet } from "svelte";
 
   type ButtonVariant = "primary" | "secondary" | "ghost" | "quiet";
@@ -15,6 +16,8 @@
     title,
     ariaLabel,
     onclick,
+    onClick,
+    press,
     children,
     class: className = "",
   }: {
@@ -27,11 +30,36 @@
     title?: string;
     ariaLabel?: string;
     onclick?: (event: MouseEvent) => void;
+    onClick?: (event: MouseEvent) => void;
+    press?: (event: MouseEvent) => void;
     children?: Snippet;
     class?: string;
   } = $props();
 
   const isDisabled = $derived(disabled || loading);
+  const dispatch = createEventDispatcher<{ click: MouseEvent }>();
+
+  function handleClick(event: MouseEvent) {
+    onclick?.(event);
+    onClick?.(event);
+    press?.(event);
+    dispatch("click", event);
+  }
+
+  function clickAction(node: HTMLButtonElement, handler: (event: MouseEvent) => void) {
+    let current = handler;
+    const listener = (event: MouseEvent) => current(event);
+    node.addEventListener("click", listener);
+
+    return {
+      update(next: (event: MouseEvent) => void) {
+        current = next;
+      },
+      destroy() {
+        node.removeEventListener("click", listener);
+      },
+    };
+  }
 </script>
 
 <button
@@ -41,7 +69,7 @@
   {title}
   aria-label={ariaLabel}
   aria-busy={loading}
-  {onclick}
+  use:clickAction={handleClick}
 >
   {#if loading}
     <span class="ui-button__loader" aria-hidden="true"></span>

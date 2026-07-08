@@ -115,7 +115,7 @@
             onkeydown={(e) => { if (e.key === 'Enter') handleSearch(e); }}
           />
           {#if searchInput}
-            <Button variant="quiet" size="sm" ariaLabel="清空" onclick={clearSearch} class="search-clear">
+            <Button variant="quiet" size="sm" ariaLabel="清空" press={clearSearch} class="search-clear">
               <Icon name="x" size={13} />
             </Button>
           {/if}
@@ -140,7 +140,7 @@
     <div class="tab-bar">
       {#if animeStore.view === "search"}
         <span class="search-label">搜索："{animeStore.searchKeyword}"</span>
-        <Button variant="ghost" size="sm" onclick={clearSearch}>清除</Button>
+        <Button variant="ghost" size="sm" press={clearSearch}>清除</Button>
       {:else}
         {#each [
           { id: "recommend", label: "推荐", icon: "star" },
@@ -183,7 +183,7 @@
               <h3 class="result-source">{source}</h3>
               <div class="result-list">
                 {#each items as item (item.url)}
-                  <Button variant="quiet" fullWidth class="result-row" onclick={() => openResult(source, item)}>
+                  <Button variant="quiet" fullWidth class="result-row" press={() => openResult(source, item)}>
                     <Icon name="film" size={16} />
                     <span class="result-name">{item.name}</span>
                     <Icon name="chevronRight" size={14} />
@@ -207,7 +207,7 @@
                   本季新番
                 </h3>
                 {#if animeStore.recSeasonalTotal > animeStore.recSeasonal.length}
-                  <Button variant="secondary" size="sm" onclick={() => animeStore.loadMoreSeasonal()}
+                  <Button variant="secondary" size="sm" press={() => animeStore.loadMoreSeasonal()}
                     disabled={animeStore.recSeasonalLoading}>
                     {animeStore.recSeasonalLoading ? "加载中..." : "更多"}
                     {#if !animeStore.recSeasonalLoading}
@@ -259,7 +259,7 @@
                   热门推荐
                 </h3>
                 {#if animeStore.recTrendingTotal > animeStore.recTrending.length}
-                  <Button variant="secondary" size="sm" onclick={() => animeStore.loadMoreTrending()}
+                  <Button variant="secondary" size="sm" press={() => animeStore.loadMoreTrending()}
                     disabled={animeStore.recTrendingLoading}>
                     {animeStore.recTrendingLoading ? "加载中..." : "更多"}
                     {#if !animeStore.recTrendingLoading}
@@ -308,7 +308,7 @@
                   Bangumi 排行
                 </h3>
                 {#if animeStore.recTopRatedTotal > animeStore.recTopRated.length}
-                  <Button variant="secondary" size="sm" onclick={() => animeStore.loadMoreTopRated()}
+                  <Button variant="secondary" size="sm" press={() => animeStore.loadMoreTopRated()}
                     disabled={animeStore.recTopRatedLoading}>
                     {animeStore.recTopRatedLoading ? "加载中..." : "更多"}
                     {#if !animeStore.recTopRatedLoading}
@@ -514,7 +514,7 @@
           {:else}
             <div class="history-toolbar">
               <span class="history-count">{animeStore.history.length} 条记录</span>
-              <Button variant="ghost" size="sm" onclick={() => animeStore.clearHistory()} class="clear-btn">
+              <Button variant="ghost" size="sm" press={() => animeStore.clearHistory()} class="clear-btn">
                 <Icon name="trash" size={13} />
                 清空
               </Button>
@@ -541,7 +541,7 @@
                       {item.ruleName} · {fmtRelativeTime(item.updatedAt)}
                     </span>
                   </div>
-                  <Button variant="quiet" size="sm" onclick={(e) => { e.stopPropagation(); animeStore.removeHistory(item.key); }} ariaLabel="删除" class="remove-btn">
+                  <Button variant="quiet" size="sm" press={(e) => { e.stopPropagation(); animeStore.removeHistory(item.key); }} ariaLabel="删除" class="remove-btn">
                     <Icon name="x" size={12} />
                   </Button>
                 </div>
@@ -632,13 +632,13 @@
                 <p class="import-desc">从 GitHub 一键安装 / 更新社区规则</p>
               </div>
               <div class="catalog-actions">
-                <Button variant="secondary" size="sm" onclick={() => animeStore.loadCatalog()}
+                <Button variant="secondary" size="sm" press={() => animeStore.loadCatalog()}
                   disabled={animeStore.catalogLoading}>
                   <Icon name="refresh" size={13} />
                   {animeStore.catalogLoading ? "加载中..." : "刷新"}
                 </Button>
                 {#if animeStore.catalog.length > 0}
-                  <Button variant="primary" size="sm" onclick={() => animeStore.installAllRules()}
+                  <Button variant="primary" size="sm" press={() => animeStore.installAllRules()}
                     disabled={animeStore.catalogLoading}>
                     全部安装 ({animeStore.catalog.length})
                   </Button>
@@ -676,13 +676,13 @@
                     {#if installing}
                       <span class="catalog-status installing">安装中...</span>
                     {:else if hasUpdate}
-                      <Button variant="secondary" size="sm" onclick={() => animeStore.installRule(item.name)}>
+                      <Button variant="secondary" size="sm" press={() => animeStore.installRule(item.name)}>
                         更新
                       </Button>
                     {:else if installed}
                       <span class="catalog-status installed-badge">已安装</span>
                     {:else}
-                      <Button variant="primary" size="sm" onclick={() => animeStore.installRule(item.name)}>
+                      <Button variant="primary" size="sm" press={() => animeStore.installRule(item.name)}>
                         安装
                       </Button>
                     {/if}
@@ -705,7 +705,7 @@
                 rows="5"
               ></textarea>
               <div class="import-actions">
-                <Button variant="primary" onclick={handleImport} disabled={!importText.trim()}>
+                <Button variant="primary" press={handleImport} disabled={!importText.trim()}>
                   导入规则
                 </Button>
                 {#if importMsg}
@@ -730,7 +730,7 @@
                       {#if rule.adBlocker}<span class="rule-badge">AdBlock</span>{/if}
                     </span>
                   </div>
-                  <Button variant="quiet" size="sm" onclick={() => animeStore.removeRule(rule.name)} ariaLabel="删除规则" class="remove-rule">
+                  <Button variant="quiet" size="sm" press={() => animeStore.removeRule(rule.name)} ariaLabel="删除规则" class="remove-rule">
                     <Icon name="trash" size={14} />
                   </Button>
                 </div>

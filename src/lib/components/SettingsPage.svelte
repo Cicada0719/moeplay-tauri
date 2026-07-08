@@ -258,7 +258,7 @@
                   await save();
                 }}
               />
-              <Button variant="ghost" size="sm" onclick={async () => {
+              <Button variant="ghost" size="sm" press={async () => {
                 try {
                   const path = await pickImageFile();
                   settingsStore.settings.home_mascot_path = path;
@@ -299,8 +299,8 @@
       <div class="s-head">
         <h2 class="s-title"><Icon name="layers" size={17} className="s-title-ic" /> 数据刮削</h2>
         <div class="s-head-actions">
-          <Button variant="ghost" size="sm" onclick={() => setAllSources(true)}>全开</Button>
-          <Button variant="ghost" size="sm" onclick={() => setAllSources(false)}>全关</Button>
+          <Button variant="ghost" size="sm" press={() => setAllSources(true)}>全开</Button>
+          <Button variant="ghost" size="sm" press={() => setAllSources(false)}>全关</Button>
         </div>
       </div>
       <p class="s-note">选择从哪些数据库获取游戏元数据（封面、简介、标签等）</p>
@@ -365,7 +365,7 @@
         </div>
       {/if}
       <div style="padding: 12px 0 4px;">
-        <Button variant="secondary" onclick={() => settingsStore.addWatchDir()}>添加目录</Button>
+        <Button variant="secondary" press={() => settingsStore.addWatchDir()}>添加目录</Button>
       </div>
 
       <div class="s-divider"></div>
@@ -378,7 +378,7 @@
               <span class="s-desc">扫描本机已安装游戏，或通过登录同步完整库</span>
             </div>
           </div>
-          <Button variant="primary" size="sm" onclick={() => uiStore.currentView = "steam-import"}>打开</Button>
+          <Button variant="primary" size="sm" press={() => uiStore.currentView = "steam-import"}>打开</Button>
         </div>
         <div class="ops-item">
           <div class="ops-info">
@@ -388,7 +388,7 @@
               <span class="s-desc">从 Steam Web API 拉取成就数据（需 API Key + SteamID）</span>
             </div>
           </div>
-          <Button variant="primary" size="sm" onclick={handleSyncAchievements} disabled={syncingAchievements}>
+          <Button variant="primary" size="sm" press={handleSyncAchievements} disabled={syncingAchievements}>
             {syncingAchievements ? "同步中..." : "同步"}
           </Button>
         </div>
@@ -420,9 +420,9 @@
               />
             </div>
             {#if animeStore.bangumiConnected}
-              <Button variant="ghost" size="sm" onclick={handleBangumiDisconnect}>断开</Button>
+              <Button variant="ghost" size="sm" press={handleBangumiDisconnect}>断开</Button>
             {:else}
-              <Button variant="primary" size="sm" onclick={handleBangumiConnect} disabled={bangumiConnecting}>
+              <Button variant="primary" size="sm" press={handleBangumiConnect} disabled={bangumiConnecting}>
                 {bangumiConnecting ? "连接中..." : "连接"}
               </Button>
             {/if}
@@ -450,7 +450,7 @@
                 <span class="s-desc">拉取 Bangumi 收藏并与本地合并</span>
               </div>
             </div>
-            <Button variant="primary" size="sm" onclick={handleBangumiSync} disabled={bangumiSyncing}>
+            <Button variant="primary" size="sm" press={handleBangumiSync} disabled={bangumiSyncing}>
               {bangumiSyncing ? "同步中..." : "同步"}
             </Button>
           </div>
@@ -634,7 +634,7 @@
           <Tag variant="muted" size="sm">Svelte 5</Tag>
           <Tag variant="muted" size="sm">Rust</Tag>
         </div>
-        <Button variant="ghost" size="sm" onclick={() => showUpdateDialog = true}>
+        <Button variant="ghost" size="sm" press={() => showUpdateDialog = true}>
           <Icon name="download" size={14} /> 检查更新
         </Button>
       </div>

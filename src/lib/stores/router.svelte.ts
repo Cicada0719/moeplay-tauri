@@ -31,7 +31,8 @@ export function parseHash(hash: string): AppRoute {
   if (!raw) return { view: "home", params: {} };
 
   const [viewPart, search] = raw.split("?");
-  const view = decodeURIComponent(viewPart);
+  const decodedView = decodeURIComponent(viewPart);
+  const view = decodedView === "loop" ? "records" : decodedView;
   const params: RouteParams = {};
 
   if (search) {

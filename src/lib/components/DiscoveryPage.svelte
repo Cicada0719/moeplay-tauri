@@ -98,7 +98,7 @@
     <div class="error-banner">
       <Icon name="x" size={14} />
       <span>推荐数据加载失败：{loadError}</span>
-      <Button variant="ghost" size="sm" onclick={loadRecommendations}>重试</Button>
+      <Button variant="ghost" size="sm" press={loadRecommendations}>重试</Button>
     </div>
   {/if}
 
@@ -117,7 +117,7 @@
     {:else}
     <div class="toolbar">
       <SearchInput bind:value={query} placeholder="搜索游戏、开发商或 Steam ID" class="search-field" />
-      <Button variant="primary" onclick={search} disabled={searching}>
+      <Button variant="primary" press={search} disabled={searching}>
         {searching ? "搜索中..." : "搜索"}
       </Button>
     </div>

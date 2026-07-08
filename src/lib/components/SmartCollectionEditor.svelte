@@ -218,11 +218,11 @@
 
       <footer class="sce-footer">
         {#if collection}
-          <Button variant="ghost" size="sm" onclick={remove} class="sce-btn-danger">删除</Button>
+          <Button variant="ghost" size="sm" press={remove} class="sce-btn-danger">删除</Button>
         {/if}
         <div class="sce-footer-right">
-          <Button variant="ghost" size="sm" onclick={() => (open = false)}>取消</Button>
-          <Button variant="primary" size="sm" onclick={save} disabled={!name.trim()}>保存</Button>
+          <Button variant="ghost" size="sm" press={() => (open = false)}>取消</Button>
+          <Button variant="primary" size="sm" press={save} disabled={!name.trim()}>保存</Button>
         </div>
       </footer>
     </div>

@@ -78,7 +78,7 @@
 
   <div class="toolbar">
     <Input class="note-field" bind:value={note} placeholder="快照备注（可选）" />
-    <Button disabled={!selectedId} onclick={() => createSnapshot(candidates[0]?.path)}>
+    <Button disabled={!selectedId} press={() => createSnapshot(candidates[0]?.path)}>
       <Icon name="save" size={16} />
       <span>创建快照</span>
     </Button>
@@ -107,7 +107,7 @@
                   <strong>{item.path}</strong>
                   <span>{item.category} · <span class="aura-num">{item.score}</span> 分 · <span class="aura-num">{item.file_count}</span> 文件</span>
                 </div>
-                <Button variant="ghost" size="sm" onclick={() => createSnapshot(item.path)}>
+                <Button variant="ghost" size="sm" press={() => createSnapshot(item.path)}>
                   <Icon name="save" size={15} />
                   <span>备份</span>
                 </Button>
@@ -133,7 +133,7 @@
                   <strong>{snapshot.file_name}</strong>
                   <span><span class="aura-num">{snapshot.created_at}</span> · <span class="aura-num">{snapshot.file_count}</span> 文件</span>
                 </div>
-                <Button variant="ghost" size="sm" onclick={() => restoreSaveSnapshot(selectedId, snapshot.file_path)}>
+                <Button variant="ghost" size="sm" press={() => restoreSaveSnapshot(selectedId, snapshot.file_path)}>
                   <Icon name="refresh" size={15} />
                   <span>恢复</span>
                 </Button>

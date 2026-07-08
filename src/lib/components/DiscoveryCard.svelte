@@ -84,11 +84,11 @@
   </div>
 
   <div class="card-actions">
-    <Button variant="ghost" size="sm" onclick={(e) => { e.stopPropagation(); onSelect?.(result); }}>
+    <Button variant="ghost" size="sm" press={(e) => { e.stopPropagation(); onSelect?.(result); }}>
       <Icon name="eye" size={14} /> 查看详情
     </Button>
     {#if sourceUrl}
-      <Button variant="quiet" size="sm" onclick={(e) => { e.stopPropagation(); openUrl(sourceUrl!); }} ariaLabel="打开源站">
+      <Button variant="quiet" size="sm" press={(e) => { e.stopPropagation(); openUrl(sourceUrl!); }} ariaLabel="打开源站">
         <Icon name="globe" size={14} />
       </Button>
     {/if}

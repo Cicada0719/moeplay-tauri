@@ -210,7 +210,7 @@
       {/if}
       <div class="hero-scrim"></div>
 
-      <Button variant="quiet" class="back-btn" onclick={() => uiStore.currentView = "home"} ariaLabel="返回游戏库">
+      <Button variant="quiet" class="back-btn" press={() => uiStore.currentView = "home"} ariaLabel="返回游戏库">
         <Icon name="arrowLeft" size={16} />
       </Button>
 
@@ -253,10 +253,10 @@
           </div>
 
           <div class="actions">
-            <Button onclick={handleLaunch}>启动游戏</Button>
-            <Button variant="secondary" onclick={handleLaunchJP}>日区启动</Button>
-            <Button variant="secondary" onclick={handleScrape}>刮削</Button>
-            <Button variant="ghost" onclick={openEdit}>编辑</Button>
+            <Button press={handleLaunch}>启动游戏</Button>
+            <Button variant="secondary" press={handleLaunchJP}>日区启动</Button>
+            <Button variant="secondary" press={handleScrape}>刮削</Button>
+            <Button variant="ghost" press={openEdit}>编辑</Button>
           </div>
         </div>
 
@@ -358,8 +358,8 @@
           </div>
         </div>
         <footer class="edit-footer">
-          <Button onclick={saveEdit} disabled={isSaving}>{isSaving ? "保存中…" : "保存修改"}</Button>
-          <Button variant="ghost" onclick={() => isEditing = false}>取消</Button>
+          <Button press={saveEdit} disabled={isSaving}>{isSaving ? "保存中…" : "保存修改"}</Button>
+          <Button variant="ghost" press={() => isEditing = false}>取消</Button>
         </footer>
       </div>
     </Dialog>

@@ -74,7 +74,7 @@
 
 <div class="detail-overlay" role="dialog">
   <div class="detail-header">
-    <Button variant="ghost" size="sm" onclick={() => comicStore.closeComic()}>
+    <Button variant="ghost" size="sm" press={() => comicStore.closeComic()}>
       <Icon name="chevronLeft" size={16} />
       返回
     </Button>
@@ -92,12 +92,12 @@
 
         <div class="action-row">
           <Button variant={comic.is_liked ? "primary" : "ghost"} size="sm" fullWidth
-            onclick={handleLike} disabled={liking} title="喜欢">
+            press={handleLike} disabled={liking} title="喜欢">
             <Icon name={comic.is_liked ? "heartFill" : "heart"} size={15} />
             <span>{fmtNum(comic.likes_count)}</span>
           </Button>
           <Button variant={comic.is_favourite ? "primary" : "ghost"} size="sm" fullWidth
-            onclick={handleFavourite} disabled={favouriting} title="收藏">
+            press={handleFavourite} disabled={favouriting} title="收藏">
             <Icon name={comic.is_favourite ? "star" : "star"} size={15} />
             <span>{comic.is_favourite ? "已收藏" : "收藏"}</span>
           </Button>
@@ -161,7 +161,7 @@
               <div class="chapters-grid">
                 {#each chapters as ch (ch.id)}
                   <Button variant="ghost" size="sm" class="chapter-btn"
-                    onclick={() => comicStore.openChapter(ch.order, ch.title)}>
+                    press={() => comicStore.openChapter(ch.order, ch.title)}>
                     {ch.title || `第 ${ch.order} 话`}
                   </Button>
                 {/each}
@@ -201,7 +201,7 @@
                     <p class="comment-content">{c.content}</p>
                     <div class="comment-footer">
                       <Button variant="quiet" size="sm" class="comment-like {c.is_liked ? 'active-like' : ''}"
-                        onclick={() => comicStore.likeComment(c.id)}>
+                        press={() => comicStore.likeComment(c.id)}>
                         <Icon name={c.is_liked ? "heartFill" : "heart"} size={12} />
                         {c.likes_count || ""}
                       </Button>
@@ -214,7 +214,7 @@
               </div>
               {#if comicStore.commentsPage < comicStore.commentsPages}
                 <Button variant="ghost" size="sm" class="load-more-comments"
-                  onclick={() => comicStore.loadMoreComments()}
+                  press={() => comicStore.loadMoreComments()}
                   disabled={comicStore.commentsLoading}>
                   {comicStore.commentsLoading ? "加载中..." : "加载更多评论"}
                 </Button>

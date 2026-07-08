@@ -67,7 +67,7 @@
   <header class="hub-header">
     <div class="hub-title">
       <Icon name="play" size={24} />
-      <h1>今日中枢</h1>
+      <h1>今日继续</h1>
       <span class="hub-count">{stats.totalCount} 项进行中</span>
     </div>
   </header>
@@ -169,9 +169,9 @@
         description="导入本地游戏、安装番剧规则源或登录哔咔，这里会自动聚合你的进度。"
       />
       <div class="hub-empty-actions">
-        <Button variant="secondary" size="sm" onclick={() => goTo("steam-import")}>导入游戏</Button>
-        <Button variant="secondary" size="sm" onclick={() => goTo("anime")}>去追番</Button>
-        <Button variant="secondary" size="sm" onclick={() => goTo("comic")}>去看漫</Button>
+        <Button variant="secondary" size="sm" press={() => goTo("steam-import")}>导入游戏</Button>
+        <Button variant="secondary" size="sm" press={() => goTo("anime")}>去追番</Button>
+        <Button variant="secondary" size="sm" press={() => goTo("comic")}>去看漫</Button>
       </div>
     {/if}
   </div>

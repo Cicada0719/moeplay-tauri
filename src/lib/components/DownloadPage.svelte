@@ -133,7 +133,7 @@
       {#if animeActiveCount > 0}
         <Tag variant="accent" size="sm">番剧 {animeActiveCount} 下载中</Tag>
       {/if}
-      <Button variant="ghost" size="sm" onclick={() => downloadClearFinished().then(refresh)} title="清除已完成">
+      <Button variant="ghost" size="sm" press={() => downloadClearFinished().then(refresh)} title="清除已完成">
         <Icon name="trash" size={14} /> 清除
       </Button>
     </div>
@@ -148,7 +148,7 @@
       <Input bind:value={url} placeholder="粘贴下载 URL 或磁力链接" onkeydown={(e) => e.key === "Enter" && start()} class="url-input" ariaLabel="下载链接" />
     </div>
     <Input bind:value={filename} placeholder="文件名（可选）" class="fname-input" ariaLabel="文件名" />
-    <Button variant="primary" onclick={start} loading={loading} disabled={loading}>
+    <Button variant="primary" press={start} loading={loading} disabled={loading}>
       {loading ? "添加中..." : "添加下载"}
     </Button>
   </Card>
@@ -188,19 +188,19 @@
 
             <div class="task-actions">
               {#if task.status === "Downloading"}
-                <Button variant="ghost" size="sm" onclick={() => downloadPause(task.id)}><Icon name="chevronDown" size={14} /> 暂停</Button>
+                <Button variant="ghost" size="sm" press={() => downloadPause(task.id)}><Icon name="chevronDown" size={14} /> 暂停</Button>
               {/if}
               {#if task.status === "Paused"}
-                <Button variant="ghost" size="sm" onclick={() => downloadResume(task.id)}><Icon name="play" size={14} /> 继续</Button>
+                <Button variant="ghost" size="sm" press={() => downloadResume(task.id)}><Icon name="play" size={14} /> 继续</Button>
               {/if}
               {#if task.status === "Failed"}
-                <Button variant="ghost" size="sm" onclick={() => downloadRetry(task.id)}><Icon name="refresh" size={14} /> 重试</Button>
+                <Button variant="ghost" size="sm" press={() => downloadRetry(task.id)}><Icon name="refresh" size={14} /> 重试</Button>
               {/if}
               {#if task.status !== "Downloading"}
-                <Button variant="ghost" size="sm" class="danger" onclick={() => downloadRemove(task.id).then(refresh)}><Icon name="trash" size={14} /> 移除</Button>
+                <Button variant="ghost" size="sm" class="danger" press={() => downloadRemove(task.id).then(refresh)}><Icon name="trash" size={14} /> 移除</Button>
               {/if}
               {#if task.status === "Downloading"}
-                <Button variant="ghost" size="sm" class="danger" onclick={() => downloadCancel(task.id)}><Icon name="x" size={14} /> 取消</Button>
+                <Button variant="ghost" size="sm" class="danger" press={() => downloadCancel(task.id)}><Icon name="x" size={14} /> 取消</Button>
               {/if}
             </div>
           </article>
@@ -265,19 +265,19 @@
 
             <div class="task-actions">
               {#if task.status === "Downloading" || task.status === "Parsing"}
-                <Button variant="ghost" size="sm" onclick={() => animePauseDownload(task.id).then(refresh)}><Icon name="chevronDown" size={14} /> 暂停</Button>
+                <Button variant="ghost" size="sm" press={() => animePauseDownload(task.id).then(refresh)}><Icon name="chevronDown" size={14} /> 暂停</Button>
               {/if}
               {#if task.status === "Paused"}
-                <Button variant="ghost" size="sm" onclick={() => animeResumeDownload(task.id).then(refresh)}><Icon name="play" size={14} /> 继续</Button>
+                <Button variant="ghost" size="sm" press={() => animeResumeDownload(task.id).then(refresh)}><Icon name="play" size={14} /> 继续</Button>
               {/if}
               {#if task.status === "Completed"}
-                <Button variant="ghost" size="sm" onclick={() => animeOpenDownloadFolder(task.id)}><Icon name="externalLink" size={14} /> 打开目录</Button>
+                <Button variant="ghost" size="sm" press={() => animeOpenDownloadFolder(task.id)}><Icon name="externalLink" size={14} /> 打开目录</Button>
               {/if}
               {#if task.status !== "Downloading" && task.status !== "Parsing" && task.status !== "Merging"}
-                <Button variant="ghost" size="sm" class="danger" onclick={() => animeRemoveDownload(task.id).then(refresh)}><Icon name="trash" size={14} /> 移除</Button>
+                <Button variant="ghost" size="sm" class="danger" press={() => animeRemoveDownload(task.id).then(refresh)}><Icon name="trash" size={14} /> 移除</Button>
               {/if}
               {#if task.status === "Downloading" || task.status === "Parsing" || task.status === "Paused"}
-                <Button variant="ghost" size="sm" class="danger" onclick={() => animeCancelDownload(task.id).then(refresh)}><Icon name="x" size={14} /> 取消</Button>
+                <Button variant="ghost" size="sm" class="danger" press={() => animeCancelDownload(task.id).then(refresh)}><Icon name="x" size={14} /> 取消</Button>
               {/if}
             </div>
           </article>

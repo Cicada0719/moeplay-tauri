@@ -29,7 +29,7 @@
   {/if}
   {#if action}
     <div class="ui-empty__action">
-      <Button variant="secondary" onclick={action.onclick}>
+      <Button variant="secondary" press={action.onclick}>
         {action.label}
       </Button>
     </div>

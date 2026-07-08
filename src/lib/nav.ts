@@ -11,7 +11,7 @@ export interface NavItem {
 /** Primary dock items — the 6 always-visible navigation entries. */
 export const DOCK_ITEMS: NavItem[] = [
   { id: "home",     label: "游戏库", icon: "home",        view: "home",          group: "library" },
-  { id: "continue", label: "继续",   icon: "play",        view: "continue",      group: "library" },
+  { id: "records",  label: "记录",   icon: "chart",       view: "records",       group: "library" },
   { id: "anime",    label: "番剧",   icon: "film",        view: "anime",         group: "library" },
   { id: "comic",    label: "漫画",   icon: "book",        view: "comic",         group: "library" },
   { id: "tools",    label: "工具",   icon: "grid",        view: "__tools",       group: "tools" },
@@ -21,6 +21,7 @@ export const DOCK_ITEMS: NavItem[] = [
 
 /** Tool drawer items — shown when the "工具" dock button is tapped. */
 export const TOOL_ITEMS: NavItem[] = [
+  { id: "continue",    label: "继续",   icon: "play",     view: "continue",     group: "library" },
   { id: "discovery",   label: "发现",   icon: "compass",  view: "discovery",    group: "tools" },
   { id: "scraper",     label: "刮削",   icon: "star",     view: "scraper",      group: "tools" },
   { id: "downloads",   label: "下载",   icon: "download", view: "downloads",    group: "tools" },

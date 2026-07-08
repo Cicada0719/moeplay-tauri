@@ -210,14 +210,14 @@ import { invokeCmd } from '../../api/core';
     <!-- Header -->
     <div class="source-header">
       {#if step === 'episodes'}
-        <Button variant="quiet" size="sm" onclick={backToSearch} ariaLabel="返回选源" class="source-back">
+        <Button variant="quiet" size="sm" press={backToSearch} ariaLabel="返回选源" class="source-back">
           <Icon name="chevronLeft" size={18} />
         </Button>
         <span class="source-title source-title-ellipsis">{episodeItemName || '选择剧集'}</span>
       {:else}
         <span class="source-title">选择播放源</span>
       {/if}
-      <Button variant="quiet" size="sm" onclick={closeSheet} ariaLabel="关闭" class="source-close">
+      <Button variant="quiet" size="sm" press={closeSheet} ariaLabel="关闭" class="source-close">
         <Icon name="x" size={16} />
       </Button>
     </div>
@@ -311,7 +311,7 @@ import { invokeCmd } from '../../api/core';
               class="source-empty"
             />
             <div class="captcha-actions">
-              <Button variant="quiet" onclick={() => currentSource && retrySource(currentSource.name)}>重试该源</Button>
+              <Button variant="quiet" press={() => currentSource && retrySource(currentSource.name)}>重试该源</Button>
             </div>
           {:else if currentResult.status === 'error'}
             <EmptyState
@@ -330,7 +330,7 @@ import { invokeCmd } from '../../api/core';
           {:else}
             <div class="result-list">
               {#each currentResult.items as item (item.url)}
-                <Button variant="quiet" fullWidth class="result-item" onclick={() => onSelectResult(currentSource.name, item)}>
+                <Button variant="quiet" fullWidth class="result-item" press={() => onSelectResult(currentSource.name, item)}>
                   <Icon name="film" size={16} />
                   <span class="result-name">{item.name}</span>
                   <Icon name="chevronRight" size={14} />

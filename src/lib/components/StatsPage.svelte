@@ -133,7 +133,7 @@
     <div class="inline-error" role="alert">
       <Icon name="x" size={16} />
       <span>加载失败：{error}</span>
-      <Button variant="ghost" size="sm" class="retry-btn" onclick={loadDashboard}>
+      <Button variant="ghost" size="sm" class="retry-btn" press={loadDashboard}>
         <Icon name="refresh" size={15} />
         <span>重试</span>
       </Button>

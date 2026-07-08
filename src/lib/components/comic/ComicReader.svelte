@@ -24,7 +24,7 @@
 <div class="reader-overlay" role="dialog">
   <!-- Toolbar -->
   <div class="reader-toolbar">
-    <Button variant="ghost" size="sm" onclick={() => comicStore.closeReader()}>
+    <Button variant="ghost" size="sm" press={() => comicStore.closeReader()}>
       <Icon name="x" size={16} />
       关闭
     </Button>
@@ -33,11 +33,11 @@
       <span class="chapter-pos">{chapterIdx + 1} / {chapters.length}</span>
     </div>
     <div class="chapter-nav">
-      <Button variant="ghost" size="sm" onclick={() => comicStore.prevChapter()} disabled={!hasPrev}>
+      <Button variant="ghost" size="sm" press={() => comicStore.prevChapter()} disabled={!hasPrev}>
         <Icon name="chevronLeft" size={15} />
         上一话
       </Button>
-      <Button variant="ghost" size="sm" onclick={() => comicStore.nextChapter()} disabled={!hasNext}>
+      <Button variant="ghost" size="sm" press={() => comicStore.nextChapter()} disabled={!hasNext}>
         下一话
         <Icon name="chevronRight" size={15} />
       </Button>
@@ -75,14 +75,14 @@
 
       <!-- Bottom nav -->
       <div class="reader-bottom-nav">
-        <Button variant="ghost" size="md" onclick={() => comicStore.prevChapter()} disabled={!hasPrev}>
+        <Button variant="ghost" size="md" press={() => comicStore.prevChapter()} disabled={!hasPrev}>
           <Icon name="chevronLeft" size={16} />
           上一话
         </Button>
-        <Button variant="secondary" size="md" onclick={() => comicStore.closeReader()}>
+        <Button variant="secondary" size="md" press={() => comicStore.closeReader()}>
           返回详情
         </Button>
-        <Button variant="ghost" size="md" onclick={() => comicStore.nextChapter()} disabled={!hasNext}>
+        <Button variant="ghost" size="md" press={() => comicStore.nextChapter()} disabled={!hasNext}>
           下一话
           <Icon name="chevronRight" size={16} />
         </Button>

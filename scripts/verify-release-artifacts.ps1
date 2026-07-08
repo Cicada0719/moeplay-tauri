@@ -24,6 +24,28 @@ function Get-LatestArtifact([string]$Directory, [string]$Pattern) {
   return $Match.FullName
 }
 
+function Get-Sha256([string]$Path) {
+  $Command = Get-Command Get-FileHash -ErrorAction SilentlyContinue
+  if ($null -ne $Command) {
+    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+  }
+
+  $Stream = [System.IO.File]::OpenRead($Path)
+  try {
+    $Sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+      $Bytes = $Sha.ComputeHash($Stream)
+      return ([BitConverter]::ToString($Bytes) -replace "-", "").ToUpperInvariant()
+    }
+    finally {
+      $Sha.Dispose()
+    }
+  }
+  finally {
+    $Stream.Dispose()
+  }
+}
+
 $Expected = @(
   @{ Kind = "exe"; Path = (Join-Path $ReleaseDir "moeplay.exe"); MinBytes = 5MB },
   @{ Kind = "msi"; Path = (Get-LatestArtifact (Join-Path $BundleDir "msi") "*$Version*.msi"); MinBytes = 1MB },
@@ -42,12 +64,12 @@ foreach ($Item in $Expected) {
     throw "Release artifact [$($Item.Kind)] is unexpectedly small: $($File.FullName) ($($File.Length) bytes)"
   }
 
-  $Hash = Get-FileHash -LiteralPath $File.FullName -Algorithm SHA256
+  $Hash = Get-Sha256 $File.FullName
   $Artifacts += [pscustomobject]@{
     kind = $Item.Kind
     path = $File.FullName
     bytes = $File.Length
-    sha256 = $Hash.Hash
+    sha256 = $Hash
     lastWriteTime = $File.LastWriteTime.ToString("o")
   }
 }

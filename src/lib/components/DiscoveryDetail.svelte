@@ -165,11 +165,11 @@
 
     <!-- Header -->
     <header class="detail-header">
-      <Button variant="ghost" size="sm" onclick={onClose}>
+      <Button variant="ghost" size="sm" press={onClose}>
         <Icon name="arrowLeft" size={18} /> 返回搜索
       </Button>
       {#if sourceUrl}
-        <Button variant="secondary" size="sm" onclick={() => openUrl(sourceUrl)}>
+        <Button variant="secondary" size="sm" press={() => openUrl(sourceUrl)}>
           <Icon name="globe" size={14} /> {result.source.toUpperCase()}
         </Button>
       {/if}
@@ -255,11 +255,11 @@
         <!-- Action buttons -->
         <div class="actions-bar">
           {#if sourceUrl}
-            <Button variant="primary" onclick={() => openUrl(sourceUrl!)}>
+            <Button variant="primary" press={() => openUrl(sourceUrl!)}>
               <Icon name="globe" size={16} /> 打开 {result.source.toUpperCase()}
             </Button>
           {/if}
-          <Button variant="ghost" onclick={() => detailExpanded = !detailExpanded}>
+          <Button variant="ghost" press={() => detailExpanded = !detailExpanded}>
             <Icon name={detailExpanded ? "chevronDown" : "arrowLeft"} size={14} />
             {detailExpanded ? "收起" : "展开"}
           </Button>
@@ -318,13 +318,13 @@
           <div class="source-links">
             {#each [{ label: "VNDB", id: result.detail?.vndb_id, url: result.detail?.vndb_id ? `https://vndb.org/${result.detail?.vndb_id}` : null }, { label: "Bangumi", id: result.detail?.bangumi_id, url: result.detail?.bangumi_id ? `https://bgm.tv/subject/${result.detail?.bangumi_id}` : null }, { label: "Steam", id: result.source === "steam" ? result.source_id : null, url: result.source === "steam" ? `https://store.steampowered.com/app/${result.source_id}` : null }, { label: "DLsite", id: result.detail?.dl_site_id, url: null }] as link}
               {#if link.url}
-                <Button variant="ghost" size="sm" onclick={() => openUrl(link.url!)}>
+                <Button variant="ghost" size="sm" press={() => openUrl(link.url!)}>
                   <Icon name="globe" size={14} /> {link.label}
                 </Button>
               {/if}
             {/each}
             {#if sourceUrl}
-              <Button variant="ghost" size="sm" onclick={() => openUrl(sourceUrl!)}>
+              <Button variant="ghost" size="sm" press={() => openUrl(sourceUrl!)}>
                 <Icon name="globe" size={14} /> 源站 ({result.source})
               </Button>
             {/if}
@@ -336,7 +336,7 @@
           <div class="section-header">
             <h3><Icon name="download" size={14} /> 下载资源</h3>
             {#if !dlResult && !dlLoading}
-              <Button variant="ghost" size="sm" onclick={searchDownloads} disabled={dlLoading}>
+              <Button variant="ghost" size="sm" press={searchDownloads} disabled={dlLoading}>
                 <Icon name="refresh" size={14} /> 搜索下载
               </Button>
             {/if}
@@ -347,7 +347,7 @@
             <p class="muted">正在从 TouchGAL / Kungal 搜索下载资源...</p>
           {:else if dlError}
             <p class="muted error"><Icon name="x" size={14} /> {dlError}</p>
-            <Button variant="secondary" size="sm" onclick={searchDownloads}>重试</Button>
+            <Button variant="secondary" size="sm" press={searchDownloads}>重试</Button>
           {:else if dlResult?.entries?.length}
             {#if dlResult.source_url}
               <div class="source-note">
@@ -379,7 +379,7 @@
             </div>
           {:else}
             <p class="muted">未找到下载资源。可能该游戏尚未收录，或 TouchGAL 不可达。</p>
-            <Button variant="secondary" size="sm" onclick={searchDownloads}>重新搜索</Button>
+            <Button variant="secondary" size="sm" press={searchDownloads}>重新搜索</Button>
           {/if}
         </section>
       </main>

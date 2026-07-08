@@ -49,7 +49,7 @@
       <h1 class="aura-title">诊断</h1>
       <p>系统信息、迁移状态、性能快照和导出工具。</p>
     </div>
-    <Button onclick={exportDb}>
+    <Button press={exportDb}>
       <Icon name="database" size={16} />
       <span>导出数据库</span>
     </Button>

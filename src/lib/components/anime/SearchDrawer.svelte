@@ -95,7 +95,7 @@
             onkeydown={handleImageSearchKeydown}
             autofocus
           />
-          <Button variant="primary" onclick={handleImageSearch} disabled={animeStore.imageSearchLoading}>
+          <Button variant="primary" press={handleImageSearch} disabled={animeStore.imageSearchLoading}>
             {animeStore.imageSearchLoading ? '搜索中...' : '搜索'}
           </Button>
         </div>
@@ -137,7 +137,7 @@
                   <div class="result-filename">{result.filename}</div>
                 </div>
                 {#if result.video}
-                  <Button variant="ghost" size="sm" onclick={() => window.open(result.video, '_blank')} ariaLabel="预览片段" class="preview-btn">
+                  <Button variant="ghost" size="sm" press={() => window.open(result.video, '_blank')} ariaLabel="预览片段" class="preview-btn">
                     <Icon name="play" size={14} />
                   </Button>
                 {/if}
@@ -159,7 +159,7 @@
           onkeydown={handleKeydown}
           autofocus
         />
-        <Button variant="primary" onclick={handleSearch}>搜索</Button>
+        <Button variant="primary" press={handleSearch}>搜索</Button>
       </div>
 
       <!-- Search History -->
@@ -167,18 +167,18 @@
         <div class="search-history">
           <div class="history-header">
             <span class="history-title">搜索历史</span>
-            <Button variant="ghost" size="sm" onclick={() => animeStore.clearSearchHistory()} class="history-clear-btn">
+            <Button variant="ghost" size="sm" press={() => animeStore.clearSearchHistory()} class="history-clear-btn">
               <Icon name="trash" size={12} /> 清空
             </Button>
           </div>
           <div class="history-list">
             {#each animeStore.searchHistory as keyword (keyword)}
               <div class="history-item">
-                <Button variant="quiet" fullWidth onclick={() => handleHistoryClick(keyword)} class="history-btn">
+                <Button variant="quiet" fullWidth press={() => handleHistoryClick(keyword)} class="history-btn">
                   <Icon name="clock" size={12} />
                   <span class="history-keyword">{keyword}</span>
                 </Button>
-                <Button variant="quiet" size="sm" onclick={() => animeStore.removeSearchHistory(keyword)} ariaLabel="删除" class="history-delete">
+                <Button variant="quiet" size="sm" press={() => animeStore.removeSearchHistory(keyword)} ariaLabel="删除" class="history-delete">
                   <Icon name="x" size={12} />
                 </Button>
               </div>
@@ -196,7 +196,7 @@
             <div class="result-group">
               <h4 class="result-source">{source}</h4>
               {#each items as item (item.url)}
-                <Button variant="quiet" fullWidth class="result-item" onclick={() => openResult(source, item)}>
+                <Button variant="quiet" fullWidth class="result-item" press={() => openResult(source, item)}>
                   <Icon name="film" size={14} />
                   <span>{item.name}</span>
                   <Icon name="chevronRight" size={12} />
@@ -209,14 +209,14 @@
       
       <!-- Bottom Actions -->
       <div class="drawer-actions">
-        <Button variant="quiet" size="sm" class="action-link" onclick={() => {
+        <Button variant="quiet" size="sm" class="action-link" press={() => {
           if (animeStore.detailSubject) {
             const altName = animeStore.detailSubject.name || animeStore.detailSubject.name_cn;
             searchInput = altName;
             handleSearch();
           }
         }}>别名检索</Button>
-        <Button variant="quiet" size="sm" class="action-link" onclick={() => {
+        <Button variant="quiet" size="sm" class="action-link" press={() => {
           searchInput = '';
           (document.querySelector('.drawer-input') as HTMLElement)?.focus();
         }}>手动检索</Button>

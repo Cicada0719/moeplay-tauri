@@ -578,7 +578,7 @@
   <div class="backdrop" style={`background-image: url("${defaultLibraryBackdrop}")`}></div>
 
   <header class="page-head aura-head">
-    <Button variant="ghost" class="back" onclick={goLibrary} ariaLabel="返回游戏库">
+    <Button variant="ghost" class="back" press={goLibrary} ariaLabel="返回游戏库">
       <Icon name="arrowLeft" size={18} />
     </Button>
     <div class="title-block">
@@ -615,10 +615,10 @@
       <span>自动聚合 Steam 账号/本地与 Epic 本地候选，按平台 ID 去重后增量写入。</span>
     </div>
     <div class="aggregate-actions">
-      <Button variant="secondary" onclick={() => importAllAvailable(false)} disabled={importingAll || syncingSteam || scanningSteamLocal || scanningEpic}>
+      <Button variant="secondary" press={() => importAllAvailable(false)} disabled={importingAll || syncingSteam || scanningSteamLocal || scanningEpic}>
         <Icon name="download" size={16} />{importingAll ? "同步中" : "导入全部可用"}
       </Button>
-      <Button onclick={() => importAllAvailable(true)} disabled={importingAll || syncingSteam || scanningSteamLocal || scanningEpic}>
+      <Button press={() => importAllAvailable(true)} disabled={importingAll || syncingSteam || scanningSteamLocal || scanningEpic}>
         <Icon name="refresh" size={16} />重新同步
       </Button>
     </div>
@@ -639,7 +639,7 @@
       <span>从 Steam Web API 拉取所有 Steam 游戏的成就数据（需要 API Key + SteamID）。</span>
     </div>
     <div class="aggregate-actions">
-      <Button variant="secondary" onclick={handleSyncAchievements} disabled={syncingAchievements}>
+      <Button variant="secondary" press={handleSyncAchievements} disabled={syncingAchievements}>
         <Icon name="star" size={16} />{syncingAchievements ? "同步中..." : "同步成就数据"}
       </Button>
     </div>
@@ -680,8 +680,8 @@
           <Input type="password" bind:value={apiKeyInput} autocomplete="off" placeholder="粘贴 Steam Web API Key" />
         </label>
         <div class="actions">
-          <Button variant="secondary" onclick={openApiKeyPage}><Icon name="globe" size={16} />打开 Key 页面</Button>
-          <Button variant="secondary" onclick={verifyKey} disabled={verifyingKey}><Icon name="check" size={16} />{verifyingKey ? "验证中" : "保存并验证"}</Button>
+          <Button variant="secondary" press={openApiKeyPage}><Icon name="globe" size={16} />打开 Key 页面</Button>
+          <Button variant="secondary" press={verifyKey} disabled={verifyingKey}><Icon name="check" size={16} />{verifyingKey ? "验证中" : "保存并验证"}</Button>
         </div>
       </div>
 
@@ -691,9 +691,9 @@
           <Input bind:value={steamProfileInput} placeholder="7656119... 或 https://steamcommunity.com/profiles/..." onkeydown={(e) => { if (e.key === "Enter") resolveSteamProfile(); }} />
         </label>
         <div class="actions">
-          <Button variant="secondary" onclick={detectLocalSteam} disabled={detectingSteam}><Icon name="search" size={16} />{detectingSteam ? "检测中" : "检测本地"}</Button>
-          <Button variant="secondary" onclick={openSteamLogin} disabled={openingLogin || syncingSteam}><Icon name="globe" size={16} />{openingLogin ? "等待登录" : "网页登录/扫码"}</Button>
-          <Button variant="secondary" onclick={resolveSteamProfile} disabled={resolvingSteam}><Icon name="check" size={16} />{resolvingSteam ? "解析中" : "解析"}</Button>
+          <Button variant="secondary" press={detectLocalSteam} disabled={detectingSteam}><Icon name="search" size={16} />{detectingSteam ? "检测中" : "检测本地"}</Button>
+          <Button variant="secondary" press={openSteamLogin} disabled={openingLogin || syncingSteam}><Icon name="globe" size={16} />{openingLogin ? "等待登录" : "网页登录/扫码"}</Button>
+          <Button variant="secondary" press={resolveSteamProfile} disabled={resolvingSteam}><Icon name="check" size={16} />{resolvingSteam ? "解析中" : "解析"}</Button>
         </div>
       </div>
 
@@ -705,10 +705,10 @@
       {/if}
 
       <div class="primary-row">
-        <Button variant="secondary" onclick={previewSteamAccount} disabled={syncingSteam || openingLogin}>
+        <Button variant="secondary" press={previewSteamAccount} disabled={syncingSteam || openingLogin}>
           <Icon name="search" size={16} />预览全库
         </Button>
-        <Button onclick={() => syncSteamAccount(false)} disabled={syncingSteam || openingLogin}>
+        <Button press={() => syncSteamAccount(false)} disabled={syncingSteam || openingLogin}>
           <Icon name="download" size={17} />{syncingSteam ? "同步中..." : "同步并导入 Steam 全库"}
         </Button>
       </div>
@@ -737,7 +737,7 @@
           <p class="eyebrow">Steam Local</p>
           <h2>本机已安装</h2>
         </div>
-        <Button variant="secondary" onclick={scanSteamLocal} disabled={scanningSteamLocal}>
+        <Button variant="secondary" press={scanSteamLocal} disabled={scanningSteamLocal}>
           <Icon name="search" size={16} />{scanningSteamLocal ? "扫描中" : "扫描"}
         </Button>
       </div>
@@ -761,7 +761,7 @@
           <p class="eyebrow">Epic Local</p>
           <h2>本机已安装</h2>
         </div>
-        <Button variant="secondary" onclick={scanEpicLocal} disabled={scanningEpic}>
+        <Button variant="secondary" press={scanEpicLocal} disabled={scanningEpic}>
           <Icon name="search" size={16} />{scanningEpic ? "扫描中" : "扫描"}
         </Button>
       </div>
@@ -784,7 +784,7 @@
   {#if steamAccountImport || steamLocalImport || epicImport}
     <Card class="done-bar" padding="md">
       <span>游戏库已刷新</span>
-      <Button onclick={goLibrary}><Icon name="collection" size={16} />查看游戏库</Button>
+      <Button press={goLibrary}><Icon name="collection" size={16} />查看游戏库</Button>
     </Card>
   {/if}
 
@@ -823,10 +823,10 @@
       <span>{props.title}</span>
       {#if props.scan?.candidates.length}
         <div class="candidate-actions">
-          <Button variant="quiet" onclick={() => props.onToggleAll(props.section, props.scan!.candidates)}>
+          <Button variant="quiet" press={() => props.onToggleAll(props.section, props.scan!.candidates)}>
             {props.selected.size === props.scan.candidates.length ? "取消全选" : "全选"}
           </Button>
-          <Button onclick={() => props.onImport(props.section)} disabled={props.importing || props.selected.size === 0}>
+          <Button press={() => props.onImport(props.section)} disabled={props.importing || props.selected.size === 0}>
             <Icon name="download" size={15} />{props.importing ? "导入中" : `导入选中 ${props.selected.size}`}
           </Button>
         </div>
