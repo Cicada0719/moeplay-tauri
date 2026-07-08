@@ -62,7 +62,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Tauri build smoke
-        run: npm run tauri -- build
+        run: npm run tauri -- build --config src-tauri/tauri.ci.conf.json --ci
 
       - name: Portable package
         run: npm run package:portable
