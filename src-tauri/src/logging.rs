@@ -7,7 +7,8 @@
 //   - 诊断导出时可收集
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 /// 获取日志目录
@@ -22,6 +23,7 @@ pub fn log_dir() -> PathBuf {
 pub fn init() {
     let dir = log_dir();
     fs::create_dir_all(&dir).ok();
+    prune_log_files(&dir);
 
     // 文件滚动：每天一个文件，保留 7 天
     let file_appender = tracing_appender::rolling::daily(&dir, "moegame.log");
@@ -88,12 +90,7 @@ pub fn collect_recent_logs(lines: usize) -> Vec<String> {
         .into_iter()
         .flatten()
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path()
-                .extension()
-                .map(|ext| ext == "log")
-                .unwrap_or(false)
-        })
+        .filter(|entry| is_log_file(&entry.path()))
         .collect();
     entries.sort_by_key(|e| e.path());
     entries.reverse(); // 最新在前
@@ -114,4 +111,81 @@ pub fn collect_recent_logs(lines: usize) -> Vec<String> {
         }
     }
     result
+}
+
+const LOG_RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+const MAX_LOG_BYTES: u64 = 100 * 1024 * 1024;
+
+fn is_log_file(path: &Path) -> bool {
+    path.is_file()
+        && path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("moegame.log"))
+}
+
+fn prune_log_files(dir: &Path) {
+    prune_log_files_with_policy(dir, SystemTime::now(), LOG_RETENTION, MAX_LOG_BYTES);
+}
+
+fn prune_log_files_with_policy(dir: &Path, now: SystemTime, retention: Duration, max_bytes: u64) {
+    let mut files: Vec<_> = fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| is_log_file(path))
+        .filter_map(|path| fs::metadata(&path).ok().map(|metadata| (path, metadata)))
+        .collect();
+
+    for (path, metadata) in &files {
+        let expired = metadata
+            .modified()
+            .ok()
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age > retention);
+        if expired {
+            let _ = fs::remove_file(path);
+        }
+    }
+
+    files.retain(|(path, _)| path.exists());
+    files.sort_by_key(|(_, metadata)| metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH));
+    files.reverse();
+    let mut retained = 0_u64;
+    for (path, metadata) in files {
+        retained = retained.saturating_add(metadata.len());
+        if retained > max_bytes {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir() -> PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("moeplay-log-policy-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn log_policy_uses_daily_names_and_enforces_quota() {
+        let dir = temp_dir();
+        fs::write(dir.join("moegame.log.2026-07-09"), b"12345678").unwrap();
+        fs::write(dir.join("moegame.log.2026-07-10"), b"abcdefgh").unwrap();
+        fs::write(dir.join("unrelated.log"), b"keep").unwrap();
+        prune_log_files_with_policy(&dir, SystemTime::now(), Duration::from_secs(3600), 8);
+        let app_logs = fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| is_log_file(&entry.path()))
+            .count();
+        assert_eq!(app_logs, 1);
+        assert!(dir.join("unrelated.log").exists());
+        let _ = fs::remove_dir_all(dir);
+    }
 }
