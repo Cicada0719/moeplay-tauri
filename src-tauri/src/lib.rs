@@ -15,7 +15,6 @@ pub mod commands;
 pub mod db;
 pub mod db_sqlite;
 pub mod diagnostics;
-pub mod domain;
 pub mod downloader;
 pub mod emulator;
 pub mod gal_download;
@@ -30,11 +29,9 @@ pub mod models;
 pub mod nsfw;
 pub mod performance;
 pub mod process_monitor;
-pub mod providers;
 pub mod recommender;
 pub mod resource_fetcher;
 pub mod scraper;
-pub mod secret_store;
 pub mod security;
 pub mod services;
 pub mod stats;
@@ -447,25 +444,7 @@ pub fn run() {
             commands::manga_fetch_json,
             commands::manga_fetch_text,
             // ---- 番剧规则引擎 ----
-            // ---- Provider registry: anime / comic ----
-            commands::anime_provider_configure,
-            commands::anime_provider_list,
-            commands::anime_provider_remove,
-            commands::anime_provider_search,
-            commands::anime_provider_detail,
-            commands::anime_provider_episodes,
-            commands::anime_provider_resolve,
-            commands::anime_provider_health,
-            commands::anime_provider_pick_local_directory,
-            commands::anime_provider_open_fallback,
-            commands::comic_provider_configure,
-            commands::comic_provider_list,
-            commands::comic_provider_remove,
-            commands::comic_provider_probe,
-            commands::comic_provider_search,
-            commands::comic_provider_detail,
-            commands::comic_provider_chapters,
-            commands::comic_provider_resolve,            commands::anime_get_rules,
+            commands::anime_get_rules,
             commands::anime_set_rules,
             commands::anime_add_rule,
             commands::anime_remove_rule,
