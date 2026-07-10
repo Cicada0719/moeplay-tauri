@@ -1,0 +1,18 @@
+{
+  "id": "chatcmpl-fixture",
+  "model": "fixture-openai-model",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"summary\":\"Normalize one title and flag a duplicate candidate.\",\"confidence\":0.91,\"operations\":[{\"type\":\"set_field\",\"gameId\":\"game-1\",\"field\":\"title\",\"value\":\"Fixture Game\",\"reason\":\"Normalize whitespace and casing.\"},{\"type\":\"possible_duplicate\",\"gameIds\":[\"game-1\",\"game-2\"],\"reason\":\"Titles and metadata strongly overlap.\"}]}"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 120,
+    "completion_tokens": 80
+  }
+}

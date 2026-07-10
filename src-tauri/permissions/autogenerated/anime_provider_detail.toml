@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-provider-detail"
+description = "Enables the anime_provider_detail command without any pre-configured scope."
+commands.allow = ["anime_provider_detail"]
+
+[[permission]]
+identifier = "deny-anime-provider-detail"
+description = "Denies the anime_provider_detail command without any pre-configured scope."
+commands.deny = ["anime_provider_detail"]

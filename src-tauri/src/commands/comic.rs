@@ -1,23 +1,146 @@
 //! 哔咔漫画 Tauri 命令 — 完整功能集
 
 use crate::comic::{self, ComicState};
+use crate::secret_store::{SecretKind, SecretStore, SecretStoreError};
+use serde::Serialize;
 use tauri::State;
 
+const AUTH_STATE_ERROR: &str = "漫画登录状态不可用";
+const SECRET_STORE_ERROR: &str = "安全凭据存储操作失败";
+const LOGIN_ERROR: &str = "登录失败，请检查账号、密码或网络连接";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComicAuthStatus {
+    pub configured: bool,
+    pub logged_in: bool,
+    pub email: Option<String>,
+}
+
+fn auth_status(configured: bool, logged_in: bool, email: Option<String>) -> ComicAuthStatus {
+    ComicAuthStatus {
+        configured,
+        logged_in,
+        email,
+    }
+}
+
+fn set_memory_token(state: &ComicState, token: String) -> Result<(), String> {
+    let mut guard = state
+        .token
+        .lock()
+        .map_err(|_| AUTH_STATE_ERROR.to_string())?;
+    *guard = token;
+    Ok(())
+}
+
 fn require_token(state: &State<'_, ComicState>) -> Result<String, String> {
-    let guard = state.token.lock().map_err(|e| e.to_string())?;
+    let guard = state
+        .token
+        .lock()
+        .map_err(|_| AUTH_STATE_ERROR.to_string())?;
     if guard.is_empty() {
         return Err("未登录，请先在漫画页面登录你的哔咔账号".to_string());
     }
     Ok(guard.clone())
 }
 
+async fn run_secret_store<T, F>(operation: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, SecretStoreError> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(operation)
+        .await
+        .map_err(|_| SECRET_STORE_ERROR.to_string())?
+        .map_err(|_| SECRET_STORE_ERROR.to_string())
+}
+
+async fn persist_session(
+    token: String,
+    email: Option<String>,
+    state: &ComicState,
+    store: SecretStore,
+) -> Result<ComicAuthStatus, String> {
+    if token.trim().is_empty() {
+        return Err("登录凭据无效".to_string());
+    }
+
+    let token_for_store = token.clone();
+    run_secret_store(move || store.set(SecretKind::PicacgToken, None, &token_for_store)).await?;
+    set_memory_token(state, token)?;
+    Ok(auth_status(true, true, email))
+}
+
+async fn restore_session(
+    state: &ComicState,
+    store: SecretStore,
+) -> Result<ComicAuthStatus, String> {
+    let token = run_secret_store(move || store.get(SecretKind::PicacgToken, None)).await?;
+    match token {
+        Some(token) if !token.trim().is_empty() => {
+            set_memory_token(state, token)?;
+            Ok(auth_status(true, true, None))
+        }
+        _ => {
+            set_memory_token(state, String::new())?;
+            Ok(auth_status(false, false, None))
+        }
+    }
+}
+
+async fn delete_session(state: &ComicState, store: SecretStore) -> Result<ComicAuthStatus, String> {
+    let delete_result = run_secret_store(move || store.delete(SecretKind::PicacgToken, None)).await;
+    set_memory_token(state, String::new())?;
+    delete_result?;
+    Ok(auth_status(false, false, None))
+}
+
+fn extract_login_token(response: &serde_json::Value) -> Result<String, String> {
+    response["data"]["token"]
+        .as_str()
+        .filter(|token| !token.trim().is_empty())
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| LOGIN_ERROR.to_string())
+}
+
+async fn finish_login(
+    response: &serde_json::Value,
+    email: String,
+    state: &ComicState,
+    store: SecretStore,
+) -> Result<ComicAuthStatus, String> {
+    let token = extract_login_token(response)?;
+    persist_session(token, Some(email), state, store).await
+}
+
 // ── 认证 ──────────────────────────────────────────────────────────────────
 
+/// One-time migration entry for the legacy localStorage token.
+/// The returned status deliberately contains no secret material.
 #[tauri::command]
-pub async fn comic_set_token(token: String, state: State<'_, ComicState>) -> Result<(), String> {
-    let mut guard = state.token.lock().map_err(|e| e.to_string())?;
-    *guard = token;
-    Ok(())
+pub async fn comic_set_token(
+    token: String,
+    state: State<'_, ComicState>,
+    store: State<'_, SecretStore>,
+) -> Result<ComicAuthStatus, String> {
+    persist_session(token, None, state.inner(), store.inner().clone()).await
+}
+
+#[tauri::command]
+pub async fn comic_restore_session(
+    state: State<'_, ComicState>,
+    store: State<'_, SecretStore>,
+) -> Result<ComicAuthStatus, String> {
+    restore_session(state.inner(), store.inner().clone()).await
+}
+
+#[tauri::command]
+pub async fn comic_logout(
+    state: State<'_, ComicState>,
+    store: State<'_, SecretStore>,
+) -> Result<ComicAuthStatus, String> {
+    delete_session(state.inner(), store.inner().clone()).await
 }
 
 #[tauri::command]
@@ -25,18 +148,13 @@ pub async fn comic_login(
     email: String,
     password: String,
     state: State<'_, ComicState>,
-) -> Result<String, String> {
-    let body = serde_json::json!({ "email": email, "password": password });
-    let resp = comic::api_post("auth/sign-in", "", &body).await?;
-    let token = resp["data"]["token"]
-        .as_str()
-        .ok_or_else(|| "登录响应中未找到 token".to_string())?
-        .to_string();
-    {
-        let mut guard = state.token.lock().map_err(|e| e.to_string())?;
-        *guard = token.clone();
-    }
-    Ok(token)
+    store: State<'_, SecretStore>,
+) -> Result<ComicAuthStatus, String> {
+    let body = serde_json::json!({ "email": &email, "password": &password });
+    let response = comic::api_post("auth/sign-in", "", &body)
+        .await
+        .map_err(|_| LOGIN_ERROR.to_string())?;
+    finish_login(&response, email, state.inner(), store.inner().clone()).await
 }
 
 #[tauri::command]
@@ -44,8 +162,8 @@ pub async fn comic_profile(
     state: State<'_, ComicState>,
 ) -> Result<comic::ComicUserProfile, String> {
     let token = require_token(&state)?;
-    let resp = comic::api_get("users/profile", &token, &[]).await?;
-    comic::ComicUserProfile::from_value(&resp["data"]["user"])
+    let response = comic::api_get("users/profile", &token, &[]).await?;
+    comic::ComicUserProfile::from_value(&response["data"]["user"])
         .ok_or_else(|| "无法解析用户资料".to_string())
 }
 
@@ -397,4 +515,151 @@ pub async fn comic_my_comments(
     let token = require_token(&state)?;
     let resp = comic::api_get("users/my-comments", &token, &[("page", page.to_string())]).await?;
     Ok(comic::CommentsPage::from_value(&resp["data"]["comments"]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::secret_store::{BackendError, SecretBackend};
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct MemoryBackend {
+        values: Mutex<HashMap<(String, String), String>>,
+    }
+
+    impl SecretBackend for MemoryBackend {
+        fn set(&self, service: &str, account: &str, secret: &str) -> Result<(), BackendError> {
+            self.values
+                .lock()
+                .expect("memory backend lock")
+                .insert((service.to_owned(), account.to_owned()), secret.to_owned());
+            Ok(())
+        }
+
+        fn get(&self, service: &str, account: &str) -> Result<String, BackendError> {
+            self.values
+                .lock()
+                .expect("memory backend lock")
+                .get(&(service.to_owned(), account.to_owned()))
+                .cloned()
+                .ok_or(BackendError::Missing)
+        }
+
+        fn delete(&self, service: &str, account: &str) -> Result<(), BackendError> {
+            match self
+                .values
+                .lock()
+                .expect("memory backend lock")
+                .remove(&(service.to_owned(), account.to_owned()))
+            {
+                Some(_) => Ok(()),
+                None => Err(BackendError::Missing),
+            }
+        }
+    }
+
+    fn memory_store() -> SecretStore {
+        SecretStore::with_backend(Arc::new(MemoryBackend::default()))
+    }
+
+    fn memory_token(state: &ComicState) -> String {
+        state.token.lock().expect("comic state lock").clone()
+    }
+
+    #[tokio::test]
+    async fn login_result_does_not_leak_token() {
+        let state = ComicState::default();
+        let store = memory_store();
+        let secret = "picacg-login-secret";
+        let response = serde_json::json!({ "data": { "token": secret } });
+
+        let status = finish_login(
+            &response,
+            "reader@example.com".to_string(),
+            &state,
+            store.clone(),
+        )
+        .await
+        .expect("finish login");
+
+        assert!(status.configured);
+        assert!(status.logged_in);
+        assert_eq!(status.email.as_deref(), Some("reader@example.com"));
+        assert_eq!(memory_token(&state), secret);
+        assert_eq!(
+            store
+                .get(SecretKind::PicacgToken, None)
+                .expect("stored login token")
+                .as_deref(),
+            Some(secret)
+        );
+
+        let wire = serde_json::to_string(&status).expect("serialize login status");
+        assert!(!wire.contains(secret));
+        assert!(!wire.contains("token"));
+    }
+
+    #[tokio::test]
+    async fn restore_loads_secret_store_token_into_memory() {
+        let state = ComicState::default();
+        let store = memory_store();
+        store
+            .set(SecretKind::PicacgToken, None, "restored-secret")
+            .expect("seed secret store");
+
+        let status = restore_session(&state, store)
+            .await
+            .expect("restore session");
+
+        assert_eq!(status, auth_status(true, true, None));
+        assert_eq!(memory_token(&state), "restored-secret");
+    }
+
+    #[tokio::test]
+    async fn logout_deletes_secret_store_and_clears_memory() {
+        let state = ComicState::default();
+        let store = memory_store();
+        persist_session("logout-secret".to_string(), None, &state, store.clone())
+            .await
+            .expect("seed session");
+
+        let status = delete_session(&state, store.clone())
+            .await
+            .expect("delete session");
+
+        assert_eq!(status, auth_status(false, false, None));
+        assert_eq!(memory_token(&state), "");
+        assert_eq!(
+            store
+                .get(SecretKind::PicacgToken, None)
+                .expect("read deleted secret"),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn legacy_migration_persists_token_without_returning_it() {
+        let state = ComicState::default();
+        let store = memory_store();
+        let legacy_secret = "legacy-local-storage-secret";
+
+        let status = persist_session(legacy_secret.to_string(), None, &state, store.clone())
+            .await
+            .expect("migrate legacy token");
+
+        assert_eq!(status, auth_status(true, true, None));
+        assert_eq!(memory_token(&state), legacy_secret);
+        assert_eq!(
+            store
+                .get(SecretKind::PicacgToken, None)
+                .expect("read migrated token")
+                .as_deref(),
+            Some(legacy_secret)
+        );
+        let wire = serde_json::to_string(&status).expect("serialize migration status");
+        assert!(!wire.contains(legacy_secret));
+        assert!(!wire.contains("token"));
+    }
 }

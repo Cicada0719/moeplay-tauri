@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-library-v2-launch"
+description = "Enables the library_v2_launch command without any pre-configured scope."
+commands.allow = ["library_v2_launch"]
+
+[[permission]]
+identifier = "deny-library-v2-launch"
+description = "Denies the library_v2_launch command without any pre-configured scope."
+commands.deny = ["library_v2_launch"]

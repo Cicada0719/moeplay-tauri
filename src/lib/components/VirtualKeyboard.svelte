@@ -1,17 +1,23 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { attachGamepad } from "./switch/useGamepad.svelte";
+  import { attachGamepad, type GamepadAttachment } from "./switch/useGamepad.svelte";
 
   let {
+    active = true,
     onChar,
     onBack,
     onSubmit,
     onClose,
+    onExitUp,
+    onzonechange,
   }: {
+    active?: boolean;
     onChar: (char: string) => void;
     onBack: () => void;
     onSubmit: () => void;
     onClose: () => void;
+    onExitUp?: () => void;
+    onzonechange?: (zone: "keyboard") => void;
   } = $props();
 
   const ROWS = [
@@ -31,7 +37,7 @@
   let cursorCol = $state(0);
   let isSymbols = $state(false);
   let boardEl = $state<HTMLDivElement>();
-  let detachGamepad: (() => void) | null = null;
+  let scope: GamepadAttachment | null = null;
 
   const currentRows = $derived(isSymbols ? SYMBOLS : ROWS);
 
@@ -40,48 +46,59 @@
     cursorCol = Math.max(0, Math.min(currentRows[cursorRow].length - 1, cursorCol));
   }
 
+  function focusCurrent() {
+    if (!active) return;
+    queueMicrotask(() => boardEl?.querySelector<HTMLElement>(`[data-key-row="${cursorRow}"][data-key-col="${cursorCol}"]`)?.focus({ preventScroll: true }));
+  }
+
   function press(key: string) {
     if (key === "⌫") { onBack(); return; }
     if (key === "确定") { onSubmit(); return; }
-    if (key === "123") { isSymbols = true; clampCursor(); return; }
-    if (key === "ABC") { isSymbols = false; clampCursor(); return; }
+    if (key === "123") { isSymbols = true; clampCursor(); focusCurrent(); return; }
+    if (key === "ABC") { isSymbols = false; clampCursor(); focusCurrent(); return; }
     onChar(key);
   }
 
-  function pressCurrent() {
-    press(currentRows[cursorRow][cursorCol]);
-  }
+  function pressCurrent() { press(currentRows[cursorRow][cursorCol]); }
 
   function move(dr: number, dc: number) {
+    if (dr < 0 && cursorRow === 0) { onExitUp?.(); return; }
     cursorRow += dr;
     cursorCol += dc;
     clampCursor();
+    focusCurrent();
   }
 
-  function onKeydown(e: KeyboardEvent) {
-    switch (e.key) {
-      case "ArrowUp": move(-1, 0); e.preventDefault(); break;
-      case "ArrowDown": move(1, 0); e.preventDefault(); break;
-      case "ArrowLeft": move(0, -1); e.preventDefault(); break;
-      case "ArrowRight": move(0, 1); e.preventDefault(); break;
-      case "Enter": pressCurrent(); e.preventDefault(); break;
-      case "Backspace": onBack(); e.preventDefault(); break;
-      case "Escape": onClose(); e.preventDefault(); break;
+  function onKeydown(event: KeyboardEvent) {
+    switch (event.key) {
+      case "ArrowUp": move(-1, 0); event.preventDefault(); event.stopPropagation(); break;
+      case "ArrowDown": move(1, 0); event.preventDefault(); event.stopPropagation(); break;
+      case "ArrowLeft": move(0, -1); event.preventDefault(); event.stopPropagation(); break;
+      case "ArrowRight": move(0, 1); event.preventDefault(); event.stopPropagation(); break;
+      case "Enter": case " ": pressCurrent(); event.preventDefault(); event.stopPropagation(); break;
+      case "Backspace": onBack(); event.preventDefault(); event.stopPropagation(); break;
+      case "Escape": onClose(); event.preventDefault(); event.stopPropagation(); break;
     }
   }
 
+  $effect(() => {
+    scope?.setEnabled(active);
+    if (active) { onzonechange?.("keyboard"); focusCurrent(); }
+  });
+
   onMount(() => {
-    detachGamepad = attachGamepad({
+    scope = attachGamepad({
       left: () => move(0, -1),
       right: () => move(0, 1),
-      pageLeft: () => move(-1, 0),
-      pageRight: () => move(1, 0),
+      up: () => move(-1, 0),
+      down: () => move(1, 0),
       activate: () => pressCurrent(),
       launch: () => pressCurrent(),
+      favorite: () => onBack(),
       back: () => onClose(),
-    });
-    boardEl?.focus();
-    return () => detachGamepad?.();
+    }, { id: "big-picture-keyboard", zone: "keyboard", overlay: true, priority: 120, enabled: active });
+    focusCurrent();
+    return () => { scope?.(); scope = null; };
   });
 </script>
 
@@ -93,16 +110,23 @@
   onkeydown={onKeydown}
   role="application"
   aria-label="屏幕键盘"
+  data-focus-zone="keyboard"
+  data-active={active ? "true" : "false"}
 >
   {#each currentRows as row, ri}
-    <div class="vk-row">
+    <div class="vk-row" role="group" aria-label={`键盘第 ${ri + 1} 行`}>
       {#each row as key, ci}
         <button
           class="vk-key"
           class:wide={key === " " || key === "确定"}
           class:active={ri === cursorRow && ci === cursorCol}
+          data-key-row={ri}
+          data-key-col={ci}
+          aria-pressed={active && ri === cursorRow && ci === cursorCol}
           onclick={() => press(key)}
-          tabindex="-1"
+          onfocus={() => { cursorRow = ri; cursorCol = ci; }}
+          tabindex={active && ri === cursorRow && ci === cursorCol ? 0 : -1}
+          aria-label={key === " " ? "空格" : key === "⌫" ? "退格" : key}
         >
           {key}
         </button>
@@ -130,7 +154,7 @@
     cursor: pointer; transition: all 0.1s;
   }
   .vk-key:hover { background: rgba(255,255,255,0.15); }
-  .vk-key.active {
+  .vk-key.active, .vk-key:focus-visible {
     background: var(--accent, #e8557f);
     border-color: var(--accent, #e8557f);
     box-shadow: 0 0 8px rgba(232,85,127,0.4);

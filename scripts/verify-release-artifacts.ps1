@@ -50,7 +50,9 @@ $Expected = @(
   @{ Kind = "exe"; Path = (Join-Path $ReleaseDir "moeplay.exe"); MinBytes = 5MB },
   @{ Kind = "msi"; Path = (Get-LatestArtifact (Join-Path $BundleDir "msi") "*$Version*.msi"); MinBytes = 1MB },
   @{ Kind = "nsis"; Path = (Get-LatestArtifact (Join-Path $BundleDir "nsis") "*$Version*.exe"); MinBytes = 1MB },
-  @{ Kind = "portable"; Path = (Join-Path $BundleDir "portable\moeplay_${Version}_x64-portable.zip"); MinBytes = 1MB }
+  @{ Kind = "portable"; Path = (Join-Path $BundleDir "portable\moeplay_${Version}_x64-portable.zip"); MinBytes = 1MB },
+  @{ Kind = "sbom"; Path = (Join-Path $BundleDir "sbom.cdx.json"); MinBytes = 1KB },
+  @{ Kind = "build-metadata"; Path = (Join-Path $BundleDir "build-metadata.json"); MinBytes = 100 }
 )
 
 $Artifacts = @()
@@ -90,6 +92,30 @@ try {
 }
 finally {
   $Zip.Dispose()
+}
+
+$SbomPath = Join-Path $BundleDir "sbom.cdx.json"
+$Sbom = Get-Content -LiteralPath $SbomPath -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($Sbom.bomFormat -ne "CycloneDX" -or $Sbom.specVersion -ne "1.5") {
+  throw "SBOM is not a CycloneDX 1.5 document"
+}
+if ([string]$Sbom.metadata.component.version -ne $Version) {
+  throw "SBOM version does not match release version"
+}
+if (@($Sbom.components).Count -lt 10) {
+  throw "SBOM contains unexpectedly few components"
+}
+
+$BuildMetadataPath = Join-Path $BundleDir "build-metadata.json"
+$BuildMetadata = Get-Content -LiteralPath $BuildMetadataPath -Raw -Encoding UTF8 | ConvertFrom-Json
+if ([string]$BuildMetadata.version -ne $Version) {
+  throw "Build metadata version does not match release version"
+}
+if (-not $BuildMetadata.commit -or -not $BuildMetadata.toolchain.rustc -or -not $BuildMetadata.toolchain.node) {
+  throw "Build metadata is missing commit or toolchain evidence"
+}
+if ($env:CI -and $BuildMetadata.dirty -eq $true) {
+  throw "CI release build metadata reports a dirty worktree"
 }
 
 $Manifest = [pscustomobject]@{

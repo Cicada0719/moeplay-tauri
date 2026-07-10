@@ -35,7 +35,7 @@
     sourceStatus = [];
 
     try {
-      const useAi = settingsStore.settings.ai_enabled && settingsStore.settings.ai_api_key;
+      const useAi = settingsStore.settings.ai_enabled;
       const searchFn = useAi ? scrapeGame : scrapeGames;
       const s = settingsStore.settings;
       const resp = await searchFn(
@@ -155,7 +155,7 @@
           {#if settingsStore.settings.kungal_enabled ?? true}<span class="source-tag">Kungal</span>{/if}
           {#if settingsStore.settings.steam_enabled ?? true}<span class="source-tag">Steam</span>{/if}
           {#if settingsStore.settings.pcgw_enabled ?? true}<span class="source-tag">PCGW</span>{/if}
-          {#if settingsStore.settings.ai_enabled && settingsStore.settings.ai_api_key}
+          {#if settingsStore.settings.ai_enabled}
             <span class="source-tag ai"><Icon name="lightbulb" size={14} /> AI</span>
           {/if}
         </div>

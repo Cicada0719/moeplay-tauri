@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-edit-activity-event"
+description = "Enables the edit_activity_event command without any pre-configured scope."
+commands.allow = ["edit_activity_event"]
+
+[[permission]]
+identifier = "deny-edit-activity-event"
+description = "Denies the edit_activity_event command without any pre-configured scope."
+commands.deny = ["edit_activity_event"]

@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { gameStore } from "../stores/games.svelte";
   import { settingsStore } from "../stores/settings.svelte";
   import { uiStore } from "../stores/ui.svelte";
-  import { pickDirectory, previewDirectoryForGames, importSelectedCandidates } from "../api";
+  import { pickDirectory, previewDirectoryForGames, importSelectedCandidates, secretSet, secretStatus } from "../api";
   import type { ImportPreviewCandidate } from "../api";
   import Icon from "./Icon.svelte";
 
@@ -18,9 +19,10 @@
   let previewDone = $state(false);
 
   // Step 1: AI
-  let aiKey = $state(settingsStore.settings?.ai_api_key ?? "");
+  let aiKey = $state("");
   let aiUrl = $state(settingsStore.settings?.ai_api_url ?? "https://api.openai.com/v1/chat/completions");
   let aiModel = $state(settingsStore.settings?.ai_model ?? "gpt-4o-mini");
+  let aiConfigured = $state(false);
 
   // Step 2: sources
   let srcVndb = $state(settingsStore.settings?.vndb_enabled ?? true);
@@ -51,6 +53,22 @@
     { key: "pcgw",      label: "PCGamingWiki",    get: () => srcPcgw,      set: (v: boolean) => srcPcgw = v },
   ];
   const stepProgressPct = $derived(Math.round(((step + 1) / steps.length) * 100));
+
+  onMount(() => {
+    void refreshAiStatus();
+  });
+
+  async function refreshAiStatus() {
+    if (!aiUrl.trim()) {
+      aiConfigured = false;
+      return;
+    }
+    try {
+      aiConfigured = (await secretStatus("ai_api_key", aiUrl)).configured;
+    } catch {
+      aiConfigured = false;
+    }
+  }
 
   async function addFolder() {
     const dir = await pickDirectory().catch(() => "");
@@ -113,9 +131,8 @@
     saveError = "";
     try {
       const s = { ...(settingsStore.settings ?? {}) };
-      s.ai_api_key = aiKey;
       s.ai_api_url = aiUrl;
-      s.ai_enabled = aiKey.length > 0;
+      s.ai_enabled = aiKey.trim().length > 0 || aiConfigured;
       s.ai_model = aiModel;
       s.vndb_enabled = srcVndb;
       s.bangumi_enabled = srcBangumi;
@@ -126,8 +143,13 @@
       s.kungal_enabled = srcKungal;
       s.steam_enabled = srcSteam;
       s.pcgw_enabled = srcPcgw;
-      // Save all source toggles into settings
+      // Save public settings first so the secret is bound to the selected endpoint origin.
       await settingsStore.save(s);
+      if (aiKey.trim()) {
+        const secret = await secretSet("ai_api_key", aiKey.trim(), aiUrl);
+        aiConfigured = secret.configured;
+        aiKey = "";
+      }
 
       // Add scanned dirs as watch dirs
       if (scanDirs.length > 0) {
@@ -273,8 +295,8 @@
     {:else if step === 1}
       <div class="form">
         <label for="wiz-api-url">API 地址</label>
-        <input id="wiz-api-url" type="text" bind:value={aiUrl} placeholder="https://api.openai.com/v1/chat/completions" class="input" />
-        <label for="wiz-api-key">API Key</label>
+        <input id="wiz-api-url" type="text" bind:value={aiUrl} onblur={refreshAiStatus} placeholder="https://api.openai.com/v1/chat/completions" class="input" />
+        <label for="wiz-api-key">API Key（{aiConfigured ? "已配置；留空保持" : "未配置"}）</label>
         <input id="wiz-api-key" type="password" bind:value={aiKey} placeholder="sk-..." class="input" />
         <label for="wiz-model">模型</label>
         <select id="wiz-model" bind:value={aiModel} class="input">

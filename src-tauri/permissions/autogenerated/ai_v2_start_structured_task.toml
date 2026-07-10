@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ai-v2-start-structured-task"
+description = "Enables the ai_v2_start_structured_task command without any pre-configured scope."
+commands.allow = ["ai_v2_start_structured_task"]
+
+[[permission]]
+identifier = "deny-ai-v2-start-structured-task"
+description = "Denies the ai_v2_start_structured_task command without any pre-configured scope."
+commands.deny = ["ai_v2_start_structured_task"]

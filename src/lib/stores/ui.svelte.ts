@@ -1,3 +1,13 @@
+export type ViewChangeSource = "direct" | "router";
+
+export interface ViewChange {
+  previous: string;
+  current: string;
+  source: ViewChangeSource;
+}
+
+type ViewChangeListener = (change: ViewChange) => void;
+
 let _currentView = $state("home");
 let _viewMode = $state<"grid" | "list" | "compact">("grid");
 let _sortBy = $state("recent");
@@ -15,10 +25,26 @@ let _libraryMode = $state<"home" | "all">("home");
 let _drawerOpen = $state(false);
 let _drawerView = $state<string | null>(null);
 let _focusSearchSignal = $state(0);
+let _focusSearchScope = $state<string | null>(null);
+const viewChangeListeners = new Set<ViewChangeListener>();
+
+function setCurrentView(view: string, source: ViewChangeSource) {
+  const next = view.trim() || "home";
+  if (next === _currentView) return;
+  const previous = _currentView;
+  _currentView = next;
+  const change = { previous, current: next, source } satisfies ViewChange;
+  for (const listener of [...viewChangeListeners]) listener(change);
+}
 
 export const uiStore = {
   get currentView() { return _currentView; },
-  set currentView(v: string) { _currentView = v; },
+  set currentView(v: string) { setCurrentView(v, "direct"); },
+  setCurrentViewFromRouter(v: string) { setCurrentView(v, "router"); },
+  subscribeViewChanges(listener: ViewChangeListener) {
+    viewChangeListeners.add(listener);
+    return () => viewChangeListeners.delete(listener);
+  },
   get viewMode() { return _viewMode; },
   set viewMode(v: "grid" | "list" | "compact") { _viewMode = v; },
   get sortBy() { return _sortBy; },
@@ -82,6 +108,13 @@ export const uiStore = {
   set pendingDownloadName(v: string | null) { _pendingDownloadName = v; },
 
   get focusSearchSignal() { return _focusSearchSignal; },
-  requestFocusSearch() { _focusSearchSignal++; },
-  consumeFocusSearchSignal() { _focusSearchSignal = 0; },
+  get focusSearchScope() { return _focusSearchScope; },
+  requestFocusSearch(scope = _currentView) {
+    _focusSearchScope = scope;
+    _focusSearchSignal++;
+  },
+  consumeFocusSearchSignal() {
+    _focusSearchSignal = 0;
+    _focusSearchScope = null;
+  },
 };

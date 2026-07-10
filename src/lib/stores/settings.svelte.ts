@@ -30,14 +30,22 @@ const defaultSettings: Settings = {
   pcgw_enabled: true,
   ai_enabled: false,
   ai_api_url: "https://api.openai.com/v1/chat/completions",
-  ai_api_key: "",
   ai_model: "gpt-4o-mini",
   nsfw_display_mode: "blur",
   autostart_enabled: false,
   startup_mode: "fullscreen",
   steam_id: undefined,
-  steam_api_key: undefined,
 };
+
+type LegacySettingsPayload = Settings & {
+  ai_api_key?: unknown;
+  steam_api_key?: unknown;
+};
+
+function sanitizeSettings(settings: LegacySettingsPayload): Settings {
+  const { ai_api_key: _aiApiKey, steam_api_key: _steamApiKey, ...publicSettings } = settings;
+  return { ...defaultSettings, ...publicSettings };
+}
 
 let _settings = $state<Settings>({ ...defaultSettings });
 let _loading = $state(false);
@@ -53,7 +61,7 @@ export const settingsStore = {
   async load() {
     _loading = true;
     try {
-      _settings = { ...defaultSettings, ...(await getSettings()) };
+      _settings = sanitizeSettings(await getSettings());
       applyTheme(_settings.theme as AppTheme);
       // 一次性迁移：仅历史默认 dashboard 的老用户迁到 fullscreen 一次；
       // 之后无条件尊重用户选择（避免"普通模式存不住"）。
@@ -74,7 +82,7 @@ export const settingsStore = {
   },
 
   async save(settings: Settings) {
-    _settings = await updateSettings({ ...defaultSettings, ...settings });
+    _settings = sanitizeSettings(await updateSettings(sanitizeSettings(settings)));
     applyTheme(_settings.theme as AppTheme);
     return _settings;
   },

@@ -5,7 +5,7 @@
   import { settingsStore } from "../stores/settings.svelte";
   import { uiStore } from "../stores/ui.svelte";
   import { APP_THEMES } from "../utils/theme";
-  import { updateNsfwDisplayMode, setAutostart, syncSteamAchievements, pickImageFile, type NsfwDisplayMode } from "../api";
+  import { secretDelete, secretSet, secretStatus, updateNsfwDisplayMode, setAutostart, syncSteamAchievements, pickImageFile, type NsfwDisplayMode } from "../api";
   import { gameStore } from "../stores/games.svelte";
   import { animeStore } from "../stores/anime.svelte";
   import Button from "./ui/Button.svelte";
@@ -50,6 +50,10 @@
   let syncingAchievements = $state(false);
   let achievementMsg = $state("");
   let contentEl: HTMLElement | undefined = $state();
+  let aiKeyInput = $state("");
+  let aiSecretConfigured = $state(false);
+  let aiSecretBusy = $state(false);
+  let aiSecretMessage = $state("");
 
   // Bangumi settings state
   let bangumiTokenInput = $state("");
@@ -58,6 +62,7 @@
   let bangumiSyncing = $state(false);
 
   onMount(async () => {
+    await refreshAiSecretStatus();
     await tick();
     if (!contentEl) return;
     const panels = contentEl.querySelectorAll(".s-section");
@@ -79,6 +84,61 @@
 
   async function save() {
     await settingsStore.save(settingsStore.settings);
+  }
+
+  async function refreshAiSecretStatus() {
+    const origin = settingsStore.settings.ai_api_url.trim();
+    if (!origin) {
+      aiSecretConfigured = false;
+      return;
+    }
+    try {
+      aiSecretConfigured = (await secretStatus("ai_api_key", origin)).configured;
+    } catch (e) {
+      aiSecretConfigured = false;
+      aiSecretMessage = "无法读取密钥状态: " + String(e);
+    }
+  }
+
+  async function saveAiSettings() {
+    await save();
+    await refreshAiSecretStatus();
+  }
+
+  async function saveAiSecret() {
+    const secret = aiKeyInput.trim();
+    if (!secret) {
+      aiSecretMessage = "请输入 API Key";
+      return;
+    }
+    aiSecretBusy = true;
+    aiSecretMessage = "";
+    try {
+      await save();
+      const status = await secretSet("ai_api_key", secret, settingsStore.settings.ai_api_url);
+      aiSecretConfigured = status.configured;
+      aiKeyInput = "";
+      aiSecretMessage = "API Key 已安全保存";
+    } catch (e) {
+      aiSecretMessage = "保存失败: " + String(e);
+    } finally {
+      aiSecretBusy = false;
+    }
+  }
+
+  async function deleteAiSecret() {
+    aiSecretBusy = true;
+    aiSecretMessage = "";
+    try {
+      const status = await secretDelete("ai_api_key", settingsStore.settings.ai_api_url);
+      aiSecretConfigured = status.configured;
+      aiKeyInput = "";
+      aiSecretMessage = "API Key 已删除";
+    } catch (e) {
+      aiSecretMessage = "删除失败: " + String(e);
+    } finally {
+      aiSecretBusy = false;
+    }
   }
 
   async function setNsfw(mode: NsfwDisplayMode) {
@@ -585,19 +645,28 @@
             <span class="ai-label">API 地址</span>
             <Input
               bind:value={settingsStore.settings.ai_api_url}
-              onblur={save}
+              onblur={saveAiSettings}
               placeholder="https://api.openai.com/v1/chat/completions"
             />
           </label>
-          <label class="ai-field">
-            <span class="ai-label">API Key</span>
+          <div class="ai-field">
+            <span class="ai-label">API Key · {aiSecretConfigured ? "已配置" : "未配置"}</span>
             <Input
               type="password"
-              bind:value={settingsStore.settings.ai_api_key}
-              onblur={save}
-              placeholder="sk-..."
+              bind:value={aiKeyInput}
+              autocomplete="off"
+              placeholder={aiSecretConfigured ? "输入新 Key 以替换" : "sk-..."}
             />
-          </label>
+            <div class="ai-secret-actions">
+              <Button size="sm" variant="secondary" press={saveAiSecret} disabled={aiSecretBusy || !aiKeyInput.trim()}>
+                {aiSecretBusy ? "处理中" : "安全保存"}
+              </Button>
+              {#if aiSecretConfigured}
+                <Button size="sm" variant="ghost" press={deleteAiSecret} disabled={aiSecretBusy}>删除 Key</Button>
+              {/if}
+              {#if aiSecretMessage}<span class="ai-secret-message">{aiSecretMessage}</span>{/if}
+            </div>
+          </div>
           <label class="ai-field">
             <span class="ai-label">模型</span>
             <Input
@@ -839,6 +908,17 @@
     color: var(--text-muted);
     font-weight: 600;
   }
+  .ai-secret-actions {
+    grid-column: 2;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .ai-secret-message {
+    color: var(--text-muted);
+    font-size: 12px;
+  }
 
   /* ── Directory list ── */
   .dir-list { display: flex; flex-direction: column; gap: 6px; }
@@ -911,6 +991,7 @@
     .src-grid { grid-template-columns: 1fr; }
     .mode-grid { grid-template-columns: 1fr; }
     .ai-field { grid-template-columns: 1fr; }
+    .ai-secret-actions { grid-column: 1; }
     .s-row { grid-template-columns: 1fr; gap: 10px; }
     .stg-content { padding: 8px 16px 36px; }
     .stg-head { padding: 20px 16px 12px; }

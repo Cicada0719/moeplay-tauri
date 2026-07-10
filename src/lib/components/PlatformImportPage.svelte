@@ -8,6 +8,7 @@
     openUrl,
     resolveSteamId,
     scanPlatformLibrary,
+    secretDelete,
     steamDetectLocal,
     steamLoginOpenid,
     syncSteamAchievements,
@@ -25,6 +26,14 @@
   import defaultLibraryBackdrop from "../assets/default-library-backdrop.png";
   import Icon from "./Icon.svelte";
   import { Button, Card, EmptyState, Input, StatBlock, Tag } from "./ui";
+  import type { ApplyImportResponse, PreviewImportRequest } from "../features/library";
+  import LibraryFeatureToggle from "./library/LibraryFeatureToggle.svelte";
+  import LibraryV2ImportPanel from "./library/LibraryV2ImportPanel.svelte";
+  import { readLibraryV2Flag } from "./library/feature-flag";
+  import {
+    platformCandidatesToPreviewRequest,
+    steamSessionGamesToPreviewRequest,
+  } from "./library/platform-candidates";
 
   type SectionKey = "steamAccount" | "steamLocal" | "epicLocal";
   type AggregateImportSummary = {
@@ -44,6 +53,7 @@
     result: PlatformImportResult | null;
     section: SectionKey;
     showInstalled?: boolean;
+    previewMode?: boolean;
     onToggle: (section: SectionKey, game: PlatformGameCandidate) => void;
     onToggleAll: (section: SectionKey, games: PlatformGameCandidate[]) => void;
     onImport: (section: SectionKey) => Promise<void>;
@@ -90,9 +100,13 @@
   let achievementResult = $state<SyncAchievementsResult | null>(null);
   let achievementError = $state("");
 
+  let libraryV2Enabled = $state(false);
+  let libraryV2Request = $state<PreviewImportRequest | null>(null);
+  let libraryV2Title = $state("Library v2 导入预览");
+
   const steamConnectionLabel = $derived.by(() => {
     if (syncingSteam) return "同步中";
-    if (steamIdInput.trim() && (status?.steam_api_key_validated || apiKeyInput.trim())) return "可同步";
+    if (steamIdInput.trim() && status?.steam_api_key_validated) return "可同步";
     if (steamIdInput.trim()) return "缺 API Key";
     return "未连接";
   });
@@ -105,6 +119,7 @@
   });
 
   onMount(() => {
+    libraryV2Enabled = readLibraryV2Flag();
     const cleanups: Array<() => void> = [];
     void (async () => {
       await loadInitialState();
@@ -135,6 +150,13 @@
           steamLoginMessage = "未读取到游戏，请改用本机扫描或 API Key";
           return;
         }
+        if (libraryV2Enabled) {
+          steamLoginMessage = `已读取 ${games.length} 款 Steam 游戏，等待确认 diff`;
+          libraryV2Title = "Steam 登录会话导入预览";
+          libraryV2Request = steamSessionGamesToPreviewRequest(games);
+          syncingSteam = false;
+          return;
+        }
         syncingSteam = true;
         steamLoginMessage = `正在导入 ${games.length} 款 Steam 游戏…`;
         try {
@@ -162,7 +184,7 @@
       await settingsStore.load();
       status = await getPlatformImportStatus();
       steamIdInput = settingsStore.settings.steam_id || status.steam_id || "";
-      apiKeyInput = settingsStore.settings.steam_api_key || "";
+      apiKeyInput = "";
       steamLoginMessage = steamIdInput ? "已保存 SteamID" : "未连接";
       apiKeyMessage = status.steam_api_key_validated ? "API Key 已验证" : (status.has_steam_api_key ? "已保存 API Key，等待验证" : "");
     } catch (e) {
@@ -172,11 +194,34 @@
     }
   }
 
-  async function saveSteamSettings(patch: { steam_id?: string; steam_api_key?: string }) {
+  async function saveSteamSettings(patch: { steam_id?: string }) {
     await settingsStore.save({
       ...settingsStore.settings,
       ...patch,
     });
+  }
+
+  function setLibraryV2Enabled(enabled: boolean) {
+    libraryV2Enabled = enabled;
+    if (!enabled) libraryV2Request = null;
+  }
+
+  function openLibraryV2Preview(source: string, candidates: PlatformGameCandidate[], title: string) {
+    const available = uniqueCandidates(candidates);
+    if (!available.length) {
+      allImportError = "没有可供 Library v2 预览的候选。";
+      return false;
+    }
+    libraryV2Title = title;
+    libraryV2Request = platformCandidatesToPreviewRequest(source, available);
+    return true;
+  }
+
+  async function handleLibraryV2Applied(result: ApplyImportResponse) {
+    await refreshLibrary();
+    const changed = result.results.filter((item) => ["created", "updated", "merged"].includes(item.status)).length;
+    const failed = result.results.filter((item) => item.status === "failed" || item.status === "conflict").length;
+    uiStore.notify(`Library v2 应用完成：写入 ${changed}，需处理 ${failed}`, failed ? "error" : "success");
   }
 
   function candidateKey(game: PlatformGameCandidate) {
@@ -217,9 +262,8 @@
 
   function steamAccountReady() {
     const steamId = steamIdInput.trim() || status?.steam_id || "";
-    const apiKey = apiKeyInput.trim() || settingsStore.settings.steam_api_key || "";
-    if (!steamId || !apiKey) return null;
-    return { steamId, apiKey };
+    if (!steamId || !status?.steam_api_key_validated) return null;
+    return { steamId };
   }
 
   function setSelected(section: SectionKey, next: Set<string>) {
@@ -287,13 +331,28 @@
     verifyingKey = true;
     try {
       apiKeyMessage = await validateSteamApiKey(key);
-      await settingsStore.load();
+      apiKeyInput = "";
       status = await getPlatformImportStatus();
       return true;
     } catch (e) {
       apiKeyMessage = "";
       steamAccountError = String(e);
       return false;
+    } finally {
+      verifyingKey = false;
+    }
+  }
+
+  async function deleteSteamKey() {
+    verifyingKey = true;
+    steamAccountError = "";
+    try {
+      await secretDelete("steam_api_key");
+      apiKeyInput = "";
+      apiKeyMessage = "API Key 已删除";
+      status = await getPlatformImportStatus();
+    } catch (e) {
+      steamAccountError = String(e);
     } finally {
       verifyingKey = false;
     }
@@ -309,7 +368,11 @@
       return "";
     }
     try {
-      const result = await resolveSteamId(input, apiKeyInput.trim() || undefined);
+      if (apiKeyInput.trim() && !status?.steam_api_key_validated) {
+        const verified = await verifyKey();
+        if (!verified) return "";
+      }
+      const result = await resolveSteamId(input);
       steamIdInput = result.steam_id;
       steamLoginMessage = result.personaname ? `已连接 ${result.personaname}` : "SteamID 已保存";
       await settingsStore.load();
@@ -345,7 +408,7 @@
       await openSteamLogin();
       return null;
     }
-    return { steamId: sid, apiKey: apiKeyInput.trim() };
+    return { steamId: sid };
   }
 
   async function previewSteamAccount() {
@@ -355,7 +418,7 @@
     steamAccountError = "";
     steamAccountImport = null;
     try {
-      steamAccountScan = await scanPlatformLibrary("steam", "combined", ready.steamId, ready.apiKey);
+      steamAccountScan = await scanPlatformLibrary("steam", "combined", ready.steamId);
       steamAccountSelected = selectAll(steamAccountScan.candidates);
       steamLoginMessage = `已获取 ${steamAccountScan.candidates.length} 款 Steam 游戏`;
     } catch (e) {
@@ -372,11 +435,16 @@
     steamAccountError = "";
     steamAccountImport = null;
     try {
-      const scan = await scanPlatformLibrary("steam", "combined", ready.steamId, ready.apiKey);
+      const scan = await scanPlatformLibrary("steam", "combined", ready.steamId);
       const selected = selectAll(scan.candidates);
       steamAccountScan = scan;
       steamAccountSelected = selected;
       const candidates = selectedCandidates(scan.candidates, selected);
+      if (libraryV2Enabled) {
+        openLibraryV2Preview("steam", candidates, "Steam 全库导入预览");
+        steamLoginMessage = `已生成 ${candidates.length} 项候选，等待确认 diff`;
+        return;
+      }
       steamAccountImport = await importPlatformLibrary("steam", candidates);
       await refreshLibrary();
       steamLoginMessage = fromLogin ? "登录成功，Steam 全库已同步" : "Steam 全库同步完成";
@@ -437,6 +505,11 @@
 
     try {
       const source = section === "epicLocal" ? "epic" : "steam";
+      if (libraryV2Enabled) {
+        const label = section === "steamAccount" ? "Steam 全库" : section === "steamLocal" ? "Steam 本机目录" : "Epic 本机目录";
+        openLibraryV2Preview(source, candidates, `${label}导入预览`);
+        return;
+      }
       const result = await importPlatformLibrary(source, candidates);
       if (section === "steamLocal") steamLocalImport = result;
       else if (section === "epicLocal") epicImport = result;
@@ -454,7 +527,59 @@
     }
   }
 
+  async function previewAllAvailable(forceRescan = false) {
+    importingAll = true;
+    allImportSummary = null;
+    allImportError = "";
+    try {
+      const combined: PlatformGameCandidate[] = [];
+      const ready = steamAccountReady();
+      if (ready) {
+        syncingSteam = true;
+        const scan = forceRescan || !steamAccountScan
+          ? await scanPlatformLibrary("steam", "combined", ready.steamId)
+          : steamAccountScan;
+        const candidates = uniqueCandidates(scan.candidates);
+        steamAccountScan = scan;
+        steamAccountSelected = new Set(candidates.map(candidateKey));
+        combined.push(...candidates);
+      } else {
+        scanningSteamLocal = true;
+        const scan = forceRescan || !steamLocalScan
+          ? await scanPlatformLibrary("steam", "local")
+          : steamLocalScan;
+        const candidates = uniqueCandidates(scan.candidates);
+        steamLocalScan = scan;
+        steamLocalSelected = new Set(candidates.map(candidateKey));
+        combined.push(...candidates);
+      }
+
+      scanningEpic = true;
+      const scan = forceRescan || !epicScan
+        ? await scanPlatformLibrary("epic", "local")
+        : epicScan;
+      const epicCandidates = uniqueCandidates(scan.candidates);
+      epicScan = scan;
+      epicSelected = new Set(epicCandidates.map(candidateKey));
+      combined.push(...epicCandidates);
+
+      if (!openLibraryV2Preview("platform_sync", combined, "一键平台同步预览")) return;
+      uiStore.notify(`Library v2 已生成 ${uniqueCandidates(combined).length} 项 diff，尚未写入游戏库`);
+    } catch (e) {
+      allImportError = String(e);
+    } finally {
+      importingAll = false;
+      syncingSteam = false;
+      scanningSteamLocal = false;
+      scanningEpic = false;
+    }
+  }
+
   async function importAllAvailable(forceRescan = false) {
+    if (libraryV2Enabled) {
+      await previewAllAvailable(forceRescan);
+      return;
+    }
     importingAll = true;
     allImportSummary = null;
     allImportError = "";
@@ -469,7 +594,7 @@
       if (ready) {
         syncingSteam = true;
         const scan = forceRescan || !steamAccountScan
-          ? await scanPlatformLibrary("steam", "combined", ready.steamId, ready.apiKey)
+          ? await scanPlatformLibrary("steam", "combined", ready.steamId)
           : steamAccountScan;
         const candidates = uniqueCandidates(scan.candidates);
         steamAccountScan = scan;
@@ -556,7 +681,7 @@
 
   function autoSyncAchievementsQuietly() {
     const s = settingsStore.settings;
-    if (!s.steam_api_key?.trim() || !s.steam_id?.trim()) return;
+    if (!status?.steam_api_key_validated || !s.steam_id?.trim()) return;
     syncSteamAchievements()
       .then(r => {
         if (r.synced > 0) {
@@ -589,6 +714,7 @@
       <span>Steam</span>
       <strong>{steamConnectionLabel}</strong>
     </Card>
+    <LibraryFeatureToggle enabled={libraryV2Enabled} onChange={setLibraryV2Enabled} />
   </header>
 
   <nav class="step-strip aura-panel" aria-label="导入步骤">
@@ -605,18 +731,18 @@
     <div class="step-item">
       <span class="step-num">03</span>
       <strong>导入</strong>
-      <small>增量写入游戏库</small>
+      <small>{libraryV2Enabled ? "确认后增量写入" : "旧流程直接写入"}</small>
     </div>
   </nav>
 
   <Card class="aggregate-bar" padding="md">
     <div>
       <strong>一键平台同步</strong>
-      <span>自动聚合 Steam 账号/本地与 Epic 本地候选，按平台 ID 去重后增量写入。</span>
+      <span>{libraryV2Enabled ? "自动聚合候选并生成 create / update / conflict / ignore diff；确认前零写入。" : "旧流程：按平台 ID 去重后直接增量写入，可随时切回 Library v2。"}</span>
     </div>
     <div class="aggregate-actions">
       <Button variant="secondary" press={() => importAllAvailable(false)} disabled={importingAll || syncingSteam || scanningSteamLocal || scanningEpic}>
-        <Icon name="download" size={16} />{importingAll ? "同步中" : "导入全部可用"}
+        <Icon name="download" size={16} />{importingAll ? "同步中" : (libraryV2Enabled ? "预览全部可用" : "导入全部可用")}
       </Button>
       <Button press={() => importAllAvailable(true)} disabled={importingAll || syncingSteam || scanningSteamLocal || scanningEpic}>
         <Icon name="refresh" size={16} />重新同步
@@ -631,6 +757,15 @@
     <div class="banner ok aggregate-banner">
       {allImportSummary.sections.join(" / ")} 完成：共处理 {allImportSummary.total}，新增 {allImportSummary.imported}，更新 {allImportSummary.updated}，跳过 {allImportSummary.skipped}，失败 {allImportSummary.failed}
     </div>
+  {/if}
+
+  {#if libraryV2Enabled && libraryV2Request}
+    <LibraryV2ImportPanel
+      request={libraryV2Request}
+      title={libraryV2Title}
+      onApplied={handleLibraryV2Applied}
+      onClose={() => (libraryV2Request = null)}
+    />
   {/if}
 
   <Card class="aggregate-bar" padding="md">
@@ -671,7 +806,7 @@
       <div class="status-grid">
         <StatBlock label="本机 Steam" value={status?.steam_path || "未检测到"} />
         <StatBlock label="SteamID64" value={steamIdInput || "未连接"} />
-        <StatBlock label="API Key" value={status?.steam_api_key_validated ? "已验证" : (apiKeyInput ? "待验证" : "未填写")} />
+        <StatBlock label="API Key" value={status?.steam_api_key_validated ? "已验证" : (apiKeyInput ? "待验证" : (status?.has_steam_api_key ? "已保存待验证" : "未填写"))} />
       </div>
 
       <div class="field-row">
@@ -682,6 +817,9 @@
         <div class="actions">
           <Button variant="secondary" press={openApiKeyPage}><Icon name="globe" size={16} />打开 Key 页面</Button>
           <Button variant="secondary" press={verifyKey} disabled={verifyingKey}><Icon name="check" size={16} />{verifyingKey ? "验证中" : "保存并验证"}</Button>
+          {#if status?.has_steam_api_key}
+            <Button variant="ghost" press={deleteSteamKey} disabled={verifyingKey}>删除 Key</Button>
+          {/if}
         </div>
       </div>
 
@@ -709,7 +847,7 @@
           <Icon name="search" size={16} />预览全库
         </Button>
         <Button press={() => syncSteamAccount(false)} disabled={syncingSteam || openingLogin}>
-          <Icon name="download" size={17} />{syncingSteam ? "同步中..." : "同步并导入 Steam 全库"}
+<Icon name="download" size={17} />{syncingSteam ? "同步中..." : (libraryV2Enabled ? "扫描并预览 Steam 全库" : "同步并导入 Steam 全库")}
         </Button>
       </div>
 
@@ -728,6 +866,7 @@
         onToggleAll: toggleAll,
         onImport: importSelected,
         showInstalled: true,
+        previewMode: libraryV2Enabled,
       })}
     </Card>
 
@@ -752,6 +891,7 @@
         onToggle: toggleCandidate,
         onToggleAll: toggleAll,
         onImport: importSelected,
+        previewMode: libraryV2Enabled,
       })}
     </Card>
 
@@ -777,6 +917,7 @@
         onToggle: toggleCandidate,
         onToggleAll: toggleAll,
         onImport: importSelected,
+        previewMode: libraryV2Enabled,
       })}
     </Card>
   </div>
@@ -827,7 +968,7 @@
             {props.selected.size === props.scan.candidates.length ? "取消全选" : "全选"}
           </Button>
           <Button press={() => props.onImport(props.section)} disabled={props.importing || props.selected.size === 0}>
-            <Icon name="download" size={15} />{props.importing ? "导入中" : `导入选中 ${props.selected.size}`}
+            <Icon name="download" size={15} />{props.importing ? "处理中" : `${props.previewMode ? "预览" : "导入"}选中 ${props.selected.size}`}
           </Button>
         </div>
       {/if}

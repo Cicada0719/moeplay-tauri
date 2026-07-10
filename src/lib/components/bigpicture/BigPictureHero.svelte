@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import Icon from "../Icon.svelte";
   import RatingRing from "../RatingRing.svelte";
   import { formatPlayTime } from "../../api";
@@ -12,20 +13,35 @@
     tagsOf as gameTagsOf,
   } from "../../utils/game";
   import type { Game } from "../../stores/games.svelte";
+  import { attachGamepad, type GamepadAttachment } from "../switch/useGamepad.svelte";
 
   let {
     game,
     weekHours,
+    active = false,
     onLaunch,
     onFavorite,
     onDetail,
+    onMoveToWheel,
+    onMoveToTop,
+    onTabPrevious,
+    onTabNext,
   }: {
     game: Game;
     weekHours: string;
+    active?: boolean;
     onLaunch: () => void;
     onFavorite: () => void;
     onDetail: () => void;
+    onMoveToWheel: () => void;
+    onMoveToTop: () => void;
+    onTabPrevious: () => void;
+    onTabNext: () => void;
   } = $props();
+
+  let actionsEl = $state<HTMLDivElement>();
+  let actionIdx = $state(0);
+  let scope: GamepadAttachment | null = null;
 
   const STATUS: Record<string, string> = {
     not_started: "未开始", playing: "游玩中", completed: "已通关",
@@ -60,59 +76,110 @@
     return `${Math.floor(days / 30)} 个月前`;
   }
 
-  const desc = $derived(
-    game.description?.trim() || allTags.slice(0, 6).join(" / ") || "暂无简介"
-  );
+  const desc = $derived(game.description?.trim() || allTags.slice(0, 6).join(" / ") || "暂无简介");
   const trimmedDesc = $derived(desc.length > 180 ? desc.slice(0, 180) + "…" : desc);
+
+
+  function focusAction(index = actionIdx) {
+    actionIdx = Math.max(0, Math.min(2, index));
+    queueMicrotask(() => actionsEl?.querySelector<HTMLElement>(`[data-hero-index="${actionIdx}"]`)?.focus({ preventScroll: true }));
+  }
+
+  function moveAction(delta: number) {
+    const next = actionIdx + delta;
+    if (next < 0) { onMoveToWheel(); return; }
+    focusAction(next);
+  }
+
+  function activateAction() {
+    if (actionIdx === 0) onLaunch();
+    else if (actionIdx === 1) onFavorite();
+    else onDetail();
+  }
+
+  function onActionKeydown(event: KeyboardEvent) {
+    switch (event.key) {
+      case "ArrowLeft": event.preventDefault(); moveAction(-1); break;
+      case "ArrowRight": event.preventDefault(); moveAction(1); break;
+      case "ArrowUp": event.preventDefault(); onMoveToTop(); break;
+      case "Escape": event.preventDefault(); onMoveToWheel(); break;
+    }
+  }
+
+  $effect(() => { if (active) focusAction(); });
+
+  onMount(() => {
+    scope = attachGamepad({
+      left: () => moveAction(-1),
+      right: () => moveAction(1),
+      up: () => onMoveToTop(),
+      launch: () => activateAction(),
+      activate: () => activateAction(),
+      favorite: () => onFavorite(),
+      back: () => onMoveToWheel(),
+      pageLeft: () => onTabPrevious(),
+      pageRight: () => onTabNext(),
+    }, { id: "big-picture-hero", zone: "hero", priority: 20 });
+    return () => { scope?.(); scope = null; };
+  });
 </script>
 
-<div class="bp-hero">
+<div class="bp-hero" data-focus-zone="hero" data-active={active ? "true" : "false"}>
   {#if game.metadata?.original_name}
     <p class="bp-jp">{game.metadata.original_name}</p>
   {/if}
   <h1 class="bp-title">{game.name}</h1>
   <p class="bp-meta">{metaLine(game)}</p>
 
-  <div class="bp-actions">
-    <button class="bp-play" onclick={onLaunch}>
+  <div class="bp-actions" bind:this={actionsEl} role="toolbar" aria-label="游戏操作">
+    <button
+      class="bp-play"
+      class:zone-focus={active && actionIdx === 0}
+      data-hero-index="0"
+      tabindex={active && actionIdx === 0 ? 0 : -1}
+      onclick={onLaunch}
+      onfocus={() => (actionIdx = 0)}
+      onkeydown={onActionKeydown}
+    >
       <Icon name="play" size={22} /><span>开始游戏</span>
     </button>
-    <button class="bp-secondary" class:active={game.favorite} onclick={onFavorite}>
+    <button
+      class="bp-secondary"
+      class:active={game.favorite}
+      class:zone-focus={active && actionIdx === 1}
+      data-hero-index="1"
+      tabindex={active && actionIdx === 1 ? 0 : -1}
+      onclick={onFavorite}
+      onfocus={() => (actionIdx = 1)}
+      onkeydown={onActionKeydown}
+    >
       <Icon name={game.favorite ? "heartFill" : "heart"} size={18} />
       <span>{game.favorite ? "已收藏" : "收藏"}</span>
     </button>
-    <button class="bp-secondary" onclick={onDetail}>
+    <button
+      class="bp-secondary"
+      class:zone-focus={active && actionIdx === 2}
+      data-hero-index="2"
+      tabindex={active && actionIdx === 2 ? 0 : -1}
+      onclick={onDetail}
+      onfocus={() => (actionIdx = 2)}
+      onkeydown={onActionKeydown}
+    >
       <Icon name="database" size={18} /><span>详情</span>
     </button>
   </div>
 
   <div class="bp-tags">
-    {#each allTags.slice(0, 7) as t}
-      <span class="bp-tag">{t}</span>
-    {/each}
+    {#each allTags.slice(0, 7) as t}<span class="bp-tag">{t}</span>{/each}
   </div>
   <p class="bp-desc">{trimmedDesc}</p>
 
   <div class="bp-stats-row">
-    <div class="bp-stat">
-      <RatingRing value={scoreValue} max={100} size={52} />
-    </div>
-    <div class="bp-stat">
-      <strong>{achTotal > 0 ? `${achDone}/${achTotal}` : "—"}</strong>
-      <span>成就</span>
-    </div>
-    <div class="bp-stat">
-      <strong>{formatPlayTime(gameTotalSeconds(game))}</strong>
-      <span>时长</span>
-    </div>
-    <div class="bp-stat">
-      <strong>{timeAgo(gameLastPlayed(game))}</strong>
-      <span>最后</span>
-    </div>
-    <div class="bp-stat">
-      <strong>{weekHours}h</strong>
-      <span>本周</span>
-    </div>
+    <div class="bp-stat"><RatingRing value={scoreValue} max={100} size={52} /></div>
+    <div class="bp-stat"><strong>{achTotal > 0 ? `${achDone}/${achTotal}` : "—"}</strong><span>成就</span></div>
+    <div class="bp-stat"><strong>{formatPlayTime(gameTotalSeconds(game))}</strong><span>时长</span></div>
+    <div class="bp-stat"><strong>{timeAgo(gameLastPlayed(game))}</strong><span>最后</span></div>
+    <div class="bp-stat"><strong>{weekHours}h</strong><span>本周</span></div>
   </div>
 </div>
 
@@ -154,6 +221,7 @@
   }
   .bp-secondary:hover { color: var(--text-primary); border-color: var(--text-muted); }
   .bp-secondary.active { color: var(--accent); }
+  .bp-play.zone-focus, .bp-secondary.zone-focus, .bp-actions button:focus-visible { outline: none; box-shadow: var(--ring-switch, 0 0 0 3px rgba(232,85,127,.45)); }
 
   .bp-tags { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 8px; max-width: 580px; }
   .bp-tag {

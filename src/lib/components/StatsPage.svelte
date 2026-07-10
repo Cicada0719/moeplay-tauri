@@ -2,7 +2,14 @@
   import { onMount } from "svelte";
   import { gsap } from "gsap";
   import { gameStore } from "../stores/games.svelte";
-  import { invokeCmd } from "../api/core";
+  import {
+    getDashboardData,
+    toCollectionCountItems,
+    toCountItems,
+    toStatusCountItems,
+    type CollectionCountItem,
+    type DashboardData,
+  } from "../api/dashboard";
   import { uiStore } from "../stores/ui.svelte";
   import Icon from "./Icon.svelte";
   import { Button, Card, Chart, EmptyState, Skeleton, StatBlock, Tag } from "./ui";
@@ -15,28 +22,12 @@
     statusBarOptions,
   } from "../utils/chart";
 
-  interface DashboardData {
-    total_games: number;
-    completed_games: number;
-    total_playtime_hours: number;
-    completion_rate: number;
-    disk_usage_gb: number;
-    top_tags: { name: string; count: number }[];
-    top_developers: { name: string; count: number }[];
-    monthly_heatmap: { month: string; hours: number }[];
-    recent_sessions: { game_name: string; hours: number; date: string }[];
-    collection_counts: { id: string; name: string; count: number }[];
-    status_distribution: { status: string; count: number }[];
-  }
-
   let data = $state<DashboardData | null>(null);
   let loading = $state(true);
   let error = $state<string | null>(null);
 
   let heroNumEl = $state<HTMLSpanElement>();
   let doneNumEl = $state<HTMLSpanElement>();
-  let hoursNumEl = $state<HTMLSpanElement>();
-
   const statusLabels: Record<string, string> = {
     not_started: "未开始",
     playing: "进行中",
@@ -51,7 +42,7 @@
     loading = true;
     error = null;
     try {
-      data = await invokeCmd<DashboardData>("get_dashboard_data");
+      data = await getDashboardData();
     } catch (e) {
       error = String(e);
     } finally {
@@ -59,7 +50,7 @@
     }
   }
 
-  function handleCollectionClick(c: { id: string; name: string; count: number }) {
+  function handleCollectionClick(c: CollectionCountItem) {
     const name = c.name.toLowerCase();
     if (name.includes("未玩") || name.includes("计划")) gameStore.filterTag = "未玩";
     else if (name.includes("通关") || name.includes("完成")) gameStore.filterTag = "已通关";
@@ -97,17 +88,6 @@
         delay: 0.15,
         onUpdate: () => {
           if (doneNumEl) doneNumEl.textContent = Math.round(completed.v).toString();
-        },
-      });
-
-      const hours = { v: 0 };
-      gsap.to(hours, {
-        v: d.total_playtime_hours,
-        duration: 1.1,
-        ease: "power2.out",
-        delay: 0.25,
-        onUpdate: () => {
-          if (hoursNumEl) hoursNumEl.textContent = Math.round(hours.v).toString();
         },
       });
     });
@@ -148,9 +128,15 @@
 
       <StatBlock label="已通关" value={data.completed_games} class="stat-cell" />
 
-      <StatBlock label="总时长" value={data.total_playtime_hours.toFixed(0)} unit="h" class="stat-cell" />
+      <StatBlock label="总时长" value={data.playtime_hours.toFixed(0)} unit="h" class="stat-cell" />
 
-      <StatBlock label="磁盘占用" value={data.disk_usage_gb.toFixed(1)} unit="GB" class="stat-cell" />
+      <StatBlock
+        label="磁盘占用"
+        value={data.disk_usage_gb.toFixed(1)}
+        unit="GB"
+        hint="后台缓存统计，重新进入页面后更新"
+        class="stat-cell"
+      />
 
       <Card class="metric-card donut-card">
         <span class="label">完成率</span>
@@ -165,7 +151,7 @@
         <div class="status-chart">
           <Chart
             type="bar"
-            data={buildStatusDistributionData(data.status_distribution, statusLabels)}
+            data={buildStatusDistributionData(toStatusCountItems(data.completion_distribution), statusLabels)}
             options={statusBarOptions}
           />
         </div>
@@ -174,7 +160,7 @@
       <Card class="metric-card">
         <span class="label">热门标签</span>
         <div class="tag-cloud">
-          {#each (data.top_tags ?? []).slice(0, 10) as tag}
+          {#each toCountItems(data.top_tags).slice(0, 10) as tag}
             <Tag class="tag-chip">
               {tag.name}<small class="aura-num">{tag.count}</small>
             </Tag>
@@ -183,14 +169,16 @@
       </Card>
 
       <Card class="metric-card">
-        <span class="label">开发商</span>
+        <span class="label">数据覆盖</span>
         <div class="flat-list">
-          {#each (data.top_developers ?? []).slice(0, 10) as developer}
-            <div class="list-row">
-              <span>{developer.name}</span>
-              <span class="mono muted aura-num">{developer.count}</span>
-            </div>
-          {/each}
+          <div class="list-row">
+            <span>已安装</span>
+            <span class="mono muted aura-num">{data.installed_games} / {data.total_games}</span>
+          </div>
+          <div class="list-row">
+            <span>元数据刮削</span>
+            <span class="mono muted aura-num">{data.scrape_coverage.toFixed(1)}%</span>
+          </div>
         </div>
       </Card>
 
@@ -211,13 +199,13 @@
 
       <Card class="metric-card wide">
         <span class="label">最近游玩</span>
-        {#if (data.recent_sessions ?? []).length > 0}
+        {#if data.recent_games.length > 0}
           <div class="sessions">
-            {#each data.recent_sessions.slice(0, 5) as session}
+            {#each data.recent_games.slice(0, 5) as game, index}
               <div class="session-row">
-                <span class="game-name">{session.game_name}</span>
-                <span class="mono muted aura-num">{session.date}</span>
-                <span class="mono aura-num">{session.hours.toFixed(1)}h</span>
+                <span class="game-name">{game}</span>
+                <span class="mono muted aura-num">RECENT</span>
+                <span class="mono aura-num">#{index + 1}</span>
               </div>
             {/each}
           </div>
@@ -229,7 +217,7 @@
       <Card class="metric-card wide">
         <span class="label">智能合集</span>
         <div class="collection-grid">
-          {#each (data.collection_counts ?? []).slice(0, 8) as collection}
+          {#each toCollectionCountItems(data.collections).slice(0, 8) as collection}
             <Card
               class="collection-action"
               padding="none"

@@ -35,7 +35,9 @@ pub fn build_client() -> Result<Client, ScrapeError> {
     let builder = Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
-        .user_agent("MoeGame/1.0 (Galgame Manager)");
+        .user_agent(crate::http_client::app_user_agent_with_context(
+            "Galgame Manager",
+        ));
     apply_proxy(builder)?
         .build()
         .map_err(|e| ScrapeError::Network(e.to_string()))
@@ -46,7 +48,9 @@ pub fn build_client_ja() -> Result<Client, ScrapeError> {
     let builder = Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
-        .user_agent("MoeGame/1.0 (Galgame Manager)")
+        .user_agent(crate::http_client::app_user_agent_with_context(
+            "Galgame Manager",
+        ))
         .default_headers({
             let mut headers = reqwest::header::HeaderMap::new();
             headers.insert(

@@ -1,9 +1,12 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import type { Game } from "../stores/games.svelte";
   import { gameStore } from "../stores/games.svelte";
   import { uiStore } from "../stores/ui.svelte";
   import { openPath, pickDirectory } from "../api";
   import Icon from "./Icon.svelte";
+  import { focusTrap } from "../actions/a11y/focusTrap";
+  import { attachGamepad, type GamepadAttachment } from "./switch/useGamepad.svelte";
   import Button from "./ui/Button.svelte";
   import RatingRing from "./RatingRing.svelte";
   import {
@@ -24,10 +27,13 @@
     tagsOf,
   } from "../utils/game";
 
-  let { game, onClose }: { game: Game; onClose: () => void } = $props();
+  let { game, onClose, returnFocus = null }: { game: Game; onClose: () => void; returnFocus?: HTMLElement | null } = $props();
 
   let busy = $state<string | null>(null);
   let confirmRemove = $state(false);
+  let panelEl = $state<HTMLElement>();
+  let actionIdx = $state(0);
+  let scope: GamepadAttachment | null = null;
 
   const rating = $derived(gameRating(game));
   const status = $derived(game.play_tracker?.completion_status);
@@ -94,14 +100,69 @@
     });
   }
 
-  function onKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); }
+  function actionButtons(): HTMLButtonElement[] {
+    return Array.from(panelEl?.querySelectorAll<HTMLButtonElement>("button:not([disabled])") ?? []);
   }
+
+  function focusAction(index = actionIdx) {
+    const buttons = actionButtons();
+    if (buttons.length === 0) { panelEl?.focus({ preventScroll: true }); return; }
+    actionIdx = (index + buttons.length) % buttons.length;
+    buttons[actionIdx]?.focus({ preventScroll: true });
+  }
+
+  function moveAction(delta: number) { focusAction(actionIdx + delta); }
+  function activateAction() { actionButtons()[actionIdx]?.click(); }
+
+  function onKeydown(event: KeyboardEvent) {
+    switch (event.key) {
+      case "Escape": event.preventDefault(); event.stopPropagation(); onClose(); break;
+      case "ArrowLeft": case "ArrowUp": event.preventDefault(); event.stopPropagation(); moveAction(-1); break;
+      case "ArrowRight": case "ArrowDown": event.preventDefault(); event.stopPropagation(); moveAction(1); break;
+    }
+  }
+
+  onMount(() => {
+    scope = attachGamepad({
+      left: () => moveAction(-1),
+      right: () => moveAction(1),
+      up: () => moveAction(-1),
+      down: () => moveAction(1),
+      launch: () => activateAction(),
+      activate: () => activateAction(),
+      favorite: () => handleFavorite(),
+      back: () => onClose(),
+    }, { id: "big-picture-detail", zone: "detail", overlay: true, priority: 110 });
+    queueMicrotask(() => {
+      const launch = panelEl?.querySelector<HTMLButtonElement>(".d-actions-main button:not([disabled])");
+      if (launch) {
+        const buttons = actionButtons();
+        actionIdx = Math.max(0, buttons.indexOf(launch));
+        launch.focus({ preventScroll: true });
+      }
+    });
+    return () => { scope?.(); scope = null; };
+  });
 </script>
 
-<svelte:window onkeydown={onKeydown} />
-
-<aside class="bp-detail glass-card" aria-label="游戏详情" tabindex="-1">
+<div
+  class="bp-detail glass-card"
+  bind:this={panelEl}
+  use:focusTrap={{
+    enabled: true,
+    trapFocus: true,
+    closeOnEscape: true,
+    initialFocus: () => panelEl?.querySelector<HTMLButtonElement>(".d-actions-main button:not([disabled])"),
+    returnFocus: () => returnFocus,
+    onEscape: () => onClose(),
+  }}
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="bp-detail-title"
+  tabindex="-1"
+  data-focus-zone="detail"
+  onkeydown={onKeydown}
+>
   <header class="d-head">
     <button class="d-close" onclick={onClose} aria-label="关闭">
       <Icon name="x" size={18} />
@@ -126,7 +187,7 @@
       {#if originalName}
         <p class="d-jp">{originalName}</p>
       {/if}
-      <h2>{game.name}</h2>
+      <h2 id="bp-detail-title">{game.name}</h2>
       <p class="d-dev">
         {developer}
         {#if publisher && publisher !== developer} / <span>{publisher}</span>{/if}
@@ -221,7 +282,7 @@
       </Button>
     </div>
   </footer>
-</aside>
+</div>
 
 <style>
   .bp-detail {
@@ -242,6 +303,10 @@
     from { transform: translateX(40px); opacity: 0; }
     to   { transform: translateX(0); opacity: 1; }
   }
+  :global([data-motion="reduce"]) .bp-detail { animation: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .bp-detail { animation: none; }
+  }
 
   .d-head {
     display: flex; align-items: center; gap: 14px;
@@ -259,6 +324,7 @@
     transition: color .18s ease, border-color .18s ease;
   }
   .d-close:hover { color: var(--accent); border-color: var(--accent-ring); }
+  .bp-detail :global(button:focus-visible) { outline: none; box-shadow: var(--ring-switch, 0 0 0 3px rgba(232,85,127,.45)); }
   .d-head-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .d-pos { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
   .d-name-line {

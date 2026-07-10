@@ -1,0 +1,29 @@
+{
+  "repeatedImport": {
+    "source": "local_scan",
+    "sourceRecordId": "clannad-main",
+    "title": "CLANNAD",
+    "oldPath": "C:/Games/CLANNAD/clannad.exe",
+    "newPath": "c:\\games\\clannad\\clannad.exe",
+    "platformSource": null,
+    "platformId": null
+  },
+  "sameTitleDifferentWorks": {
+    "source": "local_scan",
+    "sourceRecordId": "remake-b",
+    "title": "Moonlight",
+    "oldPath": "C:/Games/Moonlight-1999/game.exe",
+    "newPath": "D:/Games/Moonlight-2026/game.exe",
+    "platformSource": null,
+    "platformId": null
+  },
+  "pathMove": {
+    "source": "steam",
+    "sourceRecordId": "steam-480",
+    "title": "Spacewar",
+    "oldPath": "C:/SteamLibrary/steamapps/common/Spacewar/spacewar.exe",
+    "newPath": "D:/SteamLibrary/steamapps/common/Spacewar/spacewar.exe",
+    "platformSource": "steam",
+    "platformId": "480"
+  }
+}

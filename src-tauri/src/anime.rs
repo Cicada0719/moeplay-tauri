@@ -2,6 +2,7 @@
 
 use futures_util::StreamExt;
 use serde::{Deserialize, Deserializer, Serialize};
+use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 // ── 规则(Plugin)模型 — 1:1 映射 Kazumi JSON ─────────────────────────────
@@ -42,6 +43,14 @@ pub struct AnimeRule {
     #[serde(default)]
     pub referer: String,
     #[serde(default)]
+    pub search_mode: String,
+    #[serde(default)]
+    pub chapter_mode: String,
+    #[serde(default)]
+    pub search_api_config: Option<SearchApiConfig>,
+    #[serde(default)]
+    pub chapter_api_config: Option<ChapterApiConfig>,
+    #[serde(default)]
     pub anti_crawler_config: AntiCrawlerConfig,
 }
 
@@ -50,7 +59,7 @@ pub struct AnimeRule {
 pub struct AntiCrawlerConfig {
     #[serde(default)]
     pub enabled: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_stringish")]
     pub captcha_type: String,
     #[serde(default)]
     pub captcha_image: String,
@@ -58,7 +67,7 @@ pub struct AntiCrawlerConfig {
     pub captcha_input: String,
     #[serde(default)]
     pub captcha_button: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_stringish")]
     pub captcha_detect_type: String,
     #[serde(default)]
     pub captcha_detect_value: String,
@@ -66,14 +75,62 @@ pub struct AntiCrawlerConfig {
     pub captcha_script: String,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiRequestConfig {
+    #[serde(default = "default_get_method")]
+    pub method: String,
+    pub url: String,
+    #[serde(default)]
+    pub query: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchApiConfig {
+    pub request: ApiRequestConfig,
+    pub list_path: String,
+    pub name_path: String,
+    pub source_path: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct EpisodePageConfig {
+    pub url: String,
+    #[serde(default)]
+    pub query: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ChapterApiConfig {
+    pub request: ApiRequestConfig,
+    #[serde(default)]
+    pub format: String,
+    pub roads_path: String,
+    pub road_name_path: String,
+    pub episodes_path: String,
+    pub episode_name_path: String,
+    #[serde(default)]
+    pub episode_url_path: String,
+    #[serde(default)]
+    pub variables: BTreeMap<String, String>,
+    #[serde(default)]
+    pub episode_page: Option<EpisodePageConfig>,
+}
+
 fn default_type() -> String {
     "anime".into()
+}
+fn default_get_method() -> String {
+    "GET".into()
 }
 fn bool_true() -> bool {
     true
 }
 
-fn deserialize_api<'de, D>(deserializer: D) -> Result<String, D::Error>
+fn deserialize_stringish<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -85,6 +142,13 @@ where
         Some(other) => other.to_string(),
         None => String::new(),
     })
+}
+
+fn deserialize_api<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserialize_stringish(deserializer)
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -248,6 +312,9 @@ fn shared_client() -> &'static reqwest::Client {
 }
 
 pub async fn search_anime(rule: &AnimeRule, keyword: &str) -> Result<Vec<SearchItem>, String> {
+    if rule.search_mode.eq_ignore_ascii_case("api") {
+        return search_anime_api(rule, keyword).await;
+    }
     let query_path = rule
         .search_url
         .replace("@keyword", &urlencoding::encode(keyword));
@@ -347,6 +414,9 @@ pub async fn search_anime(rule: &AnimeRule, keyword: &str) -> Result<Vec<SearchI
 }
 
 pub async fn fetch_roads(rule: &AnimeRule, page_url: &str) -> Result<Vec<Road>, String> {
+    if rule.chapter_mode.eq_ignore_ascii_case("api") {
+        return fetch_roads_api(rule, page_url).await;
+    }
     let full_url = build_full_url(rule, page_url);
 
     let client = shared_client();
@@ -416,6 +486,215 @@ pub async fn fetch_roads(rule: &AnimeRule, page_url: &str) -> Result<Vec<Road>, 
     .map_err(|e| format!("解析任务失败: {}", e))??;
 
     Ok(roads)
+}
+
+async fn search_anime_api(rule: &AnimeRule, keyword: &str) -> Result<Vec<SearchItem>, String> {
+    let config = rule
+        .search_api_config
+        .as_ref()
+        .ok_or_else(|| "API search config is missing".to_string())?;
+    let substitutions = BTreeMap::from([("keyword", keyword.to_string())]);
+    let body = execute_rule_api_request(rule, &config.request, &substitutions).await?;
+    let mut items = Vec::new();
+    for entry in select_json_path(&body, &config.list_path)? {
+        let name = json_path_scalar(entry, &config.name_path).unwrap_or_default();
+        let source = json_path_scalar(entry, &config.source_path).unwrap_or_default();
+        if !name.trim().is_empty() && !source.trim().is_empty() {
+            items.push(SearchItem { name, url: source });
+        }
+    }
+    Ok(items)
+}
+
+async fn fetch_roads_api(rule: &AnimeRule, source: &str) -> Result<Vec<Road>, String> {
+    let config = rule
+        .chapter_api_config
+        .as_ref()
+        .ok_or_else(|| "API chapter config is missing".to_string())?;
+    if !config.format.is_empty() && !config.format.eq_ignore_ascii_case("nested") {
+        return Err(format!("unsupported API chapter format: {}", config.format));
+    }
+    let substitutions = BTreeMap::from([("source", source.to_string())]);
+    let body = execute_rule_api_request(rule, &config.request, &substitutions).await?;
+    let mut variables = substitutions;
+    for (name, path) in &config.variables {
+        if let Some(value) = json_path_scalar(&body, path) {
+            variables.insert(name.as_str(), value);
+        }
+    }
+
+    let mut roads = Vec::new();
+    for (road_index, road_value) in select_json_path(&body, &config.roads_path)?
+        .into_iter()
+        .enumerate()
+    {
+        let road_name = json_path_scalar(road_value, &config.road_name_path)
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| format!("播放线路{}", road_index + 1));
+        let mut episodes = Vec::new();
+        for (episode_index, episode_value) in select_json_path(road_value, &config.episodes_path)?
+            .into_iter()
+            .enumerate()
+        {
+            let name = json_path_scalar(episode_value, &config.episode_name_path)
+                .unwrap_or_else(|| format!("第{}集", episode_index + 1));
+            let url = if !config.episode_url_path.trim().is_empty() {
+                json_path_scalar(episode_value, &config.episode_url_path).unwrap_or_default()
+            } else if let Some(page) = &config.episode_page {
+                build_episode_page_url(page, &variables, road_index, episode_index)?
+            } else {
+                String::new()
+            };
+            if !name.trim().is_empty() && !url.trim().is_empty() {
+                episodes.push(Episode { name, url });
+            }
+        }
+        if !episodes.is_empty() {
+            roads.push(Road {
+                name: road_name,
+                episodes,
+            });
+        }
+    }
+    Ok(roads)
+}
+
+async fn execute_rule_api_request(
+    rule: &AnimeRule,
+    request: &ApiRequestConfig,
+    substitutions: &BTreeMap<&str, String>,
+) -> Result<serde_json::Value, String> {
+    let url = substitute_rule_variables(&request.url, substitutions);
+    let mut builder = match request.method.to_ascii_uppercase().as_str() {
+        "GET" => shared_client().get(url),
+        "POST" => shared_client().post(url),
+        method => return Err(format!("unsupported API request method: {method}")),
+    };
+    let mut query = Vec::<(String, String)>::new();
+    for (name, value) in &request.query {
+        query.push((
+            name.clone(),
+            substitute_rule_variables(&json_value_text(value), substitutions),
+        ));
+    }
+    if !query.is_empty() {
+        builder = query_or_form(builder, &request.method, &query);
+    }
+    if !rule.referer.is_empty() {
+        builder = builder.header(reqwest::header::REFERER, &rule.referer);
+    }
+    if !rule.user_agent.is_empty() {
+        builder = builder.header(reqwest::header::USER_AGENT, &rule.user_agent);
+    }
+    let response = builder
+        .send()
+        .await
+        .map_err(|error| format!("API source request failed: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("API source returned HTTP {}", response.status()));
+    }
+    response
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|error| format!("API source JSON is invalid: {error}"))
+}
+
+fn query_or_form(
+    builder: reqwest::RequestBuilder,
+    method: &str,
+    values: &[(String, String)],
+) -> reqwest::RequestBuilder {
+    if method.eq_ignore_ascii_case("POST") {
+        builder.form(values)
+    } else {
+        builder.query(values)
+    }
+}
+
+fn build_episode_page_url(
+    page: &EpisodePageConfig,
+    variables: &BTreeMap<&str, String>,
+    road_index: usize,
+    episode_index: usize,
+) -> Result<String, String> {
+    let mut substitutions = variables.clone();
+    substitutions.insert("roadIndex", road_index.to_string());
+    substitutions.insert("episodeIndex", episode_index.to_string());
+    let base = substitute_rule_variables(&page.url, &substitutions);
+    let mut url = url::Url::parse(&base).map_err(|error| error.to_string())?;
+    {
+        let mut pairs = url.query_pairs_mut();
+        for (name, value) in &page.query {
+            pairs.append_pair(
+                name,
+                &substitute_rule_variables(&json_value_text(value), &substitutions),
+            );
+        }
+    }
+    Ok(url.to_string())
+}
+
+fn substitute_rule_variables(input: &str, variables: &BTreeMap<&str, String>) -> String {
+    variables
+        .iter()
+        .fold(input.to_string(), |value, (name, replacement)| {
+            value.replace(&format!("@{name}"), replacement)
+        })
+}
+
+fn json_value_text(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(value) => value.clone(),
+        serde_json::Value::Null => String::new(),
+        other => other.to_string(),
+    }
+}
+
+fn json_path_scalar(value: &serde_json::Value, path: &str) -> Option<String> {
+    select_json_path(value, path)
+        .ok()?
+        .first()
+        .map(|value| json_value_text(value))
+}
+
+fn select_json_path<'a>(
+    value: &'a serde_json::Value,
+    path: &str,
+) -> Result<Vec<&'a serde_json::Value>, String> {
+    let path = path.trim();
+    if path.is_empty() || path == "$" {
+        return Ok(vec![value]);
+    }
+    let mut current = vec![value];
+    for raw_segment in path
+        .strip_prefix("$.")
+        .or_else(|| path.strip_prefix('.'))
+        .unwrap_or(path)
+        .split('.')
+    {
+        let (name, expand_array) = raw_segment
+            .strip_suffix("[*]")
+            .map(|name| (name, true))
+            .unwrap_or((raw_segment, false));
+        if name.is_empty() {
+            return Err(format!("invalid JSON path: {path}"));
+        }
+        let mut next = Vec::new();
+        for candidate in current {
+            let Some(child) = candidate.get(name) else {
+                continue;
+            };
+            if expand_array {
+                if let Some(values) = child.as_array() {
+                    next.extend(values);
+                }
+            } else {
+                next.push(child);
+            }
+        }
+        current = next;
+    }
+    Ok(current)
 }
 
 pub fn build_full_url(rule: &AnimeRule, url: &str) -> String {
@@ -541,6 +820,10 @@ mod tests {
             chapter_roads: "//div".into(),
             chapter_result: ".//a".into(),
             referer: String::new(),
+            search_mode: String::new(),
+            chapter_mode: String::new(),
+            search_api_config: None,
+            chapter_api_config: None,
             anti_crawler_config: AntiCrawlerConfig::default(),
         }
     }
@@ -559,9 +842,9 @@ mod tests {
             "chapterResult": ".//a",
             "antiCrawlerConfig": {
                 "enabled": true,
-                "captchaType": "2",
+                "captchaType": 2,
                 "captchaButton": "//button[@id='verify']",
-                "captchaDetectType": "2",
+                "captchaDetectType": 2,
                 "captchaDetectValue": "验证"
             }
         }))
@@ -594,6 +877,65 @@ mod tests {
             build_full_url(&rule, "play/1"),
             "https://example.com/root/play/1"
         );
+    }
+
+    #[test]
+    fn api_mode_rule_parses_nested_paths_and_builds_episode_pages() {
+        let rule: AnimeRule = serde_json::from_value(serde_json::json!({
+            "api": "8",
+            "name": "api-fixture",
+            "baseURL": "https://example.com/",
+            "searchURL": "",
+            "searchList": "",
+            "searchName": "",
+            "searchResult": "",
+            "chapterRoads": "",
+            "chapterResult": "",
+            "searchMode": "api",
+            "chapterMode": "api",
+            "searchApiConfig": {
+                "request": { "method": "GET", "url": "https://example.com/search", "query": { "q": "@keyword", "pageSize": 5 } },
+                "listPath": "$.data.videos[*]",
+                "namePath": "$.name",
+                "sourcePath": "$.id"
+            },
+            "chapterApiConfig": {
+                "request": { "method": "GET", "url": "https://example.com/videos/@source" },
+                "format": "nested",
+                "roadsPath": "$.data.playSources[*]",
+                "roadNamePath": "$.name",
+                "episodesPath": "$.episodes[*]",
+                "episodeNamePath": "$.name",
+                "episodeUrlPath": "",
+                "variables": { "slug": "$.data.slug" },
+                "episodePage": { "url": "https://example.com/video/@slug/play", "query": { "source": "@roadIndex", "episode": "@episodeIndex" } }
+            }
+        }))
+        .unwrap();
+        assert_eq!(rule.search_mode, "api");
+        assert_eq!(rule.chapter_mode, "api");
+
+        let body = serde_json::json!({"data":{"videos":[{"id":7,"name":"Fixture"}]}});
+        let values = select_json_path(&body, "$.data.videos[*]").unwrap();
+        assert_eq!(values.len(), 1);
+        assert_eq!(
+            json_path_scalar(values[0], "$.name").as_deref(),
+            Some("Fixture")
+        );
+        assert_eq!(json_path_scalar(values[0], "$.id").as_deref(), Some("7"));
+
+        let page = rule
+            .chapter_api_config
+            .as_ref()
+            .and_then(|config| config.episode_page.as_ref())
+            .unwrap();
+        let variables = BTreeMap::from([("slug", "fixture-slug".to_string())]);
+        let url = build_episode_page_url(page, &variables, 1, 3).unwrap();
+        let parsed = url::Url::parse(&url).unwrap();
+        assert_eq!(parsed.path(), "/video/fixture-slug/play");
+        let query = parsed.query_pairs().collect::<BTreeMap<_, _>>();
+        assert_eq!(query.get("source").map(|value| value.as_ref()), Some("1"));
+        assert_eq!(query.get("episode").map(|value| value.as_ref()), Some("3"));
     }
 
     #[test]
@@ -803,7 +1145,7 @@ pub struct RuleCatalogItem {
 }
 
 fn github_client() -> reqwest::Client {
-    crate::http_client::build_reqwest_client(20, "MoeGame/1.0")
+    crate::http_client::build_reqwest_client(20, crate::http_client::app_user_agent())
 }
 
 pub async fn fetch_rules_index() -> Result<Vec<RuleCatalogItem>, String> {
@@ -986,7 +1328,7 @@ pub struct BangumiComment {
 fn bangumi_client() -> reqwest::Client {
     reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
-        .user_agent("MoeGame/1.0 (https://github.com)")
+        .user_agent(crate::http_client::app_user_agent_with_context("github"))
         .build()
         .unwrap_or_default()
 }
@@ -1427,7 +1769,7 @@ pub struct BangumiCollectionEntry {
 pub async fn bangumi_get_username(token: &str) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
-        .user_agent("moeplay/0.1")
+        .user_agent(crate::http_client::app_user_agent())
         .build()
         .unwrap_or_default();
     let url = format!("{}/v0/me", BANGUMI_API);
@@ -1461,7 +1803,7 @@ pub async fn bangumi_get_collection(
 ) -> Result<(Vec<BangumiCollectionEntry>, i64), String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
-        .user_agent("moeplay/0.1")
+        .user_agent(crate::http_client::app_user_agent())
         .build()
         .unwrap_or_default();
     let url = format!(
@@ -1559,7 +1901,7 @@ pub async fn bangumi_update_collection(
     };
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
-        .user_agent("moeplay/0.1")
+        .user_agent(crate::http_client::app_user_agent())
         .build()
         .unwrap_or_default();
     let url = format!("{}/v0/users/-/collections/{}", BANGUMI_API, subject_id);
@@ -1602,7 +1944,7 @@ pub async fn fetch_bangumi_episodes_list(
 ) -> Result<Vec<BangumiEpisodeInfo>, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
-        .user_agent("moeplay/0.1.1")
+        .user_agent(crate::http_client::app_user_agent())
         .build()
         .unwrap_or_default();
     let url = format!(

@@ -1,0 +1,7 @@
+{
+  "Id": "episode-a",
+  "Name": "Episode 01",
+  "MediaSources": [
+    { "Id": "source-a", "SupportsDirectStream": true }
+  ]
+}

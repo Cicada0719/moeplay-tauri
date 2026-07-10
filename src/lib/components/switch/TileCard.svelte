@@ -1,29 +1,58 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
-  import { gsap } from "gsap";
   import type { Game } from "../../stores/games.svelte";
+  import { fileSrc } from "../../utils";
   import { coverOf } from "../../utils/game";
-  import CachedImage from "../CachedImage.svelte";
+  import { MediaCard } from "../ui-v2";
   import Icon from "../Icon.svelte";
 
-  // game === null 表示末尾“全部游戏”哨兵磁贴
-  let { game, selected = false, idle = false, onpick, onlaunch }: {
+  let {
+    game,
+    selected = false,
+    idle = false,
+    disabled = false,
+    loading = false,
+    focusKey,
+    tabIndex = -1,
+    onpick,
+    onlaunch,
+    onfocus,
+  }: {
     game: Game | null;
     selected?: boolean;
     idle?: boolean;
+    disabled?: boolean;
+    loading?: boolean;
+    focusKey?: string;
+    tabIndex?: number;
     onpick?: () => void;
     onlaunch?: () => void;
+    onfocus?: () => void;
   } = $props();
 
   const isSentinel = $derived(game === null);
   const cover = $derived(coverOf(game));
+  const imageSource = $derived(cover ? (fileSrc(cover) ?? cover) : undefined);
   const monogram = $derived((game?.name?.trim()?.[0] ?? "?").toUpperCase());
-  let tileEl = $state<HTMLButtonElement>();
+  const resolvedFocusKey = $derived(focusKey ?? (game ? `game-card-${game.id}` : "library-show-all"));
+  let interactiveEl = $state<HTMLElement>();
   let clickTimer: number | undefined;
-  // 封面加载失败（路径存在但图裂）时退回首字母占位，避免整块黑卡
-  let coverFailed = $state(false);
-  // game 变了要重置失败态（TileCard 按 id keyed，正常每番一份实例，这里防御性兜底）
-  $effect(() => { void game?.id; coverFailed = false; });
+
+  $effect(() => {
+    const node = interactiveEl;
+    if (!node) return;
+    node.dataset.focusKey = resolvedFocusKey;
+    node.tabIndex = disabled || loading ? -1 : tabIndex;
+    node.addEventListener("keydown", handleKeydown);
+    node.addEventListener("dblclick", handleDoubleClick);
+    const handleFocus = () => onfocus?.();
+    node.addEventListener("focus", handleFocus);
+    return () => {
+      node.removeEventListener("keydown", handleKeydown);
+      node.removeEventListener("dblclick", handleDoubleClick);
+      node.removeEventListener("focus", handleFocus);
+    };
+  });
 
   function handleClick() {
     if (clickTimer) window.clearTimeout(clickTimer);
@@ -33,139 +62,99 @@
     }, 180);
   }
 
-  function handleDoubleClick() {
+  function handleDoubleClick(event: MouseEvent) {
+    event.preventDefault();
     if (clickTimer) {
       window.clearTimeout(clickTimer);
       clickTimer = undefined;
     }
-    onlaunch?.();
+    if (!isSentinel) onlaunch?.();
+    else onpick?.();
+  }
+
+  function handleKeydown(event: KeyboardEvent) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === " " && !isSentinel) onlaunch?.();
+    else onpick?.();
   }
 
   onDestroy(() => {
     if (clickTimer) window.clearTimeout(clickTimer);
   });
-
-  $effect(() => {
-    const node = tileEl;
-    if (!node) return;
-    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
-    if (reduce) return;
-    const ctx = gsap.context(() => {
-      gsap.to(node, {
-        scale: selected ? 1.04 : 1,
-        y: selected ? -4 : 0,
-        duration: 0.22,
-        ease: "power2.out",
-        overwrite: "auto",
-      });
-    }, node);
-    return () => ctx.revert();
-  });
 </script>
 
-<button
-  bind:this={tileEl}
-  class="tile"
+<div
+  class="tile-host"
   class:selected
   class:idle
   class:sentinel={isSentinel}
-  title={game?.name ?? "全部游戏"}
-  onclick={handleClick}
-  ondblclick={handleDoubleClick}
 >
-  <span class="art">
+  {#snippet badges()}
     {#if isSentinel}
-      <span class="all">
-        <Icon name="collection" size={26} />
-        <small>全部游戏</small>
-      </span>
-    {:else if cover && !coverFailed}
-      <CachedImage
-        source={cover}
-        cacheKey={`sw-tile-${game!.id}`}
-        alt={game!.name}
-        loading="lazy"
-        onfail={() => (coverFailed = true)}
-      />
-    {:else}
-      <span class="mono">{monogram}</span>
+      <span class="all-badge"><Icon name="collection" size={28} /><small>全部游戏</small></span>
+    {:else if !imageSource}
+      <span class="tile-monogram" aria-hidden="true">{monogram}</span>
     {/if}
+    {#if game?.favorite}<span class="favorite-badge"><Icon name="heartFill" size={13} /></span>{/if}
+  {/snippet}
 
-    {#if game?.favorite}
-      <span class="fav"><Icon name="heartFill" size={13} /></span>
-    {/if}
-  </span>
-</button>
+  <MediaCard
+    title={game?.name ?? "全部游戏"}
+    imageSrc={imageSource}
+    imageAlt={imageSource ? (game?.name ?? "") : ""}
+    onActivate={handleClick}
+    badges={badges}
+    variant="poster"
+    {selected}
+    {disabled}
+    {loading}
+    ariaLabel={game ? `打开 ${game.name}` : "查看全部游戏"}
+    itemRole="none"
+    class="tile-media-card"
+    bind:interactiveRef={interactiveEl}
+  />
+</div>
 
 <style>
-  .tile {
+  .tile-host {
     flex: 0 0 auto;
     width: var(--sw-tile-width);
-    padding: 0;
-    border: none;
-    background: none;
-    cursor: pointer;
     border-radius: var(--sw-tile-radius);
-    transition: filter 0.24s ease, width 0.22s ease;
+    transition: filter .24s ease, width .22s ease, transform .22s ease;
     will-change: transform;
   }
-  .art {
-    position: relative;
-    display: block;
-    width: 100%;
-    aspect-ratio: 3 / 4;
+  .tile-host.idle { filter: brightness(var(--sw-tile-idle-bright)); }
+  .tile-host.selected { width: var(--sw-tile-selected-width); transform: translateY(-4px) scale(1.02); z-index: 3; filter: none; }
+
+  :global(.tile-media-card.v2-media-card) {
+    border: 0;
     border-radius: var(--sw-tile-radius);
-    overflow: hidden;
     background: var(--bg-elev);
     box-shadow: var(--shadow-tile);
   }
-  .art :global(.cached-image) {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
+  :global(.tile-media-card.v2-media-card.is-selected) { box-shadow: var(--ring-switch), var(--shadow-lift); }
+  :global(.tile-media-card .v2-media-card__media) { aspect-ratio: 3 / 4; }
+  :global(.tile-media-card .v2-media-card__media img) { object-fit: cover; }
+  :global(.tile-media-card .v2-media-card__copy) {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); padding: 0; margin: -1px;
+  }
+  :global(.tile-media-card .v2-media-card__primary:focus-visible) { box-shadow: inset var(--ring-switch); }
+
+  .all-badge,
+  .tile-monogram { position: absolute; inset: 0; display: grid; place-items: center; }
+  .all-badge { align-content: center; gap: .55rem; color: var(--text-secondary); background: linear-gradient(145deg, rgba(0,255,153,.13), rgba(0,90,70,.2)); }
+  .all-badge small { font: 700 .75rem/1 var(--font-ui); }
+  .tile-monogram { font: 700 2.4rem/1 var(--font-display); color: var(--text-muted); background: radial-gradient(circle at 50% 20%, rgba(0,255,153,.15), transparent 65%); }
+  .favorite-badge { position: absolute; top: .55rem; right: .55rem; display: grid; place-items: center; width: 1.65rem; height: 1.65rem; border-radius: 999px; color: var(--accent-pink); background: rgba(8,11,18,.7); }
+
+  @media (max-width: 760px) {
+    .tile-host { width: calc(var(--sw-tile-width) * .86); }
+    .tile-host.selected { width: calc(var(--sw-tile-selected-width) * .86); }
   }
 
-  .tile.idle { filter: brightness(var(--sw-tile-idle-bright)); }
-  .tile.selected {
-    width: var(--sw-tile-selected-width);
-    filter: none;
-    z-index: 3;
-  }
-  .tile.selected .art { box-shadow: var(--ring-switch), var(--shadow-lift); }
-  .tile:focus-visible { outline: none; }
-  .tile:focus-visible .art { box-shadow: var(--ring-switch), var(--shadow-lift); }
-
-  .mono {
-    width: 100%;
-    height: 100%;
-    display: grid;
-    place-items: center;
-    font-family: var(--font-display);
-    font-size: 38px;
-    font-weight: 700;
-    color: var(--text-muted);
-    background: linear-gradient(135deg, rgba(232, 85, 127, 0.18), rgba(110, 120, 160, 0.14));
-  }
-  .all {
-    width: 100%;
-    height: 100%;
-    display: grid;
-    place-items: center;
-    align-content: center;
-    gap: 8px;
-    color: var(--text-secondary);
-    background: var(--bg-card);
-    border: 1px dashed var(--border-hover);
-    border-radius: var(--sw-tile-radius);
-  }
-  .all small { font-size: 12px; }
-
-  .fav {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    color: var(--accent);
-    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+  @media (prefers-reduced-motion: reduce) {
+    .tile-host { transition: none; }
   }
 </style>

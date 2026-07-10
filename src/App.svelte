@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { check } from "@tauri-apps/plugin-updater";
-  import { fly, fade, scale } from "svelte/transition";
-  import { quintOut, cubicOut } from "svelte/easing";
+  import { fade } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
   import { shortcut } from "@svelte-put/shortcut";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { gameStore } from "./lib/stores/games.svelte";
@@ -16,18 +16,31 @@
   import ShortcutHelp from "./lib/components/ShortcutHelp.svelte";
   import UpdateDialog from "./lib/components/UpdateDialog.svelte";
   import Icon from "./lib/components/Icon.svelte";
+  import { Drawer } from "./lib/components/ui-v2";
   import { attachGamepad } from "./lib/components/switch/useGamepad.svelte";
-  import { DOCK_ITEMS, TOOL_ITEMS } from "./lib/nav";
+  import { DOCK_ITEMS, TOOL_ITEMS, getViewLabel } from "./lib/nav";
   import { buildShortcutParameter, type ShortcutActions } from "./lib/shortcuts";
-  import { initRouter } from "./lib/stores/router.svelte";
+  import {
+    closeOverlay,
+    focusCurrentRouteSearch,
+    handleBackNavigation,
+    initRouter,
+    navigateTo,
+    openOverlay,
+  } from "./lib/stores/router.svelte";
+  import { motionStore } from "./lib/stores/motion.svelte";
+
+  const TOOLS_DRAWER_ID = "tools-drawer";
+  const SHORTCUT_HELP_OVERLAY_ID = "shortcut-help";
+  const SCRAPE_OVERLAY_ID = "scrape-dialog";
+  const UPDATE_OVERLAY_ID = "update-dialog";
 
   continueStore.start();
   const isBigPicture = $derived(uiStore.bigPictureActive);
-  let toolsDrawerOpen = $state(false);
+  const toolsDrawerOpen = $derived(uiStore.drawerOpen && uiStore.drawerView === "tools");
   let isWindowFullscreen = $state(false);
 
-  // tool drawer contains these views — used to highlight "工具" in dock
-  const TOOL_VIEWS = new Set(TOOL_ITEMS.map(t => t.view));
+  const TOOL_VIEWS = new Set(TOOL_ITEMS.map(item => item.view));
   const isToolView = $derived(TOOL_VIEWS.has(uiStore.currentView));
 
   function appWindow() {
@@ -39,57 +52,101 @@
     }
   }
 
+  function openToolsDrawer() {
+    uiStore.openDrawer("tools");
+    openOverlay(
+      { id: TOOLS_DRAWER_ID, kind: "drawer", returnFocusKey: "system-dock-tools" },
+      () => uiStore.closeDrawer(),
+    );
+  }
+
+  function closeToolsDrawer() {
+    uiStore.closeDrawer();
+    closeOverlay(TOOLS_DRAWER_ID);
+  }
+
+  function toggleToolsDrawer() {
+    if (toolsDrawerOpen) closeToolsDrawer();
+    else openToolsDrawer();
+  }
+
+  function setShortcutHelp(open: boolean) {
+    showShortcutHelp = open;
+    if (open) {
+      openOverlay(
+        { id: SHORTCUT_HELP_OVERLAY_ID, kind: "dialog" },
+        () => { showShortcutHelp = false; },
+      );
+    } else {
+      closeOverlay(SHORTCUT_HELP_OVERLAY_ID);
+    }
+  }
+
   function pickDock(view: string) {
     if (view === "__bigpicture") {
-      toolsDrawerOpen = false;
+      closeToolsDrawer();
       uiStore.setBigPicture(true);
       return;
     }
     if (view === "__tools") {
-      toolsDrawerOpen = !toolsDrawerOpen;
+      toggleToolsDrawer();
       return;
     }
-    toolsDrawerOpen = false;
+    closeToolsDrawer();
     if (view === "home") gameStore.quickFilter = null;
-    uiStore.currentView = view;
+    navigateTo(view);
   }
 
   function pickTool(view: string) {
-    toolsDrawerOpen = false;
-    uiStore.currentView = view;
+    closeToolsDrawer();
+    navigateTo(view);
   }
 
-  function goHome() {
-    toolsDrawerOpen = false;
-    gameStore.quickFilter = null;
-    uiStore.currentView = "home";
-  }
-
-  function exitable(): boolean {
-    return !isBigPicture
-      && uiStore.currentView !== "home"
-      && !uiStore.showScrapeDialog
-      && !uiStore.showFirstRunWizard
-      && !toolsDrawerOpen;
-  }
-
-  function onKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape") {
-      if (showShortcutHelp) {
-        e.preventDefault();
-        showShortcutHelp = false;
+  function focusCurrentSearch() {
+    if (isBigPicture) return;
+    const view = uiStore.currentView;
+    uiStore.requestFocusSearch(view);
+    let attempt = 0;
+    const focus = () => {
+      if (uiStore.currentView !== view) {
+        uiStore.consumeFocusSearchSignal();
         return;
       }
-      if (toolsDrawerOpen) {
-        e.preventDefault();
-        toolsDrawerOpen = false;
+      const active = document.activeElement;
+      const searchFocused = active instanceof HTMLInputElement
+        && (active.type === "search" || active.placeholder.includes("搜索"));
+      if (searchFocused) {
+        uiStore.consumeFocusSearchSignal();
         return;
       }
-      if (exitable()) {
-        e.preventDefault();
-        goHome();
+      const userMovedFocus = active instanceof HTMLElement
+        && /^(BUTTON|A|INPUT|TEXTAREA|SELECT)$/.test(active.tagName);
+      if (attempt > 0 && userMovedFocus) {
+        uiStore.consumeFocusSearchSignal();
+        return;
       }
+      focusCurrentRouteSearch(view);
+      attempt++;
+      if (attempt < 4) window.setTimeout(focus, attempt * 75);
+      else uiStore.consumeFocusSearchSignal();
+    };
+    queueMicrotask(focus);
+  }
+
+  function layeredBack(): boolean {
+    if (uiStore.showFirstRunWizard) return true;
+    const result = handleBackNavigation();
+    if (result !== "none") return true;
+    if (isBigPicture) {
+      uiStore.setBigPicture(false);
+      return true;
     }
+    return false;
+  }
+
+  function onKeydown(event: KeyboardEvent) {
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    if (layeredBack()) event.preventDefault();
   }
 
   const shortcutActions: ShortcutActions = {
@@ -99,27 +156,25 @@
     },
     toggleTools() {
       if (isBigPicture) return;
-      toolsDrawerOpen = !toolsDrawerOpen;
+      toggleToolsDrawer();
     },
-    focusSearch() {
-      if (isBigPicture) return;
-      if (uiStore.currentView !== "home") uiStore.currentView = "home";
-      uiStore.requestFocusSearch();
-    },
+    focusSearch: focusCurrentSearch,
     toggleHelp() {
       if (isBigPicture) return;
-      showShortcutHelp = !showShortcutHelp;
+      setShortcutHelp(!showShortcutHelp);
     },
-    goHome() {
+    goBack() {
       if (isBigPicture) return;
-      goHome();
+      layeredBack();
     },
   };
 
   const shortcutParameter = $derived(buildShortcutParameter(shortcutActions));
 
   $effect(() => {
-    if (uiStore.currentView === "game-detail" && !gameStore.selectedGame && gameStore.games[0]) gameStore.selectGame(gameStore.games[0].id);
+    if (uiStore.currentView === "game-detail" && !gameStore.selectedGame && gameStore.games[0]) {
+      gameStore.selectGame(gameStore.games[0].id);
+    }
   });
 
   async function toggleWindowFullscreen() {
@@ -138,30 +193,55 @@
 
   let booted = $state(false);
   let _detachGamepad = () => {};
+
+  $effect(() => {
+    if (typeof document === "undefined") return;
+    document.documentElement.dataset.uiReady = booted ? "true" : "false";
+  });
   let showShortcutHelp = $state(false);
   let showUpdateDialog = $state(false);
+
+  $effect(() => {
+    if (uiStore.showScrapeDialog) {
+      openOverlay({ id: SCRAPE_OVERLAY_ID, kind: "dialog" }, () => uiStore.closeScrapeDialog());
+    } else {
+      closeOverlay(SCRAPE_OVERLAY_ID);
+    }
+  });
+
+  $effect(() => {
+    if (showUpdateDialog) {
+      openOverlay({ id: UPDATE_OVERLAY_ID, kind: "dialog" }, () => { showUpdateDialog = false; });
+    } else {
+      closeOverlay(UPDATE_OVERLAY_ID);
+    }
+  });
+
   onMount(() => {
+    const releaseMotion = motionStore.initialize();
     if (!booted) {
       booted = true;
       gameStore.load();
       settingsStore.load();
-      initRouter();
     }
-    appWindow()?.isFullscreen().then(v => { isWindowFullscreen = v; }).catch(() => {});
+    const releaseRouter = initRouter();
+    appWindow()?.isFullscreen().then(value => { isWindowFullscreen = value; }).catch(() => {});
     window.addEventListener("keydown", onKeydown);
-    // 启动 5 秒后静默检查更新（避免和首屏加载冲突）
     const updateTimer = setTimeout(async () => {
       try {
         const update = await check();
         if (update) showUpdateDialog = true;
       } catch {}
     }, 5000);
-    // disable shortcuts while help is open to avoid double-firing from action
-    _detachGamepad = attachGamepad({ back: () => {
-      if (toolsDrawerOpen) { toolsDrawerOpen = false; return; }
-      if (exitable()) goHome();
-    }});
+    _detachGamepad = attachGamepad({
+      back: layeredBack,
+      start: () => {
+        if (!isBigPicture) uiStore.setBigPicture(true);
+      },
+    }, { id: "app-global-gamepad", priority: -100 });
     return () => {
+      releaseMotion();
+      releaseRouter();
       clearTimeout(updateTimer);
       window.removeEventListener("keydown", onKeydown);
       _detachGamepad();
@@ -211,6 +291,7 @@
   class="app-container"
   class:fullscreen={isBigPicture}
   data-testid="app-shell"
+  data-ui-ready={booted ? "true" : "false"}
 >
   {#if !isBigPicture}
     <div class="bg-layers">
@@ -218,9 +299,17 @@
       <div class="bg-scrim"></div>
     </div>
 
-    <main class="main-content" data-testid="main-content">
+    <div class="main-content" data-testid="main-content">
       {#key uiStore.currentView}
-        <div class="view-wrapper" in:fade={{ duration: 240, easing: cubicOut }} out:fade={{ duration: 160 }}>
+        <div
+          class="view-wrapper"
+          data-route-root
+          data-route-view={uiStore.currentView}
+          aria-label={getViewLabel(uiStore.currentView)}
+          tabindex="-1"
+          in:fade={{ duration: 240, easing: cubicOut }}
+          out:fade={{ duration: 160 }}
+        >
           {#if uiStore.currentView === "scraper"}
             {#await import("./lib/components/ScraperPage.svelte") then { default: Comp }}
               <Comp />
@@ -282,27 +371,36 @@
           {/if}
         </div>
       {/key}
-    </main>
+    </div>
 
-    <!-- Tools drawer overlay -->
-    {#if toolsDrawerOpen}
-      <button class="drawer-backdrop" transition:fade={{ duration: 200 }} onclick={() => (toolsDrawerOpen = false)} aria-label="关闭工具面板"></button>
-      <div class="tools-drawer" transition:fly={{ y: 60, duration: 300, easing: quintOut }}>
-        <div class="tools-grid">
-          {#each TOOL_ITEMS as tool, idx (tool.id)}
-            <button
-              class="tool-cell"
-              class:active={uiStore.currentView === tool.view}
-              style="animation-delay: {idx * 35}ms"
-              onclick={() => pickTool(tool.view)}
-            >
-              <span class="tool-icon tool-icon--{tool.group}"><Icon name={tool.icon} size={22} /></span>
-              <span class="tool-label">{tool.label}</span>
-            </button>
-          {/each}
-        </div>
+    <Drawer
+      id={TOOLS_DRAWER_ID}
+      open={toolsDrawerOpen}
+      title="工具"
+      description="从当前内容入口打开辅助功能。"
+      side="bottom"
+      size="sm"
+      initialFocus="[data-tool-item]"
+      returnFocus="#system-dock-tools"
+      onClose={closeToolsDrawer}
+    >
+      <div class="tools-grid">
+        {#each TOOL_ITEMS as tool (tool.id)}
+          <button
+            type="button"
+            class="tool-cell"
+            class:active={uiStore.currentView === tool.view}
+            data-tool-item
+            aria-label={tool.ariaLabel}
+            aria-current={uiStore.currentView === tool.view ? "page" : undefined}
+            onclick={() => pickTool(tool.view)}
+          >
+            <span class="tool-icon tool-icon--{tool.group}"><Icon name={tool.icon} size={22} /></span>
+            <span class="tool-label">{tool.label}</span>
+          </button>
+        {/each}
       </div>
-    {/if}
+    </Drawer>
 
     <div class="global-dock">
       <SystemDock
@@ -331,7 +429,7 @@
   {/await}
 {/if}
 
-<ShortcutHelp open={showShortcutHelp} onclose={() => (showShortcutHelp = false)} />
+<ShortcutHelp open={showShortcutHelp} onclose={() => setShortcutHelp(false)} />
 
 <UpdateDialog bind:open={showUpdateDialog} />
 
@@ -368,29 +466,7 @@
     z-index: 1;
   }
 
-  /* ── Tools drawer ── */
-  .drawer-backdrop {
-    position: fixed; inset: 0; z-index: 80;
-    background: rgba(5, 8, 14, 0.45);
-    border: none; cursor: default;
-  }
-
-  .tools-drawer {
-    position: fixed;
-    bottom: 70px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 81;
-    width: min(520px, calc(100vw - 32px));
-    padding: 18px 20px;
-    background: var(--bg-elev, rgba(22, 26, 36, 0.95));
-    border: 1px solid var(--border);
-    border-radius: 18px;
-    backdrop-filter: blur(24px) saturate(1.15);
-    -webkit-backdrop-filter: blur(24px) saturate(1.15);
-    box-shadow: 0 -8px 40px rgba(0,0,0,0.35);
-  }
-
+  /* ── Tools drawer content ── */
   .tools-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -466,6 +542,5 @@
 
   @media (max-width: 520px) {
     .tools-grid { grid-template-columns: repeat(3, 1fr); }
-    .tools-drawer { bottom: 62px; padding: 14px 12px; border-radius: 14px; }
   }
 </style>

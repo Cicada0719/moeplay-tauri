@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-backfill-legacy-game-activity"
+description = "Enables the backfill_legacy_game_activity command without any pre-configured scope."
+commands.allow = ["backfill_legacy_game_activity"]
+
+[[permission]]
+identifier = "deny-backfill-legacy-game-activity"
+description = "Denies the backfill_legacy_game_activity command without any pre-configured scope."
+commands.deny = ["backfill_legacy_game_activity"]

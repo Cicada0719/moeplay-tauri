@@ -792,7 +792,8 @@ pub struct Settings {
     pub ai_enabled: bool,
     /// AI API 地址
     pub ai_api_url: String,
-    /// AI API Key
+    /// 旧版 AI API Key，仅用于反序列化迁移；永不再序列化。
+    #[serde(default, skip_serializing)]
     pub ai_api_key: String,
     /// AI 模型名称
     pub ai_model: String,
@@ -808,8 +809,8 @@ pub struct Settings {
     /// 已连接的 SteamID64
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub steam_id: Option<String>,
-    /// Steam Web API Key，仅保存在本机设置
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// 旧版 Steam Web API Key，仅用于反序列化迁移；永不再序列化。
+    #[serde(default, skip_serializing)]
     pub steam_api_key: Option<String>,
     /// 首页是否显示看板娘立绘
     #[serde(default = "Settings::default_true")]
@@ -853,6 +854,18 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// 清除所有仅为旧版兼容而保留的明文凭据字段。
+    pub fn redact_secrets(&mut self) {
+        self.ai_api_key.clear();
+        self.steam_api_key = None;
+    }
+
+    /// 返回不含任何明文凭据的设置副本。
+    pub fn redacted(mut self) -> Self {
+        self.redact_secrets();
+        self
+    }
+
     fn default_nsfw_display_mode() -> String {
         "blur".to_string()
     }

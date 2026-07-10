@@ -1,0 +1,25 @@
+{
+  "total_games": 3,
+  "installed_games": 2,
+  "completed_games": 1,
+  "playtime_hours": 12.5,
+  "completion_rate": 33.3,
+  "scrape_coverage": 66.7,
+  "disk_usage_gb": 4.2,
+  "recent_games": ["月影", "星海"],
+  "top_tags": [["剧情", 2], ["科幻", 1]],
+  "completion_distribution": [["completed", 1], ["playing", 2]],
+  "monthly_heatmap": [
+    {"month": "2026-06", "sessions": 1, "hours": 0.5},
+    {"month": "2026-07", "sessions": 2, "hours": 1.5}
+  ],
+  "collections": [
+    {
+      "id": "completed",
+      "name": "已通关",
+      "description": "已通关的游戏",
+      "game_count": 1,
+      "icon": "check"
+    }
+  ]
+}

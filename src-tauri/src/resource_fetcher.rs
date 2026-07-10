@@ -28,7 +28,7 @@ pub async fn fetch_kungal_resources(game_id: &str) -> Result<Vec<ResourceLink>, 
 
     let resp = client
         .get(&detail_url)
-        .header("User-Agent", "MoeGame/0.1")
+        .header("User-Agent", crate::http_client::app_user_agent())
         .send()
         .await
         .map_err(|e| format!("请求 Kungal 失败: {}", e))?;

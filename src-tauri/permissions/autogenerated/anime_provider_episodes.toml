@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-provider-episodes"
+description = "Enables the anime_provider_episodes command without any pre-configured scope."
+commands.allow = ["anime_provider_episodes"]
+
+[[permission]]
+identifier = "deny-anime-provider-episodes"
+description = "Denies the anime_provider_episodes command without any pre-configured scope."
+commands.deny = ["anime_provider_episodes"]

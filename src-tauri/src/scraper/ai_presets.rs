@@ -7,12 +7,13 @@
 //   - 链式回退（provider A 失败→ provider B）
 
 use serde::{Deserialize, Serialize};
+use url::{Host, Url};
 
 // ============================================================================
 // Provider 定义
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct AiProvider {
     /// 唯一标识
     pub id: String,
@@ -21,7 +22,7 @@ pub struct AiProvider {
     /// API URL（chat completions 端点）
     pub api_url: String,
     /// API Key
-    pub api_key: String,
+    api_key: String,
     /// 默认模型
     pub default_model: String,
     /// 是否启用
@@ -29,11 +30,38 @@ pub struct AiProvider {
     /// 超时（秒）
     pub timeout_secs: u64,
     /// Provider 类型（用于特殊处理）
-    #[serde(default)]
     pub provider_type: ProviderType,
+    /// 当前后端是否实现了该 Provider 的正确请求协议。
+    pub supported: bool,
+    /// 不可用时提供给 UI/调用方的安全说明。
+    pub disabled_reason: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+impl AiProvider {
+    pub(crate) fn api_key(&self) -> &str {
+        &self.api_key
+    }
+}
+
+/// 可安全返回给前端的 Provider 视图。
+///
+/// 该 DTO 从类型层面排除了 API Key，避免后续命令误把凭据序列化出去。
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct AiProviderDto {
+    pub id: String,
+    pub name: String,
+    pub api_url: String,
+    pub default_model: String,
+    pub enabled: bool,
+    pub timeout_secs: u64,
+    pub provider_type: ProviderType,
+    pub configured: bool,
+    pub key_required: bool,
+    pub supported: bool,
+    pub disabled_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum ProviderType {
@@ -57,6 +85,8 @@ pub fn builtin_providers() -> Vec<AiProvider> {
             enabled: false,
             timeout_secs: 30,
             provider_type: ProviderType::OpenAI,
+            supported: true,
+            disabled_reason: None,
         },
         AiProvider {
             id: "deepseek".into(),
@@ -67,6 +97,8 @@ pub fn builtin_providers() -> Vec<AiProvider> {
             enabled: false,
             timeout_secs: 30,
             provider_type: ProviderType::DeepSeek,
+            supported: true,
+            disabled_reason: None,
         },
         AiProvider {
             id: "ollama".into(),
@@ -77,6 +109,8 @@ pub fn builtin_providers() -> Vec<AiProvider> {
             enabled: false,
             timeout_secs: 120,
             provider_type: ProviderType::Ollama,
+            supported: true,
+            disabled_reason: None,
         },
         AiProvider {
             id: "claude".into(),
@@ -87,8 +121,237 @@ pub fn builtin_providers() -> Vec<AiProvider> {
             enabled: false,
             timeout_secs: 30,
             provider_type: ProviderType::Anthropic,
+            supported: false,
+            disabled_reason: Some(
+                "Anthropic 请求协议尚未实现；为避免发送错误请求，当前已禁用".into(),
+            ),
         },
     ]
+}
+
+/// 经过安全策略检查的 endpoint 信息。
+#[derive(Debug, Clone)]
+pub struct ValidatedEndpoint {
+    url: Url,
+    provider_type: ProviderType,
+    local: bool,
+}
+
+impl ValidatedEndpoint {
+    pub fn as_str(&self) -> &str {
+        self.url.as_str()
+    }
+
+    pub fn provider_type(&self) -> ProviderType {
+        self.provider_type
+    }
+
+    pub fn is_local(&self) -> bool {
+        self.local
+    }
+}
+
+/// 验证 AI endpoint：远端仅允许 HTTPS，本地回环地址允许 HTTP。
+pub fn validate_endpoint(api_url: &str) -> Result<ValidatedEndpoint, String> {
+    let url = Url::parse(api_url.trim()).map_err(|_| "AI endpoint 不是有效 URL".to_string())?;
+
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err("AI endpoint 不允许包含 URL credentials".to_string());
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err("AI endpoint 不允许包含 query 或 fragment".to_string());
+    }
+
+    let local = match url.host() {
+        Some(Host::Domain(host)) => host.eq_ignore_ascii_case("localhost"),
+        Some(Host::Ipv4(host)) => host.is_loopback() && host.octets() == [127, 0, 0, 1],
+        Some(Host::Ipv6(host)) => host.is_loopback(),
+        None => return Err("AI endpoint 缺少主机名".to_string()),
+    };
+
+    match url.scheme() {
+        "https" => {}
+        "http" if local => {}
+        "http" => return Err("远端 AI endpoint 必须使用 HTTPS".to_string()),
+        _ => return Err("AI endpoint 仅支持 http(s)".to_string()),
+    }
+
+    let provider_type = match url
+        .host_str()
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "api.openai.com" => ProviderType::OpenAI,
+        "api.deepseek.com" => ProviderType::DeepSeek,
+        "api.anthropic.com" => ProviderType::Anthropic,
+        _ if local => ProviderType::Ollama,
+        _ => ProviderType::Custom,
+    };
+
+    Ok(ValidatedEndpoint {
+        url,
+        provider_type,
+        local,
+    })
+}
+
+pub fn key_required(provider_type: ProviderType) -> bool {
+    !matches!(provider_type, ProviderType::Ollama)
+}
+
+/// 验证内部 Provider 与 endpoint/凭据来源契约是否一致。
+pub fn validate_provider_contract(provider: &AiProvider) -> Result<ValidatedEndpoint, String> {
+    if !provider.enabled {
+        return Err(format!("AI provider '{}' 未启用", provider.id));
+    }
+    if !provider.supported || matches!(provider.provider_type, ProviderType::Anthropic) {
+        return Err(provider
+            .disabled_reason
+            .clone()
+            .unwrap_or_else(|| format!("AI provider '{}' 当前不受支持", provider.id)));
+    }
+
+    let endpoint = validate_endpoint(&provider.api_url)?;
+    let canonical_origin_matches = match provider.provider_type {
+        ProviderType::OpenAI | ProviderType::DeepSeek | ProviderType::Anthropic => {
+            endpoint.url.scheme() == "https" && endpoint.url.port_or_known_default() == Some(443)
+        }
+        ProviderType::Ollama => endpoint.is_local(),
+        ProviderType::Custom => true,
+    };
+    if endpoint.provider_type() != provider.provider_type || !canonical_origin_matches {
+        return Err(format!(
+            "AI provider '{}' 与 endpoint 来源不匹配，已拒绝发送凭据",
+            provider.id
+        ));
+    }
+    if matches!(provider.provider_type, ProviderType::Custom) {
+        return Err(
+            "自定义远端 endpoint 无法与旧版 settings API Key 安全绑定，已拒绝请求".to_string(),
+        );
+    }
+    if key_required(provider.provider_type) && provider.api_key.trim().is_empty() {
+        return Err(format!("AI provider '{}' 需要 API Key", provider.id));
+    }
+    if provider.default_model.trim().is_empty() {
+        return Err(format!("AI provider '{}' 未配置模型", provider.id));
+    }
+
+    Ok(endpoint)
+}
+
+/// 从旧版单 Provider settings 安全解析内部 Provider。
+///
+/// 旧 settings 没有保存独立的 provider/key 来源，因此只允许可由 canonical origin
+/// 明确识别的 OpenAI、DeepSeek、Anthropic 和本地 Ollama。未知远端 origin 会被拒绝。
+pub fn provider_from_legacy_settings(
+    api_url: &str,
+    api_key: &str,
+    model: &str,
+) -> Result<AiProvider, String> {
+    let endpoint = validate_endpoint(api_url)?;
+    let mut provider = builtin_providers()
+        .into_iter()
+        .find(|provider| provider.provider_type == endpoint.provider_type())
+        .ok_or_else(|| {
+            "自定义远端 endpoint 无法与旧版 settings API Key 安全绑定，已拒绝请求".to_string()
+        })?;
+
+    provider.api_url = endpoint.as_str().to_string();
+    provider.default_model = model.trim().to_string();
+    provider.enabled = true;
+    // 本地 Provider 不需要 Key，也绝不应把旧远端 Key 转发到本地服务。
+    provider.api_key = if endpoint.is_local() {
+        String::new()
+    } else {
+        api_key.trim().to_string()
+    };
+    validate_provider_contract(&provider)?;
+    Ok(provider)
+}
+
+/// 生成供 get_ai_providers 返回的安全视图。
+pub fn provider_dtos_for_settings(
+    ai_enabled: bool,
+    api_url: &str,
+    api_key: &str,
+    model: &str,
+) -> Vec<AiProviderDto> {
+    let endpoint = validate_endpoint(api_url).ok();
+    let resolved = provider_from_legacy_settings(api_url, api_key, model);
+    let resolved_type = resolved
+        .as_ref()
+        .ok()
+        .map(|provider| provider.provider_type);
+    let resolution_error = resolved.as_ref().err().cloned();
+
+    let mut providers: Vec<_> = builtin_providers()
+        .into_iter()
+        .map(|provider| {
+            let is_selected = endpoint
+                .as_ref()
+                .is_some_and(|endpoint| endpoint.provider_type() == provider.provider_type);
+            let configured = resolved_type == Some(provider.provider_type);
+            let disabled_reason = if is_selected {
+                resolution_error
+                    .clone()
+                    .or_else(|| provider.disabled_reason.clone())
+            } else {
+                provider.disabled_reason.clone()
+            };
+
+            AiProviderDto {
+                id: provider.id,
+                name: provider.name,
+                api_url: if is_selected {
+                    endpoint
+                        .as_ref()
+                        .map(|endpoint| endpoint.as_str().to_string())
+                        .unwrap_or(provider.api_url)
+                } else {
+                    provider.api_url
+                },
+                default_model: if is_selected && !model.trim().is_empty() {
+                    model.trim().to_string()
+                } else {
+                    provider.default_model
+                },
+                enabled: ai_enabled && configured,
+                timeout_secs: provider.timeout_secs,
+                provider_type: provider.provider_type,
+                configured,
+                key_required: key_required(provider.provider_type),
+                supported: provider.supported,
+                disabled_reason,
+            }
+        })
+        .collect();
+
+    if let Some(endpoint) =
+        endpoint.filter(|endpoint| matches!(endpoint.provider_type(), ProviderType::Custom))
+    {
+        providers.push(AiProviderDto {
+            id: "custom".to_string(),
+            name: "Custom OpenAI-compatible".to_string(),
+            api_url: endpoint.as_str().to_string(),
+            default_model: model.trim().to_string(),
+            enabled: false,
+            timeout_secs: 30,
+            provider_type: ProviderType::Custom,
+            configured: false,
+            key_required: true,
+            supported: true,
+            disabled_reason: resolution_error.or_else(|| {
+                Some(
+                    "旧版 settings 未记录 API Key 来源，无法安全绑定到自定义远端 origin"
+                        .to_string(),
+                )
+            }),
+        });
+    }
+
+    providers
 }
 
 // ============================================================================
@@ -203,7 +466,8 @@ pub fn builtin_presets() -> Vec<AiPreset> {
 // ============================================================================
 
 /// 调用 LLM（OpenAI-compatible Chat Completions API）。
-/// 对 Anthropic 做特殊处理（beta header）。
+///
+/// Anthropic 当前明确禁用，直到实现正确的 Messages API 请求体。
 pub async fn call_llm(
     provider: &AiProvider,
     model: &str,
@@ -212,10 +476,16 @@ pub async fn call_llm(
     temperature: f64,
     max_tokens: u32,
 ) -> Result<String, String> {
+    validate_provider_contract(provider)?;
+    if model.trim().is_empty() {
+        return Err("AI model 未配置".to_string());
+    }
+
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(provider.timeout_secs))
+        .redirect(reqwest::redirect::Policy::none())
         .build()
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| "无法创建 AI HTTP 客户端".to_string())?;
 
     let body = serde_json::json!({
         "model": model,
@@ -230,47 +500,32 @@ pub async fn call_llm(
     let mut req = client
         .post(&provider.api_url)
         .header("Content-Type", "application/json")
-        .header("User-Agent", "MoeGame/0.1");
+        .header("User-Agent", crate::http_client::app_user_agent());
 
-    // API Key 认证（OpenAI/Bearer 风格）
-    if !provider.api_key.is_empty() {
-        req = req.header("Authorization", format!("Bearer {}", provider.api_key));
-    }
-    // Anthropic 特殊 header
-    if matches!(provider.provider_type, ProviderType::Anthropic) {
-        req = req.header("anthropic-version", "2023-06-01");
-        if !provider.api_key.is_empty() {
-            req = req.header("x-api-key", &provider.api_key);
-        }
+    if key_required(provider.provider_type) {
+        req = req.header("Authorization", format!("Bearer {}", provider.api_key()));
     }
 
     let resp = req
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("请求失败: {}", e))?;
+        .map_err(|_| "AI 请求失败".to_string())?;
 
     if !resp.status().is_success() {
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        return Err(format!("HTTP {}: {}", status, text));
+        return Err(format!("AI 请求返回 HTTP {}", resp.status()));
     }
 
     let json: serde_json::Value = resp
         .json()
         .await
-        .map_err(|e| format!("解析响应失败: {}", e))?;
+        .map_err(|_| "AI 响应 JSON 解析失败".to_string())?;
 
-    // OpenAI-compatible 路径
     if let Some(content) = json["choices"][0]["message"]["content"].as_str() {
         return Ok(content.to_string());
     }
-    // Anthropic 路径
-    if let Some(content) = json["content"][0]["text"].as_str() {
-        return Ok(content.to_string());
-    }
 
-    Err(format!("无法解析响应: {}", json))
+    Err("AI 响应缺少 choices[0].message.content".to_string())
 }
 
 /// 提取 JSON（处理 markdown 代码块包装）。
@@ -348,5 +603,201 @@ mod tests {
     #[test]
     fn test_extract_json_invalid() {
         assert!(extract_json("no json here").is_none());
+    }
+
+    #[test]
+    fn provider_dto_never_serializes_api_key() {
+        let secret = "sk-contract-secret";
+        let providers = provider_dtos_for_settings(
+            true,
+            "https://api.openai.com/v1/chat/completions",
+            secret,
+            "gpt-4o-mini",
+        );
+        let json = serde_json::to_string(&providers).unwrap();
+
+        assert!(!json.contains(secret));
+        assert!(!json.contains("api_key"));
+        let openai = providers
+            .iter()
+            .find(|provider| provider.id == "openai")
+            .unwrap();
+        assert!(openai.configured);
+        assert!(openai.key_required);
+        assert!(openai.enabled);
+    }
+
+    #[test]
+    fn ollama_is_configured_without_api_key() {
+        let providers = provider_dtos_for_settings(
+            true,
+            "http://localhost:11434/v1/chat/completions",
+            "",
+            "qwen2.5:7b",
+        );
+        let ollama = providers
+            .iter()
+            .find(|provider| provider.id == "ollama")
+            .unwrap();
+
+        assert!(ollama.configured);
+        assert!(!ollama.key_required);
+        assert!(ollama.enabled);
+
+        let provider = provider_from_legacy_settings(
+            "http://127.0.0.1:11434/v1/chat/completions",
+            "stale-remote-key-must-not-be-forwarded",
+            "qwen2.5:7b",
+        )
+        .unwrap();
+        assert!(provider.api_key().is_empty());
+        assert!(validate_provider_contract(&provider).is_ok());
+    }
+
+    #[test]
+    fn endpoint_policy_accepts_only_https_remote_or_loopback_http() {
+        for url in [
+            "https://api.openai.com/v1/chat/completions",
+            "http://localhost:11434/v1/chat/completions",
+            "http://127.0.0.1:11434/v1/chat/completions",
+            "http://[::1]:11434/v1/chat/completions",
+        ] {
+            assert!(validate_endpoint(url).is_ok(), "expected allowed: {url}");
+        }
+
+        for url in [
+            "http://api.openai.com/v1/chat/completions",
+            "http://192.168.1.20:11434/v1/chat/completions",
+            "ftp://localhost/model",
+            "https://user:password@api.openai.com/v1/chat/completions",
+            "https://api.openai.com/v1/chat/completions?api_key=secret",
+        ] {
+            assert!(validate_endpoint(url).is_err(), "expected rejected: {url}");
+        }
+    }
+
+    #[test]
+    fn provider_origin_mismatch_rejects_key_reuse() {
+        let secret = "sk-must-not-leak";
+        let mut provider = builtin_providers()
+            .into_iter()
+            .find(|provider| provider.id == "openai")
+            .unwrap();
+        provider.enabled = true;
+        provider.api_key = secret.to_string();
+        provider.api_url = "https://api.deepseek.com/v1/chat/completions".to_string();
+
+        let error = validate_provider_contract(&provider).unwrap_err();
+        assert!(error.contains("来源不匹配"));
+        assert!(!error.contains(secret));
+
+        let error = provider_from_legacy_settings(
+            "https://api.openai.com:444/v1/chat/completions",
+            secret,
+            "gpt-4o-mini",
+        )
+        .unwrap_err();
+        assert!(error.contains("来源不匹配"));
+        assert!(!error.contains(secret));
+    }
+
+    #[test]
+    fn legacy_settings_support_known_openai_compatible_providers_only() {
+        let deepseek = provider_from_legacy_settings(
+            "https://api.deepseek.com/v1/chat/completions",
+            "deepseek-secret",
+            "deepseek-chat",
+        )
+        .unwrap();
+        assert_eq!(deepseek.provider_type, ProviderType::DeepSeek);
+
+        let error = provider_from_legacy_settings(
+            "https://llm-proxy.example.com/v1/chat/completions",
+            "legacy-secret",
+            "some-model",
+        )
+        .unwrap_err();
+        assert!(error.contains("无法与旧版 settings API Key 安全绑定"));
+        assert!(!error.contains("legacy-secret"));
+
+        let custom = provider_dtos_for_settings(
+            true,
+            "https://llm-proxy.example.com/v1/chat/completions",
+            "legacy-secret",
+            "some-model",
+        );
+        let custom = custom
+            .iter()
+            .find(|provider| provider.id == "custom")
+            .unwrap();
+        assert!(!custom.configured);
+        assert!(!custom.enabled);
+        assert!(custom.disabled_reason.is_some());
+    }
+
+    #[test]
+    fn anthropic_is_explicitly_unsupported() {
+        let providers = provider_dtos_for_settings(
+            true,
+            "https://api.anthropic.com/v1/messages",
+            "anthropic-secret",
+            "claude-3-5-haiku-20241022",
+        );
+        let claude = providers
+            .iter()
+            .find(|provider| provider.id == "claude")
+            .unwrap();
+        assert!(!claude.supported);
+        assert!(!claude.configured);
+        assert!(!claude.enabled);
+
+        let error = provider_from_legacy_settings(
+            "https://api.anthropic.com/v1/messages",
+            "anthropic-secret",
+            "claude-3-5-haiku-20241022",
+        )
+        .unwrap_err();
+        assert!(error.contains("请求协议尚未实现"));
+        assert!(!error.contains("anthropic-secret"));
+    }
+
+    #[tokio::test]
+    async fn http_error_does_not_expose_body_or_forward_key_to_local_provider() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = vec![0_u8; 16 * 1024];
+            let read = socket.read(&mut request).await.unwrap();
+            let request = String::from_utf8_lossy(&request[..read]).to_string();
+            let body = "server-secret-response-body";
+            let response = format!(
+                "HTTP/1.1 401 Unauthorized\r\nContent-Length: {}\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+            request
+        });
+
+        let endpoint = format!("http://{address}/v1/chat/completions");
+        let provider = provider_from_legacy_settings(
+            &endpoint,
+            "stale-key-must-not-be-forwarded",
+            "local-model",
+        )
+        .unwrap();
+        let error = call_llm(&provider, "local-model", "system", "user", 0.1, 16)
+            .await
+            .unwrap_err();
+        let request = server.await.unwrap();
+
+        assert!(error.contains("HTTP 401"));
+        assert!(!error.contains("server-secret-response-body"));
+        assert!(!error.contains("stale-key-must-not-be-forwarded"));
+        assert!(!request.to_ascii_lowercase().contains("authorization:"));
+        assert!(!request.contains("stale-key-must-not-be-forwarded"));
     }
 }

@@ -19,17 +19,32 @@
     type ScrapeResult,
   } from "../api";
   import DiscoveryDetail from "./DiscoveryDetail.svelte";
+  import AiExperienceWorkbench from "./ai/AiExperienceWorkbench.svelte";
+  import RecommendationExplanation from "./ai/RecommendationExplanation.svelte";
+  import {
+    GenerationGuard,
+    getAiClient,
+    isAbortError,
+    isAiUnavailableError,
+    validateRecommendationExplanations,
+  } from "../features/ai";
+  import type { NaturalLanguageFilterDsl, ValidatedRecommendationExplanation } from "../features/ai/types";
 
-  const tabs = ["搜索", "推荐", "开发商", "标签", "年份", "评分"];
+  const tabs = ["搜索", "推荐", "AI 助手", "开发商", "标签", "年份", "评分"];
   let active = $state("搜索");
   let query = $state("");
   let results = $state<ScrapeResult[]>([]);
   let searching = $state(false);
   let searchError = $state<string | null>(null);
   let selectedResult = $state<ScrapeResult | null>(null);
-  let recommendations = $state<{ name: string; score: number; reasons?: string[] }[]>([]);
+  let recommendations = $state<{ game_id: string; name: string; score: number; reasons?: string[] }[]>([]);
   let collections = $state<Collection[]>([]);
   let loadError = $state<string | null>(null);
+  let aiRecommendationState = $state<"idle" | "loading" | "ready" | "offline" | "error" | "cancelled">("idle");
+  let aiExplanations = $state<Record<string, string>>({});
+  let appliedFilterDsl = $state<NaturalLanguageFilterDsl | null>(null);
+  const aiClient = getAiClient();
+  const recommendationGuard = new GenerationGuard();
 
   // Facet data
   let topDevs = $state<{ name: string; count: number }[]>([]);
@@ -63,7 +78,8 @@
         getSmartCollections(),
         getDashboardData(),
       ]);
-      recommendations = (recs ?? []) as { name: string; score: number; reasons?: string[] }[];
+      recommendations = (recs ?? []) as { game_id: string; name: string; score: number; reasons?: string[] }[];
+      void loadAiRecommendationExplanations(recommendations);
       collections = cols ?? [];
       topDevs = (dash as any)?.top_developers ?? [];
       topTags = (dash as any)?.top_tags ?? [];
@@ -74,8 +90,44 @@
     }
   }
 
+
+  async function loadAiRecommendationExplanations(items: { game_id: string }[]) {
+    recommendationGuard.cancel();
+    aiExplanations = {};
+    if (!items.length) {
+      aiRecommendationState = "idle";
+      return;
+    }
+    const request = recommendationGuard.begin();
+    aiRecommendationState = "loading";
+    try {
+      const result = await aiClient.recommend({
+        kind: "game",
+        candidateIds: items.map((item) => item.game_id),
+        limit: items.length,
+        generation: request.generation,
+      }, request.signal);
+      if (!recommendationGuard.isCurrent(request.generation) || result.generation !== request.generation) return;
+      const validation = validateRecommendationExplanations(result.explanations, items.map((item) => item.game_id));
+      if (!validation.ok) {
+        aiRecommendationState = "error";
+        return;
+      }
+      aiExplanations = Object.fromEntries(validation.value.map((item: ValidatedRecommendationExplanation) => [item.resourceId, item.explanation]));
+      aiRecommendationState = "ready";
+    } catch (error) {
+      if (!recommendationGuard.isCurrent(request.generation) || isAbortError(error)) return;
+      aiRecommendationState = isAiUnavailableError(error) ? "offline" : "error";
+    }
+  }
+
+  function applyCompiledFilter(dsl: NaturalLanguageFilterDsl) {
+    appliedFilterDsl = dsl;
+  }
+
   onMount(() => {
     void loadRecommendations();
+    return () => recommendationGuard.cancel();
   });
 </script>
 
@@ -147,12 +199,26 @@
           <div class="rec-row">
             <Tag variant="accent" size="sm">推荐分 {item.score}</Tag>
           </div>
-          <p>{item.reasons?.join(" / ")}</p>
+          <RecommendationExplanation
+            localSignals={item.reasons ?? []}
+            aiExplanation={aiExplanations[item.game_id] ?? null}
+            aiState={aiRecommendationState}
+          />
         </Card>
       {:else}
         <EmptyState title="暂无推荐" description="添加更多游戏后 AI 会生成个性化推荐" />
       {/each}
     </div>
+
+  {:else if active === "AI 助手"}
+    {#if appliedFilterDsl}
+      <div class="applied-filter-banner">
+        <Icon name="check" size={15} />
+        <span>已将 {appliedFilterDsl.filters.length} 条已验证条件交付给本地筛选器；AI 原始输出不会直接执行。</span>
+        <Button variant="quiet" size="sm" press={() => appliedFilterDsl = null}>清除</Button>
+      </div>
+    {/if}
+    <AiExperienceWorkbench client={aiClient} onApplyFilter={applyCompiledFilter} />
 
   {:else if active === "开发商"}
     <div class="grid compact">
@@ -208,6 +274,13 @@
   .head-stats strong { color: var(--text-primary); font-size: 0.95rem; }
   h1 { font-size: 1.5rem; font-weight: 700; color: var(--text-primary); }
   header p { color: var(--text-secondary); font-size: 0.85rem; margin-top: 2px; }
+
+  .applied-filter-banner {
+    display: flex; align-items: center; gap: 9px;
+    padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--color-success, #4ade80) 35%, var(--border)); border-radius: 8px;
+    background: var(--bg-card); color: var(--color-success, #4ade80); font-size: 11px;
+  }
+  .applied-filter-banner span { flex: 1; color: var(--text-secondary); }
 
   .error-banner {
     display: flex; align-items: center; gap: 8px;

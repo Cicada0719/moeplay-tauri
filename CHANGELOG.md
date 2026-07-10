@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.12.1 - 开发中
+
+### 基线、安全与契约
+- 统一 `package.json`、Cargo、Tauri 和 lockfile 版本为 `0.12.1`，新增版本一致性检查并接入 CI/Release。
+- 修复 Tauri 命令注册、`build.rs` 与 capability 权限漂移，新增命令契约验证器和 fixture 测试。
+- SQLite 打开/迁移失败改为 fail-closed：不再删除主库或静默回退可写内存库；迁移使用事务并保留唯一恢复备份。
+- 修复统计页 Rust/TypeScript DTO 漂移、时间解析和重复 session 聚合；磁盘递归统计移出首屏同步路径。
+- AI Provider 增加 endpoint/origin 安全策略，Provider DTO 不再返回 API Key；Ollama 支持无 Key，未正确实现的 Claude 暂停启用。
+- 新增系统 SecretStore 基础设施，使用 OS credential store 并按 SecretKind/origin 隔离；AI、Steam、Bangumi、PicACG 凭据已迁移，前端 Settings/LocalStorage 不再持有明文 Key/Token。
+- 新增 Provider、Progress、Activity、Health、ResolvedTarget 与 BackgroundJob 的跨端领域契约基础。
+- SQLite schema 升级至 v3，新增迁移 ledger/checksum、Activity/Progress/ProviderHealth/BackgroundJob 表和仓储，包含 20k 活动聚合/分页验证。
+- 新增 UI v2 基础：PageShell、PageHeader、FilterBar、StateBoundary、DetailPanel、语义 token 与 reduced-motion/GSAP cleanup，并接入全局 motion 初始化。
+- UI v2 公共 API 补齐 ContentGrid、AsyncState/Section、MediaCard/Row、Drawer 与嵌套 focus trap；App 新增 view/entity/focusKey/scrollOffset/overlay 返回栈，当前页面搜索快捷键和 Dock 可访问语义。
+- Gamepad runtime 新增 scope/priority/overlay 独占、四向输入和 320ms/100ms repeat；Big Picture 建立 top-nav/wheel/hero/media/detail/search/keyboard focus zones，修复隐藏游戏误操作和 overlay 输入冲突。
+- 新增持久化 BackgroundJob 队列，使用 SQLite 恢复任务状态并提供真实取消句柄；前端新增统一任务状态基础。
+- Activity v2 统一游戏/番剧/漫画活动与进度，提供继续中心、时间线分页、编辑/删除/导出及旧记录幂等回填，失败时保留旧仪表盘回退。
+- Library v2 接入导入预览/应用、字段级 diff、冲突处理、provenance 与库健康面板，旧导入流程可通过 feature flag 回退。
+- 新增 Anime Provider 注册表与 LocalMedia/Jellyfin/Kazumi adapter 命令边界，凭据仅从 SecretStore 按 origin 读取并记录来源健康状态。
+- Anime Provider v2 已接入番剧主页面：支持本地目录扫描、Jellyfin、按来源搜索、详情/剧集、内部本地/HLS 播放、受保护 loopback 会话和安全 WebView/外部回退。
+- Kazumi 规则引擎新增 API 模式兼容：支持嵌套 search/chapter API config、数值型反爬字段、受限 JSON path 和 episode page 变量；实时双源验收已由 TvTFun 与 aafun 完成搜索到剧集线路闭环。
+- Anime/Comic 非敏感 Provider 配置写入 SQLite v4 并在运行时注册表重启后自动恢复；凭据仍只存在 SecretStore，配置仓储递归拒绝 token/API Key/password 等字段。
+- 新增 Comic Provider 注册表与 Local/Komga/Kavita adapter 命令边界，支持探测、搜索、详情、章节与安全解析，远端凭据不进入前端状态。
+- Comic Provider v2 已接入漫画主页面：支持 Local/Komga/Kavita 配置、探测、搜索、详情、章节、内部图片阅读、安全回退与旧页面 fallback。
+- 实时来源验收新增可重复入口：番剧要求至少两个来源完成搜索→线路，漫画要求至少两个独立公开源返回结果；本次实测 TvTFun/aafun 与 Baozi/DM5/1kkk 通过。
+- AI Gateway 新增 OpenAI-compatible/Ollama 方言、endpoint/origin 策略、版本化 prompt/schema、预算/限流/取消/脱敏与“用户确认前零写入”的 change-set 基础。
+- AI v2 已接入 6 条统一异步任务命令（provider/budget/start/status/result/cancel）和 3 条 change-set 命令（preview/apply/undo）；发现页 AI 工作台改为 literal `invokeCmd` 契约，资料库写入携带完整已验证 change set 与 provenance，并支持原子应用和撤销。
+- SQLite schema 升级至 v5，新增仅保存结构化验证结果的 AI task result 仓储；不保存原始 prompt、provider 原始响应、请求头或凭据，结果保留 7 天并可在应用进程重启后继续读取。
+- SQLite schema 升级至 v4，新增拒绝 secret 字段的非敏感 Provider 配置仓储，为来源配置重启恢复提供单一事实源。
+- 诊断导出改为默认脱敏 ZIP，使用并发隔离临时目录并清理；日志执行 7 天/100 MiB 保留策略，诊断页不再误导为数据库导出。
+- 存档恢复增加文件差异预览、破坏性变更提醒和恢复前安全检查点确认。
+- 运行时 User-Agent 统一由 Cargo 包版本生成，版本检查会拒绝源码中的硬编码旧版本 User-Agent。
+- 发布证据新增 CycloneDX SBOM、构建 commit/toolchain metadata 与自动验证，release 构建前清理 Rust target。
+
 ## 0.12.0 - 2026-07-08
 
 ### 漫画、番剧播放与综合记录发布版

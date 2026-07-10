@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-preview-directory-for-games"
+description = "Enables the preview_directory_for_games command without any pre-configured scope."
+commands.allow = ["preview_directory_for_games"]
+
+[[permission]]
+identifier = "deny-preview-directory-for-games"
+description = "Denies the preview_directory_for_games command without any pre-configured scope."
+commands.deny = ["preview_directory_for_games"]

@@ -1,0 +1,12 @@
+{
+  "summary": "Unsafe recommendation.",
+  "recommendations": [
+    {
+      "resourceId": "excluded-game",
+      "rank": 1,
+      "reason": "This ID was explicitly excluded.",
+      "confidence": 0.9,
+      "signals": ["relaxing"]
+    }
+  ]
+}

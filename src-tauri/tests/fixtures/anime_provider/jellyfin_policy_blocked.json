@@ -1,0 +1,8 @@
+{
+  "Id": "episode-policy",
+  "Name": "Episode Policy",
+  "UserData": { "CanPlay": false },
+  "MediaSources": [
+    { "Id": "source-policy", "SupportsDirectStream": true }
+  ]
+}

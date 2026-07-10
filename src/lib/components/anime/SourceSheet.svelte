@@ -3,7 +3,9 @@
 import { invokeCmd } from '../../api/core';
   import type { SearchItem, Road } from '../../stores/anime.svelte';
   import Icon from '../Icon.svelte';
-  import { Button, EmptyState, Overlay, Tag } from '../ui';
+  import { Button, EmptyState } from '../ui';
+  import { AsyncState, Drawer } from '../ui-v2';
+  import { focusRovingItem, nextRovingIndex } from './a11y';
   import { debugLog } from '../../utils/debug';
   import { rankSearchItems } from '../../utils/animeSource';
 
@@ -35,6 +37,8 @@ import { invokeCmd } from '../../api/core';
   let activeRoadIdx = $state(0);
   let loadingRoads = $state(false);
   let loadError = $state<string | null>(null);
+  let sourceTabRefs: Array<HTMLButtonElement | null> = [];
+  let roadTabRefs: Array<HTMLButtonElement | null> = [];
 
   // 每次「打开」面板用单调递增 nonce 触发一次搜索。nonce 每次必变 →
   // 永不会像旧的 prevOpen 布尔那样在反复进出后错位、卡死「开始观看没反应」。
@@ -190,6 +194,31 @@ import { invokeCmd } from '../../api/core';
     }
   }
 
+
+  function selectSource(index: number) {
+    activeSourceIdx = index;
+    focusRovingItem(sourceTabRefs, index);
+  }
+
+  function handleSourceKeydown(event: KeyboardEvent, index: number) {
+    const next = nextRovingIndex(event.key, index, rules.length, 'vertical');
+    if (next === null) return;
+    event.preventDefault();
+    selectSource(next);
+  }
+
+  function selectRoad(index: number) {
+    activeRoadIdx = index;
+    focusRovingItem(roadTabRefs, index);
+  }
+
+  function handleRoadKeydown(event: KeyboardEvent, index: number) {
+    const next = nextRovingIndex(event.key, index, episodeRoads.length, 'horizontal');
+    if (next === null) return;
+    event.preventDefault();
+    selectRoad(next);
+  }
+
   // 当前源的搜索结果
   const currentSource = $derived(rules[activeSourceIdx]);
   const currentResult = $derived(currentSource ? searchResults.get(currentSource.name) : undefined);
@@ -200,44 +229,44 @@ import { invokeCmd } from '../../api/core';
   const lastWatchedEp = $derived(historyEntry?.lastEpisode ?? -1);
 </script>
 
-{#if isOpen}
-  <div class="sheet-backdrop">
-    <Overlay onClose={closeSheet} ariaLabel="关闭" />
-  </div>
-  <div class="source-sheet" role="dialog">
-    <!-- Drag handle -->
-    <div class="source-handle"></div>
+{#snippet sheetActions()}
+  {#if step === 'episodes'}
+    <button class="source-back" type="button" onclick={backToSearch}>
+      <Icon name="chevronLeft" size={18} />返回选源
+    </button>
+  {/if}
+{/snippet}
 
-    <!-- Header -->
-    <div class="source-header">
-      {#if step === 'episodes'}
-        <Button variant="quiet" size="sm" press={backToSearch} ariaLabel="返回选源" class="source-back">
-          <Icon name="chevronLeft" size={18} />
-        </Button>
-        <span class="source-title source-title-ellipsis">{episodeItemName || '选择剧集'}</span>
-      {:else}
-        <span class="source-title">选择播放源</span>
-      {/if}
-      <Button variant="quiet" size="sm" press={closeSheet} ariaLabel="关闭" class="source-close">
-        <Icon name="x" size={16} />
-      </Button>
-    </div>
-
+<Drawer
+  open={isOpen}
+  title={step === 'episodes' ? (episodeItemName || '选择剧集') : '选择播放源'}
+  description={step === 'episodes' ? '选择线路与剧集；关闭播放器后会回到当前剧集。' : `正在为“${detailName}”检查可用经典来源。`}
+  actions={sheetActions}
+  side="bottom"
+  size="lg"
+  onClose={closeSheet}
+  initialFocus={step === 'episodes' ? `[data-episode-key="${activeRoadIdx}-${Math.max(lastWatchedEp, 0)}"]` : '[data-source-tab]'}
+  returnFocus
+  class="anime-source-drawer"
+>
+  <div class="source-sheet">
     {#if step === 'episodes'}
       <!-- ── 第二步：线路 + 分集选择 ── -->
       <div class="episode-view">
         {#if episodeRoads.length > 1}
-          <div class="road-tabs">
+          <div class="road-tabs" role="tablist" aria-label="播放线路">
             {#each episodeRoads as road, i}
-              <Tag
-                active={activeRoadIdx === i}
-                onclick={() => { activeRoadIdx = i; }}
-                variant="neutral"
-                size="md"
+              <button
+                bind:this={roadTabRefs[i]}
+                type="button"
+                role="tab"
                 class="road-tab"
-              >
-                {road.name || `线路${i + 1}`}
-              </Tag>
+                class:active={activeRoadIdx === i}
+                aria-selected={activeRoadIdx === i}
+                tabindex={activeRoadIdx === i ? 0 : -1}
+                onclick={() => selectRoad(i)}
+                onkeydown={(event) => handleRoadKeydown(event, i)}
+              >{road.name || `线路${i + 1}`}</button>
             {/each}
           </div>
         {/if}
@@ -250,6 +279,9 @@ import { invokeCmd } from '../../api/core';
               {#each currentEpisodes as ep, i (ep.url + i)}
                 <button
                   class="episode-btn"
+                  type="button"
+                  data-episode-key={`${activeRoadIdx}-${i}`}
+                  aria-current={i === lastWatchedEp ? "step" : undefined}
                   class:watched={i <= lastWatchedEp}
                   class:last-watched={i === lastWatchedEp}
                   onclick={() => playEpisodeFromSheet(i)}
@@ -268,14 +300,22 @@ import { invokeCmd } from '../../api/core';
     {:else}
       <!-- ── 第一步：选源 ── -->
       <div class="source-body">
-        <div class="source-tabs">
+        <div class="source-tabs" role="tablist" aria-label="经典播放来源" aria-orientation="vertical">
           {#each rules as rule, i}
             {@const result = searchResults.get(rule.name)}
             {@const status = result?.status ?? 'pending'}
             <button
+              bind:this={sourceTabRefs[i]}
               class="source-tab"
               class:active={activeSourceIdx === i}
-              onclick={() => { activeSourceIdx = i; }}
+              type="button"
+              role="tab"
+              data-source-tab={i === 0 ? "" : undefined}
+              aria-selected={activeSourceIdx === i}
+              aria-controls="anime-source-results"
+              tabindex={activeSourceIdx === i ? 0 : -1}
+              onclick={() => selectSource(i)}
+              onkeydown={(event) => handleSourceKeydown(event, i)}
             >
               <span class="source-dot" style="background: {getStatusColor(status)}"></span>
               <span class="source-name">{rule.name}</span>
@@ -287,22 +327,13 @@ import { invokeCmd } from '../../api/core';
         </div>
 
         <!-- Result list -->
-        <div class="source-results">
+        <div class="source-results" id="anime-source-results" role="tabpanel">
           {#if loadingRoads}
-            <div class="source-loading">
-              <div class="spinner"></div>
-              <span>获取线路中...</span>
-            </div>
+            <AsyncState state="loading" title="正在读取线路" description="来源已匹配，正在获取可播放剧集。" compact loadingDelayMs={0} />
           {:else if !currentResult || currentResult.status === 'pending'}
-            <div class="source-loading">
-              <div class="spinner"></div>
-              <span>搜索中...</span>
-            </div>
+            <AsyncState state="loading" title="正在检索来源" description="可先切换其他来源查看已返回结果。" compact loadingDelayMs={0} />
           {:else if currentResult.status === 'verifying'}
-            <div class="source-loading">
-              <div class="spinner"></div>
-              <span>等待源站验证...</span>
-            </div>
+            <AsyncState state="refreshing" title="等待源站验证" description={currentResult.message || "验证完成后可重试当前来源。"} compact />
           {:else if currentResult.status === 'captchaRequired'}
             <EmptyState
               icon="shield"
@@ -347,15 +378,15 @@ import { invokeCmd } from '../../api/core';
       </div>
     {/if}
   </div>
-{/if}
+</Drawer>
 
 <style>
-  .sheet-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 40;
-    animation: fade-in 0.2s ease;
-  }
+  :global(.v2-drawer.anime-source-drawer) { width: min(62rem, calc(100vw - 1rem)); max-height: min(82vh, 54rem); }
+  :global(.v2-drawer.anime-source-drawer .v2-drawer__body) { padding: 0; }
+  .source-back { min-height: 2.5rem; display: inline-flex; align-items: center; gap: .35rem; border: 1px solid var(--v2-color-border); border-radius: .55rem; background: transparent; color: var(--v2-color-text); padding: .45rem .7rem; cursor: pointer; }
+  .road-tab { min-height: 2.5rem; padding: .45rem .8rem; border: 1px solid rgba(255,255,255,.1); border-radius: .6rem; background: rgba(255,255,255,.03); color: rgba(255,255,255,.7); cursor: pointer; }
+  .road-tab.active { color: #fff; border-color: rgba(232,85,127,.55); background: rgba(232,85,127,.12); }
+
 
   .source-sheet {
     position: fixed;
@@ -372,35 +403,6 @@ import { invokeCmd } from '../../api/core';
     overflow: hidden;
     animation: slide-up 0.25s ease;
     box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.5);
-  }
-
-  .source-handle {
-    width: 36px;
-    height: 4px;
-    background: rgba(255, 255, 255, 0.15);
-    border-radius: 2px;
-    margin: 8px auto 0;
-    flex-shrink: 0;
-  }
-
-  .source-header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 12px 20px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    flex-shrink: 0;
-  }
-  .source-title {
-    font-size: 15px;
-    font-weight: 650;
-    color: #fff;
-    flex: 1;
-  }
-  .source-title-ellipsis {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   :global(.ui-button.source-back) {
     display: flex;
@@ -492,7 +494,7 @@ import { invokeCmd } from '../../api/core';
     padding: 8px 0;
     min-width: 0;
   }
-  .source-loading, :global(.ui-empty.source-empty) {
+  :global(.ui-empty.source-empty) {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -615,16 +617,16 @@ import { invokeCmd } from '../../api/core';
     border-radius: 6px;
     line-height: 1.2;
   }
-
-  .spinner {
-    width: 24px;
-    height: 24px;
-    border: 2px solid rgba(255, 255, 255, 0.1);
-    border-top-color: #e8557f;
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-  }
   @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes slide-up { from { transform: translate(-50%, 100%); } to { transform: translate(-50%, 0); } }
   @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+  :global(.v2-drawer.anime-source-drawer) .source-sheet { position: static; width: 100%; height: min(68vh, 44rem); transform: none; border-radius: 0; box-shadow: none; animation: none; z-index: auto; }
+  @media (prefers-reduced-motion: reduce) {
+    .source-sheet, .source-sheet * { animation: none !important; transition: none !important; }
+    .episode-btn:hover { transform: none; }
+  }
+  :global([data-motion="reduce"]) .source-sheet,
+  :global([data-motion="reduce"]) .source-sheet * { animation: none !important; transition: none !important; }
+
 </style>

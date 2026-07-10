@@ -21,30 +21,129 @@
     animeOpenDownloadFolder,
     type AnimeDownloadTask,
   } from "../api";
+  import {
+    createJobsStore,
+    persistentDownloadsApi,
+    type Job,
+  } from "../features/jobs";
   import { Button, Card, EmptyState, Input, SegmentControl, Tag } from "./ui";
 
+  type DownloadEvidence = {
+    accepted: boolean;
+    reason?: string | null;
+    availableBytes?: number | null;
+    requiredBytes?: number | null;
+    quotaBytes?: number | null;
+    quotaRemainingBytes?: number | null;
+  };
+  type DownloadProjection = DownloadTask & {
+    recovered?: boolean;
+    resumable?: boolean;
+    retryable?: boolean;
+    quota_bytes?: number | null;
+    preflight?: DownloadEvidence | null;
+  };
+  type DownloadRow = { id: string; job?: Job; task?: DownloadProjection };
+
+  const jobsStore = createJobsStore();
   let url = $state("");
   let filename = $state("");
-  let downloads = $state<DownloadTask[]>([]);
+  let quotaGb = $state("");
+  let downloads = $state<DownloadProjection[]>([]);
+  let jobs = $state<Job[]>([]);
+  let jobsError = $state<string | null>(null);
   let animeDownloads = $state<AnimeDownloadTask[]>([]);
   let activeTab = $state<"general" | "anime">("general");
   let loading = $state(false);
+  let startError = $state<string | null>(null);
   let urlBox = $state<HTMLDivElement>();
 
-  async function refresh() {
-    downloads = await getDownloads();
+  const unsubscribeJobs = jobsStore.subscribe((snapshot) => {
+    jobs = snapshot.jobs;
+    jobsError = snapshot.error;
+  });
+
+  function buildRows(allJobs: Job[], legacy: DownloadProjection[]): DownloadRow[] {
+    const persistent = allJobs.filter((job) => job.kind === "download");
+    const persistentIds = new Set(persistent.map((job) => job.id));
+    return [
+      ...persistent.map((job) => ({
+        id: job.id,
+        job,
+        task: legacy.find((task) => task.id === job.id),
+      })),
+      ...legacy
+        .filter((task) => !persistentIds.has(task.id))
+        .map((task) => ({ id: task.id, task })),
+    ];
+  }
+
+  const generalRows = $derived(buildRows(jobs, downloads));
+
+  async function refreshLegacy() {
+    try { downloads = await getDownloads() as DownloadProjection[]; } catch { downloads = []; }
     try { animeDownloads = await animeGetDownloads(); } catch { animeDownloads = []; }
+  }
+
+  async function refresh() {
+    await Promise.all([refreshLegacy(), jobsStore.load()]);
+  }
+
+  function requestedQuotaBytes(): number | undefined {
+    if (!quotaGb.trim()) return undefined;
+    const parsed = Number(quotaGb);
+    if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+    return Math.round(parsed * 1024 * 1024 * 1024);
   }
 
   async function start() {
     if (!url.trim()) return;
     loading = true;
+    startError = null;
+    const targetFilename = filename || url.split("/").pop() || "download.bin";
     try {
-      await downloadStart(url, filename || url.split("/").pop() || "download.bin");
+      if (jobsError) {
+        await downloadStart(url, targetFilename);
+      } else {
+        await persistentDownloadsApi.start({
+          url,
+          filename: targetFilename,
+          quotaBytes: requestedQuotaBytes(),
+        });
+      }
       url = "";
       filename = "";
       await refresh();
-    } finally { loading = false; }
+    } catch (error) {
+      startError = error instanceof Error ? error.message : String(error);
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function act(row: DownloadRow, action: "pause" | "resume" | "retry" | "cancel") {
+    if (row.job) {
+      if (action === "pause") await jobsStore.pause(row.id);
+      if (action === "resume") await jobsStore.resume(row.id);
+      if (action === "retry") await jobsStore.retry(row.id);
+      if (action === "cancel") await jobsStore.cancel(row.id);
+    } else {
+      if (action === "pause") await downloadPause(row.id);
+      if (action === "resume") await downloadResume(row.id);
+      if (action === "retry") await downloadRetry(row.id);
+      if (action === "cancel") await downloadCancel(row.id);
+    }
+    await refreshLegacy();
+  }
+
+  async function removeRow(row: DownloadRow) {
+    await downloadRemove(row.id);
+    await refresh();
+  }
+
+  async function clearGeneralFinished() {
+    await downloadClearFinished();
+    await refresh();
   }
 
   function focusUrlInput() {
@@ -52,10 +151,40 @@
   }
 
   onMount(() => {
-    refresh();
+    void refresh();
     const id = window.setInterval(refresh, 1200);
-    return () => window.clearInterval(id);
+    return () => {
+      window.clearInterval(id);
+      unsubscribeJobs();
+    };
   });
+
+  function rowStatus(row: DownloadRow): string {
+    if (row.job) {
+      if (row.job.recovered) return "已恢复（可继续）";
+      const labels: Record<Job["status"], string> = {
+        queued: "等待中", running: "下载中", paused: "已暂停",
+        succeeded: "已完成", failed: "失败", cancelled: "已取消",
+      };
+      return labels[row.job.status];
+    }
+    return statusLabel(row.task?.status ?? "Pending");
+  }
+
+  function rowStatusClass(row: DownloadRow): string {
+    if (row.job) {
+      if (row.job.recovered || row.job.status === "paused") return "paused";
+      if (row.job.status === "running") return "active";
+      if (row.job.status === "succeeded") return "done";
+      if (row.job.status === "failed" || row.job.status === "cancelled") return "fail";
+      return "";
+    }
+    return statusClass(row.task?.status ?? "Pending");
+  }
+
+  function rowProgress(row: DownloadRow): number {
+    return Math.min(1, Math.max(0, row.job?.progress ?? row.task?.progress ?? 0));
+  }
 
   function statusLabel(s: string): string {
     const m: Record<string,string> = {
@@ -68,7 +197,7 @@
 
   function statusClass(s: string): string {
     const m: Record<string,string> = {
-      Downloading: "active", Completed: "done", Failed: "fail",
+      Downloading: "active", Completed: "done", Failed: "fail", Cancelled: "fail",
       Paused: "paused", Extracting: "active", Importing: "active",
     };
     return m[s] ?? "";
@@ -106,8 +235,8 @@
     return `${(sec / 3600).toFixed(1)}h`;
   }
 
-  const activeCount = $derived(downloads.filter(d => d.status === "Downloading").length);
-  const doneCount = $derived(downloads.filter(d => d.status === "Completed").length);
+  const activeCount = $derived(generalRows.filter(row => row.job?.status === "running" || (!row.job && row.task?.status === "Downloading")).length);
+  const doneCount = $derived(generalRows.filter(row => row.job?.status === "succeeded" || (!row.job && row.task?.status === "Completed")).length);
   const animeActiveCount = $derived(animeDownloads.filter(d => d.status === "Downloading" || d.status === "Parsing" || d.status === "Merging").length);
   const animeDoneCount = $derived(animeDownloads.filter(d => d.status === "Completed").length);
   const tabs = $derived([
@@ -133,7 +262,7 @@
       {#if animeActiveCount > 0}
         <Tag variant="accent" size="sm">番剧 {animeActiveCount} 下载中</Tag>
       {/if}
-      <Button variant="ghost" size="sm" press={() => downloadClearFinished().then(refresh)} title="清除已完成">
+      <Button variant="ghost" size="sm" press={clearGeneralFinished} title="清除已完成">
         <Icon name="trash" size={14} /> 清除
       </Button>
     </div>
@@ -148,59 +277,80 @@
       <Input bind:value={url} placeholder="粘贴下载 URL 或磁力链接" onkeydown={(e) => e.key === "Enter" && start()} class="url-input" ariaLabel="下载链接" />
     </div>
     <Input bind:value={filename} placeholder="文件名（可选）" class="fname-input" ariaLabel="文件名" />
+    <Input bind:value={quotaGb} placeholder="配额 GB（可选）" class="quota-input" ariaLabel="下载目录配额（GB）" />
     <Button variant="primary" press={start} loading={loading} disabled={loading}>
       {loading ? "添加中..." : "添加下载"}
     </Button>
   </Card>
+  {#if startError}<div class="task-error" role="alert">{startError}</div>{/if}
+  {#if jobsError}<div class="legacy-note">后台任务控制面暂不可用，正在保留旧版下载列表回退。</div>{/if}
 
   <Card class="panel aura-panel" padding="none">
-    {#if downloads.length}
+    {#if generalRows.length}
       <div class="downloads" role="list">
-        {#each downloads as task}
-          <article class="task {statusClass(task.status)}" role="listitem">
+        {#each generalRows as row (row.id)}
+          <article class="task {rowStatusClass(row)}" role="listitem" data-job-state={row.job?.status ?? row.task?.status}>
             <div class="task-head">
-              <strong class="task-fname">{task.filename}</strong>
-              <Tag variant="neutral" size="sm" class="status-badge {statusClass(task.status)}">{statusLabel(task.status)}</Tag>
+              <strong class="task-fname">{row.task?.filename ?? row.job?.title ?? "下载任务"}</strong>
+              <div class="task-badges">
+                {#if row.job?.recovered}<Tag variant="muted" size="sm">重启恢复</Tag>{/if}
+                <Tag variant="neutral" size="sm" class="status-badge {rowStatusClass(row)}">{rowStatus(row)}</Tag>
+              </div>
             </div>
 
             <div class="bar-wrap">
-              <div class="bar aura-track" style="--p:{Math.min(1, Math.max(0, task.progress || 0))}"></div>
+              <div class="bar aura-track" style="--p:{rowProgress(row)}"></div>
             </div>
 
             <div class="task-meta">
               <span class="size-info">
-                {formatFileSize(task.downloaded_size)} / {formatFileSize(task.total_size || 0)}
-                <span class="pct aura-num">({Math.round(task.progress * 100)}%)</span>
+                {formatFileSize(row.task?.downloaded_size ?? 0)} / {formatFileSize(row.task?.total_size ?? 0)}
+                <span class="pct aura-num">({Math.round(rowProgress(row) * 100)}%)</span>
               </span>
               <span class="speed-info aura-num">
-                {#if task.status === "Downloading"}
-                  <Icon name="download" size={12} /> {speedStr(task.speed)}
-                  {#if etaStr(task)}
-                    <span class="eta aura-num">剩余 {etaStr(task)}</span>
+                {#if row.job?.status === "running" || (!row.job && row.task?.status === "Downloading")}
+                  <Icon name="download" size={12} /> {speedStr(row.task?.speed ?? 0)}
+                  {#if row.task && etaStr(row.task)}
+                    <span class="eta aura-num">剩余 {etaStr(row.task)}</span>
                   {/if}
                 {/if}
               </span>
             </div>
 
-            {#if task.error}
-              <div class="task-error">{task.error}</div>
+            {#if row.job?.message}
+              <div class="task-message">{row.job.message}</div>
+            {/if}
+            {#if row.task?.preflight}
+              <div class:fail={!row.task.preflight.accepted} class="task-evidence">
+                {#if row.task.preflight.accepted}
+                  空间预检通过
+                  {#if row.task.preflight.requiredBytes != null} · 需 {formatFileSize(row.task.preflight.requiredBytes)}{/if}
+                  {#if row.task.preflight.availableBytes != null} · 可用 {formatFileSize(row.task.preflight.availableBytes)}{/if}
+                  {#if row.task.preflight.quotaBytes != null} · 配额 {formatFileSize(row.task.preflight.quotaBytes)}{/if}
+                {:else}
+                  {row.task.preflight.reason ?? "磁盘空间或配额预检失败"}
+                {/if}
+              </div>
+            {/if}
+            {#if row.task?.error}
+              <div class="task-error">{row.task.error}</div>
             {/if}
 
             <div class="task-actions">
-              {#if task.status === "Downloading"}
-                <Button variant="ghost" size="sm" press={() => downloadPause(task.id)}><Icon name="chevronDown" size={14} /> 暂停</Button>
+              {#if row.job?.status === "running" || (!row.job && row.task?.status === "Downloading")}
+                <Button variant="ghost" size="sm" press={() => act(row, "pause")}><Icon name="chevronDown" size={14} /> 暂停</Button>
               {/if}
-              {#if task.status === "Paused"}
-                <Button variant="ghost" size="sm" press={() => downloadResume(task.id)}><Icon name="play" size={14} /> 继续</Button>
+              {#if row.job?.status === "paused" || (!row.job && row.task?.status === "Paused")}
+                <Button variant="ghost" size="sm" press={() => act(row, "resume")}><Icon name="play" size={14} /> {row.job?.recovered ? "继续恢复" : "继续"}</Button>
               {/if}
-              {#if task.status === "Failed"}
-                <Button variant="ghost" size="sm" press={() => downloadRetry(task.id)}><Icon name="refresh" size={14} /> 重试</Button>
+              {#if row.job?.status === "failed" || (row.job?.status === "paused" && row.job.retryable) || (!row.job && row.task?.status === "Failed")}
+                <Button variant="ghost" size="sm" press={() => act(row, "retry")}><Icon name="refresh" size={14} /> 重试</Button>
               {/if}
-              {#if task.status !== "Downloading"}
-                <Button variant="ghost" size="sm" class="danger" press={() => downloadRemove(task.id).then(refresh)}><Icon name="trash" size={14} /> 移除</Button>
+              {#if row.job?.status === "queued" || row.job?.status === "running" || row.job?.status === "paused" || (!row.job && row.task?.status === "Downloading")}
+                <Button variant="ghost" size="sm" class="danger" press={() => act(row, "cancel")}><Icon name="x" size={14} /> 取消</Button>
               {/if}
-              {#if task.status === "Downloading"}
-                <Button variant="ghost" size="sm" class="danger" press={() => downloadCancel(task.id)}><Icon name="x" size={14} /> 取消</Button>
+              {#if row.job?.status === "paused" || row.job?.status === "failed" || row.job?.status === "succeeded" || row.job?.status === "cancelled" || (!row.job && row.task?.status !== "Downloading")}
+                <Button variant="ghost" size="sm" class="danger" press={() => removeRow(row)}><Icon name="trash" size={14} /> 移除</Button>
               {/if}
             </div>
           </article>
@@ -209,7 +359,7 @@
     {:else}
       <EmptyState
         title="暂无下载任务"
-        description="粘贴资源链接开始下载。支持断点续传与限速。"
+        description="粘贴资源链接开始下载。支持持久恢复、断点续传、磁盘空间与配额预检。"
         action={{ label: "添加资源链接", onclick: focusUrlInput }}
       />
     {/if}
@@ -349,6 +499,18 @@
   }
   :global(.ui-input.url-input) { padding-left: 36px; }
   :global(.ui-input.fname-input) { width: 180px; }
+  :global(.ui-input.quota-input) { width: 150px; }
+  .legacy-note,
+  .task-message,
+  .task-evidence {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    background: rgba(255,255,255,0.045);
+  }
+  .legacy-note { color: var(--color-warning); }
+  .task-evidence.fail { color: var(--color-error); background: rgba(239,68,68,0.08); }
 
   :global(.panel.aura-panel) {
     flex: 1;

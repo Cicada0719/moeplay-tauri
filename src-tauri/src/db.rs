@@ -8,10 +8,158 @@ use crate::models::{
     AppDatabase, CompletionStatus, Game, GameAlias, GameMetadata, GamePlatform, PlaySession,
     PlayTracker, SaveBackup, SaveData, Settings, Tag,
 };
-use std::path::PathBuf;
+use std::fs::{File, OpenOptions};
+use std::io;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+const SQLITE_FILE_NAME: &str = "moegame.db";
+const JSON_FILE_NAME: &str = "database.json";
+
+#[derive(Debug)]
+struct RecoveryBackup {
+    main: PathBuf,
+    copied_files: Vec<PathBuf>,
+}
+
+impl RecoveryBackup {
+    fn capture(sqlite_path: &Path) -> Result<Option<Self>, String> {
+        if !sqlite_path.exists() {
+            return Ok(None);
+        }
+
+        let parent = sqlite_path.parent().unwrap_or_else(|| Path::new("."));
+        let file_name = sqlite_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(SQLITE_FILE_NAME);
+
+        for _ in 0..8 {
+            let suffix = format!(
+                "{}-{}",
+                chrono::Utc::now().format("%Y%m%dT%H%M%S%3fZ"),
+                uuid::Uuid::new_v4()
+            );
+            let main = parent.join(format!("{file_name}.recovery-{suffix}.bak"));
+
+            match copy_file_exclusive(sqlite_path, &main) {
+                Ok(()) => {
+                    let mut copied_files = vec![main.clone()];
+                    for sidecar_suffix in ["-wal", "-shm"] {
+                        let source = append_suffix(sqlite_path, sidecar_suffix);
+                        if !source.exists() {
+                            continue;
+                        }
+
+                        let destination = append_suffix(&main, sidecar_suffix);
+                        match copy_file_exclusive(&source, &destination) {
+                            Ok(()) => copied_files.push(destination),
+                            Err(error) => tracing::warn!(
+                                source = %source.display(),
+                                destination = %destination.display(),
+                                error = %error,
+                                "SQLite recovery sidecar backup failed"
+                            ),
+                        }
+                    }
+
+                    return Ok(Some(Self { main, copied_files }));
+                }
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(error) => {
+                    return Err(format!(
+                        "refusing to open SQLite database because a recovery backup could not be created from {}: {error}",
+                        sqlite_path.display()
+                    ));
+                }
+            }
+        }
+
+        Err(format!(
+            "refusing to open SQLite database because no unique recovery backup name could be allocated for {}",
+            sqlite_path.display()
+        ))
+    }
+
+    fn remove_after_success(self) {
+        for path in self.copied_files {
+            if let Err(error) = std::fs::remove_file(&path) {
+                tracing::warn!(
+                    path = %path.display(),
+                    error = %error,
+                    "Temporary SQLite recovery backup cleanup failed"
+                );
+            }
+        }
+    }
+}
+
+fn append_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut value = path.as_os_str().to_os_string();
+    value.push(suffix);
+    PathBuf::from(value)
+}
+
+fn copy_file_exclusive(source: &Path, destination: &Path) -> io::Result<()> {
+    let mut input = File::open(source)?;
+    let mut output = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(destination)?;
+
+    let copy_result = io::copy(&mut input, &mut output).and_then(|_| output.sync_all());
+    if let Err(error) = copy_result {
+        drop(output);
+        let _ = std::fs::remove_file(destination);
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn should_capture_recovery_backup(sqlite_path: &Path) -> bool {
+    if !sqlite_path.exists() {
+        return false;
+    }
+
+    // Reject obviously non-SQLite files before asking SQLite to inspect them.
+    // Even a read-only SQLite open may recreate or rewrite a neighbouring -shm
+    // file, which would make the recovery set differ from the bytes that were
+    // present when startup began.
+    const SQLITE_HEADER: &[u8; 16] = b"SQLite format 3\0";
+    let mut header = [0_u8; 16];
+    match File::open(sqlite_path)
+        .and_then(|mut file| std::io::Read::read_exact(&mut file, &mut header))
+    {
+        Ok(()) if &header == SQLITE_HEADER => {}
+        _ => return true,
+    }
+
+    // Avoid copying a potentially large healthy database on every startup. A
+    // backup is required when a schema upgrade may run, or when even a read-only
+    // preflight cannot establish the current schema (corruption/legacy layout).
+    let flags =
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    let Ok(connection) = rusqlite::Connection::open_with_flags(sqlite_path, flags) else {
+        return true;
+    };
+    connection
+        .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+            row.get::<_, Option<i64>>(0)
+        })
+        .ok()
+        .flatten()
+        .is_none_or(|version| version < crate::db_sqlite::SCHEMA_VERSION)
+}
+
+fn require_query<T>(operation: &str, result: Result<T, String>) -> T {
+    result.unwrap_or_else(|error| {
+        tracing::error!(operation, error = %error, "SQLite query failed closed");
+        panic!("SQLite query failed during {operation}: {error}");
+    })
+}
 
 pub struct Database {
-    db: SqliteDb,
+    db: Arc<SqliteDb>,
     /// 旧 JSON 路径（用于数据迁移和向后兼容）
     _json_path: PathBuf,
 }
@@ -25,59 +173,94 @@ impl Default for Database {
 impl Database {
     /// 初始化数据库：打开 SQLite，若不存在则尝试从旧 JSON 迁移。
     pub fn new() -> Self {
+        Self::try_new().unwrap_or_else(|error| {
+            tracing::error!(error = %error, "Database initialization failed closed");
+            panic!("Database initialization failed closed: {error}");
+        })
+    }
+
+    /// 初始化默认数据目录中的数据库，并将打开/迁移错误返回给调用方。
+    pub fn try_new() -> Result<Self, String> {
         let data_dir = dirs::data_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join("moeplay");
+        Self::open_at(data_dir)
+    }
 
-        std::fs::create_dir_all(&data_dir).ok();
+    /// 打开指定数据目录中的数据库。失败时保留原库和唯一恢复备份，且绝不回退到内存库。
+    pub fn open_at<P: AsRef<Path>>(data_dir: P) -> Result<Self, String> {
+        let data_dir = data_dir.as_ref();
+        std::fs::create_dir_all(data_dir).map_err(|error| {
+            format!(
+                "failed to create database directory {}: {error}",
+                data_dir.display()
+            )
+        })?;
 
-        let json_path = data_dir.join("database.json");
-        let sqlite_path = data_dir.join("moegame.db");
-
-        // 尝试打开 SQLite（含迁移）。若迁移失败则备份旧库再重建，避免静默内存库
-        let db = match SqliteDb::open(&sqlite_path) {
-            Ok(db) => db,
-            Err(e) => {
-                tracing::error!(error = %e, "SQLite migration failed — backing up and recreating");
-                let backup_path = data_dir.join("moegame.db.bak");
-                if let Err(be) = std::fs::copy(&sqlite_path, &backup_path) {
-                    tracing::warn!(error = %be, "DB backup copy failed");
-                }
-                let _ = std::fs::remove_file(&sqlite_path);
-                SqliteDb::open(&sqlite_path).unwrap_or_else(|e2| {
-                    tracing::error!(error = %e2, "Fresh DB creation failed — using in-memory (data will NOT persist)");
-                    SqliteDb::open_in_memory().unwrap_or_else(|e3| {
-                        tracing::error!(error = %e3, "In-memory DB also failed — trying temp fallback");
-                        let fallback = data_dir.join("moegame-fallback.db");
-                        let _ = std::fs::remove_file(&fallback);
-                        SqliteDb::open(&fallback).expect("至少应能打开一个 SQLite 数据库")
-                    })
-                })
-            }
+        let json_path = data_dir.join(JSON_FILE_NAME);
+        let sqlite_path = data_dir.join(SQLITE_FILE_NAME);
+        let recovery_backup = if should_capture_recovery_backup(&sqlite_path) {
+            RecoveryBackup::capture(&sqlite_path)?
+        } else {
+            None
         };
+        let recovery_location = recovery_backup
+            .as_ref()
+            .map(|backup| backup.main.display().to_string())
+            .unwrap_or_else(|| "not created (no pre-existing SQLite file)".to_string());
 
-        // 如果 SQLite 为空且 JSON 文件存在，自动迁移
-        if let Ok(count) = db.game_count() {
-            if count == 0 && json_path.exists() {
-                tracing::info!("SQLite is empty, attempting auto-migration from JSON...");
-                if let Ok(content) = std::fs::read_to_string(&json_path) {
-                    if let Ok(mut app_db) = serde_json::from_str::<AppDatabase>(&content) {
-                        if let Err(e) = crate::migration::run_migrations(&mut app_db) {
-                            tracing::error!(error = %e, "JSON pre-migration failed");
-                        } else if let Err(e) = db.replace_data(&app_db) {
-                            tracing::error!(error = %e, "Auto-migration failed");
-                        } else {
-                            tracing::info!(games = app_db.games.len(), "Auto-migration success");
-                        }
-                    }
-                }
-            }
+        let db = SqliteDb::open(&sqlite_path).map_err(|error| {
+            format!(
+                "failed to open or migrate SQLite database {}: {error}. The primary database was not deleted or replaced; recovery backup: {recovery_location}. No writable in-memory fallback was used",
+                sqlite_path.display()
+            )
+        })?;
+
+        // 如果 SQLite 为空且 JSON 文件存在，自动迁移。查询或迁移错误必须显式返回，不能伪装成空库。
+        let count = db.game_count().map_err(|error| {
+            format!(
+                "failed to query SQLite database {} after opening: {error}; recovery backup: {recovery_location}",
+                sqlite_path.display()
+            )
+        })?;
+        if count == 0 && json_path.exists() {
+            tracing::info!("SQLite is empty, attempting auto-migration from JSON...");
+            let content = std::fs::read_to_string(&json_path).map_err(|error| {
+                format!(
+                    "failed to read legacy JSON database {}: {error}; recovery backup: {recovery_location}",
+                    json_path.display()
+                )
+            })?;
+            let mut app_db = serde_json::from_str::<AppDatabase>(&content).map_err(|error| {
+                format!(
+                    "failed to parse legacy JSON database {}: {error}; recovery backup: {recovery_location}",
+                    json_path.display()
+                )
+            })?;
+            crate::migration::run_migrations(&mut app_db).map_err(|error| {
+                format!(
+                    "failed to migrate legacy JSON database {}: {error}; recovery backup: {recovery_location}",
+                    json_path.display()
+                )
+            })?;
+            db.replace_data(&app_db).map_err(|error| {
+                format!(
+                    "failed to import legacy JSON database {} into {}: {error}; recovery backup: {recovery_location}",
+                    json_path.display(),
+                    sqlite_path.display()
+                )
+            })?;
+            tracing::info!(games = app_db.games.len(), "Auto-migration success");
         }
 
-        Self {
-            db,
+        if let Some(backup) = recovery_backup {
+            backup.remove_after_success();
+        }
+
+        Ok(Self {
+            db: Arc::new(db),
             _json_path: json_path,
-        }
+        })
     }
 
     // ========================================================================
@@ -85,7 +268,7 @@ impl Database {
     // ========================================================================
 
     pub fn get_games(&self) -> Vec<Game> {
-        self.db.get_games().unwrap_or_default()
+        require_query("get_games", self.db.get_games())
     }
 
     pub fn get_game(&self, id: &str) -> Result<Game, String> {
@@ -93,11 +276,11 @@ impl Database {
     }
 
     pub fn search_games(&self, query: &str) -> Vec<Game> {
-        self.db.search_games(query).unwrap_or_default()
+        require_query("search_games", self.db.search_games(query))
     }
 
     pub fn export_data(&self) -> AppDatabase {
-        self.db.export_data().unwrap_or_default()
+        require_query("export_data", self.db.export_data())
     }
 
     pub fn replace_data(&self, data: AppDatabase) -> Result<AppDatabase, String> {
@@ -615,7 +798,7 @@ impl Database {
     // ========================================================================
 
     pub fn get_settings(&self) -> Settings {
-        self.db.get_settings().unwrap_or_default()
+        require_query("get_settings", self.db.get_settings())
     }
 
     pub fn update_settings(&self, settings: Settings) -> Result<Settings, String> {
@@ -627,11 +810,11 @@ impl Database {
     // ========================================================================
 
     pub fn schema_version(&self) -> u32 {
-        self.db.schema_version().unwrap_or(0) as u32
+        require_query("schema_version", self.db.schema_version()) as u32
     }
 
     pub fn game_count(&self) -> usize {
-        self.db.game_count().unwrap_or(0) as usize
+        require_query("game_count", self.db.game_count()) as usize
     }
 
     // ========================================================================
@@ -640,6 +823,10 @@ impl Database {
 
     /// 获取内部 SqliteDb 引用（供迁移模块使用）。
     pub fn sqlite(&self) -> &SqliteDb {
-        &self.db
+        self.db.as_ref()
+    }
+
+    pub fn sqlite_arc(&self) -> Arc<SqliteDb> {
+        Arc::clone(&self.db)
     }
 }

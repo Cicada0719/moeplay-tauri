@@ -1,0 +1,8 @@
+{
+  "Id": "episode-drm",
+  "Name": "Episode DRM",
+  "IsProtected": true,
+  "MediaSources": [
+    { "Id": "source-drm", "SupportsDirectStream": true, "IsProtected": true }
+  ]
+}

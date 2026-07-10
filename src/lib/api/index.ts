@@ -2,6 +2,7 @@
 
 import type { CompletionStatus, TagCategory, TagSource, GamePlatform, StoreLink, GameAlias, Tag, GameMetadata, PlaySession, PlaySessionEntry, DailyPlaytime, MonthlyPlaytime, GamePlaytimeRank, PlaytimeSummary, PlayTracker, SaveBackup, SaveData, Game, ImportPreviewCandidate, ScrapeResult, ScrapeSourceStatus, ScrapeResponse, ScrapeDetail, SaveInfo, SaveCandidateDir, SaveSnapshot, SnapshotDiff, SaveConflict, CloudProvider, CloudSyncConfig, Settings, NsfwDisplayMode, NsfwDecision, ChineseMeta, ScrapeMarker, Recommendation, MonthActivity, Collection, DashboardData, ThumbnailInfo, TaskStatus, AppTask, MigrationInfo, ImageCandidate, PerformanceSnapshot, Severity, Issue, SystemInfo, AppInfo, DiagnosticsReport, DownloadStatus, DownloadTask } from "./types";
 export type * from "./types";
+export { secretDelete, secretSet, secretStatus } from "./secrets";
 
 import { invokeCmd } from "./core";
 
@@ -881,6 +882,10 @@ export async function exportDatabase(exportPath: string | null = null): Promise<
   return invokeCmd("export_database", { exportPath });
 }
 
+export async function exportDiagnosticsZip(): Promise<string> {
+  return invokeCmd("export_diagnostics_zip");
+}
+
 export async function importDatabase(
   importPath: string,
   merge = true
@@ -1148,8 +1153,8 @@ export async function getPlatformImportStatus(): Promise<PlatformImportStatus> {
   return invokeCmd("get_platform_import_status");
 }
 
-export async function resolveSteamId(input: string, apiKey?: string): Promise<SteamLoginResult> {
-  return invokeCmd("resolve_steam_id", { input, apiKey });
+export async function resolveSteamId(input: string): Promise<SteamLoginResult> {
+  return invokeCmd("resolve_steam_id", { input });
 }
 
 export async function validateSteamApiKey(apiKey: string): Promise<string> {
@@ -1164,9 +1169,8 @@ export async function scanPlatformLibrary(
   source: PlatformImportSource,
   mode: PlatformImportMode,
   steamId?: string,
-  apiKey?: string,
 ): Promise<PlatformScanResult> {
-  return invokeCmd("scan_platform_library", { source, mode, steamId, apiKey });
+  return invokeCmd("scan_platform_library", { source, mode, steamId });
 }
 
 export async function importPlatformLibrary(
@@ -1286,8 +1290,8 @@ export async function steamLoginWebview(): Promise<string> {
 }
 
 /// 方式 B: 从粘贴的 URL 解析 SteamID64（推荐，100% 可靠）
-export async function steamResolveUrl(url: string, apiKey?: string): Promise<SteamLoginResult> {
-  return invokeCmd("steam_resolve_url", { url, apiKey });
+export async function steamResolveUrl(url: string): Promise<SteamLoginResult> {
+  return invokeCmd("steam_resolve_url", { url });
 }
 
 /// 方式 C: 尝试 OpenID 一键登录（部分网络可能被拦截）
@@ -1306,8 +1310,8 @@ export async function steamDetectLocal(): Promise<string | null> {
 }
 
 /// 一步完成：获取+导入 Steam 全库游戏
-export async function steamFetchAndImport(steamId: string, apiKey: string): Promise<SteamOwnedGamesResponse> {
-  return invokeCmd("steam_fetch_and_import", { steamId, apiKey });
+export async function steamFetchAndImport(steamId: string): Promise<SteamOwnedGamesResponse> {
+  return invokeCmd("steam_fetch_and_import", { steamId });
 }
 
 /// 批量导入 Steam 全库游戏

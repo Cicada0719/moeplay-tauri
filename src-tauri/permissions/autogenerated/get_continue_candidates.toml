@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-continue-candidates"
+description = "Enables the get_continue_candidates command without any pre-configured scope."
+commands.allow = ["get_continue_candidates"]
+
+[[permission]]
+identifier = "deny-get-continue-candidates"
+description = "Denies the get_continue_candidates command without any pre-configured scope."
+commands.deny = ["get_continue_candidates"]

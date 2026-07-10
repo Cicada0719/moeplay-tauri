@@ -1,6 +1,7 @@
 use crate::db::Database;
 use crate::models::{Game, ScrapeResponse, ScrapeResult};
 use crate::scraper;
+use crate::secret_store::{SecretKind, SecretStore};
 use tauri::State;
 
 // ===== 刮削命令 =====
@@ -129,6 +130,7 @@ pub async fn scrape_game(
     steam: Option<bool>,
     pcgw: Option<bool>,
     db: State<'_, Database>,
+    secret_store: State<'_, SecretStore>,
 ) -> Result<ScrapeResponse, String> {
     let dlsite = dlsite.unwrap_or(false);
     let touchgal = touchgal.unwrap_or(false);
@@ -151,7 +153,8 @@ pub async fn scrape_game(
         return Err("请至少启用一个数据源".to_string());
     }
 
-    let settings = db.get_settings();
+    let settings =
+        super::settings::load_settings_with_secret_migration(db.inner(), secret_store.inner())?;
     let proxy = if settings.scraper_proxy.trim().is_empty() {
         None
     } else {
@@ -159,12 +162,19 @@ pub async fn scrape_game(
     };
     scraper::utils::set_proxy(proxy);
 
-    let ai_config = if settings.ai_enabled && !settings.ai_api_key.is_empty() {
-        Some(scraper::AiScrapeConfig {
-            api_url: settings.ai_api_url.clone(),
-            api_key: settings.ai_api_key.clone(),
-            model: settings.ai_model.clone(),
-        })
+    let ai_config = if settings.ai_enabled {
+        let ai_api_key = ai_api_key_for_settings(secret_store.inner(), &settings)?;
+        match scraper::AiScrapeConfig::from_legacy_settings(
+            &settings.ai_api_url,
+            &ai_api_key,
+            &settings.ai_model,
+        ) {
+            Ok(config) => Some(config),
+            Err(error) => {
+                tracing::warn!(error = %error, "AI scrape config rejected; continuing without AI");
+                None
+            }
+        }
     } else {
         None
     };
@@ -362,11 +372,13 @@ pub async fn fetch_full_detail(source: String, source_id: String) -> Result<Scra
 #[tauri::command]
 pub async fn scrape_game_merged(
     db: State<'_, Database>,
+    secret_store: State<'_, SecretStore>,
     query: String,
     source_hint: Option<String>,
     strategy: Option<String>,
 ) -> Result<Vec<crate::scraper::merge::MergedResult>, String> {
-    let settings = db.get_settings();
+    let settings =
+        super::settings::load_settings_with_secret_migration(db.inner(), secret_store.inner())?;
     let strat = match strategy.as_deref() {
         Some("incremental") => scraper::strategy::ScrapeStrategy::Incremental,
         Some("patch_missing") => scraper::strategy::ScrapeStrategy::PatchMissing,
@@ -404,29 +416,39 @@ pub async fn scrape_game_merged(
     let merged = scraper::merge::merge_results(raw, &merge_config);
 
     let mut result = merged;
-    if settings.ai_enabled && !settings.ai_api_key.is_empty() && route.with_ai {
-        let config = scraper::AiScrapeConfig {
-            api_url: settings.ai_api_url.clone(),
-            api_key: settings.ai_api_key.clone(),
-            model: settings.ai_model.clone(),
-        };
-        for mr in &mut result {
-            if let Ok(enhanced) = crate::scraper::ai::enhance(
-                &config,
-                &mr.result.title,
-                mr.result.description.as_deref(),
-                &mr.result.tags,
-            )
-            .await
-            {
-                if enhanced.description.is_some() {
-                    mr.result.description = enhanced.description;
-                }
-                for tag in enhanced.tags {
-                    if !mr.result.tags.contains(&tag) {
-                        mr.result.tags.push(tag);
+    if settings.ai_enabled && route.with_ai {
+        let ai_api_key = ai_api_key_for_settings(secret_store.inner(), &settings)?;
+        match scraper::AiScrapeConfig::from_legacy_settings(
+            &settings.ai_api_url,
+            &ai_api_key,
+            &settings.ai_model,
+        ) {
+            Ok(config) => {
+                for mr in &mut result {
+                    if let Ok(enhanced) = crate::scraper::ai::enhance(
+                        &config,
+                        &mr.result.title,
+                        mr.result.description.as_deref(),
+                        &mr.result.tags,
+                    )
+                    .await
+                    {
+                        if enhanced.description.is_some() {
+                            mr.result.description = enhanced.description;
+                        }
+                        for tag in enhanced.tags {
+                            if !mr.result.tags.contains(&tag) {
+                                mr.result.tags.push(tag);
+                            }
+                        }
                     }
                 }
+            }
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    "AI merged scrape config rejected; continuing without AI"
+                );
             }
         }
     }
@@ -454,24 +476,35 @@ pub async fn scrape_game_merged(
     Ok(result)
 }
 
+fn ai_api_key_for_settings(
+    secret_store: &SecretStore,
+    settings: &crate::models::Settings,
+) -> Result<String, String> {
+    let endpoint = scraper::ai_presets::validate_endpoint(&settings.ai_api_url)?;
+    if endpoint.is_local() {
+        return Ok(String::new());
+    }
+    secret_store
+        .get(SecretKind::AiApiKey, Some(settings.ai_api_url.as_str()))
+        .map(|secret| secret.unwrap_or_default())
+        .map_err(|error| error.to_string())
+}
+
 /// 获取 AI Provider 列表
 #[tauri::command]
 pub fn get_ai_providers(
     db: State<'_, Database>,
-) -> Result<Vec<scraper::ai_presets::AiProvider>, String> {
-    let settings = db.get_settings();
-    let mut providers = scraper::ai_presets::builtin_providers();
-    if !settings.ai_api_key.is_empty() {
-        for p in &mut providers {
-            if p.id == "openai" {
-                p.api_key = settings.ai_api_key.clone();
-                p.api_url.clone_from(&settings.ai_api_url);
-                p.default_model.clone_from(&settings.ai_model);
-                p.enabled = settings.ai_enabled;
-            }
-        }
-    }
-    Ok(providers)
+    secret_store: State<'_, SecretStore>,
+) -> Result<Vec<scraper::ai_presets::AiProviderDto>, String> {
+    let settings =
+        super::settings::load_settings_with_secret_migration(db.inner(), secret_store.inner())?;
+    let ai_api_key = ai_api_key_for_settings(secret_store.inner(), &settings)?;
+    Ok(scraper::ai_presets::provider_dtos_for_settings(
+        settings.ai_enabled,
+        &settings.ai_api_url,
+        &ai_api_key,
+        &settings.ai_model,
+    ))
 }
 
 /// 获取 AI Preset 列表
@@ -484,28 +517,30 @@ pub fn get_ai_presets() -> Vec<scraper::ai_presets::AiPreset> {
 #[tauri::command]
 pub async fn run_ai_preset(
     db: State<'_, Database>,
+    secret_store: State<'_, SecretStore>,
     preset_id: String,
     input: String,
 ) -> Result<String, String> {
-    let settings = db.get_settings();
+    let settings =
+        super::settings::load_settings_with_secret_migration(db.inner(), secret_store.inner())?;
     let presets = scraper::ai_presets::builtin_presets();
     let preset = presets
         .iter()
         .find(|p| p.id == preset_id)
         .ok_or_else(|| "AI preset not found".to_string())?;
 
-    if !settings.ai_enabled || settings.ai_api_key.trim().is_empty() {
-        return Err("AI API key is not configured".to_string());
+    if !settings.ai_enabled {
+        return Err("AI provider is disabled".to_string());
     }
 
-    let mut provider = scraper::ai_presets::builtin_providers()
-        .into_iter()
-        .find(|p| p.id == preset.provider_id)
-        .ok_or_else(|| format!("AI provider not found: {}", preset.provider_id))?;
-    provider.api_url.clone_from(&settings.ai_api_url);
-    provider.api_key.clone_from(&settings.ai_api_key);
-    provider.default_model.clone_from(&settings.ai_model);
-    provider.enabled = true;
+    // 先按 endpoint canonical origin 解析 Provider，再绑定对应 Key；禁止把默认 Provider
+    // 的 Key 无条件复用到用户修改后的其他 origin。
+    let ai_api_key = ai_api_key_for_settings(secret_store.inner(), &settings)?;
+    let provider = scraper::ai_presets::provider_from_legacy_settings(
+        &settings.ai_api_url,
+        &ai_api_key,
+        &settings.ai_model,
+    )?;
 
     let model = preset
         .model_override

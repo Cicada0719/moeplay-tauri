@@ -219,17 +219,30 @@ function saveHistory(h: ReadRecord[]) {
 
 // ── 响应式状态 ────────────────────────────────────────────────────────────
 
-const TOKEN_KEY = "picacg-token";
+interface ComicAuthStatus {
+  configured: boolean;
+  loggedIn: boolean;
+  email?: string | null;
+}
+
+const LEGACY_TOKEN_KEY = "picacg-token";
 const EMAIL_KEY = "picacg-email";
 
-let _token = $state(
-  typeof localStorage !== "undefined" ? (localStorage.getItem(TOKEN_KEY) ?? "") : ""
-);
+let _configured = $state(false);
+let _loggedIn = $state(false);
 let _savedEmail = $state(
   typeof localStorage !== "undefined" ? (localStorage.getItem(EMAIL_KEY) ?? "") : ""
 );
 let _loading = $state(false);
 let _error = $state<string | null>(null);
+
+function applyAuthStatus(status: ComicAuthStatus) {
+  _configured = status.configured;
+  _loggedIn = status.loggedIn;
+  if (status.email) {
+    _savedEmail = status.email;
+  }
+}
 
 // 导航层级
 let _view = $state<"home" | "detail" | "reader">("home");
@@ -306,9 +319,9 @@ let _readHistory = $state<ReadRecord[]>(
 
 export const comicStore = {
   // ── 状态访问 ────────────────────────────────────────────────────────────
-  get token() { return _token; },
   get savedEmail() { return _savedEmail; },
-  get isLoggedIn() { return _token.length > 0; },
+  get configured() { return _configured; },
+  get isLoggedIn() { return _loggedIn; },
   get loading() { return _loading; },
   get error() { return _error; },
   get view() { return _view; },
@@ -361,8 +374,29 @@ export const comicStore = {
   // ── 认证 ────────────────────────────────────────────────────────────────
 
   async rehydrate() {
-    if (_token) {
-      await invokeCmd("comic_set_token", { token: _token }).catch(() => {});
+    _loading = true;
+    _error = null;
+    try {
+      const legacyToken = typeof localStorage !== "undefined"
+        ? localStorage.getItem(LEGACY_TOKEN_KEY)
+        : null;
+      let status: ComicAuthStatus;
+
+      if (legacyToken?.trim()) {
+        status = await invokeCmd<ComicAuthStatus>("comic_set_token", { token: legacyToken });
+        localStorage.removeItem(LEGACY_TOKEN_KEY);
+      } else {
+        status = await invokeCmd<ComicAuthStatus>("comic_restore_session");
+        if (legacyToken !== null) localStorage.removeItem(LEGACY_TOKEN_KEY);
+      }
+
+      applyAuthStatus(status);
+    } catch (e) {
+      _configured = false;
+      _loggedIn = false;
+      _error = String(e);
+    } finally {
+      _loading = false;
     }
   },
 
@@ -370,11 +404,13 @@ export const comicStore = {
     _loading = true;
     _error = null;
     try {
-      const token = await invokeCmd<string>("comic_login", { email, password });
-      _token = token;
-      _savedEmail = email;
-      localStorage.setItem(TOKEN_KEY, token);
-      localStorage.setItem(EMAIL_KEY, email);
+      const status = await invokeCmd<ComicAuthStatus>("comic_login", { email, password });
+      applyAuthStatus(status);
+      _savedEmail = status.email ?? email;
+      if (typeof localStorage !== "undefined") {
+        localStorage.removeItem(LEGACY_TOKEN_KEY);
+        localStorage.setItem(EMAIL_KEY, _savedEmail);
+      }
     } catch (e) {
       _error = String(e);
       throw e;
@@ -383,10 +419,18 @@ export const comicStore = {
     }
   },
 
-  logout() {
-    _token = "";
-    localStorage.removeItem(TOKEN_KEY);
-    invokeCmd("comic_set_token", { token: "" }).catch(() => {});
+  async logout(): Promise<void> {
+    _loading = true;
+    _error = null;
+    try {
+      const status = await invokeCmd<ComicAuthStatus>("comic_logout");
+      applyAuthStatus(status);
+    } catch (e) {
+      _loggedIn = false;
+      _error = String(e);
+    } finally {
+      _loading = false;
+    }
     _view = "home";
     _activeTab = "explore";
     _profile = null;

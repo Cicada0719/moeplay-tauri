@@ -3,7 +3,7 @@
   import Icon from "./Icon.svelte";
   import { Button, Card, EmptyState, StatBlock } from "./ui";
   import {
-    exportDatabase,
+    exportDiagnosticsZip,
     getMigrationStatus,
     getPerformanceSnapshot,
     runDiagnostics,
@@ -17,6 +17,7 @@
   let migrations = $state<MigrationInfo[]>([]);
   let exported = $state("");
   let loading = $state(true);
+  let exporting = $state(false);
   let error = $state<string | null>(null);
 
   async function load() {
@@ -33,8 +34,16 @@
     }
   }
 
-  async function exportDb() {
-    exported = await exportDatabase();
+  async function exportBundle() {
+    exporting = true;
+    error = null;
+    try {
+      exported = await exportDiagnosticsZip();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      exporting = false;
+    }
   }
 
   onMount(() => {
@@ -47,11 +56,11 @@
     <div class="head-copy">
       <span class="eyebrow aura-kicker">Diagnostics</span>
       <h1 class="aura-title">诊断</h1>
-      <p>系统信息、迁移状态、性能快照和导出工具。</p>
+      <p>系统信息、迁移状态、性能快照和默认脱敏的诊断导出。</p>
     </div>
-    <Button press={exportDb}>
-      <Icon name="database" size={16} />
-      <span>导出数据库</span>
+    <Button press={exportBundle} loading={exporting} disabled={exporting}>
+      <Icon name="download" size={16} />
+      <span>导出脱敏诊断包</span>
     </Button>
   </header>
 
@@ -119,7 +128,7 @@
     {#if exported}
       <p class="exported aura-inset">
         <Icon name="check" size={16} />
-        <span>已导出：{exported}</span>
+        <span>脱敏诊断包已导出：{exported}</span>
       </p>
     {/if}
   {:else if error}

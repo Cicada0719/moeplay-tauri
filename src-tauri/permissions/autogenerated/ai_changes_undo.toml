@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ai-changes-undo"
+description = "Enables the ai_changes_undo command without any pre-configured scope."
+commands.allow = ["ai_changes_undo"]
+
+[[permission]]
+identifier = "deny-ai-changes-undo"
+description = "Denies the ai_changes_undo command without any pre-configured scope."
+commands.deny = ["ai_changes_undo"]

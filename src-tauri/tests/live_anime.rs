@@ -5,6 +5,7 @@ use moeplay_lib::anime::{fetch_roads, fetch_rule_by_name, search_anime};
 async fn live_anime_sources_can_search_and_load_episodes() {
     let candidates = ["TvTFun", "aafun", "gugu3", "MXdm", "AGE"];
     let mut diagnostics = Vec::new();
+    let mut successful_sources = Vec::new();
     for name in candidates {
         let rule = match tokio::time::timeout(
             std::time::Duration::from_secs(20),
@@ -49,15 +50,23 @@ async fn live_anime_sources_can_search_and_load_episodes() {
             )
             .await
             {
-                Ok(Ok(roads)) if roads.iter().any(|road| !road.episodes.is_empty()) => return,
+                Ok(Ok(roads)) if roads.iter().any(|road| !road.episodes.is_empty()) => {
+                    successful_sources.push(name);
+                    break;
+                }
                 Ok(Ok(_)) => diagnostics.push(format!("{name}: empty roads for {}", item.name)),
                 Ok(Err(error)) => diagnostics.push(format!("{name}: roads {error}")),
                 Err(_) => diagnostics.push(format!("{name}: roads timeout")),
             }
         }
+        if successful_sources.len() >= 2 {
+            println!("live anime sources passed: {:?}", successful_sources);
+            return;
+        }
     }
     panic!(
-        "no live anime source completed search -> roads: {}",
+        "fewer than two live anime sources completed search -> roads; successful={:?}; diagnostics={}",
+        successful_sources,
         diagnostics.join(" | ")
     );
 }

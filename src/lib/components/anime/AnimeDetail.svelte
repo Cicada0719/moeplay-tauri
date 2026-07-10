@@ -1,7 +1,21 @@
 <script lang="ts">
   import { animeStore, COLLECT_TYPES } from '../../stores/anime.svelte';
   import Icon from '../Icon.svelte';
-  import { BackgroundLayer, Button, Card, EmptyState, SegmentControl, Tag } from '../ui';
+  import { BackgroundLayer, Card, EmptyState, Tag } from '../ui';
+  import { DetailPanel } from '../ui-v2';
+  import type { ReturnFocusTarget } from '../../actions/a11y/focusTrap';
+  import { focusRovingItem, nextRovingIndex } from './a11y';
+
+  let { returnFocus = true }: { returnFocus?: ReturnFocusTarget } = $props();
+
+  const DETAIL_TABS = [
+    { id: 'overview', label: '概览' },
+    { id: 'comments', label: '吐槽' },
+    { id: 'characters', label: '角色' },
+    { id: 'staff', label: '制作人员' },
+  ] as const;
+  type DetailTab = (typeof DETAIL_TABS)[number]['id'];
+  let detailTabRefs: Array<HTMLButtonElement | null> = [];
 
   // ── Reactive data from store ──────────────────────────────────────────
   const subject = $derived(animeStore.detailSubject);
@@ -61,7 +75,7 @@
   }
 
   // ── Tab switching with lazy loading ───────────────────────────────────
-  function switchTab(tab: 'overview' | 'comments' | 'characters' | 'staff') {
+  function switchTab(tab: DetailTab) {
     animeStore.detailTab = tab;
     if (!subject) return;
     if (tab === 'characters' && characters.length === 0) {
@@ -75,38 +89,36 @@
     }
   }
 
-  // ── Close dropdown on outside click ───────────────────────────────────
-  function handleOverlayClick(e: MouseEvent) {
-    if (showCollectMenu) {
-      const target = e.target as HTMLElement;
-      if (!target.closest('.collect-wrapper')) {
-        showCollectMenu = false;
-      }
-    }
+
+  function handleDetailTabKeydown(event: KeyboardEvent, index: number) {
+    const next = nextRovingIndex(event.key, index, DETAIL_TABS.length, "horizontal");
+    if (next === null) return;
+    event.preventDefault();
+    switchTab(DETAIL_TABS[next].id);
+    focusRovingItem(detailTabRefs, next);
   }
+
 </script>
 
-<div class="detail-overlay" role="dialog" tabindex="-1" onclick={handleOverlayClick} onkeydown={(e) => e.key === 'Escape' && animeStore.closeDetail()}>
+<DetailPanel
+  open
+  title={subject?.name_cn || subject?.name || name || "番剧详情"}
+  description={ruleName ? `当前经典来源：${ruleName}` : "Bangumi 元数据详情"}
+  onClose={() => animeStore.closeDetail()}
+  side="right"
+  size="lg"
+  initialFocus=".fab-play"
+  {returnFocus}
+  class="anime-detail-panel"
+>
+  <div class="detail-overlay">
   <!-- Blurred poster background -->
   {#if bgPosterUrl}
     <BackgroundLayer src={bgPosterUrl} overlay={false} class="bg-blur" />
   {/if}
 
-  <!-- Top header -->
-  <header class="detail-header">
-    <Button variant="ghost" size="sm" press={() => animeStore.closeDetail()} ariaLabel="返回" class="header-btn">
-      <Icon name="chevronLeft" size={20} />
-    </Button>
-    <div class="header-center">
-      {#if ruleName}
-        <Tag variant="accent" size="md">{ruleName}</Tag>
-      {/if}
-    </div>
-    <div class="header-right"></div>
-  </header>
-
   <!-- Main scrollable content -->
-  <main class="detail-scroll">
+  <div class="detail-scroll">
     {#if loading && !subject}
       <div class="loading-center">
         <div class="spinner"></div>
@@ -224,20 +236,31 @@
       </section>
 
       <!-- Tab navigation -->
-      <SegmentControl
-        class="tab-bar"
-        options={[
-          { value: 'overview', label: '概览' },
-          { value: 'comments', label: '吐槽' },
-          { value: 'characters', label: '角色' },
-          { value: 'staff', label: '制作人员' }
-        ]}
-        value={detailTab}
-        onChange={(v) => switchTab(v as 'overview' | 'comments' | 'characters' | 'staff')}
-      />
+      <div class="tab-bar" role="tablist" aria-label="番剧详情分类">
+        {#each DETAIL_TABS as tab, index (tab.id)}
+          <button
+            bind:this={detailTabRefs[index]}
+            type="button"
+            role="tab"
+            id={`anime-detail-tab-${tab.id}`}
+            aria-selected={detailTab === tab.id}
+            aria-controls={`anime-detail-panel-${tab.id}`}
+            tabindex={detailTab === tab.id ? 0 : -1}
+            class:active={detailTab === tab.id}
+            onclick={() => switchTab(tab.id)}
+            onkeydown={(event) => handleDetailTabKeydown(event, index)}
+          >{tab.label}</button>
+        {/each}
+      </div>
 
       <!-- Tab content -->
-      <div class="tab-content">
+      <div
+        class="tab-content"
+        id={`anime-detail-panel-${detailTab}`}
+        role="tabpanel"
+        aria-labelledby={`anime-detail-tab-${detailTab}`}
+        tabindex="0"
+      >
         {#if detailTab === 'overview'}
           <!-- Synopsis -->
           {#if subject?.summary}
@@ -345,11 +368,16 @@
         {/if}
       </div>
     {/if}
-  </main>
+  </div>
 
   <!-- Floating play button → opens SourceSheet（常驻，任意 tab 都能开始观看） -->
   <button
     class="fab-play"
+    type="button"
+    data-autofocus
+    data-anime-source-trigger
+    aria-haspopup="dialog"
+    aria-expanded={animeStore.sourceSheetOpen}
     onclick={() => animeStore.openSourceSheet()}
   >
     <span class="fab-glow"></span>
@@ -360,9 +388,21 @@
       <span>开始观看</span>
     {/if}
   </button>
-</div>
+  </div>
+</DetailPanel>
 
 <style>
+  :global(.v2-detail-panel.anime-detail-panel) {
+    width: min(74rem, calc(100vw - 1.5rem));
+    max-width: none;
+    background: #0d1117;
+  }
+  :global(.v2-detail-panel.anime-detail-panel .v2-detail-panel__body) { padding: 0; min-height: 0; overflow: hidden; }
+  .tab-bar { display: flex; gap: .35rem; flex-wrap: wrap; padding: .25rem; border: 1px solid rgba(255,255,255,.08); border-radius: .8rem; background: rgba(255,255,255,.025); }
+  .tab-bar button { min-height: 2.6rem; padding: .55rem .9rem; border: 0; border-radius: .6rem; background: transparent; color: #9aa4b2; font: inherit; font-weight: 650; cursor: pointer; }
+  .tab-bar button.active { background: rgba(232,85,127,.14); color: #fff; box-shadow: inset 0 0 0 1px rgba(232,85,127,.28); }
+  .tab-bar button:focus-visible { outline: 2px solid #e8557f; outline-offset: 2px; }
+
   /* ── Overlay container ──────────────────────────────────────────────── */
   .detail-overlay {
     position: absolute;
@@ -392,16 +432,6 @@
   }
 
   /* ── Header ─────────────────────────────────────────────────────────── */
-  .detail-header {
-    position: relative;
-    z-index: 10;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
-    background: linear-gradient(180deg, rgba(13,17,23,0.95) 0%, rgba(13,17,23,0.7) 70%, transparent 100%);
-  }
 
   :global(.ui-button.header-btn) {
     display: flex;
@@ -422,17 +452,6 @@
     background: rgba(232,85,127,0.3);
     border-color: #e8557f;
     transform: scale(1.05);
-  }
-
-  .header-center {
-    flex: 1;
-    display: flex;
-    justify-content: center;
-  }
-
-  .header-right {
-    display: flex;
-    gap: 8px;
   }
 
 
@@ -932,7 +951,7 @@
   /* ── Floating action button ─────────────────────────────────────────── */
   .fab-play {
     position: absolute;
-    bottom: 28px;
+    bottom: max(6.5rem, env(safe-area-inset-bottom));
     right: 28px;
     z-index: 15;
     display: flex;
@@ -1021,4 +1040,13 @@
     text-align: center;
     max-width: 300px;
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    .detail-overlay, .detail-overlay *, .fab-play, .fab-glow { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+    .fab-play:hover { transform: none; }
+  }
+  :global([data-motion="reduce"]) .detail-overlay,
+  :global([data-motion="reduce"]) .detail-overlay *,
+  :global([data-motion="reduce"]) .fab-play,
+  :global([data-motion="reduce"]) .fab-glow { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 </style>

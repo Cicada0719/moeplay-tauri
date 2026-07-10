@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-provider-remove"
+description = "Enables the anime_provider_remove command without any pre-configured scope."
+commands.allow = ["anime_provider_remove"]
+
+[[permission]]
+identifier = "deny-anime-provider-remove"
+description = "Denies the anime_provider_remove command without any pre-configured scope."
+commands.deny = ["anime_provider_remove"]

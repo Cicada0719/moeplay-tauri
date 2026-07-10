@@ -1,0 +1,13 @@
+{
+  "summary": "Looks plausible but targets an ID that was never supplied.",
+  "confidence": 0.9,
+  "operations": [
+    {
+      "type": "set_field",
+      "gameId": "hallucinated-game",
+      "field": "title",
+      "value": "Do not apply",
+      "reason": "Hallucinated target"
+    }
+  ]
+}

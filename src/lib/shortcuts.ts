@@ -2,7 +2,7 @@ import { DOCK_ITEMS } from "./nav";
 import type { ShortcutEventDetail } from "@svelte-put/shortcut";
 
 export interface ShortcutTrigger {
-  key: string;
+  key?: string;
   modifier?: "ctrl" | "meta" | "alt" | "shift" | ("ctrl" | "meta" | "alt" | "shift")[] | false;
   code?: string;
 }
@@ -20,10 +20,10 @@ export interface ShortcutActions {
   toggleTools(): void;
   focusSearch(): void;
   toggleHelp(): void;
-  goHome(): void;
+  goBack(): void;
 }
 
-/** Parse Digit1..Digit5 / Numpad1..Numpad5 to 0-based dock index. */
+/** Parse Digit1..Digit5 / Numpad1..Numpad5 to a zero-based dock index. */
 export function resolveDockIndexByKey(key: string): number | null {
   const digitMatch = /^Digit([1-5])$/.exec(key);
   if (digitMatch) return parseInt(digitMatch[1], 10) - 1;
@@ -32,22 +32,17 @@ export function resolveDockIndexByKey(key: string): number | null {
   return null;
 }
 
-/** Build the numeric dock shortcuts (1-5) based on current DOCK_ITEMS order. */
+/** Build numeric shortcuts from nav metadata so help, Dock badges and handlers cannot drift. */
 export function buildDockShortcuts(): ShortcutDefinition[] {
-  const shortcuts: ShortcutDefinition[] = [];
-  const dockable = DOCK_ITEMS.slice(0, 5);
-  for (let i = 0; i < dockable.length; i++) {
-    const item = dockable[i];
-    const num = i + 1;
-    shortcuts.push({
+  return DOCK_ITEMS
+    .filter((item) => item.shortcut)
+    .map((item) => ({
       id: `dock-${item.id}`,
-      keys: String(num),
-      trigger: { key: String(num) },
-      description: `切换到「${item.label}」`,
-      scope: "global",
-    });
-  }
-  return shortcuts;
+      keys: item.shortcut!,
+      trigger: { key: item.shortcut! },
+      description: item.ariaLabel,
+      scope: "global" as const,
+    }));
 }
 
 /** Build the complete shortcut catalog for help rendering and registration. */
@@ -58,34 +53,34 @@ export function buildShortcutCatalog(): ShortcutDefinition[] {
       id: "help",
       keys: "?",
       trigger: { key: "?" },
-      description: "打开/关闭快捷键帮助",
+      description: "打开或关闭快捷键帮助",
       scope: "global",
     },
     {
       id: "focus-search-slash",
       keys: "/",
       trigger: { key: "/" },
-      description: "聚焦游戏库搜索框",
+      description: "聚焦当前页面搜索框",
       scope: "home",
     },
     {
       id: "focus-search-modk",
       keys: "Ctrl / Cmd + K",
-      trigger: { key: "k", modifier: ["ctrl", "meta"] },
-      description: "聚焦游戏库搜索框",
+      trigger: { code: "KeyK", modifier: ["ctrl", "meta"] },
+      description: "聚焦当前页面搜索框",
       scope: "home",
     },
     {
-      id: "home",
+      id: "back",
       keys: "Esc",
       trigger: { key: "Escape", modifier: false },
-      description: "返回首页",
+      description: "按层级关闭或返回",
       scope: "global",
     },
   ];
 }
 
-/** 判断当前焦点是否在可编辑输入元素上，避免快捷键把输入内容当导航键处理。 */
+/** Avoid treating text input as navigation while preserving the explicit Mod+K command. */
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   const tag = target.tagName;
@@ -93,19 +88,21 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return target.isContentEditable;
 }
 
-/** Convert a shortcut definition into a @svelte-put/shortcut trigger config with callback. */
+/** Convert a definition into a @svelte-put/shortcut trigger config. */
 export function toShortcutTrigger(
   def: ShortcutDefinition,
-  actions: ShortcutActions
+  actions: ShortcutActions,
 ): { trigger: ShortcutTrigger & { callback: (detail: ShortcutEventDetail) => void } } {
   const callback = (detail: ShortcutEventDetail) => {
-    if (isTypingTarget(detail.originalEvent.target)) return;
+    const typing = isTypingTarget(detail.originalEvent.target);
+    if (typing && def.id !== "focus-search-modk") return;
+
     switch (def.id) {
       case "help":
         actions.toggleHelp();
         return;
-      case "home":
-        actions.goHome();
+      case "back":
+        actions.goBack();
         return;
       case "focus-search-slash":
       case "focus-search-modk":
@@ -113,22 +110,20 @@ export function toShortcutTrigger(
         return;
       default:
         if (def.id.startsWith("dock-")) {
-          const idx = parseInt(def.keys, 10) - 1;
-          const item = DOCK_ITEMS[idx];
-          if (item) {
-            if (item.view === "__tools") actions.toggleTools();
-            else actions.navigate(item.view);
-          }
+          const item = DOCK_ITEMS.find(candidate => candidate.shortcut === def.keys);
+          if (!item) return;
+          if (item.view === "__tools") actions.toggleTools();
+          else actions.navigate(item.view);
         }
     }
   };
   return { trigger: { ...def.trigger, callback } };
 }
 
-/** Build the shortcut parameter ready for use:shortcut action. */
+/** Escape stays on the layered App/router handler so modal capture has first priority. */
 export function buildShortcutParameter(actions: ShortcutActions) {
   const triggers = buildShortcutCatalog()
-    .filter((def) => def.id !== "home") // Escape handled by existing keydown listener
+    .filter((def) => def.id !== "back")
     .map((def) => toShortcutTrigger(def, actions).trigger);
   return { trigger: triggers };
 }

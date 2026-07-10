@@ -1,6 +1,7 @@
 // 萌游 MoeGame - 库入口
 #![allow(clippy::field_reassign_with_default, clippy::too_many_arguments)]
 
+pub mod ai;
 pub mod anime;
 pub mod archive;
 pub mod auto_scrape;
@@ -11,6 +12,7 @@ pub mod commands;
 pub mod db;
 pub mod db_sqlite;
 pub mod diagnostics;
+pub mod domain;
 pub mod downloader;
 pub mod emulator;
 pub mod gal_download;
@@ -25,10 +27,13 @@ pub mod models;
 pub mod nsfw;
 pub mod performance;
 pub mod process_monitor;
+pub mod providers;
 pub mod recommender;
 pub mod resource_fetcher;
 pub mod scraper;
+pub mod secret_store;
 pub mod security;
+pub mod services;
 pub mod stats;
 pub mod steam_openid;
 pub mod sync;
@@ -96,6 +101,18 @@ pub fn run() {
         .join("萌游下载")
         .join("番剧");
 
+    let database = Database::new();
+    let task_queue = TaskQueue::from_database(database.sqlite_arc());
+    let ai_changes_service = services::ai_changes::AiChangesService::new(
+        dirs::data_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("moeplay")
+            .join("ai_changes")
+            .join("undo"),
+    );
+    let ai_v2_state = commands::AiV2State::try_new(database.sqlite_arc())
+        .expect("AI v2 runtime initialization failed");
+
     crash_log("Building Tauri app...");
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -108,12 +125,17 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .manage(Database::new())
+        .manage(database)
+        .manage(secret_store::SecretStore::new())
         .manage(anime::AnimeState::default())
         .manage(comic::ComicState::default())
+        .manage(providers::anime::AnimeProviderRegistry::default())
+        .manage(providers::comic::ComicProviderRegistry::new())
         .manage(Downloader::new(download_dir, 3))
         .manage(AnimeDownloader::new(anime_download_dir))
-        .manage(TaskQueue::new())
+        .manage(task_queue)
+        .manage(ai_changes_service)
+        .manage(ai_v2_state)
         .manage(LocaleEmulatorManager::new())
         .manage(ProcessMonitor::new())
         .manage(ImportWatcher::new())
@@ -271,6 +293,9 @@ pub fn run() {
             // ---- 设置 ----
             commands::get_settings,
             commands::update_settings,
+            commands::secret_status,
+            commands::secret_set,
+            commands::secret_delete,
             commands::add_watch_dir,
             commands::remove_watch_dir,
             commands::pick_directory,
@@ -291,6 +316,43 @@ pub fn run() {
             commands::update_task,
             commands::cancel_task,
             commands::clear_finished_tasks,
+            // ---- Anime Provider v2 ----
+            commands::anime_provider_configure,
+            commands::anime_provider_list,
+            commands::anime_provider_remove,
+            commands::anime_provider_search,
+            commands::anime_provider_detail,
+            commands::anime_provider_episodes,
+            commands::anime_provider_resolve,
+            commands::anime_provider_health,
+            commands::anime_provider_pick_local_directory,
+            commands::anime_provider_open_fallback,
+            // ---- Comic Provider v2 ----
+            commands::comic_provider_configure,
+            commands::comic_provider_list,
+            commands::comic_provider_remove,
+            commands::comic_provider_probe,
+            commands::comic_provider_search,
+            commands::comic_provider_detail,
+            commands::comic_provider_chapters,
+            commands::comic_provider_resolve,
+            // ---- Activity v2 ----
+            commands::get_activity_events,
+            commands::get_activity_summary,
+            commands::upsert_activity_event,
+            commands::edit_activity_event,
+            commands::delete_activity_event,
+            commands::upsert_activity_progress,
+            commands::get_activity_progress,
+            commands::get_continue_candidates,
+            commands::backfill_legacy_game_activity,
+            commands::export_activity_events,
+            // ---- Library v2 ----
+            commands::library_v2_preview_import,
+            commands::library_v2_apply_import,
+            commands::library_v2_health,
+            commands::library_v2_launch_descriptor,
+            commands::library_v2_launch,
             commands::get_migration_status,
             commands::export_database,
             commands::import_database,
@@ -356,6 +418,8 @@ pub fn run() {
             commands::get_autostart_status,
             // ---- 哔咔漫画 ----
             commands::comic_set_token,
+            commands::comic_restore_session,
+            commands::comic_logout,
             commands::comic_login,
             commands::comic_profile,
             commands::comic_categories,
@@ -439,6 +503,17 @@ pub fn run() {
             commands::anime_remove_download,
             commands::anime_clear_finished_downloads,
             commands::anime_open_download_folder,
+            // ---- AI v2 ----
+            commands::ai_v2_provider_status,
+            commands::ai_v2_budget_status,
+            commands::ai_v2_start_structured_task,
+            commands::ai_v2_task_status,
+            commands::ai_v2_task_result,
+            commands::ai_v2_cancel_task,
+            // ---- AI change-set preview/apply/undo ----
+            commands::ai_changes_preview,
+            commands::ai_changes_apply,
+            commands::ai_changes_undo,
         ])
         .setup(|app| {
             crash_log("setup() ENTER");

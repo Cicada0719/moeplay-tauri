@@ -1,0 +1,12 @@
+{
+  "kind": "game",
+  "filters": [
+    {
+      "field": "rawSql",
+      "op": "execute",
+      "value": "DELETE FROM games"
+    }
+  ],
+  "sort": [],
+  "explanation": "Unsafe output"
+}

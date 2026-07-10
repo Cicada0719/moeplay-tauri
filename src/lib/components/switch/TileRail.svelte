@@ -5,7 +5,18 @@
   import TileCard from "./TileCard.svelte";
   import { attachGamepad } from "./useGamepad.svelte";
 
-  let { items, selectedId, onselect, onactivate, onlaunch, onfavorite, onshowall, onfocussearch, onback, onbigpicture }: {
+  let {
+    items,
+    selectedId,
+    onselect,
+    onactivate,
+    onlaunch,
+    onfavorite,
+    onshowall,
+    onfocussearch,
+    onback,
+    onbigpicture,
+  }: {
     items: Game[];
     selectedId: string | null;
     onselect: (id: string) => void;
@@ -19,42 +30,53 @@
   } = $props();
 
   let scroller = $state<HTMLDivElement>();
-  // rail 内部 focusIndex 为导航真相源；selectedId 仅用于 onMount 初始定位。
   let focusIndex = $state(0);
   let syncedSelectedId = $state<string | null>(null);
   const sentinelIndex = $derived(items.length);
-
-  const RAIL_RADIUS = 6;
+  const railRadius = 6;
   const railRange = $derived({
-    start: Math.max(0, focusIndex - RAIL_RADIUS),
-    end: Math.min(items.length - 1, focusIndex + RAIL_RADIUS),
+    start: Math.max(0, focusIndex - railRadius),
+    end: Math.min(items.length - 1, focusIndex + railRadius),
   });
   const visibleItems = $derived(
-    items.slice(railRange.start, railRange.end + 1).map((game, vi) => ({ game, origIdx: vi + railRange.start }))
+    items.slice(railRange.start, railRange.end + 1).map((game, visibleIndex) => ({
+      game,
+      originalIndex: visibleIndex + railRange.start,
+    })),
   );
 
   function prefersReducedMotion(): boolean {
-    return typeof window !== "undefined"
-      && window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    return typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  }
+
+  function focusCard(index = focusIndex) {
+    queueMicrotask(() => {
+      const target = scroller?.querySelector<HTMLElement>(`[data-idx="${index}"] [data-focus-key]`);
+      target?.focus({ preventScroll: true });
+    });
+  }
+
+  function syncIndex(index: number, moveFocus = false) {
+    focusIndex = Math.max(0, Math.min(sentinelIndex, index));
+    if (moveFocus) focusCard(focusIndex);
   }
 
   $effect(() => {
     if (selectedId === syncedSelectedId) return;
     syncedSelectedId = selectedId;
-    const i = items.findIndex((g) => g.id === selectedId);
-    if (i >= 0 && i !== focusIndex) focusIndex = i;
+    const index = items.findIndex((game) => game.id === selectedId);
+    if (index >= 0 && index !== focusIndex) focusIndex = index;
   });
 
   $effect(() => {
     if (focusIndex > sentinelIndex) focusIndex = sentinelIndex;
   });
 
-  // focusIndex 变化 → 同步选中（信息区）+ 居中滚动
   $effect(() => {
-    const idx = focusIndex;
-    if (idx >= 0 && idx < items.length) onselect(items[idx].id);
+    const index = focusIndex;
+    if (index >= 0 && index < items.length) onselect(items[index].id);
     queueMicrotask(() => {
-      const node = scroller?.querySelector<HTMLElement>(`[data-idx="${idx}"]`);
+      const node = scroller?.querySelector<HTMLElement>(`[data-idx="${index}"]`);
       node?.scrollIntoView({
         inline: "center",
         block: "nearest",
@@ -63,52 +85,79 @@
     });
   });
 
-  function move(d: number) {
-    focusIndex = Math.max(0, Math.min(sentinelIndex, focusIndex + d));
+  function move(delta: number) {
+    syncIndex(focusIndex + delta, true);
   }
+
   function activateCurrent() {
+    focusCard();
     if (focusIndex === sentinelIndex) onshowall();
     else onactivate(items[focusIndex].id);
   }
+
   function launchCurrent() {
+    focusCard();
     if (focusIndex < items.length) onlaunch(items[focusIndex].id);
   }
 
-  function onWheel(e: WheelEvent) {
-    if (Math.abs(e.deltaY) < 1 && Math.abs(e.deltaX) < 1) return;
-    e.preventDefault();
-    move(e.deltaY > 0 || e.deltaX > 0 ? 1 : -1);
+  function handleWheel(event: WheelEvent) {
+    if (Math.abs(event.deltaY) < 1 && Math.abs(event.deltaX) < 1) return;
+    event.preventDefault();
+    move(event.deltaY > 0 || event.deltaX > 0 ? 1 : -1);
   }
 
-  function onKeydown(e: KeyboardEvent) {
-    switch (e.key) {
-      case "ArrowRight": move(1); e.preventDefault(); break;
-      case "d": case "D": move(1); e.preventDefault(); break;
-      case "ArrowLeft": move(-1); e.preventDefault(); break;
-      case "a": case "A": move(-1); e.preventDefault(); break;
-      case "PageDown": move(6); e.preventDefault(); break;
-      case "PageUp": move(-6); e.preventDefault(); break;
-      case "Home": focusIndex = 0; e.preventDefault(); break;
-      case "End": focusIndex = sentinelIndex; e.preventDefault(); break;
-      case "Enter": activateCurrent(); e.preventDefault(); break;
-      case " ": launchCurrent(); e.preventDefault(); break;
-      case "/": onfocussearch?.(); e.preventDefault(); break;
-      case "Escape": onback?.(); e.preventDefault(); break;
-      case "f": case "F": onfavorite?.(); break;
+  function handleKeydown(event: KeyboardEvent) {
+    switch (event.key) {
+      case "ArrowRight":
+      case "d":
+      case "D":
+        move(1); event.preventDefault(); break;
+      case "ArrowLeft":
+      case "a":
+      case "A":
+        move(-1); event.preventDefault(); break;
+      case "PageDown":
+        syncIndex(focusIndex + 6, true); event.preventDefault(); break;
+      case "PageUp":
+        syncIndex(focusIndex - 6, true); event.preventDefault(); break;
+      case "Home":
+        syncIndex(0, true); event.preventDefault(); break;
+      case "End":
+        syncIndex(sentinelIndex, true); event.preventDefault(); break;
+      case "/":
+        onfocussearch?.(); event.preventDefault(); break;
+      case "Escape":
+        onback?.(); event.preventDefault(); break;
+      case "f":
+      case "F":
+        onfavorite?.(); break;
     }
-    if (e.ctrlKey && e.key.toLowerCase() === "b") {
+    if (event.ctrlKey && event.key.toLowerCase() === "b") {
       onbigpicture?.();
-      e.preventDefault();
+      event.preventDefault();
     }
+  }
+
+  function railInteraction(node: HTMLElement) {
+    const wheel = (event: WheelEvent) => handleWheel(event);
+    const keydown = (event: KeyboardEvent) => handleKeydown(event);
+    node.addEventListener("wheel", wheel, { passive: false });
+    node.addEventListener("keydown", keydown);
+    return {
+      destroy() {
+        node.removeEventListener("wheel", wheel);
+        node.removeEventListener("keydown", keydown);
+      },
+    };
   }
 
   onMount(() => {
-    const i = items.findIndex((g) => g.id === selectedId);
-    if (i >= 0) focusIndex = i;
-    scroller?.focus({ preventScroll: true });
-    let ctx: gsap.Context | null = null;
+    const index = items.findIndex((game) => game.id === selectedId);
+    if (index >= 0) focusIndex = index;
+
+    let context: gsap.Context | null = null;
     if (scroller && !prefersReducedMotion()) {
-      ctx = gsap.context(() => {
+      context = gsap.context(() => {
         gsap.from(".slot", {
           autoAlpha: 0,
           y: 14,
@@ -118,19 +167,21 @@
         });
       }, scroller);
     }
+
     const detachGamepad = attachGamepad({
       left: () => move(-1),
       right: () => move(1),
-      pageLeft: () => move(-6),
-      pageRight: () => move(6),
-      activate: () => activateCurrent(),
-      launch: () => launchCurrent(),
+      pageLeft: () => syncIndex(focusIndex - 6, true),
+      pageRight: () => syncIndex(focusIndex + 6, true),
+      activate: activateCurrent,
+      launch: launchCurrent,
       favorite: () => onfavorite?.(),
       back: () => onback?.(),
     });
+
     return () => {
       detachGamepad();
-      ctx?.revert();
+      context?.revert();
     };
   });
 </script>
@@ -138,32 +189,38 @@
 <div
   class="rail"
   bind:this={scroller}
-  tabindex="0"
-  role="listbox"
-  aria-label="游戏库"
-  onwheel={onWheel}
-  onkeydown={onKeydown}
+  role="list"
+  aria-label="最近游戏"
+  use:railInteraction
 >
-  {#if railRange.start > 0}<div class="rail-spacer" style="width:{railRange.start * 240}px"></div>{/if}
-  {#each visibleItems as { game, origIdx: i } (game.id)}
-    <div class="slot" data-idx={i} role="option" aria-selected={i === focusIndex}>
+  {#if railRange.start > 0}<div class="rail-spacer" aria-hidden="true" style={`width:${railRange.start * 240}px`}></div>{/if}
+
+  {#each visibleItems as { game, originalIndex } (game.id)}
+    <div class="slot" data-idx={originalIndex} role="listitem">
       <TileCard
         {game}
-        selected={i === focusIndex}
-        idle={i !== focusIndex}
-        onpick={() => { focusIndex = i; onactivate(game.id); }}
+        selected={originalIndex === focusIndex}
+        idle={originalIndex !== focusIndex}
+        tabIndex={originalIndex === focusIndex ? 0 : -1}
+        focusKey={`game-card-${game.id}`}
+        onfocus={() => syncIndex(originalIndex)}
+        onpick={() => { syncIndex(originalIndex); onactivate(game.id); }}
         onlaunch={() => onlaunch(game.id)}
       />
     </div>
   {/each}
-  {#if railRange.end < items.length - 1}<div class="rail-spacer" style="width:{(items.length - 1 - railRange.end) * 240}px"></div>{/if}
 
-  <div class="slot" data-idx={sentinelIndex} role="option" aria-selected={sentinelIndex === focusIndex}>
+  {#if railRange.end < items.length - 1}<div class="rail-spacer" aria-hidden="true" style={`width:${(items.length - 1 - railRange.end) * 240}px`}></div>{/if}
+
+  <div class="slot" data-idx={sentinelIndex} role="listitem">
     <TileCard
       game={null}
       selected={sentinelIndex === focusIndex}
       idle={sentinelIndex !== focusIndex}
-      onpick={() => { focusIndex = sentinelIndex; onshowall(); }}
+      tabIndex={sentinelIndex === focusIndex ? 0 : -1}
+      focusKey="library-show-all"
+      onfocus={() => syncIndex(sentinelIndex)}
+      onpick={() => { syncIndex(sentinelIndex); onshowall(); }}
     />
   </div>
 </div>
@@ -184,14 +241,6 @@
   .rail::-webkit-scrollbar { display: none; }
   .slot { flex: 0 0 auto; }
   .rail-spacer { flex: 0 0 auto; pointer-events: none; }
-  /* 不在 rail 上画 focus 环：rail 是常驻获得焦点的滚动容器，inset 焦点环会变成一条
-     横跨整条卡带的大红框（用键盘/手柄导航时尤其明显）。选中态由放大的卡片自身的
-     ring 表达即可，这里的 rail 级焦点环纯属冗余。 */
-  .rail:focus,
-  .rail:focus-visible {
-    box-shadow: none;
-    outline: none;
-  }
 
   @media (max-width: 760px) {
     .rail {

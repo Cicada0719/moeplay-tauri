@@ -318,15 +318,25 @@ export interface Settings {
   scraper_proxy?: string;
   ai_enabled: boolean;
   ai_api_url: string;
-  ai_api_key: string;
   ai_model: string;
   nsfw_display_mode?: NsfwDisplayMode;
   steam_id?: string;
-  steam_api_key?: string;
   autostart_enabled?: boolean;
   startup_mode?: string;
   home_mascot_enabled?: boolean;
   home_mascot_path?: string;
+}
+
+export type SecretKind =
+  | "ai_api_key"
+  | "steam_api_key"
+  | "bangumi_token"
+  | "picacg_token"
+  | "runtime_connector_token";
+
+export interface SecretStatus {
+  kind: SecretKind;
+  configured: boolean;
 }
 
 export type NsfwDisplayMode = "show" | "blur" | "hide";
@@ -396,17 +406,29 @@ export interface ThumbnailInfo {
   cached: boolean;
 }
 
-export type TaskStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+/** Persistent background-job states returned by the Rust control plane. */
+export type BackgroundJobStatus =
+  | "queued"
+  | "running"
+  | "paused"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+
+/** Legacy spellings accepted at the API boundary for older callers. */
+export type TaskStatus = BackgroundJobStatus | "pending" | "completed";
 
 export interface AppTask {
   id: string;
   title: string;
   kind: string;
   status: TaskStatus;
+  /** Always 0..1 when read; old percentage inputs are normalized by Rust. */
   progress: number;
   created_at: string;
   updated_at: string;
-  message?: string;
+  message?: string | null;
+  metadata?: unknown;
 }
 
 export interface MigrationInfo {

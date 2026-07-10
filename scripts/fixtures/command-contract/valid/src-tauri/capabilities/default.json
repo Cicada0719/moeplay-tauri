@@ -1,0 +1,7 @@
+{
+  "permissions": [
+    "core:default",
+    "allow-foo-bar",
+    "allow-pick-image-file"
+  ]
+}

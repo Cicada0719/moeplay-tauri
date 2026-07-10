@@ -1,0 +1,12 @@
+{
+  "summary": "Prefer the available short relaxing title.",
+  "recommendations": [
+    {
+      "resourceId": "game-1",
+      "rank": 1,
+      "reason": "Matches the supplied short-session and relaxing signals.",
+      "confidence": 0.88,
+      "signals": ["short_session", "relaxing"]
+    }
+  ]
+}

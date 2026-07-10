@@ -26,17 +26,47 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Cache pinned Cargo supply-chain tool
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-deny.exe
+          key: ${{ runner.os }}-cargo-deny-${{ hashFiles('scripts/cargo-supply-chain-policy.json') }}
+
       - name: Install frontend dependencies
         run: npm ci
+
+      - name: Audit npm dependencies
+        run: npm run audit:dependencies
+
+      - name: Test Cargo supply-chain gate
+        run: npm run test:cargo-supply-chain
+
+      - name: Audit Cargo advisories and licenses
+        run: npm run audit:cargo
+
+      - name: Verify version consistency
+        run: npm run verify:versions
+
+      - name: Verify Tauri command contract
+        run: npm run verify:commands
+
+      - name: Test command contract verifier
+        run: npm run test:command-contract
+
+      - name: Test release evidence generators
+        run: npm run test:release-evidence
+
+      - name: Test installed-upgrade report verifier
+        run: npm run test:upgrade-report
 
       - name: Rust format
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 
       - name: Rust clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
 
       - name: Rust tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml
+        run: cargo test --manifest-path src-tauri/Cargo.toml --all-targets --all-features
 
       - name: Svelte check
         run: npm run check
@@ -46,6 +76,12 @@ jobs:
 
       - name: Frontend build
         run: npm run build
+
+      - name: Test bundle budget verifier
+        run: npm run test:bundle-budget
+
+      - name: Verify frontend bundle budget
+        run: npm run verify:bundle-budget
 
       - name: Install Playwright Chromium
         run: npx playwright install chromium
@@ -61,13 +97,24 @@ jobs:
           path: test-results/
           if-no-files-found: ignore
 
-      - name: Tauri build smoke
+      - name: Tauri debug build smoke
+        run: npm run tauri -- build --debug --no-bundle --config src-tauri/tauri.ci.conf.json --ci
+
+      - name: Tauri release bundle build
         if: github.event_name == 'push'
         run: npm run tauri -- build --config src-tauri/tauri.ci.conf.json --ci
 
       - name: Portable package
         if: github.event_name == 'push'
         run: npm run package:portable
+
+      - name: Generate release SBOM
+        if: github.event_name == 'push'
+        run: npm run generate:sbom
+
+      - name: Generate build metadata
+        if: github.event_name == 'push'
+        run: npm run generate:build-metadata
 
       - name: Release artifact self-check
         if: github.event_name == 'push'
@@ -84,3 +131,5 @@ jobs:
             src-tauri/target/release/bundle/nsis/*.exe
             src-tauri/target/release/bundle/portable/*.zip
             src-tauri/target/release/bundle/release-manifest.json
+            src-tauri/target/release/bundle/sbom.cdx.json
+            src-tauri/target/release/bundle/build-metadata.json

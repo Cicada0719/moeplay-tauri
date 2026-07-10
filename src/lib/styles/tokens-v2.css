@@ -1,0 +1,76 @@
+/**
+ * Batch 1 semantic tokens.
+ *
+ * This file intentionally aliases the existing application theme rather than
+ * redefining it. Import it once after the current global theme stylesheet when
+ * wiring the v2 foundation into the application shell.
+ */
+:root {
+  /* Color roles */
+  --v2-color-canvas: var(--bg-base, #10131b);
+  --v2-color-surface: var(--bg-surface, #171b25);
+  --v2-color-surface-raised: var(--bg-elev, #202634);
+  --v2-color-surface-subtle: var(--bg-hover, rgba(255, 255, 255, 0.06));
+  --v2-color-scrim: rgba(0, 0, 0, 0.52);
+  --v2-color-border: var(--border, rgba(255, 255, 255, 0.1));
+  --v2-color-border-strong: var(--border-hover, rgba(255, 255, 255, 0.18));
+  --v2-color-text: var(--text-primary, #f5f7fb);
+  --v2-color-text-secondary: var(--text-secondary, rgba(245, 247, 251, 0.72));
+  --v2-color-text-muted: var(--text-muted, rgba(245, 247, 251, 0.48));
+  --v2-color-accent: var(--accent, #e8557f);
+  --v2-color-accent-soft: var(--accent-lo, rgba(232, 85, 127, 0.16));
+  --v2-color-success: var(--color-success, #4ade80);
+  --v2-color-warning: var(--color-warning, #fbbf24);
+  --v2-color-danger: var(--color-error, #f87171);
+  --v2-color-info: var(--color-info, #60a5fa);
+
+  /* Typography */
+  --v2-font-sans: var(--font-ui, ui-sans-serif, system-ui, "Microsoft YaHei", sans-serif);
+  --v2-font-mono: var(--font-mono, ui-monospace, "JetBrains Mono", monospace);
+  --v2-text-xs: 0.75rem;
+  --v2-text-sm: 0.875rem;
+  --v2-text-md: 1rem;
+  --v2-text-lg: 1.125rem;
+  --v2-text-xl: 1.5rem;
+  --v2-leading-tight: 1.2;
+  --v2-leading-normal: 1.5;
+
+  /* Spacing, layout, and elevation */
+  --v2-space-1: 0.25rem;
+  --v2-space-2: 0.5rem;
+  --v2-space-3: 0.75rem;
+  --v2-space-4: 1rem;
+  --v2-space-5: 1.25rem;
+  --v2-space-6: 1.5rem;
+  --v2-space-8: 2rem;
+  --v2-space-10: 2.5rem;
+  --v2-page-max: 96rem;
+  --v2-page-gutter: clamp(1rem, 3vw, 2rem);
+  --v2-radius-sm: var(--radius-sm, 0.5rem);
+  --v2-radius-md: var(--radius-md, 0.75rem);
+  --v2-radius-lg: var(--radius-lg, 1rem);
+  --v2-radius-full: var(--radius-full, 9999px);
+  --v2-shadow-raised: var(--shadow-md, 0 8px 24px rgba(0, 0, 0, 0.24));
+  --v2-shadow-panel: var(--shadow-lg, 0 18px 48px rgba(0, 0, 0, 0.38));
+
+  /* Interaction */
+  --v2-focus-ring: 0 0 0 3px var(--accent-ring, rgba(232, 85, 127, 0.48));
+  --v2-motion-fast: 120ms;
+  --v2-motion-base: 180ms;
+  --v2-motion-slow: 240ms;
+  --v2-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+}
+
+[data-motion="reduce"] {
+  --v2-motion-fast: 0ms;
+  --v2-motion-base: 0ms;
+  --v2-motion-slow: 0ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --v2-motion-fast: 0ms;
+    --v2-motion-base: 0ms;
+    --v2-motion-slow: 0ms;
+  }
+}

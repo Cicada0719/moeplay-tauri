@@ -24,7 +24,10 @@ pub async fn manga_fetch_json(url: String) -> Result<Value, String> {
         return Err("不允许访问该漫画源地址".into());
     }
 
-    let client = crate::http_client::build_reqwest_client(20, "MoePlay/0.12.0 manga");
+    let client = crate::http_client::build_reqwest_client(
+        20,
+        crate::http_client::app_user_agent_with_context("manga"),
+    );
     let response = client
         .get(&url)
         .header(reqwest::header::ACCEPT, "application/json")
@@ -55,9 +58,9 @@ pub async fn manga_fetch_text(url: String) -> Result<String, String> {
         Some("cn.baozimhcn.com") | Some("cn.dzmanga.com")
     );
     let user_agent = if is_baozi {
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36 MoePlay/0.12.0"
+        crate::http_client::browser_user_agent()
     } else {
-        "MoePlay/0.12.0 manga"
+        crate::http_client::app_user_agent_with_context("manga")
     };
     let client = crate::http_client::build_reqwest_client(20, user_agent);
     let attempts = if is_baozi { 3 } else { 1 };

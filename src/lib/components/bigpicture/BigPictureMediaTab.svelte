@@ -1,54 +1,181 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { animeStore } from "../../stores/anime.svelte";
   import { comicStore } from "../../stores/comic.svelte";
   import Icon from "../Icon.svelte";
   import BPMediaRail from "../BPMediaRail.svelte";
+  import { attachGamepad, type GamepadAttachment } from "../switch/useGamepad.svelte";
+
+  interface MediaItem {
+    id: string;
+    title: string;
+    cover: string | null;
+    progress?: number;
+    progressLabel?: string;
+    type: "anime" | "comic";
+  }
 
   let {
+    active = false,
     onSelectMedia,
+    onMoveToTop,
+    onBack,
+    onTabPrevious,
+    onTabNext,
   }: {
+    active?: boolean;
     onSelectMedia: (item: { type: string }) => void;
+    onMoveToTop: () => void;
+    onBack: () => void;
+    onTabPrevious: () => void;
+    onTabNext: () => void;
   } = $props();
 
-  const continueAnime = $derived(
-    animeStore.history
-      .filter(h => h.lastEpisode > 0)
-      .slice(0, 10)
-      .map(h => ({
-        id: `anime-${h.key}`,
-        title: h.name,
-        cover: h.image ? animeStore.getImg(h.image) || h.image : null,
-        progress: undefined,
-        progressLabel: `第${h.lastEpisode}话`,
-        type: "anime" as const,
-      }))
+  let rootEl = $state<HTMLDivElement>();
+  let focusIdx = $state(0);
+  let scope: GamepadAttachment | null = null;
+
+  const continueAnime = $derived<MediaItem[]>(
+    animeStore.history.filter((h) => h.lastEpisode > 0).slice(0, 10).map((h) => ({
+      id: `anime-${h.key}`,
+      title: h.name,
+      cover: h.image ? animeStore.getImg(h.image) || h.image : null,
+      progress: undefined,
+      progressLabel: `第${h.lastEpisode}话`,
+      type: "anime" as const,
+    }))
   );
 
-  const continueComics = $derived(
-    comicStore.readHistory
-      .slice(0, 10)
-      .map(h => ({
-        id: `comic-${h.id || h.title}`,
-        title: h.title,
-        cover: null,
-        progressLabel: h.last_title || undefined,
-        type: "comic" as const,
-      }))
+  const continueComics = $derived<MediaItem[]>(
+    comicStore.readHistory.slice(0, 10).map((h) => ({
+      id: `comic-${h.id || h.title}`,
+      title: h.title,
+      cover: null,
+      progressLabel: h.last_title || undefined,
+      type: "comic" as const,
+    }))
   );
+
+  const animeStart = $derived(0);
+  const comicStart = $derived(continueAnime.length);
+  const panelStart = $derived(continueAnime.length + continueComics.length);
+  const itemCount = $derived(panelStart + 2);
+
+  const rows = $derived.by(() => {
+    const result: number[][] = [];
+    if (continueAnime.length) result.push(Array.from({ length: continueAnime.length }, (_, i) => animeStart + i));
+    if (continueComics.length) result.push(Array.from({ length: continueComics.length }, (_, i) => comicStart + i));
+    result.push([panelStart, panelStart + 1]);
+    return result;
+  });
+
+  function rowPosition(index: number) {
+    for (let row = 0; row < rows.length; row += 1) {
+      const col = rows[row].indexOf(index);
+      if (col >= 0) return { row, col };
+    }
+    return { row: rows.length - 1, col: 0 };
+  }
+
+  function setFocus(index: number) {
+    focusIdx = Math.max(0, Math.min(itemCount - 1, index));
+    if (!active) return;
+    queueMicrotask(() => rootEl?.querySelector<HTMLElement>(`[data-media-index="${focusIdx}"]`)?.focus({ preventScroll: true }));
+  }
+
+  function moveHorizontal(delta: number) {
+    const { row, col } = rowPosition(focusIdx);
+    const rowItems = rows[row];
+    setFocus(rowItems[Math.max(0, Math.min(rowItems.length - 1, col + delta))]);
+  }
+
+  function moveVertical(delta: number) {
+    const { row, col } = rowPosition(focusIdx);
+    const targetRow = row + delta;
+    if (targetRow < 0) { onMoveToTop(); return; }
+    if (targetRow >= rows.length) return;
+    const target = rows[targetRow];
+    setFocus(target[Math.min(col, target.length - 1)]);
+  }
+
+  function activateFocused() {
+    rootEl?.querySelector<HTMLButtonElement>(`[data-media-index="${focusIdx}"]`)?.click();
+  }
+
+  function onMediaKeydown(event: KeyboardEvent) {
+    switch (event.key) {
+      case "ArrowLeft": event.preventDefault(); moveHorizontal(-1); break;
+      case "ArrowRight": event.preventDefault(); moveHorizontal(1); break;
+      case "ArrowUp": event.preventDefault(); moveVertical(-1); break;
+      case "ArrowDown": event.preventDefault(); moveVertical(1); break;
+      case "Escape": event.preventDefault(); onBack(); break;
+      case "Home": event.preventDefault(); setFocus(0); break;
+      case "End": event.preventDefault(); setFocus(itemCount - 1); break;
+    }
+  }
+
+  $effect(() => {
+    if (focusIdx >= itemCount) focusIdx = Math.max(0, itemCount - 1);
+    if (active) setFocus(focusIdx);
+  });
+
+  onMount(() => {
+    scope = attachGamepad({
+      left: () => moveHorizontal(-1),
+      right: () => moveHorizontal(1),
+      up: () => moveVertical(-1),
+      down: () => moveVertical(1),
+      launch: () => activateFocused(),
+      activate: () => activateFocused(),
+      back: () => onBack(),
+      pageLeft: () => onTabPrevious(),
+      pageRight: () => onTabNext(),
+    }, { id: "big-picture-media", zone: "media", priority: 20 });
+    return () => { scope?.(); scope = null; };
+  });
 </script>
 
-<div class="bp-media">
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<div
+  class="bp-media"
+  bind:this={rootEl}
+  data-focus-zone="media"
+  data-active={active ? "true" : "false"}
+  onkeydown={onMediaKeydown}
+  role="region"
+  aria-label="媒体内容"
+>
   {#if continueAnime.length > 0}
-    <BPMediaRail title="继续观看" items={continueAnime} onselect={onSelectMedia} />
+    <BPMediaRail
+      title="继续观看"
+      items={continueAnime}
+      startIndex={animeStart}
+      activeIndex={focusIdx}
+      zoneActive={active}
+      onfocusitem={setFocus}
+      onselect={onSelectMedia}
+    />
   {/if}
   {#if continueComics.length > 0}
-    <BPMediaRail title="继续阅读" items={continueComics} onselect={onSelectMedia} />
+    <BPMediaRail
+      title="继续阅读"
+      items={continueComics}
+      startIndex={comicStart}
+      activeIndex={focusIdx}
+      zoneActive={active}
+      onfocusitem={setFocus}
+      onselect={onSelectMedia}
+    />
   {/if}
   <div class="bp-media-dual">
-    <!-- ── 动漫区 ── -->
-    <section class="bp-media-panel" role="button" tabindex="0"
+    <button
+      class="bp-media-panel"
+      class:zone-focus={active && focusIdx === panelStart}
+      data-media-index={panelStart}
+      tabindex={active && focusIdx === panelStart ? 0 : -1}
       onclick={() => onSelectMedia({ type: "anime" })}
-      onkeydown={(e) => { if (e.key === 'Enter') onSelectMedia({ type: "anime" }); }}>
+      onfocus={() => setFocus(panelStart)}
+    >
       <div class="bp-media-panel-head">
         <Icon name="film" size={20} />
         <h2>动漫</h2>
@@ -59,70 +186,51 @@
           <div class="bp-cover-rail">
             {#each animeStore.recTrending.slice(0, 8) as sub (sub.id)}
               <div class="bp-cover-thumb">
-                {#if animeStore.getImg(sub.image)}
-                  <img src={animeStore.getImg(sub.image)} alt={sub.name_cn || sub.name} />
-                {:else}
-                  <div class="bp-cover-placeholder"><Icon name="film" size={20} /></div>
-                {/if}
-                {#if sub.rating > 0}
-                  <span class="bp-cover-score">{sub.rating.toFixed(1)}</span>
-                {/if}
+                {#if animeStore.getImg(sub.image)}<img src={animeStore.getImg(sub.image)} alt={sub.name_cn || sub.name} />
+                {:else}<div class="bp-cover-placeholder"><Icon name="film" size={20} /></div>{/if}
+                {#if sub.rating > 0}<span class="bp-cover-score">{sub.rating.toFixed(1)}</span>{/if}
               </div>
             {/each}
           </div>
         {:else if animeStore.collection.length > 0}
           <div class="bp-cover-rail">
             {#each animeStore.collection.slice(0, 8) as item (item.key)}
-              <div class="bp-cover-thumb">
-                <div class="bp-cover-placeholder"><Icon name="film" size={20} /></div>
-              </div>
+              <div class="bp-cover-thumb"><div class="bp-cover-placeholder"><Icon name="film" size={20} /></div></div>
             {/each}
           </div>
-        {:else}
-          <p class="bp-media-panel-hint">浏览番剧推荐、管理追番和观看记录</p>
-        {/if}
+        {:else}<p class="bp-media-panel-hint">浏览番剧推荐、管理追番和观看记录</p>{/if}
       </div>
-      <div class="bp-media-panel-foot">
-        <span>进入动漫</span>
-        <Icon name="chevronRight" size={14} />
-      </div>
-    </section>
+      <div class="bp-media-panel-foot"><span>进入动漫</span><Icon name="chevronRight" size={14} /></div>
+    </button>
 
-    <!-- ── 漫画区 ── -->
-    <section class="bp-media-panel" role="button" tabindex="0"
+    <button
+      class="bp-media-panel"
+      class:zone-focus={active && focusIdx === panelStart + 1}
+      data-media-index={panelStart + 1}
+      tabindex={active && focusIdx === panelStart + 1 ? 0 : -1}
       onclick={() => onSelectMedia({ type: "comic" })}
-      onkeydown={(e) => { if (e.key === 'Enter') onSelectMedia({ type: "comic" }); }}>
+      onfocus={() => setFocus(panelStart + 1)}
+    >
       <div class="bp-media-panel-head">
         <Icon name="book" size={20} />
         <h2>漫画</h2>
-        {#if comicStore.isLoggedIn}
-          <span class="bp-media-panel-badge">{comicStore.favorites.length} 收藏</span>
-        {/if}
+        {#if comicStore.isLoggedIn}<span class="bp-media-panel-badge">{comicStore.favorites.length} 收藏</span>{/if}
       </div>
       <div class="bp-media-panel-body">
         {#if comicStore.isLoggedIn && comicStore.favorites.length > 0}
           <div class="bp-cover-rail">
             {#each comicStore.favorites.slice(0, 8) as fav (fav.id)}
               <div class="bp-cover-thumb">
-                {#if fav.thumb_url}
-                  <img src={fav.thumb_url} alt={fav.title} />
-                {:else}
-                  <div class="bp-cover-placeholder"><Icon name="book" size={20} /></div>
-                {/if}
+                {#if fav.thumb_url}<img src={fav.thumb_url} alt={fav.title} />
+                {:else}<div class="bp-cover-placeholder"><Icon name="book" size={20} /></div>{/if}
               </div>
             {/each}
           </div>
-        {:else if comicStore.isLoggedIn}
-          <p class="bp-media-panel-hint">已登录哔咔，浏览漫画分类和排行</p>
-        {:else}
-          <p class="bp-media-panel-hint">登录哔咔账号，浏览和收藏漫画</p>
-        {/if}
+        {:else if comicStore.isLoggedIn}<p class="bp-media-panel-hint">已登录哔咔，浏览漫画分类和排行</p>
+        {:else}<p class="bp-media-panel-hint">登录哔咔账号，浏览和收藏漫画</p>{/if}
       </div>
-      <div class="bp-media-panel-foot">
-        <span>{comicStore.isLoggedIn ? "进入漫画" : "前往登录"}</span>
-        <Icon name="chevronRight" size={14} />
-      </div>
-    </section>
+      <div class="bp-media-panel-foot"><span>{comicStore.isLoggedIn ? "进入漫画" : "前往登录"}</span><Icon name="chevronRight" size={14} /></div>
+    </button>
   </div>
 </div>
 
@@ -149,7 +257,7 @@
     transition: border-color 0.22s ease, transform 0.22s ease;
     outline: none;
   }
-  .bp-media-panel:hover, .bp-media-panel:focus-visible {
+  .bp-media-panel:hover, .bp-media-panel:focus-visible, .bp-media-panel.zone-focus {
     border-color: var(--accent-ring, rgba(232,85,127,0.45));
     transform: translateY(-2px);
   }

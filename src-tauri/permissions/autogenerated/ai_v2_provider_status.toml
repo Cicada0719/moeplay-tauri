@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ai-v2-provider-status"
+description = "Enables the ai_v2_provider_status command without any pre-configured scope."
+commands.allow = ["ai_v2_provider_status"]
+
+[[permission]]
+identifier = "deny-ai-v2-provider-status"
+description = "Denies the ai_v2_provider_status command without any pre-configured scope."
+commands.deny = ["ai_v2_provider_status"]

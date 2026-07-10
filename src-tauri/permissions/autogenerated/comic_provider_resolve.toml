@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-comic-provider-resolve"
+description = "Enables the comic_provider_resolve command without any pre-configured scope."
+commands.allow = ["comic_provider_resolve"]
+
+[[permission]]
+identifier = "deny-comic-provider-resolve"
+description = "Denies the comic_provider_resolve command without any pre-configured scope."
+commands.deny = ["comic_provider_resolve"]

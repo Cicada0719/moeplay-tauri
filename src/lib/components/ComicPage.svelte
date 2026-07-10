@@ -1,33 +1,86 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
+  import type { ViewState } from "./ui-v2";
   import {
     comicStore,
     ORDINARY_SOURCE_OPTIONS,
     SORT_OPTIONS,
+    type ComicChapter,
+    type ComicSummary,
     type OrdinaryComicSource,
     type OrdinarySourceKey,
+    type ReadRecord,
   } from "../stores/comic.svelte";
+  import { focusComicRovingItem, nextComicRovingIndex } from "./comic/a11y";
   import ComicCard from "./comic/ComicCard.svelte";
   import ComicDetail from "./comic/ComicDetail.svelte";
   import ComicReader from "./comic/ComicReader.svelte";
+  import ProviderV2Page from "./comic/provider-v2/ProviderV2Page.svelte";
   import Icon from "./Icon.svelte";
-  import { Button, Card, EmptyState, Input, LoadingSkeleton, SearchInput, SegmentControl, Tag } from "./ui";
+  import { Button, Input, Tag } from "./ui";
+  import { AsyncSection, ContentGrid, Drawer, FilterBar, MediaRow, PageHeader, PageShell } from "./ui-v2";
 
-  let pageMode = $state<"normal" | "picacg">("normal");
+  type PageMode = "normal" | "provider-v2" | "picacg";
+  type PicacgTab = "explore" | "ranking" | "random" | "favorites" | "history";
+
+  let pageMode = $state<PageMode>("normal");
   let searchInput = $state("");
   let adultOpen = $state(false);
+  let adultTrigger = $state<HTMLElement>();
   let adultEmail = $state(comicStore.savedEmail);
   let adultPassword = $state("");
   let adultLoginError = $state("");
   let adultBusy = $state(false);
   let picacgSearchInput = $state("");
   let punchingIn = $state(false);
+  let detailReturnFocus = $state<HTMLElement | null>(null);
+  let chapterReturnFocusKey = $state<string>();
+  let sourceTabRefs: Array<HTMLButtonElement | null> = [];
+  let picacgTabRefs: Array<HTMLButtonElement | null> = [];
 
   const sourceOptions = ORDINARY_SOURCE_OPTIONS;
+  const picacgTabs: Array<{ value: PicacgTab; label: string }> = [
+    { value: "explore", label: "探索" },
+    { value: "ranking", label: "排行榜" },
+    { value: "random", label: "随机" },
+    { value: "favorites", label: "收藏" },
+    { value: "history", label: "历史" },
+  ];
 
   const activeSourceLabel = $derived(
-    sourceOptions.find((source) => source.value === comicStore.ordinarySource)?.label ?? "自动"
+    sourceOptions.find((source) => source.value === comicStore.ordinarySource)?.label ?? "自动",
   );
+
+  const ordinaryResultCount = $derived(
+    comicStore.ordinarySourceSections.reduce((total, section) => total + section.docs.length, 0),
+  );
+
+  const ordinaryState = $derived.by<ViewState>(() => {
+    if (comicStore.mangaDexLoading && ordinaryResultCount === 0) return "loading";
+    if (comicStore.mangaDexLoading && ordinaryResultCount > 0) return "refreshing";
+    if (comicStore.mangaDexError && ordinaryResultCount > 0) return "partial";
+    if (comicStore.mangaDexError) return "error";
+    if (comicStore.ordinaryKeyword && ordinaryResultCount === 0) return "no-results";
+    return "ready";
+  });
+
+  const picacgItems = $derived.by<ComicSummary[]>(() => {
+    if (comicStore.searchKeyword) return comicStore.searchResults;
+    if (comicStore.activeTab === "ranking") return comicStore.ranking;
+    if (comicStore.activeTab === "random") return comicStore.randomList;
+    if (comicStore.activeTab === "favorites") return comicStore.favorites;
+    return comicStore.comicList;
+  });
+
+  const picacgState = $derived.by<ViewState>(() => {
+    if (comicStore.error && picacgItems.length > 0) return "partial";
+    if (comicStore.error) return "error";
+    if (comicStore.loading && picacgItems.length === 0) return "loading";
+    if (comicStore.loading && picacgItems.length > 0) return "refreshing";
+    if (comicStore.searchKeyword && picacgItems.length === 0) return "no-results";
+    if (comicStore.activeTab === "history") return comicStore.readHistory.length > 0 ? "ready" : "empty";
+    return picacgItems.length > 0 ? "ready" : "empty";
+  });
 
   async function searchOrdinary(value = searchInput) {
     const keyword = value.trim();
@@ -36,16 +89,16 @@
     await comicStore.searchOrdinary(keyword);
   }
 
-  async function selectOrdinarySource(source: OrdinaryComicSource) {
-    if (comicStore.ordinarySource === source) return;
-    comicStore.setOrdinarySource(source);
-    if (searchInput.trim()) {
-      await searchOrdinary(searchInput);
+  async function selectOrdinarySource(source: OrdinaryComicSource, index?: number) {
+    if (comicStore.ordinarySource !== source) {
+      comicStore.setOrdinarySource(source);
+      if (searchInput.trim()) await searchOrdinary(searchInput);
     }
+    if (index != null) focusComicRovingItem(sourceTabRefs, index);
   }
 
-  async function loginPicacg(e: Event) {
-    e.preventDefault();
+  async function loginPicacg(event: Event) {
+    event.preventDefault();
     if (!adultEmail || !adultPassword) {
       adultLoginError = "请填写账号和密码";
       return;
@@ -65,9 +118,10 @@
     }
   }
 
-  async function handlePicacgSearch(value: string) {
-    if (!value.trim()) return;
-    await comicStore.search(value.trim());
+  async function handlePicacgSearch() {
+    const keyword = picacgSearchInput.trim();
+    if (!keyword) return;
+    await comicStore.search(keyword);
   }
 
   function clearPicacgSearch() {
@@ -96,1128 +150,439 @@
     punchingIn = false;
   }
 
-  function fmtDate(ts: number) {
-    const d = new Date(ts);
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    const hh = String(d.getHours()).padStart(2, "0");
-    const mi = String(d.getMinutes()).padStart(2, "0");
-    return `${mm}-${dd} ${hh}:${mi}`;
+  function fmtDate(timestamp: number) {
+    const date = new Date(timestamp);
+    return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(date);
   }
 
-  async function handlePicacgSubmit(e: Event) {
-    e.preventDefault();
-    await handlePicacgSearch(picacgSearchInput);
+  function rememberTrigger(event?: MouseEvent): HTMLElement | null {
+    return event?.currentTarget instanceof HTMLElement
+      ? event.currentTarget
+      : document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
   }
 
-  const tabs = [
-    { value: "explore", label: "探索" },
-    { value: "ranking", label: "排行榜" },
-    { value: "random", label: "随机" },
-    { value: "favorites", label: "收藏" },
-    { value: "history", label: "历史" },
-  ];
-
-  function isTypingTarget(target: EventTarget | null): boolean {
-    if (!(target instanceof HTMLElement)) return false;
-    const tag = target.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
-    return target.isContentEditable;
+  async function openOrdinaryComic(comic: ComicSummary, event: MouseEvent) {
+    detailReturnFocus = rememberTrigger(event);
+    await comicStore.openOrdinaryComic(comic.id);
   }
 
-  function onKeydown(e: KeyboardEvent) {
-    if (isTypingTarget(e.target)) return;
-    if (e.key === "Escape") {
-      if (comicStore.view === "reader") {
-        e.stopImmediatePropagation();
-        comicStore.closeReader();
-      } else if (comicStore.view === "detail") {
-        e.stopImmediatePropagation();
-        comicStore.closeComic();
-      } else if (adultOpen) {
-        adultOpen = false;
-      }
-    }
+  async function openPicacgComic(comic: ComicSummary, event: MouseEvent) {
+    detailReturnFocus = rememberTrigger(event);
+    await comicStore.openComic(comic.id);
+  }
+
+  async function resumeHistory(record: ReadRecord, event: MouseEvent) {
+    detailReturnFocus = rememberTrigger(event);
+    await comicStore.resumeHistory(record);
+  }
+
+  async function openChapter(chapter: ComicChapter, event: MouseEvent) {
+    const target = event.currentTarget as HTMLElement;
+    chapterReturnFocusKey = target.dataset.chapterFocusKey ?? `${comicStore.currentComic?.id ?? "comic"}:${chapter.order}`;
+    await comicStore.openChapter(chapter.order, chapter.title);
+  }
+
+  function closeDetail() {
+    comicStore.closeComic();
+    queueMicrotask(() => detailReturnFocus?.focus({ preventScroll: true }));
+  }
+
+  async function closeReader() {
+    comicStore.closeReader();
+    await tick();
+    if (!chapterReturnFocusKey) return;
+    document.querySelector<HTMLElement>(`[data-chapter-focus-key="${CSS.escape(chapterReturnFocusKey)}"]`)?.focus({ preventScroll: true });
+  }
+
+  function handleSourceTabKeydown(event: KeyboardEvent, index: number) {
+    const next = nextComicRovingIndex(event.key, index, sourceOptions.length);
+    if (next == null) return;
+    event.preventDefault();
+    void selectOrdinarySource(sourceOptions[next].value, next);
+  }
+
+  function activatePicacgTab(tab: PicacgTab, index?: number) {
+    comicStore.setTab(tab);
+    if (index != null) focusComicRovingItem(picacgTabRefs, index);
+  }
+
+  function handlePicacgTabKeydown(event: KeyboardEvent, index: number) {
+    const next = nextComicRovingIndex(event.key, index, picacgTabs.length);
+    if (next == null) return;
+    event.preventDefault();
+    activatePicacgTab(picacgTabs[next].value, next);
+  }
+
+  function retryPicacg() {
+    comicStore.clearError();
+    if (comicStore.searchKeyword) void comicStore.search(comicStore.searchKeyword);
+    else comicStore.setTab(comicStore.activeTab);
   }
 
   onMount(() => {
-    window.addEventListener("keydown", onKeydown, { capture: true });
-    comicStore.rehydrate().then(() => {
-      if (comicStore.isLoggedIn) {
-        comicStore.loadProfile();
-      }
+    void comicStore.rehydrate().then(() => {
+      if (comicStore.isLoggedIn) void comicStore.loadProfile();
     });
-    return () => window.removeEventListener("keydown", onKeydown, { capture: true });
   });
 </script>
 
 <section class="comic-page" data-testid="comic-page">
-  {#if pageMode === "normal"}
-  <div class="comic-shell" class:hidden-by-overlay={comicStore.view !== "home"}>
-    <header class="comic-header">
-      <div class="header-left">
-        <span class="header-kicker">Manga</span>
-        <h1 class="header-title"><Icon name="book" size={20} /> 漫画</h1>
-      </div>
+  {#if pageMode === "provider-v2"}
+    <ProviderV2Page onlegacy={() => pageMode = "normal"} />
+  {:else if pageMode === "normal"}
+    <PageShell as="div" width="full" ariaLabel="漫画" class="comic-v2-shell" labelledBy="comic-page-title">
+      <div class="comic-page-frame">
+      {#snippet normalActions()}
+        <Button variant="secondary" size="sm" press={() => (pageMode = "provider-v2")}><Icon name="layers" size={15} />Provider v2</Button>
+        <button bind:this={adultTrigger} class="adult-button" type="button" aria-expanded={adultOpen} aria-controls="comic-adult-drawer" onclick={() => (adultOpen = true)}>
+          <Icon name="shield" size={15} />18+
+        </button>
+      {/snippet}
 
-      <form class="search-form" onsubmit={(e) => { e.preventDefault(); searchOrdinary(); }}>
-        <SearchInput class="search-wrap" bind:value={searchInput}
-          placeholder="搜索普通漫画..." onclear={() => searchInput = ""} />
-        <Button type="submit" variant="secondary" disabled={!searchInput.trim()} loading={comicStore.mangaDexLoading}>
-          <Icon name="search" size={14} />
-          搜索
-        </Button>
-      </form>
-    </header>
+      <PageHeader
+        id="comic-page-title"
+        eyebrow="Manga"
+        title="漫画"
+        description="聚合公开漫画源，并可切换到 PicACG、Komga、Kavita 或本地漫画。"
+        actions={normalActions}
+      />
 
-    <div class="source-strip">
-      <div class="source-summary">
-        <Tag variant="accent" size="sm"><Icon name="globe" size={12} /> {activeSourceLabel}</Tag>
-        <span>普通漫画默认入口，可聚合搜索或手动切换备用源</span>
-      </div>
-      <div class="source-tabs" role="tablist" aria-label="普通漫画源">
-        {#each sourceOptions as source}
-          <button
-            type="button"
-            class:active={comicStore.ordinarySource === source.value}
-            disabled={comicStore.mangaDexLoading}
-            role="tab"
-            aria-selected={comicStore.ordinarySource === source.value}
-            onclick={() => selectOrdinarySource(source.value)}
-          >
-            <span>{source.label}</span>
-            <small>{source.hint}</small>
-          </button>
-        {/each}
-      </div>
-    </div>
+      {#snippet ordinaryControls()}
+        <form class="comic-search" aria-label="搜索普通漫画" onsubmit={(event) => { event.preventDefault(); void searchOrdinary(); }}>
+          <label class="search-field">
+            <Icon name="search" size={16} />
+            <input type="search" bind:value={searchInput} placeholder="搜索普通漫画..." data-search-scope="comic" aria-label="搜索普通漫画" />
+            {#if searchInput}<button type="button" class="search-clear" aria-label="清空普通漫画关键词" onclick={() => (searchInput = "")}><Icon name="x" size={13} /></button>{/if}
+          </label>
+          <Button type="submit" variant="primary" disabled={!searchInput.trim()} loading={comicStore.mangaDexLoading}>搜索</Button>
+        </form>
 
-    <main class="comic-content">
-      {#if comicStore.ordinarySourceSections.length > 0}
-        <div class="ordinary-source-results">
-          <div class="result-head">
-            <span>多源搜索结果</span>
-            <Tag variant="muted" size="sm">{comicStore.mangaDexResults.length} 条</Tag>
-          </div>
-          {#each comicStore.ordinarySourceSections as section (section.source)}
-            <section class="ordinary-source-section">
-              <div class="ordinary-source-head">
-                <div>
-                  <h2>{section.label}</h2>
-                  <span>{section.loading ? "搜索中" : `${section.docs.length} 条结果`}</span>
-                </div>
-                {#if section.error}
-                  <Button variant="ghost" size="sm" press={() => comicStore.retryOrdinarySource(section.source as OrdinarySourceKey)}>重试</Button>
-                {/if}
-              </div>
-              {#if section.loading && section.docs.length === 0}
-                <div class="source-section-loading">
-                  <LoadingSkeleton rows={2} columns={4} />
-                </div>
-              {:else if section.error}
-                <div class="source-section-error"><Icon name="x" size={14} /><span>{section.error}</span></div>
-              {:else if section.docs.length > 0}
-                <div class="comics-grid">
-                  {#each section.docs as comic (comic.id)}
-                    <ComicCard {comic} onclick={() => comicStore.openOrdinaryComic(comic.id)} />
-                  {/each}
-                </div>
-              {:else}
-                <p class="source-section-empty">该图源没有找到结果</p>
-              {/if}
-            </section>
+        <div class="source-tabs" role="tablist" aria-label="普通漫画源">
+          {#each sourceOptions as source, index (source.value)}
+            <button
+              bind:this={sourceTabRefs[index]}
+              type="button"
+              role="tab"
+              id={`comic-source-tab-${source.value}`}
+              aria-selected={comicStore.ordinarySource === source.value}
+              aria-controls="comic-ordinary-results"
+              tabindex={comicStore.ordinarySource === source.value ? 0 : -1}
+              class:active={comicStore.ordinarySource === source.value}
+              disabled={comicStore.mangaDexLoading}
+              onclick={() => void selectOrdinarySource(source.value, index)}
+              onkeydown={(event) => handleSourceTabKeydown(event, index)}
+            >
+              <strong>{source.label}</strong><span>{source.hint}</span>
+            </button>
           {/each}
         </div>
-      {:else if comicStore.mangaDexLoading}
-        <div class="content-loading">
-          <LoadingSkeleton rows={4} columns={4} />
-          <span class="loading-hint">正在从普通漫画源检索...</span>
-        </div>
-      {:else if comicStore.mangaDexError}
-        <EmptyState icon="x" title="普通漫画源暂时不可用" description={comicStore.mangaDexError} />
+      {/snippet}
+
+      <FilterBar
+        controls={ordinaryControls}
+        label="普通漫画搜索和来源"
+        activeCount={(searchInput.trim() ? 1 : 0) + (comicStore.ordinarySource === "auto" ? 0 : 1)}
+        onClear={() => { searchInput = ""; comicStore.setOrdinarySource("auto"); }}
+        busy={comicStore.mangaDexLoading}
+        class="comic-filter-bar"
+      />
+
+      <div id="comic-ordinary-results" role="tabpanel" aria-labelledby={`comic-source-tab-${comicStore.ordinarySource}`} class:hidden-under-overlay={comicStore.view !== "home"}>
+        <AsyncSection
+          title={comicStore.ordinaryKeyword ? `搜索：“${comicStore.ordinaryKeyword}”` : "发现漫画"}
+          description={`当前来源：${activeSourceLabel}。自动模式会并行搜索，单个来源失败不会隐藏其他结果。`}
+          state={ordinaryState}
+          preserveContent={ordinaryResultCount > 0}
+          details={comicStore.mangaDexError || undefined}
+          primaryAction={comicStore.mangaDexError && searchInput.trim() ? { label: "重新搜索", onSelect: () => void searchOrdinary() } : undefined}
+          loadingDelayMs={0}
+          class="ordinary-results-section"
+        >
+          {#if comicStore.ordinarySourceSections.length > 0}
+            <div class="ordinary-source-results">
+              {#each comicStore.ordinarySourceSections as section (section.source)}
+                <AsyncSection
+                  title={section.label}
+                  description={`${section.docs.length} 条结果`}
+                  state={section.loading && section.docs.length === 0 ? "loading" : section.loading ? "refreshing" : section.error && section.docs.length > 0 ? "partial" : section.error ? "error" : section.docs.length > 0 ? "ready" : "no-results"}
+                  details={section.error || undefined}
+                  preserveContent={section.docs.length > 0}
+                  primaryAction={section.error ? { label: "重试此来源", onSelect: () => void comicStore.retryOrdinarySource(section.source as OrdinarySourceKey) } : undefined}
+                  loadingDelayMs={0}
+                  headingLevel={3}
+                  compact
+                  class="ordinary-source-section"
+                >
+                  <ContentGrid minItemWidth="9.5rem" gap="md" label={`${section.label} 搜索结果`} busy={section.loading}>
+                    {#each section.docs as comic (comic.id)}
+                      <ComicCard comic={comic} focusKey={`ordinary:${section.source}:${comic.id}`} onclick={(event) => void openOrdinaryComic(comic, event)} />
+                    {/each}
+                  </ContentGrid>
+                </AsyncSection>
+              {/each}
+            </div>
+          {:else if ordinaryState === "ready"}
+            <div class="ordinary-intro">
+              <Icon name="search" size={32} />
+              <div><h2>搜索漫画，直接阅读</h2><p>支持 MangaDex、包子漫画、DM5 与 1kkk，多源结果互不覆盖。</p></div>
+              <div class="quick-searches" aria-label="热门搜索">
+                {#each ["海贼王", "葬送的芙莉莲", "迷宫饭", "电锯人"] as keyword}
+                  <Button variant="ghost" size="sm" press={() => void searchOrdinary(keyword)}>{keyword}</Button>
+                {/each}
+              </div>
+            </div>
+          {/if}
+        </AsyncSection>
+      </div>
+      </div>
+    </PageShell>
+
+    <Drawer
+      id="comic-adult-drawer"
+      open={adultOpen}
+      title="PicACG 18+"
+      description="成人内容入口与普通漫画搜索隔离。"
+      side="right"
+      size="sm"
+      onClose={() => (adultOpen = false)}
+      returnFocus={() => adultTrigger}
+      initialFocus={comicStore.isLoggedIn ? ".enter-picacg" : "input"}
+    >
+      {#if !comicStore.isLoggedIn}
+        <form class="adult-form" onsubmit={loginPicacg}>
+          <label><span>邮箱 / 用户名</span><Input type="text" bind:value={adultEmail} placeholder="邮箱或用户名" autocomplete="username" disabled={adultBusy} /></label>
+          <label><span>密码</span><Input type="password" bind:value={adultPassword} placeholder="••••••••" autocomplete="current-password" disabled={adultBusy} /></label>
+          {#if adultLoginError}<p class="form-error" role="alert">{adultLoginError}</p>{/if}
+          <Button type="submit" fullWidth loading={adultBusy}>登录 PicACG</Button>
+        </form>
       {:else}
-        <div class="ordinary-empty">
-          <Icon name="search" size={30} />
-          <h2>搜索漫画，直接阅读</h2>
-          <p>自动模式会并行搜索所有内置漫画源，单个图源失败不会影响其他结果。</p>
-          <div class="quick-searches">
-            {#each ["海贼王", "葬送的芙莉莲", "迷宫饭", "电锯人"] as keyword}
-              <Button variant="ghost" size="sm" press={() => searchOrdinary(keyword)}>{keyword}</Button>
-            {/each}
-          </div>
+        <div class="adult-profile">
+          <Tag variant="muted" size="md">Lv.{comicStore.profile?.level ?? "-"} · {comicStore.profile?.name ?? "PicACG"}</Tag>
+          <p>进入后会切换到独立 PicACG 漫画视图，不影响普通漫画搜索。</p>
+          <Button class="enter-picacg" variant="primary" fullWidth press={enterPicacg}>进入 PicACG</Button>
+          <Button variant="quiet" fullWidth press={() => comicStore.logout()}>退出登录</Button>
         </div>
       {/if}
-    </main>
-  </div>
-
-  <div class="adult-entry">
-    {#if adultOpen}
-      <div class="adult-popover" role="dialog" aria-label="PicACG 18+ 入口">
-        <div class="adult-popover-head">
-          <div>
-            <span class="adult-kicker">18+ Entry</span>
-            <h2>PicACG</h2>
-          </div>
-          <Button variant="quiet" size="sm" press={() => adultOpen = false} ariaLabel="关闭 PicACG 入口">
-            <Icon name="x" size={14} />
-          </Button>
-        </div>
-
-        {#if !comicStore.isLoggedIn}
-          <form class="adult-form" onsubmit={loginPicacg}>
-            <label>
-              <span>邮箱 / 用户名</span>
-              <Input type="text" bind:value={adultEmail} placeholder="邮箱或用户名" autocomplete="username" disabled={adultBusy} />
-            </label>
-            <label>
-              <span>密码</span>
-              <Input type="password" bind:value={adultPassword} placeholder="••••••••" autocomplete="current-password" disabled={adultBusy} />
-            </label>
-            {#if adultLoginError}<p class="adult-error">{adultLoginError}</p>{/if}
-            <Button type="submit" fullWidth loading={adultBusy}>登录 PicACG</Button>
-          </form>
-        {:else}
-          <div class="adult-profile">
-            <Tag variant="muted" size="md">
-              <span class="user-level">Lv.{comicStore.profile?.level ?? "-"}</span>
-              <span>{comicStore.profile?.name ?? "PicACG"}</span>
-            </Tag>
-            <Button variant="quiet" size="sm" press={() => comicStore.logout()}>退出</Button>
-          </div>
-
-          <p class="adult-note">进入后会切换到独立 PicACG 漫画页，不影响普通漫画搜索。</p>
-          <Button variant="primary" fullWidth press={enterPicacg}>进入 PicACG</Button>
-        {/if}
-      </div>
-    {/if}
-
-    <button class="adult-pill" type="button" aria-expanded={adultOpen} onclick={() => adultOpen = !adultOpen}>
-      <Icon name="shield" size={15} />
-      <span>18+</span>
-    </button>
-  </div>
+    </Drawer>
   {:else}
-    {#if !comicStore.isLoggedIn}
-      <div class="login-gate">
-        <Card class="login-card" padding="lg">
-          <div class="login-logo"><Icon name="book" size={36} /></div>
-          <h1 class="login-title">PicACG</h1>
-          <p class="login-sub">成人内容入口已独立显示。登录后恢复原来的 PicACG 漫画页。</p>
+    <PageShell as="div" width="full" ariaLabel="PicACG 漫画" class="comic-v2-shell" labelledBy="picacg-page-title">
+      <div class="comic-page-frame">
+      {#snippet picacgActions()}
+        {#if comicStore.profile}
+          <Tag variant="muted" size="md">Lv.{comicStore.profile.level} · {comicStore.profile.name}</Tag>
+          {#if !comicStore.profile.is_punched}
+            <Button variant="ghost" size="sm" press={handlePunchIn} disabled={punchingIn} loading={punchingIn} ariaLabel="PicACG 每日打卡"><Icon name="zap" size={13} />打卡</Button>
+          {:else}<Tag variant="accent" size="sm"><Icon name="check" size={13} />已打卡</Tag>{/if}
+        {/if}
+        <Button variant="ghost" size="sm" press={leavePicacg}>普通漫画</Button>
+        <Button variant="quiet" size="sm" press={() => { comicStore.logout(); pageMode = "normal"; }} ariaLabel="退出 PicACG 登录"><Icon name="x" size={14} /></Button>
+      {/snippet}
+
+      <PageHeader
+        id="picacg-page-title"
+        eyebrow="PicACG"
+        title="哔咔漫画"
+        description="探索、排行、随机、收藏与本地阅读历史使用统一漫画浏览模式。"
+        actions={picacgActions}
+      />
+
+      {#if !comicStore.isLoggedIn}
+        <AsyncSection title="登录 PicACG" description="登录凭据通过安全存储管理。" state="ready" class="picacg-login-section">
           <form class="login-form" onsubmit={loginPicacg}>
-            <div class="field">
-              <label for="picacg-email">邮箱 / 用户名</label>
-              <Input id="picacg-email" type="text" bind:value={adultEmail}
-                placeholder="邮箱或用户名" autocomplete="username" disabled={adultBusy} />
-            </div>
-            <div class="field">
-              <label for="picacg-pwd">密码</label>
-              <Input id="picacg-pwd" type="password" bind:value={adultPassword}
-                placeholder="••••••••" autocomplete="current-password" disabled={adultBusy} />
-            </div>
-            {#if adultLoginError}<p class="login-error">{adultLoginError}</p>{/if}
-            <Button type="submit" fullWidth loading={adultBusy}>登录</Button>
+            <label><span>邮箱 / 用户名</span><Input type="text" bind:value={adultEmail} placeholder="邮箱或用户名" autocomplete="username" disabled={adultBusy} /></label>
+            <label><span>密码</span><Input type="password" bind:value={adultPassword} placeholder="••••••••" autocomplete="current-password" disabled={adultBusy} /></label>
+            {#if adultLoginError}<p class="form-error" role="alert">{adultLoginError}</p>{/if}
+            <div class="login-actions"><Button type="submit" loading={adultBusy}>登录</Button><Button variant="ghost" press={leavePicacg}>返回普通漫画</Button></div>
           </form>
-          <Button variant="ghost" size="sm" press={leavePicacg}>返回普通漫画</Button>
-        </Card>
-      </div>
-    {:else}
-      <div class="picacg-shell comic-shell" class:hidden-by-overlay={comicStore.view !== "home"}>
-        <header class="comic-header">
-          <div class="header-left">
-            <span class="header-kicker">PicACG</span>
-            <h1 class="header-title"><Icon name="book" size={20} /> 哔咔漫画</h1>
-          </div>
-
-          <form class="search-form" onsubmit={handlePicacgSubmit}>
-            <SearchInput class="search-wrap" bind:value={picacgSearchInput}
-              placeholder="搜索 PicACG..." onclear={clearPicacgSearch} />
-            <Button type="submit" variant="secondary" disabled={!picacgSearchInput.trim()}>搜索</Button>
+        </AsyncSection>
+      {:else}
+        {#snippet picacgControls()}
+          <form class="comic-search" aria-label="搜索 PicACG 漫画" onsubmit={(event) => { event.preventDefault(); void handlePicacgSearch(); }}>
+            <label class="search-field">
+              <Icon name="search" size={16} />
+              <input type="search" bind:value={picacgSearchInput} placeholder="搜索 PicACG..." data-search-scope="comic" aria-label="搜索 PicACG 漫画" />
+              {#if picacgSearchInput}<button type="button" class="search-clear" aria-label="清空 PicACG 关键词" onclick={clearPicacgSearch}><Icon name="x" size={13} /></button>{/if}
+            </label>
+            <Button type="submit" variant="primary" disabled={!picacgSearchInput.trim()} loading={comicStore.loading}>搜索</Button>
           </form>
 
-          <div class="user-area">
-            {#if comicStore.profile}
-              <Tag variant="muted" size="md" class="user-chip" title={comicStore.profile.slogan || comicStore.profile.name}>
-                <span class="user-level">Lv.{comicStore.profile.level}</span>
-                <span class="user-name">{comicStore.profile.name}</span>
-              </Tag>
-              {#if !comicStore.profile.is_punched}
-                <Button variant="ghost" size="sm" class="punch-btn" press={handlePunchIn} disabled={punchingIn}
-                  title="每日打卡" ariaLabel="每日打卡">
-                  <Icon name="zap" size={13} />
-                </Button>
-              {:else}
-                <Tag variant="accent" size="sm" class="punched-badge" title="今日已打卡"><Icon name="check" size={13} /></Tag>
-              {/if}
-            {/if}
-            <Button variant="ghost" size="sm" class="normal-btn" press={leavePicacg}>普通漫画</Button>
-            <Button variant="ghost" size="sm" class="logout-btn" press={() => { comicStore.logout(); pageMode = "normal"; }} title="退出登录" ariaLabel="退出登录">
-              <Icon name="x" size={14} />
-            </Button>
-          </div>
-        </header>
-
-        <div class="tab-bar">
           {#if !comicStore.searchKeyword}
-            <SegmentControl options={tabs} value={comicStore.activeTab} onChange={(v) => comicStore.setTab(v as any)} size="sm" />
-
-            {#if comicStore.activeTab === "explore" || comicStore.activeTab === "favorites"}
-              <div class="sort-area">
-                <select class="sort-select" value={comicStore.sort}
-                  onchange={(e) => comicStore.setSort((e.currentTarget as HTMLSelectElement).value as any)}>
-                  {#each SORT_OPTIONS as opt (opt.value)}
-                    <option value={opt.value}>{opt.label}</option>
-                  {/each}
-                </select>
-              </div>
-            {/if}
+            <div class="picacg-tabs" role="tablist" aria-label="PicACG 内容分类">
+              {#each picacgTabs as tab, index (tab.value)}
+                <button
+                  bind:this={picacgTabRefs[index]}
+                  type="button"
+                  role="tab"
+                  id={`picacg-tab-${tab.value}`}
+                  aria-selected={comicStore.activeTab === tab.value}
+                  aria-controls="picacg-results"
+                  tabindex={comicStore.activeTab === tab.value ? 0 : -1}
+                  class:active={comicStore.activeTab === tab.value}
+                  onclick={() => activatePicacgTab(tab.value, index)}
+                  onkeydown={(event) => handlePicacgTabKeydown(event, index)}
+                >{tab.label}</button>
+              {/each}
+            </div>
           {:else}
-            <span class="search-label">搜索："{comicStore.searchKeyword}"</span>
-            <div class="sort-area">
-              <select class="sort-select" value={comicStore.sort}
-                onchange={(e) => { comicStore.setSort((e.currentTarget as HTMLSelectElement).value as any); comicStore.search(comicStore.searchKeyword); }}>
-                {#each SORT_OPTIONS as opt (opt.value)}
-                  <option value={opt.value}>{opt.label}</option>
-                {/each}
-              </select>
-            </div>
-            <Button variant="ghost" size="sm" press={clearPicacgSearch}>清除</Button>
+            <span class="search-summary" aria-live="polite">搜索：“{comicStore.searchKeyword}”</span>
           {/if}
-        </div>
 
-        <div class="comic-content">
-          {#if comicStore.error}
-            <EmptyState class="content-error" icon="x" title={comicStore.error}
-              action={{ label: "重试", onclick: () => { comicStore.clearError(); comicStore.loadCategories(); } }} />
-          {:else if comicStore.loading && comicStore.comicList.length === 0 && comicStore.searchResults.length === 0 && comicStore.ranking.length === 0 && comicStore.randomList.length === 0 && comicStore.favorites.length === 0}
-            <div class="content-loading">
-              <LoadingSkeleton rows={6} columns={4} />
-              <span class="loading-hint">若长时间无响应，请检查网络或代理设置</span>
-            </div>
-          {:else if comicStore.searchKeyword && comicStore.searchResults.length > 0}
-            <div class="comics-grid">
-              {#each comicStore.searchResults as comic (comic.id)}
-                <ComicCard {comic} onclick={() => comicStore.openComic(comic.id)} />
-              {/each}
-            </div>
-            {#if comicStore.searchPage < comicStore.searchPages}
-              <Button variant="ghost" class="load-more" press={() => comicStore.searchNextPage()}
-                disabled={comicStore.loading} loading={comicStore.loading}>
-                加载更多
-              </Button>
-            {/if}
-          {:else if comicStore.searchKeyword && !comicStore.loading}
-            <EmptyState icon="search" title="没有找到相关漫画" />
-          {:else if comicStore.activeTab === "explore"}
-            {#if comicStore.categories.length > 0}
-              <div class="cat-chips">
-                <Tag active={comicStore.selectedCategory === null}
-                  onclick={() => comicStore.selectCategory(null)}>全部</Tag>
-                {#each comicStore.categories as cat (cat.id || cat.title)}
-                  <Tag active={comicStore.selectedCategory === cat.title}
-                    onclick={() => comicStore.selectCategory(cat.title)}>
-                    {cat.title}
-                  </Tag>
-                {/each}
-              </div>
-            {/if}
-            <div class="comics-grid">
-              {#each comicStore.comicList as comic (comic.id)}
-                <ComicCard {comic} onclick={() => comicStore.openComic(comic.id)} />
-              {/each}
-            </div>
-            {#if comicStore.comicList.length === 0 && !comicStore.loading}
-              <EmptyState icon="book" title="暂无漫画" />
-            {/if}
-            {#if comicStore.comicPage < comicStore.comicPages}
-              <Button variant="ghost" class="load-more" press={() => comicStore.loadMoreComics()}
-                disabled={comicStore.loading} loading={comicStore.loading}>
-                加载更多
-              </Button>
-            {/if}
-          {:else if comicStore.activeTab === "ranking"}
-            <SegmentControl options={[{ value: "H24", label: "日榜" }, { value: "D7", label: "周榜" }, { value: "D30", label: "月榜" }]} value={comicStore.rankingType} onChange={(v) => comicStore.loadRanking(v as any)} size="sm" />
-            <div class="rank-list">
-              {#each comicStore.ranking as comic, i (comic.id)}
-                <button class="rank-row" onclick={() => comicStore.openComic(comic.id)}>
-                  <span class="rank-num" class:top3={i < 3}>{i + 1}</span>
-                  <img src={comic.thumb_url} alt={comic.title} class="rank-thumb" loading="lazy" />
-                  <div class="rank-info">
-                    <p class="rank-title">{comic.title}</p>
-                    <p class="rank-meta">{comic.author} · {comic.eps_count}话</p>
-                  </div>
-                  <span class="rank-views">{(comic.total_views / 1000).toFixed(0)}k</span>
-                </button>
-              {/each}
-              {#if comicStore.ranking.length === 0 && !comicStore.loading}
-                <EmptyState icon="chart" title="暂无排行数据" />
-              {/if}
-            </div>
-          {:else if comicStore.activeTab === "random"}
-            <div class="random-header">
-              <Button variant="ghost" size="sm" press={() => comicStore.loadRandom()}
-                disabled={comicStore.loading} loading={comicStore.loading}>
-                <Icon name="refresh" size={15} />
-                换一批
-              </Button>
-            </div>
-            <div class="comics-grid">
-              {#each comicStore.randomList as comic (comic.id)}
-                <ComicCard {comic} onclick={() => comicStore.openComic(comic.id)} />
-              {/each}
-            </div>
-            {#if comicStore.randomList.length === 0 && !comicStore.loading}
-              <EmptyState icon="diamond" title='点击"换一批"获取随机漫画' />
-            {/if}
-          {:else if comicStore.activeTab === "favorites"}
-            <div class="comics-grid">
-              {#each comicStore.favorites as comic (comic.id)}
-                <ComicCard {comic} onclick={() => comicStore.openComic(comic.id)} />
-              {/each}
-            </div>
-            {#if comicStore.favorites.length === 0 && !comicStore.loading}
-              <EmptyState icon="heart" title="还没有收藏的漫画" />
-            {/if}
-            {#if comicStore.favPage < comicStore.favPages}
-              <Button variant="ghost" class="load-more" press={() => comicStore.loadFavorites(comicStore.favPage + 1)}
-                disabled={comicStore.loading} loading={comicStore.loading}>
-                加载更多
-              </Button>
-            {/if}
-          {:else if comicStore.activeTab === "history"}
-            {#if comicStore.readHistory.length > 0}
-              <div class="history-header">
-                <span class="history-count">{comicStore.readHistory.length} 条记录</span>
-                <Button variant="ghost" size="sm" press={() => comicStore.clearHistory()}>清空</Button>
-              </div>
-              <div class="history-list">
-                {#each comicStore.readHistory as rec (rec.id)}
-                  <div class="history-row" role="button" tabindex="0"
-                    onclick={() => comicStore.resumeHistory(rec)}
-                    onkeydown={(e) => { if (e.key === "Enter") comicStore.resumeHistory(rec); }}>
-                    <img src={rec.thumb_url} alt={rec.title} class="history-thumb" loading="lazy" />
-                    <div class="history-info">
-                      <p class="history-title">{rec.title}</p>
-                      <p class="history-meta">{rec.author}</p>
-                      <p class="history-progress">读到: {rec.last_title || `第${rec.last_order}话`}</p>
-                    </div>
-                    <span class="history-time">{fmtDate(rec.ts)}</span>
-                    <Button variant="quiet" size="sm" class="history-del" press={(e) => { e.stopPropagation(); comicStore.removeHistory(rec.id); }}
-                      title="删除记录" ariaLabel="删除记录">
-                      <Icon name="x" size={12} />
-                    </Button>
-                  </div>
-                {/each}
-              </div>
-            {:else}
-              <EmptyState icon="eye" title="暂无阅读记录" />
-            {/if}
+          {#if comicStore.activeTab === "explore" || comicStore.activeTab === "favorites" || comicStore.searchKeyword}
+            <label class="sort-control"><span>排序</span><select value={comicStore.sort} onchange={(event) => { comicStore.setSort((event.currentTarget as HTMLSelectElement).value as never); if (comicStore.searchKeyword) void comicStore.search(comicStore.searchKeyword); }}>{#each SORT_OPTIONS as option (option.value)}<option value={option.value}>{option.label}</option>{/each}</select></label>
           {/if}
+        {/snippet}
+
+        <FilterBar
+          controls={picacgControls}
+          label="PicACG 搜索和分类"
+          activeCount={(comicStore.searchKeyword ? 1 : 0) + (comicStore.selectedCategory ? 1 : 0)}
+          onClear={clearPicacgSearch}
+          busy={comicStore.loading}
+          class="comic-filter-bar"
+        />
+
+        {#if comicStore.activeTab === "explore" && !comicStore.searchKeyword && comicStore.categories.length > 0}
+          <div class="category-chips" aria-label="PicACG 分类筛选">
+            <Tag active={comicStore.selectedCategory === null} onclick={() => comicStore.selectCategory(null)}>全部</Tag>
+            {#each comicStore.categories as category (category.id || category.title)}
+              <Tag active={comicStore.selectedCategory === category.title} onclick={() => comicStore.selectCategory(category.title)}>{category.title}</Tag>
+            {/each}
+          </div>
+        {/if}
+
+        <div id="picacg-results" role="tabpanel" aria-labelledby={comicStore.searchKeyword ? undefined : `picacg-tab-${comicStore.activeTab}`} class:hidden-under-overlay={comicStore.view !== "home"}>
+          <AsyncSection
+            title={comicStore.searchKeyword ? `搜索：“${comicStore.searchKeyword}”` : picacgTabs.find((tab) => tab.value === comicStore.activeTab)?.label ?? "漫画"}
+            description={comicStore.activeTab === "history" ? `${comicStore.readHistory.length} 条本地阅读记录` : `${picacgItems.length} 部漫画`}
+            state={picacgState}
+            preserveContent={picacgItems.length > 0 || comicStore.readHistory.length > 0}
+            details={comicStore.error || undefined}
+            primaryAction={comicStore.error ? { label: "重试", onSelect: retryPicacg } : undefined}
+            loadingDelayMs={0}
+            class="picacg-results-section"
+          >
+            {#if comicStore.activeTab === "history" && !comicStore.searchKeyword}
+              <div class="history-list" role="list" aria-label="漫画阅读历史">
+                {#each comicStore.readHistory as record (record.id)}
+                  <MediaRow
+                    title={record.title}
+                    subtitle={`${record.author || "未知作者"} · 读到 ${record.last_title || `第 ${record.last_order} 话`}`}
+                    imageSrc={record.thumb_url}
+                    imageAlt={`${record.title} 封面`}
+                    focusKey={`history:${record.id}`}
+                    ariaLabel={`继续阅读 ${record.title}`}
+                    onActivate={(event) => void resumeHistory(record, event)}
+                  >
+                    {#snippet meta()}<time datetime={new Date(record.ts).toISOString()}>{fmtDate(record.ts)}</time>{/snippet}
+                    {#snippet actions()}
+                      <Button variant="quiet" size="sm" press={(event) => { event.stopPropagation(); comicStore.removeHistory(record.id); }} ariaLabel={`删除 ${record.title} 阅读记录`}><Icon name="x" size={12} /></Button>
+                    {/snippet}
+                  </MediaRow>
+                {/each}
+              </div>
+              {#if comicStore.readHistory.length > 0}<Button variant="ghost" size="sm" press={() => comicStore.clearHistory()}>清空阅读历史</Button>{/if}
+            {:else}
+              {#if comicStore.activeTab === "ranking" && !comicStore.searchKeyword}
+                <div class="ranking-periods" role="group" aria-label="排行榜周期">
+                  {#each [{ value: "H24", label: "日榜" }, { value: "D7", label: "周榜" }, { value: "D30", label: "月榜" }] as period (period.value)}
+                    <button type="button" class:active={comicStore.rankingType === period.value} onclick={() => void comicStore.loadRanking(period.value as never)}>{period.label}</button>
+                  {/each}
+                </div>
+              {/if}
+              {#if comicStore.activeTab === "random" && !comicStore.searchKeyword}
+                <Button variant="ghost" size="sm" press={() => comicStore.loadRandom()} disabled={comicStore.loading} loading={comicStore.loading}><Icon name="refresh" size={15} />换一批</Button>
+              {/if}
+              <ContentGrid minItemWidth="9.5rem" gap="md" label="PicACG 漫画列表" busy={comicStore.loading}>
+                {#each picacgItems as comic, index (comic.id)}
+                  <ComicCard comic={comic} focusKey={`picacg:${comic.id}`} onclick={(event) => void openPicacgComic(comic, event)} selected={comicStore.activeTab === "ranking" && index === 0} />
+                {/each}
+              </ContentGrid>
+            {/if}
+
+            {#if comicStore.searchKeyword && comicStore.searchPage < comicStore.searchPages}
+              <Button variant="ghost" press={() => comicStore.searchNextPage()} disabled={comicStore.loading} loading={comicStore.loading}>加载更多</Button>
+            {:else if comicStore.activeTab === "explore" && comicStore.comicPage < comicStore.comicPages}
+              <Button variant="ghost" press={() => comicStore.loadMoreComics()} disabled={comicStore.loading} loading={comicStore.loading}>加载更多</Button>
+            {:else if comicStore.activeTab === "favorites" && comicStore.favPage < comicStore.favPages}
+              <Button variant="ghost" press={() => comicStore.loadFavorites(comicStore.favPage + 1)} disabled={comicStore.loading} loading={comicStore.loading}>加载更多</Button>
+            {/if}
+          </AsyncSection>
         </div>
+      {/if}
       </div>
-    {/if}
+    </PageShell>
   {/if}
 
-  {#if comicStore.view === "detail" || comicStore.view === "reader"}
-    <div class="overlays">
+  {#if pageMode !== "provider-v2" && (comicStore.view === "detail" || comicStore.view === "reader")}
+    <div class="comic-overlays">
       {#if comicStore.view === "reader"}
-        <ComicReader />
+        <ComicReader onclose={closeReader} returnFocusKey={chapterReturnFocusKey} />
       {:else}
-        <ComicDetail />
+        <ComicDetail onclose={closeDetail} onopenchapter={openChapter} returnFocus={detailReturnFocus ?? true} />
       {/if}
     </div>
   {/if}
 </section>
 
 <style>
-  .comic-page {
-    --accent: #e09848;
-    --accent-hi: #c78438;
-    --accent-lo: rgba(224,152,72,0.12);
-    --accent-ring: rgba(224,152,72,0.35);
-    height: 100%;
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    color: var(--text-primary);
-  }
-
-  .login-gate {
-    flex: 1;
-    display: grid;
-    place-items: center;
-    padding: 32px;
-  }
-
-  :global(.login-card) {
-    width: 100%;
-    max-width: 380px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    align-items: center;
-    text-align: center;
-  }
-
-  .login-logo {
-    width: 64px;
-    height: 64px;
-    border-radius: 16px;
-    background: var(--accent-lo);
-    border: 1px solid var(--accent-ring);
-    display: grid;
-    place-items: center;
-    color: var(--accent);
-  }
-
-  .login-title {
-    font-family: var(--font-display);
-    font-size: 22px;
-    font-weight: 750;
-    margin: 0;
-  }
-
-  .login-sub {
-    font-size: 13px;
-    color: var(--text-muted);
-    margin: 0;
-    line-height: 1.5;
-  }
-
-  .login-form {
-    width: 100%;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    margin-top: 8px;
-  }
-
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    text-align: left;
-  }
-
-  .field label {
-    font-size: 12px;
-    font-weight: 650;
-    color: var(--text-muted);
-  }
-
-  .login-error {
-    font-size: 12.5px;
-    color: #f87171;
-    margin: 0;
-    text-align: left;
-  }
-
-  .comic-shell {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  .picacg-shell {
-    --accent: #e8557f;
-    --accent-hi: #d93f6c;
-    --accent-lo: rgba(232,85,127,0.12);
-    --accent-ring: rgba(232,85,127,0.35);
-  }
-
-  .comic-shell.hidden-by-overlay {
-    visibility: hidden;
-    pointer-events: none;
-  }
-
-  .comic-header {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 14px 20px 10px;
-  }
-
-  .header-left {
-    flex-shrink: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .header-kicker,
-  .adult-kicker {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--accent);
-  }
-
-  .header-title {
-    font-family: var(--font-display);
-    font-size: 20px;
-    font-weight: 750;
-    margin: 0;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    line-height: 1;
-  }
-
-  .search-form {
-    flex: 1;
-    display: flex;
-    gap: 8px;
-    min-width: 260px;
-  }
-
-  .user-area {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  :global(.user-chip) {
-    gap: 5px;
-    max-width: 140px;
-  }
-
-  .user-name {
-    max-width: 80px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  :global(.punch-btn),
-  :global(.logout-btn) {
-    width: 28px;
-    height: 28px;
-    min-height: 28px;
-    padding: 0;
-  }
-
-  :global(.normal-btn) {
-    white-space: nowrap;
-  }
-
-  :global(.punched-badge) {
-    width: 28px;
-    height: 24px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-  }
-
-  .tab-bar {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 4px 20px 8px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .search-label {
-    font-size: 13px;
-    color: var(--text-muted);
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .sort-area {
-    margin-left: auto;
-  }
-
-  .sort-select {
-    padding: 4px 8px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: rgba(255,255,255,0.04);
-    color: var(--text-muted);
-    font-size: 12px;
-    cursor: pointer;
-    outline: none;
-  }
-
-  .sort-select option {
-    background: var(--bg-deep);
-    color: var(--text-primary);
-  }
-
-  :global(.search-wrap) {
-    flex: 1;
-  }
-
-  .source-strip {
-    flex-shrink: 0;
-    border-top: 1px solid var(--border);
-    border-bottom: 1px solid var(--border);
-    padding: 8px 20px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 14px;
-    color: var(--text-muted);
-    font-size: 12px;
-  }
-
-  .source-summary {
-    min-width: 220px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .source-tabs {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    overflow-x: auto;
-    scrollbar-width: thin;
-  }
-
-  .source-tabs button {
-    min-width: 82px;
-    height: 42px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: rgba(255,255,255,0.025);
-    color: var(--text-muted);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 2px;
-    cursor: pointer;
-  }
-
-  .source-tabs button:hover {
-    border-color: var(--border-hover, var(--border));
-    color: var(--text-primary);
-    background: rgba(255,255,255,0.045);
-  }
-
-  .source-tabs button.active {
-    border-color: var(--accent-ring);
-    background: var(--accent-lo);
-    color: var(--text-primary);
-  }
-
-  .source-tabs button:disabled {
-    opacity: 0.58;
-    cursor: wait;
-  }
-
-  .source-tabs span {
-    font-size: 12px;
-    font-weight: 750;
-    line-height: 1;
-  }
-
-  .source-tabs small {
-    max-width: 72px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--text-dim, var(--text-muted));
-    font-size: 10px;
-    line-height: 1.1;
-  }
-
-  .comic-content {
-    flex: 1;
-    overflow-y: auto;
-    padding: 18px 20px 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-  }
-
-  .cat-chips,
-  .random-header,
-  .history-header {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-    flex-shrink: 0;
-  }
-
-  .history-header {
-    justify-content: space-between;
-  }
-
-  .history-count {
-    color: var(--text-muted);
-    font-size: 12px;
-  }
-
-  .result-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    font-size: 13px;
-    font-weight: 700;
-  }
-
-  .comics-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 14px;
-  }
-
-  .ordinary-source-results {
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-  }
-
-  .ordinary-source-section {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding-bottom: 18px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .ordinary-source-section:last-child {
-    border-bottom: 0;
-  }
-
-  .ordinary-source-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
-
-  .ordinary-source-head h2 {
-    margin: 0;
-    color: var(--text-primary);
-    font-size: 15px;
-  }
-
-  .ordinary-source-head span {
-    display: block;
-    margin-top: 2px;
-    color: var(--text-muted);
-    font-size: 10.5px;
-  }
-
-  .source-section-loading {
-    min-height: 118px;
-  }
-
-  .source-section-error,
-  .source-section-empty {
-    margin: 0;
-    min-height: 70px;
-    padding: 14px;
-    border: 1px dashed var(--border);
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--text-muted);
-    font-size: 12px;
-  }
-
-  .source-section-error {
-    color: #fca5a5;
-    background: rgba(248,113,113,0.05);
-  }
-
-  .source-section-empty {
-    justify-content: center;
-  }
-
-  .rank-list,
-  .history-list {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .rank-row,
-  .history-row {
-    width: 100%;
-    border: 1px solid transparent;
-    border-radius: 8px;
-    background: rgba(255,255,255,0.02);
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 8px 12px;
-    color: var(--text-primary);
-    text-align: left;
-    cursor: pointer;
-    transition: border-color 0.15s ease, background 0.15s ease;
-  }
-
-  .rank-row:hover,
-  .history-row:hover {
-    border-color: var(--border);
-    background: rgba(255,255,255,0.04);
-  }
-
-  .rank-num {
-    width: 24px;
-    flex-shrink: 0;
-    text-align: center;
-    color: var(--text-muted);
-    font-family: var(--font-mono);
-    font-weight: 760;
-  }
-
-  .rank-num.top3 {
-    color: var(--accent);
-  }
-
-  .rank-thumb,
-  .history-thumb {
-    width: 44px;
-    height: 60px;
-    object-fit: cover;
-    border-radius: 4px;
-    flex-shrink: 0;
-    background: var(--bg-deep);
-  }
-
-  .history-thumb {
-    width: 40px;
-    height: 54px;
-  }
-
-  .rank-info,
-  .history-info {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .rank-title,
-  .history-title {
-    margin: 0;
-    color: var(--text-primary);
-    font-size: 13px;
-    font-weight: 650;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .rank-meta,
-  .history-meta {
-    margin: 0;
-    color: var(--text-muted);
-    font-size: 11px;
-  }
-
-  .rank-views,
-  .history-time {
-    color: var(--text-muted);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    white-space: nowrap;
-  }
-
-  .history-progress {
-    margin: 0;
-    color: var(--accent);
-    font-size: 11px;
-  }
-
-  :global(.history-del) {
-    width: 24px;
-    height: 24px;
-    min-height: 24px;
-    padding: 0;
-    opacity: 0;
-    flex-shrink: 0;
-    transition: opacity 0.15s ease;
-  }
-
-  .history-row:hover :global(.history-del) {
-    opacity: 1;
-  }
-
-  :global(.load-more) {
-    align-self: center;
-    margin-top: 4px;
-  }
-
-  .ordinary-empty,
-  .content-loading {
-    min-height: 440px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    gap: 12px;
-    color: var(--text-muted);
-  }
-
-  .ordinary-empty h2 {
-    margin: 0;
-    color: var(--text-primary);
-    font-size: 22px;
-    font-family: var(--font-display);
-  }
-
-  .ordinary-empty p,
-  .adult-note {
-    margin: 0;
-    font-size: 13px;
-    line-height: 1.6;
-    color: var(--text-muted);
-  }
-
-  .quick-searches {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 8px;
-  }
-
-  .loading-hint {
-    font-size: 11px;
-    color: var(--text-dim, var(--text-muted));
-  }
-
-  .adult-entry {
-    position: absolute;
-    right: 22px;
-    bottom: 22px;
-    z-index: 40;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 10px;
-  }
-
-  .adult-pill {
-    min-width: 68px;
-    height: 38px;
-    border: 1px solid rgba(248,113,113,0.36);
-    border-radius: 999px;
-    background: rgba(31, 10, 14, 0.92);
-    color: #fca5a5;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    font-weight: 800;
-    cursor: pointer;
-    box-shadow: 0 12px 34px rgba(0,0,0,0.28);
-  }
-
-  .adult-pill:hover {
-    background: rgba(59, 16, 22, 0.96);
-  }
-
-  .adult-popover {
-    width: min(380px, calc(100vw - 44px));
-    max-height: min(620px, calc(100vh - 96px));
-    overflow-y: auto;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: rgba(12, 14, 20, 0.98);
-    box-shadow: 0 22px 60px rgba(0,0,0,0.42);
-    padding: 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .adult-popover-head,
-  .adult-profile {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-  }
-
-  .adult-popover h2 {
-    margin: 2px 0 0;
-    font-size: 18px;
-    font-family: var(--font-display);
-  }
-
-  .adult-form {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .adult-form label {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    font-size: 12px;
-    color: var(--text-muted);
-  }
-
-  .adult-error {
-    margin: 0;
-    font-size: 12px;
-    color: #f87171;
-  }
-
-  .user-level {
-    font-family: var(--font-mono);
-    color: var(--accent);
-    font-weight: 700;
-  }
-
-  .overlays {
-    position: absolute;
-    inset: 0;
-    z-index: 30;
-    pointer-events: all;
-  }
-
-  @media (max-width: 700px) {
-    .comic-header {
-      flex-direction: column;
-      align-items: stretch;
-    }
-
-    .search-form {
-      min-width: 0;
-    }
-
-    .source-strip {
-      align-items: flex-start;
-      flex-direction: column;
-      gap: 6px;
-    }
-
-    .source-summary {
-      min-width: 0;
-      align-items: flex-start;
-      flex-direction: column;
-      gap: 6px;
-    }
-
-    .source-tabs {
-      width: 100%;
-    }
-
-    .adult-entry {
-      right: 14px;
-      bottom: 14px;
-    }
+  .comic-page { position: relative; height: 100%; min-height: 0; overflow: hidden; color: var(--v2-color-text, var(--text-primary)); }
+  :global(.comic-v2-shell) { height: 100%; }
+  :global(.comic-v2-shell .v2-page-shell__inner) { display: flex; min-height: 100%; flex-direction: column; gap: var(--v2-space-5); }
+  :global(.comic-filter-bar .v2-filter-bar__controls) { flex: 1 1 36rem; }
+  .hidden-under-overlay { visibility: hidden; }
+
+  .comic-search { display: flex; flex: 1 1 24rem; align-items: center; gap: var(--v2-space-2); }
+  .search-field { display: flex; min-width: 12rem; min-height: 2.75rem; flex: 1; align-items: center; gap: var(--v2-space-2); padding: 0 var(--v2-space-3); border: 1px solid var(--v2-color-border); border-radius: var(--v2-radius-md); background: var(--v2-color-surface); color: var(--v2-color-text-secondary); }
+  .search-field:focus-within { border-color: var(--v2-color-accent); box-shadow: var(--v2-focus-ring); }
+  .search-field input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--v2-color-text); font: inherit; }
+  .search-clear { display: grid; width: 2rem; min-height: 2rem; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--v2-color-text-secondary); cursor: pointer; }
+  .search-clear:focus-visible { outline: none; box-shadow: var(--v2-focus-ring); }
+
+  .adult-button { display: inline-flex; min-height: 2.5rem; padding: 0 0.85rem; align-items: center; gap: 0.4rem; border: 1px solid rgba(239,68,68,0.32); border-radius: var(--v2-radius-md); background: rgba(127,29,29,0.12); color: #fca5a5; font: inherit; font-weight: 700; cursor: pointer; }
+  .adult-button:focus-visible { outline: none; box-shadow: var(--v2-focus-ring); }
+
+  .source-tabs, .picacg-tabs { display: flex; flex: 1 1 auto; flex-wrap: wrap; gap: var(--v2-space-1); }
+  .source-tabs button, .picacg-tabs button, .ranking-periods button { min-height: 2.65rem; padding: 0.48rem 0.75rem; border: 1px solid var(--v2-color-border); border-radius: var(--v2-radius-md); background: var(--v2-color-surface); color: var(--v2-color-text-secondary); font: inherit; cursor: pointer; }
+  .source-tabs button { display: flex; flex-direction: column; justify-content: center; text-align: left; }
+  .source-tabs button span { margin-top: 0.1rem; color: var(--v2-color-text-secondary); font-size: var(--v2-text-xs); }
+  .source-tabs button.active, .picacg-tabs button.active, .ranking-periods button.active { border-color: var(--v2-color-accent); background: color-mix(in srgb, var(--v2-color-accent) 12%, var(--v2-color-surface)); color: var(--v2-color-text); }
+  .source-tabs button:focus-visible, .picacg-tabs button:focus-visible, .ranking-periods button:focus-visible { outline: none; box-shadow: var(--v2-focus-ring); }
+
+  .ordinary-source-results { display: grid; gap: var(--v2-space-6); }
+  .ordinary-intro { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--v2-space-4); padding: var(--v2-space-6); border: 1px dashed var(--v2-color-border); border-radius: var(--v2-radius-lg); background: var(--v2-color-surface-subtle); }
+  .ordinary-intro h2, .ordinary-intro p { margin: 0; }
+  .ordinary-intro p { margin-top: var(--v2-space-1); color: var(--v2-color-text-secondary); }
+  .quick-searches { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: var(--v2-space-2); }
+
+  .adult-form, .login-form { display: flex; flex-direction: column; gap: var(--v2-space-4); }
+  .adult-form label, .login-form label { display: flex; flex-direction: column; gap: var(--v2-space-2); color: var(--v2-color-text-secondary); font-size: var(--v2-text-sm); font-weight: 650; }
+  .adult-profile { display: flex; flex-direction: column; gap: var(--v2-space-4); }
+  .adult-profile p { margin: 0; color: var(--v2-color-text-secondary); line-height: 1.6; }
+  .form-error { margin: 0; padding: var(--v2-space-3); border: 1px solid rgba(248,113,113,0.32); border-radius: var(--v2-radius-md); background: rgba(248,113,113,0.08); color: #fca5a5; }
+  :global(.picacg-login-section) { max-width: 34rem; margin: auto; }
+  .login-actions { display: flex; gap: var(--v2-space-2); }
+
+  .sort-control { display: flex; align-items: center; gap: var(--v2-space-2); color: var(--v2-color-text-secondary); font-size: var(--v2-text-sm); }
+  .sort-control select { min-height: 2.65rem; padding: 0 2rem 0 0.75rem; border: 1px solid var(--v2-color-border); border-radius: var(--v2-radius-md); background: var(--v2-color-surface); color: var(--v2-color-text); }
+  .search-summary { align-self: center; color: var(--v2-color-text-secondary); }
+  .category-chips { display: flex; flex-wrap: wrap; gap: var(--v2-space-2); }
+  .ranking-periods { display: flex; margin-bottom: var(--v2-space-4); gap: var(--v2-space-2); }
+  .history-list { display: grid; gap: var(--v2-space-2); }
+  .comic-overlays { position: absolute; inset: 0; z-index: 40; }
+
+  @media (max-width: 56rem) {
+    .comic-search { flex-basis: 100%; }
+    .source-tabs, .picacg-tabs { flex-basis: 100%; overflow-x: auto; flex-wrap: nowrap; }
+    .source-tabs button, .picacg-tabs button { flex: 0 0 auto; }
+  }
+
+  @media (max-width: 36rem) {
+    .comic-search { align-items: stretch; flex-direction: column; }
+    .search-field { width: 100%; }
+    .ordinary-intro { grid-template-columns: 1fr; }
+    .quick-searches { grid-column: 1; }
+    .login-actions { flex-direction: column; }
   }
 </style>

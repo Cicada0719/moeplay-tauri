@@ -1,52 +1,61 @@
 import { describe, expect, it } from "vitest";
 import {
-  NAV_ITEMS,
-  DOCK_ITEMS,
-  TOOL_ITEMS,
-  NAV_GROUP_ORDER,
-  GROUP_LABELS,
   BIG_PICTURE_ITEM,
+  DOCK_ITEMS,
+  getRouteLevel,
+  getViewLabel,
+  GROUP_LABELS,
+  isPrimaryContentView,
+  NAV_GROUP_ORDER,
+  NAV_ITEMS,
+  PRIMARY_CONTENT_VIEWS,
+  TOOL_ITEMS,
 } from "./nav";
 
 describe("navigation single source of truth", () => {
-  it("has unique ids and unique views across all items", () => {
-    const ids = NAV_ITEMS.map((i) => i.id);
-    const views = NAV_ITEMS.map((i) => i.view);
+  it("has unique ids, views and shortcut assignments", () => {
+    const all = [...DOCK_ITEMS, ...TOOL_ITEMS];
+    const ids = all.map(item => item.id);
+    const navigableViews = NAV_ITEMS.map(item => item.view);
+    const shortcuts = DOCK_ITEMS.flatMap(item => item.shortcut ? [item.shortcut] : []);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(new Set(views).size).toBe(views.length);
+    expect(new Set(navigableViews).size).toBe(navigableViews.length);
+    expect(new Set(shortcuts).size).toBe(shortcuts.length);
   });
 
-  it("every item has a non-empty label and icon", () => {
-    for (const i of [...DOCK_ITEMS, ...TOOL_ITEMS]) {
-      expect(i.label.length).toBeGreaterThan(0);
-      expect(i.icon.length).toBeGreaterThan(0);
+  it("keeps the four primary content roots in the required order", () => {
+    expect(PRIMARY_CONTENT_VIEWS).toEqual(["home", "records", "anime", "comic"]);
+    expect(DOCK_ITEMS.filter(item => item.surface === "content").map(item => item.view))
+      .toEqual(PRIMARY_CONTENT_VIEWS);
+  });
+
+  it("gives every control a visible label, accessible label and icon", () => {
+    for (const item of [...DOCK_ITEMS, ...TOOL_ITEMS]) {
+      expect(item.label.trim()).not.toBe("");
+      expect(item.ariaLabel.trim()).not.toBe("");
+      expect(item.icon.trim()).not.toBe("");
     }
+    expect(BIG_PICTURE_ITEM.ariaLabel).toBe("进入大屏模式");
   });
 
-  it("dock has primary nav items including home and big picture", () => {
-    expect(DOCK_ITEMS.some((d) => d.view === "home")).toBe(true);
-    expect(DOCK_ITEMS.some((d) => d.id === "bigpic")).toBe(true);
-    expect(DOCK_ITEMS.some((d) => d.id === "tools")).toBe(true);
-    expect(DOCK_ITEMS.length).toBeLessThanOrEqual(7);
+  it("classifies primary, detail and subview return levels", () => {
+    expect(isPrimaryContentView("anime")).toBe(true);
+    expect(getRouteLevel("home")).toBe("primary");
+    expect(getRouteLevel("game-detail")).toBe("detail");
+    expect(getRouteLevel("settings")).toBe("subview");
+    expect(getViewLabel("game-detail")).toBe("游戏详情");
   });
 
-  it("tool drawer items don't overlap with dock primary views", () => {
-    const dockViews = new Set(DOCK_ITEMS.map(d => d.view));
-    for (const t of TOOL_ITEMS) {
-      expect(dockViews.has(t.view)).toBe(false);
-    }
+  it("keeps internal mode commands out of URL navigation", () => {
+    const navViews = new Set(NAV_ITEMS.map(item => item.view));
+    expect(navViews.has("__tools")).toBe(false);
+    expect(navViews.has("__bigpicture")).toBe(false);
+    for (const tool of TOOL_ITEMS) expect(navViews.has(tool.view)).toBe(true);
   });
 
-  it("NAV_ITEMS covers dock + tools (excluding special views)", () => {
-    const navViews = new Set(NAV_ITEMS.map(i => i.view));
-    for (const t of TOOL_ITEMS) {
-      expect(navViews.has(t.view)).toBe(true);
-    }
-  });
-
-  it("group order covers all groups in use and every group has a label entry", () => {
-    const used = new Set(NAV_ITEMS.map((i) => i.group));
-    for (const g of used) expect(NAV_GROUP_ORDER).toContain(g);
-    for (const g of NAV_GROUP_ORDER) expect(GROUP_LABELS).toHaveProperty(g);
+  it("covers every group with stable ordering and labels", () => {
+    const used = new Set(NAV_ITEMS.map(item => item.group));
+    for (const group of used) expect(NAV_GROUP_ORDER).toContain(group);
+    for (const group of NAV_GROUP_ORDER) expect(GROUP_LABELS).toHaveProperty(group);
   });
 });

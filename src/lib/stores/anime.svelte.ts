@@ -178,6 +178,11 @@ export interface BangumiCollectionEntry {
   updated_at: string;
 }
 
+export interface BangumiConnectionStatus {
+  username: string;
+  configured: boolean;
+}
+
 // ── DanDanPlay 弹幕类型 ─────────────────────────────────────────────────
 
 export interface DanmakuComment {
@@ -242,6 +247,36 @@ function loadJson<T>(key: string, fallback: T): T {
 }
 function saveJson(key: string, data: unknown) {
   if (typeof localStorage !== "undefined") localStorage.setItem(key, JSON.stringify(data));
+}
+
+function readLegacyBangumiToken(): string {
+  if (typeof localStorage === "undefined") return "";
+  const raw = localStorage.getItem(BANGUMI_TOKEN_KEY);
+  if (!raw) return "";
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return typeof parsed === "string" ? parsed.trim() : "";
+  } catch {
+    // Older builds may have written the token without JSON encoding.
+    return raw.trim();
+  }
+}
+
+function clearLegacyBangumiStorage() {
+  if (typeof localStorage === "undefined") return;
+  localStorage.removeItem(BANGUMI_TOKEN_KEY);
+  localStorage.removeItem(BANGUMI_USERNAME_KEY);
+}
+
+function safeBangumiError(error: unknown, secret = ""): string {
+  let message = error instanceof Error ? error.message : String(error);
+  if (secret) message = message.split(secret).join("[redacted]");
+  return message.replace(/Bearer\s+[^\s"'`]+/gi, "Bearer [redacted]");
+}
+
+function isBangumiTokenMissing(error: unknown): boolean {
+  return safeBangumiError(error) === "Bangumi Access Token 未配置";
 }
 
 // ── 响应式状态 ────────────────────────────────────────────────────────────
@@ -335,9 +370,9 @@ let _recInitialized = $state(false);
 let _mySubTab = $state<"collection" | "history" | "stats">("collection");
 let _collectFilter = $state(0); // 0=全部, 1-5=对应类型
 
-// Bangumi 收藏同步
-let _bangumiToken = $state(loadJson<string>(BANGUMI_TOKEN_KEY, ""));
-let _bangumiUsername = $state(loadJson<string>(BANGUMI_USERNAME_KEY, ""));
+// Bangumi 收藏同步（凭据仅存在 Rust SecretStore）
+let _bangumiConfigured = $state(false);
+let _bangumiUsername = $state("");
 let _bangumiCollections = $state<BangumiCollectionEntry[]>([]);
 let _bangumiSyncLoading = $state(false);
 let _bangumiSyncError = $state<string | null>(null);
@@ -681,7 +716,7 @@ export const animeStore = {
   set collectFilter(v: number) { _collectFilter = v; },
 
   // Bangumi 收藏同步
-  get bangumiToken() { return _bangumiToken; },
+  get bangumiConfigured() { return _bangumiConfigured; },
   get bangumiUsername() { return _bangumiUsername; },
   get bangumiCollections() { return _bangumiCollections; },
   get bangumiSyncLoading() { return _bangumiSyncLoading; },
@@ -689,7 +724,7 @@ export const animeStore = {
   get bangumiSyncProgress() { return _bangumiSyncProgress; },
   get bangumiSyncPriority() { return _bangumiSyncPriority; },
   set bangumiSyncPriority(v: number) { _bangumiSyncPriority = v; saveJson(BANGUMI_SYNC_PRIORITY_KEY, v); },
-  get bangumiConnected() { return !!_bangumiToken && !!_bangumiUsername; },
+  get bangumiConnected() { return _bangumiConfigured && !!_bangumiUsername; },
 
   // Bangumi 详情
   get detailSubject() { return _detailSubject; },
@@ -826,6 +861,27 @@ export const animeStore = {
     }).catch((e) => {
       console.warn('[anime-init] 监听 video-proxy-ready 失败:', e);
     });
+
+    // 0.12.1 one-shot migration: send the historical localStorage token only to
+    // the validating secure setter. Legacy plaintext is removed after the attempt,
+    // including failed validation, so startup never retries or leaves a secret behind.
+    const legacyToken = readLegacyBangumiToken();
+    try {
+      const status = await invokeCmd<BangumiConnectionStatus>(
+        "anime_bangumi_get_username",
+        { token: legacyToken || null },
+      );
+      _bangumiConfigured = status.configured;
+      _bangumiUsername = status.username;
+      _bangumiSyncError = null;
+    } catch (e) {
+      _bangumiConfigured = false;
+      _bangumiUsername = "";
+      _bangumiSyncError = safeBangumiError(e, legacyToken);
+      console.warn("[anime-init] Bangumi connection restore failed:", _bangumiSyncError);
+    } finally {
+      clearLegacyBangumiStorage();
+    }
 
     if (_rules.length > 0) {
       debugLog(`[anime-init] pushing ${_rules.length} rules to backend…`);
@@ -1738,7 +1794,7 @@ export const animeStore = {
     }
     saveJson(COLLECT_KEY, _collection);
     // Auto-sync to Bangumi if connected (fire-and-forget)
-    if (_bangumiToken && collectType > 0) {
+    if (_bangumiConfigured && _bangumiUsername && collectType > 0) {
       this.syncToBangumi(name, collectType);
     }
   },
@@ -1816,48 +1872,56 @@ export const animeStore = {
 
   // ── Bangumi 收藏同步 ──────────────────────────────────────────────────
 
-  /** 设置 Bangumi token 并测试连接 */
+  /** 验证 Bangumi token，成功后仅由 Rust SecretStore 持久化 */
   async setBangumiToken(token: string): Promise<string> {
     _bangumiSyncError = null;
-    if (!token.trim()) {
-      _bangumiToken = "";
-      _bangumiUsername = "";
-      saveJson(BANGUMI_TOKEN_KEY, "");
-      saveJson(BANGUMI_USERNAME_KEY, "");
-      return "";
-    }
+    const candidate = token.trim();
+    if (!candidate) throw new Error("Bangumi Access Token 不能为空");
     try {
-      const username = await invokeCmd<string>("anime_bangumi_get_username", { token });
-      _bangumiToken = token;
-      _bangumiUsername = username;
-      saveJson(BANGUMI_TOKEN_KEY, token);
-      saveJson(BANGUMI_USERNAME_KEY, username);
-      return username;
+      const status = await invokeCmd<BangumiConnectionStatus>(
+        "anime_bangumi_get_username",
+        { token: candidate },
+      );
+      _bangumiConfigured = status.configured;
+      _bangumiUsername = status.username;
+      if (status.configured && typeof localStorage !== "undefined") {
+        localStorage.removeItem(BANGUMI_TOKEN_KEY);
+        localStorage.removeItem(BANGUMI_USERNAME_KEY);
+      }
+      return status.username;
     } catch (e) {
-      _bangumiSyncError = String(e);
-      throw e;
+      const message = safeBangumiError(e, candidate);
+      _bangumiSyncError = message;
+      throw new Error(message);
     }
   },
 
-  /** 断开 Bangumi 连接 */
-  disconnectBangumi() {
-    _bangumiToken = "";
-    _bangumiUsername = "";
-    _bangumiCollections = [];
-    saveJson(BANGUMI_TOKEN_KEY, "");
-    saveJson(BANGUMI_USERNAME_KEY, "");
+  /** 断开 Bangumi 连接并删除 OS SecretStore 中的凭据 */
+  async disconnectBangumi() {
+    _bangumiSyncError = null;
+    try {
+      await invokeCmd("secret_delete", { kind: "bangumi_token", origin: null });
+      _bangumiConfigured = false;
+      _bangumiUsername = "";
+      _bangumiCollections = [];
+      clearLegacyBangumiStorage();
+    } catch (e) {
+      const message = safeBangumiError(e);
+      _bangumiSyncError = message;
+      throw new Error(message);
+    }
   },
 
   /** 从 Bangumi 拉取远程收藏 */
   async loadBangumiCollection() {
-    if (!_bangumiToken) return;
+    if (!_bangumiConfigured) return;
     _bangumiSyncLoading = true;
     _bangumiSyncError = null;
     _bangumiSyncProgress = "正在拉取远程收藏...";
     try {
       const remote = await invokeCmd<BangumiCollectionEntry[]>(
         "anime_bangumi_get_all_collections",
-        { token: _bangumiToken, username: _bangumiUsername || null },
+        { username: _bangumiUsername || null },
       );
       _bangumiCollections = remote;
       _bangumiSyncProgress = `拉取完成，共 ${remote.length} 条`;
@@ -1865,7 +1929,12 @@ export const animeStore = {
       const urls = remote.filter(e => e.subject_image).map(e => e.subject_image);
       this._proxyImages(urls);
     } catch (e) {
-      _bangumiSyncError = String(e);
+      _bangumiSyncError = safeBangumiError(e);
+      if (isBangumiTokenMissing(e)) {
+        _bangumiConfigured = false;
+        _bangumiUsername = "";
+        _bangumiCollections = [];
+      }
       _bangumiSyncProgress = "";
     } finally {
       _bangumiSyncLoading = false;
@@ -1874,7 +1943,7 @@ export const animeStore = {
 
   /** 同步远程收藏到本地（乐观合并） */
   async syncBangumiToLocal() {
-    if (!_bangumiToken || _bangumiCollections.length === 0) return;
+    if (!_bangumiConfigured || _bangumiCollections.length === 0) return;
     const priority = _bangumiSyncPriority; // 0=localFirst, 1=bangumiFirst
     const remote = _bangumiCollections;
     const remoteMap = new Map<string, BangumiCollectionEntry>();
@@ -1911,7 +1980,7 @@ export const animeStore = {
 
   /** 把本地收藏上传到 Bangumi（逐条同步） */
   async syncLocalToBangumi() {
-    if (!_bangumiToken) return;
+    if (!_bangumiConfigured) return;
     _bangumiSyncLoading = true;
     _bangumiSyncError = null;
     let synced = 0;
@@ -1925,7 +1994,6 @@ export const animeStore = {
       if (!remote) continue;
       try {
         await invokeCmd<boolean>("anime_bangumi_update_collection", {
-          token: _bangumiToken,
           subjectId: remote.subject_id,
           collectionType: c.collectType,
         });
@@ -1940,7 +2008,7 @@ export const animeStore = {
 
   /** 单条同步：收藏变化时自动推送 Bangumi */
   async syncToBangumi(name: string, collectType: number) {
-    if (!_bangumiToken || !_bangumiUsername) return;
+    if (!_bangumiConfigured || !_bangumiUsername) return;
     // Find the subject ID from remote collections
     const remote = _bangumiCollections.find(
       r => r.subject_name === name || r.subject_name_cn === name
@@ -1948,12 +2016,16 @@ export const animeStore = {
     if (!remote) return; // 没有对应 Bangumi 条目，跳过
     try {
       await invokeCmd<boolean>("anime_bangumi_update_collection", {
-        token: _bangumiToken,
         subjectId: remote.subject_id,
         collectionType: collectType,
       });
     } catch (e) {
-      console.warn("Bangumi 同步失败:", e);
+      const message = safeBangumiError(e);
+      if (isBangumiTokenMissing(e)) {
+        _bangumiConfigured = false;
+        _bangumiUsername = "";
+      }
+      console.warn("Bangumi 同步失败:", message);
     }
   },
 

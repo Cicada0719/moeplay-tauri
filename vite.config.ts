@@ -4,6 +4,17 @@ import { svelte } from "@sveltejs/vite-plugin-svelte";
 export default defineConfig({
   plugins: [svelte()],
   clearScreen: false,
+  build: {
+    rollupOptions: {
+      output: {
+        // Keep the animation runtime independently cacheable and prevent the
+        // application entry chunk from absorbing every GSAP consumer.
+        manualChunks: {
+          gsap: ["gsap"],
+        },
+      },
+    },
+  },
   server: {
     port: 1420,
     strictPort: true,

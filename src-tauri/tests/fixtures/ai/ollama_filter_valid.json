@@ -1,0 +1,12 @@
+{
+  "model": "qwen2.5:7b",
+  "created_at": "2026-07-10T00:00:00Z",
+  "message": {
+    "role": "assistant",
+    "content": "```json\n{\"kind\":\"game\",\"filters\":[{\"field\":\"lastPlayedAt\",\"op\":\"is_null\"},{\"field\":\"contentRating\",\"op\":\"eq\",\"value\":\"all_ages\"},{\"field\":\"tags\",\"op\":\"contains_any\",\"value\":[\"relaxing\",\"healing\"]},{\"field\":\"estimatedHours\",\"op\":\"lte\",\"value\":10}],\"sort\":[{\"field\":\"userAffinity\",\"direction\":\"desc\"}],\"explanation\":\"Unplayed all-ages relaxing games under ten hours, ranked by affinity.\"}\n```"
+  },
+  "done": true,
+  "done_reason": "stop",
+  "prompt_eval_count": 88,
+  "eval_count": 57
+}

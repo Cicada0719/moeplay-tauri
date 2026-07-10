@@ -14,7 +14,6 @@ jobs:
       matrix:
         include:
           - platform: 'windows-latest'
-            args: '--target x86_64-pc-windows-msvc'
             target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.platform }}
     steps:
@@ -30,19 +29,109 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+          components: rustfmt, clippy
+
+      - name: Cache pinned Cargo supply-chain tool
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-deny.exe
+          key: ${{ runner.os }}-cargo-deny-${{ hashFiles('scripts/cargo-supply-chain-policy.json') }}
 
       - name: install dependencies
         run: npm ci
+
+      - name: Test Cargo supply-chain gate
+        run: npm run test:cargo-supply-chain
+
+      - name: Audit Cargo advisories and licenses
+        run: npm run audit:cargo
+
+      - name: Verify version matches tag
+        run: npm run verify:versions
+
+      - name: Verify Tauri command contract
+        run: npm run verify:commands
+
+      - name: Test command contract verifier
+        run: npm run test:command-contract
+
+      - name: Test release evidence generators
+        run: npm run test:release-evidence
+
+      - name: Test installed-upgrade report verifier
+        run: npm run test:upgrade-report
+
+      - name: Rust format
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+
+      - name: Rust clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --all-targets --all-features
+
+      - name: Svelte check
+        run: npm run check
+
+      - name: Frontend unit tests
+        run: npm run test:unit
+
+      - name: Frontend build
+        run: npm run build
+
+      - name: Test bundle budget verifier
+        run: npm run test:bundle-budget
+
+      - name: Verify frontend bundle budget
+        run: npm run verify:bundle-budget
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium
+
+      - name: Frontend visual smoke
+        run: npm run test:visual
+
+      - name: Clean release target
+        run: cargo clean --manifest-path src-tauri/Cargo.toml
 
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: '萌游 MoeGame ${{ github.ref_name }}'
           releaseBody: 'See the assets to download and install this version.'
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
-          args: ${{ matrix.args }}
+
+      - name: Build portable package
+        run: npm run package:portable
+
+      - name: Generate release SBOM
+        run: npm run generate:sbom
+
+      - name: Generate build metadata
+        run: npm run generate:build-metadata
+
+      - name: Verify release artifacts
+        run: npm run verify:artifacts
+
+      - name: Verify updater manifest and signatures
+        run: npm run verify:updater
+
+      - name: Upload portable package and manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $portable = Get-ChildItem src-tauri/target/release/bundle/portable/*.zip | Select-Object -First 1
+          gh release upload "${{ github.ref_name }}" $portable.FullName src-tauri/target/release/bundle/release-manifest.json src-tauri/target/release/bundle/sbom.cdx.json src-tauri/target/release/bundle/build-metadata.json --clobber
+
+      - name: Keep release draft pending installed upgrade approval
+        shell: pwsh
+        run: |
+          Write-Host "Artifacts are verified and remain in a draft release."
+          Write-Host "Promotion is intentionally blocked until the installed 0.12.0 -> 0.12.1 upgrade/rollback report and signing decision are attached."

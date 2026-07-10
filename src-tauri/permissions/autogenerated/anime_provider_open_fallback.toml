@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-provider-open-fallback"
+description = "Enables the anime_provider_open_fallback command without any pre-configured scope."
+commands.allow = ["anime_provider_open_fallback"]
+
+[[permission]]
+identifier = "deny-anime-provider-open-fallback"
+description = "Denies the anime_provider_open_fallback command without any pre-configured scope."
+commands.deny = ["anime_provider_open_fallback"]

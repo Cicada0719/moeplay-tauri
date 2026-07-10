@@ -66,10 +66,8 @@ pub struct DownloadSearchResult {
 /// 搜索 galgame 下载资源。
 /// 优先使用已有的 patch_id / kungal_id，否则按名称搜索 Kungal。
 pub async fn search_downloads(req: &DownloadSearchRequest) -> Result<DownloadSearchResult, String> {
-    let client = crate::http_client::build_reqwest_client(
-        20,
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 MoeGame/0.1",
-    );
+    let client =
+        crate::http_client::build_reqwest_client(20, crate::http_client::browser_user_agent());
 
     let mut patch_id: Option<String> = req.patch_id.clone();
 
@@ -110,7 +108,7 @@ pub async fn search_downloads_direct(
     let client = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(5))
         .timeout(std::time::Duration::from_secs(12))
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 MoeGame/0.1")
+        .user_agent(crate::http_client::browser_user_agent())
         .danger_accept_invalid_certs(crate::http_client::insecure_tls_enabled())
         .build()
         .map_err(|e| e.to_string())?;
@@ -204,7 +202,7 @@ async fn find_patch_id(
     );
     let resp = client
         .get(&detail_url)
-        .header("User-Agent", "MoeGame/0.1")
+        .header("User-Agent", crate::http_client::app_user_agent())
         .send()
         .await
         .ok()?;

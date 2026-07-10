@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-upsert-activity-progress"
+description = "Enables the upsert_activity_progress command without any pre-configured scope."
+commands.allow = ["upsert_activity_progress"]
+
+[[permission]]
+identifier = "deny-upsert-activity-progress"
+description = "Denies the upsert_activity_progress command without any pre-configured scope."
+commands.deny = ["upsert_activity_progress"]
