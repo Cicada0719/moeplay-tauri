@@ -3,6 +3,9 @@
 
 pub mod ai;
 pub mod anime;
+pub mod domain;
+pub mod providers;
+pub mod secret_store;
 pub mod archive;
 pub mod auto_scrape;
 pub mod autostart;
@@ -127,11 +130,10 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(database)
         .manage(secret_store::SecretStore::new())
-        .manage(anime::AnimeState::default())
-        .manage(comic::ComicState::default())
         .manage(providers::anime::AnimeProviderRegistry::default())
         .manage(providers::comic::ComicProviderRegistry::new())
-        .manage(Downloader::new(download_dir, 3))
+        .manage(anime::AnimeState::default())
+        .manage(comic::ComicState::default())
         .manage(AnimeDownloader::new(anime_download_dir))
         .manage(task_queue)
         .manage(ai_changes_service)
@@ -445,7 +447,25 @@ pub fn run() {
             commands::manga_fetch_json,
             commands::manga_fetch_text,
             // ---- 番剧规则引擎 ----
-            commands::anime_get_rules,
+            // ---- Provider registry: anime / comic ----
+            commands::anime_provider_configure,
+            commands::anime_provider_list,
+            commands::anime_provider_remove,
+            commands::anime_provider_search,
+            commands::anime_provider_detail,
+            commands::anime_provider_episodes,
+            commands::anime_provider_resolve,
+            commands::anime_provider_health,
+            commands::anime_provider_pick_local_directory,
+            commands::anime_provider_open_fallback,
+            commands::comic_provider_configure,
+            commands::comic_provider_list,
+            commands::comic_provider_remove,
+            commands::comic_provider_probe,
+            commands::comic_provider_search,
+            commands::comic_provider_detail,
+            commands::comic_provider_chapters,
+            commands::comic_provider_resolve,            commands::anime_get_rules,
             commands::anime_set_rules,
             commands::anime_add_rule,
             commands::anime_remove_rule,
