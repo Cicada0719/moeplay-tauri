@@ -11,7 +11,7 @@ async function requestText(url: string, redirects = 0): Promise<string> {
   return new Promise((resolve, reject) => {
     const req = request(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36 MoePlay/0.12.0",
+        "User-Agent": `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36 MoePlay/${process.env.npm_package_version ?? "dev"}`,
         Accept: "application/json,text/html,application/xhtml+xml,*/*;q=0.8",
         Referer: new URL(url).origin + "/",
       },

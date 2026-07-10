@@ -2,6 +2,9 @@
 #![allow(clippy::field_reassign_with_default, clippy::too_many_arguments)]
 
 pub mod anime;
+pub mod domain;
+pub mod providers;
+pub mod secret_store;
 pub mod archive;
 pub mod auto_scrape;
 pub mod autostart;
@@ -109,6 +112,9 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(Database::new())
+        .manage(secret_store::SecretStore::new())
+        .manage(providers::anime::AnimeProviderRegistry::default())
+        .manage(providers::comic::ComicProviderRegistry::new())
         .manage(anime::AnimeState::default())
         .manage(comic::ComicState::default())
         .manage(Downloader::new(download_dir, 3))
@@ -381,7 +387,25 @@ pub fn run() {
             commands::manga_fetch_json,
             commands::manga_fetch_text,
             // ---- 番剧规则引擎 ----
-            commands::anime_get_rules,
+            // ---- Provider registry: anime / comic ----
+            commands::anime_provider_configure,
+            commands::anime_provider_list,
+            commands::anime_provider_remove,
+            commands::anime_provider_search,
+            commands::anime_provider_detail,
+            commands::anime_provider_episodes,
+            commands::anime_provider_resolve,
+            commands::anime_provider_health,
+            commands::anime_provider_pick_local_directory,
+            commands::anime_provider_open_fallback,
+            commands::comic_provider_configure,
+            commands::comic_provider_list,
+            commands::comic_provider_remove,
+            commands::comic_provider_probe,
+            commands::comic_provider_search,
+            commands::comic_provider_detail,
+            commands::comic_provider_chapters,
+            commands::comic_provider_resolve,            commands::anime_get_rules,
             commands::anime_set_rules,
             commands::anime_add_rule,
             commands::anime_remove_rule,

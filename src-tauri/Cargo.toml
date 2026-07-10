@@ -1,6 +1,6 @@
 [package]
 name = "moeplay"
-version = "0.12.0"
+version = "0.12.1"
 description = "萌游 MoeGame — 游戏与番剧管理器"
 authors = ["MoeGame Dev"]
 edition = "2021"
@@ -54,4 +54,5 @@ winreg = "0.52"
 hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
+keyring = "=4.1.4"
 scraper = "0.22"

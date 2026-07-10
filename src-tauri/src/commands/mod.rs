@@ -53,3 +53,8 @@ pub use manga::*;
 
 mod anime;
 pub use anime::*;
+
+mod anime_provider;
+pub use anime_provider::*;
+mod comic_provider;
+pub use comic_provider::*;

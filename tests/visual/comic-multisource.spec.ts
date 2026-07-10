@@ -84,13 +84,21 @@ test("v0.12 comic auto mode renders isolated parallel source sections", async ({
 
   await page.goto("/?skip_wizard");
   await page.getByRole("button", { name: "漫画" }).click();
+  const sourceTabs = page.getByRole("tablist", { name: "普通漫画源" });
+  const autoTab = sourceTabs.getByRole("tab", { name: /自动/ });
+  await autoTab.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(sourceTabs.getByRole("tab", { name: /MangaDex/ })).toBeFocused();
+  await page.keyboard.press("ArrowLeft");
+  await expect(autoTab).toBeFocused();
+
   await page.getByPlaceholder("搜索普通漫画...").fill("测试");
   await page.getByRole("button", { name: "搜索" }).click();
 
-  await expect(page.getByRole("heading", { name: "MangaDex" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "包子漫画" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "DM5" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "1kkk" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "MangaDex", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "包子漫画", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "DM5", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "1kkk", exact: true })).toBeVisible();
   await expect(page.getByText("MangaDex测试漫画")).toBeVisible();
   await expect(page.getByText("包子测试漫画")).toBeVisible();
 
@@ -102,10 +110,26 @@ test("v0.12 comic auto mode renders isolated parallel source sections", async ({
     });
   });
   const baoziSection = page.locator(".ordinary-source-section").filter({ has: page.getByRole("heading", { name: "包子漫画" }) });
-  await baoziSection.getByRole("button", { name: "包子测试漫画" }).dispatchEvent("click");
+  const baoziCard = baoziSection.getByRole("button", { name: /包子测试漫画/ });
+  await baoziCard.dispatchEvent("click");
   await expect(page.getByRole("heading", { name: "包子测试漫画" })).toBeVisible();
   await expect(page.getByText("用于验收漫画详情和阅读器")).toBeVisible();
-  await page.getByRole("button", { name: "第1话" }).click();
-  await expect(page.locator(".reader-overlay")).toBeVisible();
+  const chapterButton = page.getByRole("button", { name: "第1话" });
+  await chapterButton.click();
+  const reader = page.getByRole("dialog", { name: "第1话" });
+  await expect(reader).toBeVisible();
   await expect(page.locator('img[src="https://img.test/baozi-page-1.jpg"]')).toBeVisible();
+
+  await page.keyboard.press("d");
+  await expect(reader).toHaveAttribute("data-reading-direction", "left-to-right");
+  await page.keyboard.press("+");
+  await expect(page.getByLabel("当前缩放")).toHaveText("110%");
+
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "包子测试漫画" })).toBeVisible();
+  await expect(chapterButton).toBeFocused();
+
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "包子测试漫画" })).toHaveCount(0);
+  await expect(baoziCard).toBeFocused();
 });

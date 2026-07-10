@@ -8,6 +8,9 @@
   import DanmakuOverlay from "./DanmakuOverlay.svelte";
   import { animeDownloadEpisode } from "../../api";
   import { debugLog } from "../../utils/debug";
+  import { AsyncState } from "../ui-v2";
+  import { focusTrap } from "../../actions/a11y/focusTrap";
+  import { focusWhenAvailable } from "./a11y";
 
   const status = $derived(animeStore.playerExtractStatus); // extracting | found | timeout | error
   const videoSrc = $derived(animeStore.playerVideoSrc);
@@ -29,6 +32,21 @@
   const failoverMessage = $derived(animeStore.failoverMessage);
   const failoverTotal = $derived(animeStore.failoverTotal);
   const failoverCurrent = $derived(animeStore.failoverCurrent);
+  const playerStatusTitle = $derived.by(() => {
+    if (failoverStatus === 'trying') return '正在自动换源';
+    if (status === 'extracting') return extractStep;
+    if (status === 'timeout') return '解析超时';
+    if (failoverStatus === 'allFailed') return '备用来源均不可用';
+    if (status === 'error') return '未能提取到视频地址';
+    return '播放器就绪';
+  });
+  const playerStatusDescription = $derived.by(() => {
+    if (failoverStatus === 'trying') return failoverMessage || `正在尝试第 ${failoverCurrent} / ${failoverTotal} 个来源。`;
+    if (status === 'extracting') return `从播放页提取真实视频流 · ${extractElapsed}s / 30s`;
+    if (failoverStatus === 'allFailed') return `已自动尝试 ${failoverTotal} 个备用源，可手动选源或使用网页播放。`;
+    if (status === 'timeout') return '播放页响应过慢或被反爬拦截，可重试、换源或用网页播放。';
+    return failureMessage || '视频地址提取失败，可重试、换源或用网页播放。';
+  });
 
   // 弹幕状态
   const danmakuComments = $derived(animeStore.danmakuComments);
@@ -252,8 +270,19 @@
   }
 
   async function closePlayer() {
+    const returnRoad = roadIdx;
+    const returnEpisode = epIdx;
     await setPlayerFullscreen(false);
     animeStore.closePlayer();
+    // SourceSheet remains mounted while the player is active. Reopen its retained
+    // episode step so keyboard users return to the exact episode that launched playback.
+    animeStore.sourceSheetOpen = true;
+    focusWhenAvailable(`[data-episode-key="${returnRoad}-${returnEpisode}"]`);
+  }
+
+  function handlePlayerEscape() {
+    if (isFullscreen) toggleFullscreen();
+    else void closePlayer();
   }
   async function onFullscreenChange() {
     // 原生 video / 源站 iframe 可能自己进入 DOM fullscreen；这里不抢状态，避免退出后又被强制拉回全屏。
@@ -689,13 +718,6 @@
       return;
     }
 
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      if (isFullscreen) toggleFullscreen();
-      else void closePlayer();
-      return;
-    }
-
     if (useWebFallback) return;
 
     switch (e.key) {
@@ -793,9 +815,26 @@
 
 </script>
 
-<div class="player-overlay" class:fullscreen={isFullscreen} role="dialog" bind:this={overlayEl}>
+<div
+  class="player-overlay"
+  class:fullscreen={isFullscreen}
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="anime-player-title"
+  aria-describedby="anime-player-status"
+  tabindex="-1"
+  bind:this={overlayEl}
+  use:focusTrap={{
+    initialFocus: '[data-player-close]',
+    returnFocus: false,
+    closeOnEscape: true,
+    onEscape: handlePlayerEscape,
+  }}
+>
+  <h2 class="sr-only" id="anime-player-title">{animeStore.detailName} · {epName || "播放器"}</h2>
+  <p class="sr-only" id="anime-player-status" aria-live="polite">{playerStatusTitle}。{playerStatusDescription}</p>
   <div class="player-toolbar" role="toolbar" aria-label="播放器工具栏" tabindex="-1" onclick={handleToolbarClickOutside} onkeydown={(e) => { if (e.key === "Escape") { showSpeedMenu = false; showDanmakuSettings = false; showEpisodePanel = false; showCommentsPanel = false; } }}>
-    <button class="tool-btn" onclick={() => void closePlayer()}>
+    <button class="tool-btn" type="button" data-player-close aria-label="关闭播放器并返回当前剧集" onclick={() => void closePlayer()}>
       <Icon name="x" size={16} /> 关闭
     </button>
     <div class="toolbar-sep"></div>
@@ -805,19 +844,20 @@
     </div>
     <div class="toolbar-sep"></div>
     <div class="ep-nav">
-      <button class="nav-btn" onclick={goPrev} disabled={!hasPrev}>
+      <button class="nav-btn" type="button" aria-label="播放上一集" onclick={goPrev} disabled={!hasPrev}>
         <Icon name="chevronLeft" size={15} /> 上一集
       </button>
-      <button class="nav-btn" onclick={goNext} disabled={!hasNext}>
+      <button class="nav-btn" type="button" aria-label="播放下一集" onclick={goNext} disabled={!hasNext}>
         下一集 <Icon name="chevronRight" size={15} />
       </button>
-      <button class="nav-btn fullscreen-toggle" onclick={toggleFullscreen} title={isFullscreen ? '退出全屏' : '全屏'}>
+      <button class="nav-btn fullscreen-toggle" type="button" onclick={toggleFullscreen} aria-label={isFullscreen ? '退出全屏' : '进入全屏'} title={isFullscreen ? '退出全屏' : '全屏'}>
         <Icon name={isFullscreen ? 'x' : 'maximize'} size={15} />
       </button>
       {#if status === "found"}
         {#if isPipSupported}
           <button
             class="nav-btn pip-toggle"
+          aria-label={isPipActive ? '退出画中画' : '开启画中画'}
             class:active={isPipActive}
             onclick={togglePip}
             title={isPipActive ? '退出画中画' : '画中画'}
@@ -828,6 +868,7 @@
         {/if}
         <button
           class="nav-btn danmaku-toggle"
+          aria-label={danmakuEnabled ? '关闭弹幕' : '开启弹幕'}
           class:active={danmakuEnabled}
           onclick={() => { animeStore.danmakuEnabled = !animeStore.danmakuEnabled; }}
           title={danmakuEnabled ? '关闭弹幕' : '开启弹幕'}
@@ -841,6 +882,7 @@
         </button>
         <button
           class="nav-btn danmaku-settings-btn"
+          aria-label={'打开弹幕设置'}
           class:active={showDanmakuSettings}
           onclick={() => { showDanmakuSettings = !showDanmakuSettings; showSpeedMenu = false; }}
           title="弹幕设置"
@@ -852,6 +894,7 @@
         <div class="toolbar-sep"></div>
         <button
           class="nav-btn episodes-toggle"
+          aria-label={showEpisodePanel ? '关闭选集面板' : '打开选集面板'}
           class:active={showEpisodePanel}
           onclick={toggleEpisodePanel}
           title={showEpisodePanel ? '关闭选集' : '选集'}
@@ -864,6 +907,7 @@
         <div class="speed-control">
           <button
             class="nav-btn speed-btn"
+          aria-label={'选择播放速度'}
             class:active={showSpeedMenu}
             onclick={() => showSpeedMenu = !showSpeedMenu}
             title="倍速播放"
@@ -919,6 +963,7 @@
         {/if}
         <button
           class="nav-btn comments-toggle"
+          aria-label={showCommentsPanel ? '关闭章节评论' : '打开章节评论'}
           class:active={showCommentsPanel}
           onclick={toggleCommentsPanel}
           title={showCommentsPanel ? '关闭评论' : '章节评论'}
@@ -929,6 +974,7 @@
       {#if status === "found" && videoSrc}
         <button
           class="nav-btn download-btn"
+          aria-label={downloading ? '正在添加下载任务' : '下载本集'}
           class:downloading
           onclick={handleDownload}
           disabled={downloading}
@@ -996,32 +1042,25 @@
           {/key}
         </div>
       {:else if status === "extracting"}
-        <div class="player-state">
-          <div class="extract-indicator">
-            <div class="spinner"></div>
-            <div class="extract-pulse"></div>
+        <div class="player-state player-state--async">
+          <AsyncState
+            state={failoverStatus === 'trying' ? 'refreshing' : 'loading'}
+            title={playerStatusTitle}
+            description={playerStatusDescription}
+            loadingDelayMs={0}
+            details={failoverStatus === 'trying' ? `来源 ${failoverCurrent} / ${failoverTotal}` : `解析 ${extractElapsed}s / 30s`}
+          />
+          <div class="failover-progress" role="progressbar" aria-label={playerStatusTitle} aria-valuemin="0" aria-valuemax="100" aria-valuenow={failoverStatus === 'trying' && failoverTotal > 0 ? Math.round(failoverCurrent / failoverTotal * 100) : Math.min(Math.round(extractElapsed / 30 * 100), 100)}>
+            <div class="failover-bar" style="width: {failoverStatus === 'trying' && failoverTotal > 0 ? (failoverCurrent / failoverTotal * 100) : Math.min(extractElapsed / 30 * 100, 100)}%"></div>
           </div>
-          {#if failoverStatus === 'trying'}
-            <span>自动换源中…</span>
-            <small>{failoverMessage}</small>
-            <div class="failover-progress">
-              <div class="failover-bar" style="width: {failoverTotal > 0 ? (failoverCurrent / failoverTotal * 100) : 0}%"></div>
-            </div>
-          {:else}
-            <span>{extractStep}</span>
-            <small>从播放页提取真实视频流 · {extractElapsed}s / 30s</small>
-            <div class="failover-progress">
-              <div class="failover-bar" style="width: {Math.min(extractElapsed / 30 * 100, 100)}%"></div>
-            </div>
-          {/if}
           <div class="state-actions">
-            <button class="state-btn primary" onclick={() => animeStore.cancelExtract()}>取消加载</button>
+            <button class="state-btn primary" type="button" onclick={() => animeStore.cancelExtract()}>取消加载</button>
             {#if failoverStatus === 'trying'}
-              <button class="state-btn" onclick={() => animeStore.cancelFailover()}>仅取消换源</button>
+              <button class="state-btn" type="button" onclick={() => animeStore.cancelFailover()}>仅取消换源</button>
             {/if}
-            <button class="state-btn" onclick={() => void closePlayer()}>返回详情</button>
+            <button class="state-btn" type="button" onclick={() => void closePlayer()}>返回剧集</button>
             {#if pageUrl}
-              <button class="state-btn" onclick={() => switchToWebFallback(true)}>用网页播放</button>
+              <button class="state-btn" type="button" onclick={() => switchToWebFallback(true)}>用网页播放</button>
             {/if}
           </div>
         </div>
@@ -1052,36 +1091,33 @@
           </div>
         {/if}
       {:else}
-        <div class="player-state">
-          <Icon name={status === "timeout" ? "clock" : "x"} size={28} />
-          <span>{status === "timeout" ? "解析超时" : "未能提取到视频地址"}</span>
-          {#if failoverStatus === 'allFailed'}
-            <small>已自动尝试 {failoverTotal} 个备用源，均未能成功播放。可手动选源或用网页播放。</small>
-          {:else if status === "timeout"}
-            <small>播放页响应过慢或被反爬拦截，可重试、换源或用网页播放</small>
-          {:else}
-            <small>{failureMessage || '视频地址提取失败（可能被加密或反爬），可重试、换源或用网页播放'}</small>
-          {/if}
-          <div class="state-actions">
-            <button class="state-btn primary" onclick={retry}>重试解析</button>
-            <button class="state-btn" onclick={switchSource}>手动选源</button>
-            {#if pageUrl}
-              <button class="state-btn" onclick={() => switchToWebFallback()}>用网页播放</button>
-              <button class="state-btn" onclick={openInBrowser}>浏览器打开</button>
-              <button class="state-btn" onclick={launchExternalPlayer}>
+        <div class="player-state player-state--async">
+          <AsyncState
+            state="error"
+            title={playerStatusTitle}
+            description={playerStatusDescription}
+            details={failureKind || undefined}
+            primaryAction={{ label: '重试解析', onSelect: retry }}
+            secondaryAction={{ label: '手动选源', onSelect: () => void switchSource() }}
+          />
+          {#if pageUrl}
+            <div class="state-actions">
+              <button class="state-btn" type="button" onclick={() => switchToWebFallback()}>用网页播放</button>
+              <button class="state-btn" type="button" onclick={openInBrowser}>浏览器打开</button>
+              <button class="state-btn" type="button" onclick={launchExternalPlayer}>
                 <Icon name="externalLink" size={13} /> 外部播放
               </button>
-            {/if}
-          </div>
+            </div>
+          {/if}
         </div>
       {/if}
     </div>
 
     {#if showCommentsPanel}
-      <div class="comments-panel">
+      <section class="comments-panel" aria-labelledby="anime-comments-title">
         <div class="comments-header">
-          <span class="comments-title">章节评论</span>
-          <button class="comments-close" onclick={() => showCommentsPanel = false}>
+          <h3 class="comments-title" id="anime-comments-title">章节评论</h3>
+          <button class="comments-close" type="button" aria-label="关闭章节评论" onclick={() => showCommentsPanel = false}>
             <Icon name="x" size={14} />
           </button>
         </div>
@@ -1111,23 +1147,27 @@
             {/each}
           {/if}
         </div>
-      </div>
+      </section>
     {/if}
 
     {#if showEpisodePanel}
-      <div class="episodes-panel">
+      <section class="episodes-panel" aria-labelledby="anime-episodes-title">
         <div class="comments-header">
-          <span class="comments-title">选集</span>
-          <button class="comments-close" onclick={() => showEpisodePanel = false}>
+          <h3 class="comments-title" id="anime-episodes-title">选集</h3>
+          <button class="comments-close" type="button" aria-label="关闭选集面板" onclick={() => showEpisodePanel = false}>
             <Icon name="x" size={14} />
           </button>
         </div>
         {#if roads.length > 1}
-          <div class="ep-road-tabs">
+          <div class="ep-road-tabs" role="tablist" aria-label="播放器线路">
             {#each roads as r, i}
               <button
                 class="ep-road-tab"
+                type="button"
+                role="tab"
                 class:active={pickerRoadIdx === i}
+                aria-selected={pickerRoadIdx === i}
+                tabindex={pickerRoadIdx === i ? 0 : -1}
                 onclick={() => { pickerRoadIdx = i; }}
               >
                 {r.name || `线路${i + 1}`}
@@ -1149,17 +1189,17 @@
             {/each}
           </div>
         </div>
-      </div>
+      </section>
     {/if}
   </div>
 
   {#if !isFullscreen}
     <div class="player-bottom">
-      <button class="bottom-btn" onclick={goPrev} disabled={!hasPrev}>
+      <button class="bottom-btn" type="button" aria-label="播放上一集" onclick={goPrev} disabled={!hasPrev}>
         <Icon name="chevronLeft" size={16} /> 上一集
       </button>
-      <button class="bottom-btn close" onclick={() => void closePlayer()}>返回详情</button>
-      <button class="bottom-btn" onclick={goNext} disabled={!hasNext}>
+      <button class="bottom-btn close" type="button" onclick={() => void closePlayer()}>返回当前剧集</button>
+      <button class="bottom-btn" type="button" aria-label="播放下一集" onclick={goNext} disabled={!hasNext}>
         下一集 <Icon name="chevronRight" size={16} />
       </button>
     </div>
@@ -1167,6 +1207,10 @@
 </div>
 
 <style>
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+  .player-state--async { width: min(36rem, calc(100% - 2rem)); }
+  .player-state--async :global(.v2-async-state) { width: 100%; }
+
   .player-overlay {
     position: absolute;
     inset: 0;
@@ -1487,8 +1531,6 @@
     display: flex; flex-direction: column; align-items: center; gap: 12px;
     color: var(--text-muted); text-align: center; padding: 24px;
   }
-  .player-state span { font-size: 15px; color: var(--text-primary); font-weight: 600; }
-  .player-state small { font-size: 12px; color: var(--text-muted); max-width: 360px; line-height: 1.5; }
   .state-actions { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; justify-content: center; }
   .state-btn {
     padding: 8px 16px; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px;
@@ -1713,23 +1755,6 @@
   .bottom-btn:not(:disabled):hover {
     border-color: var(--accent); background: var(--accent-lo, rgba(232,85,127,0.1)); color: var(--accent);
   }
-
-  .extract-indicator {
-    position: relative;
-    width: 44px;
-    height: 44px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .extract-pulse {
-    position: absolute;
-    inset: -4px;
-    border-radius: 50%;
-    border: 2px solid var(--accent, #e8557f);
-    opacity: 0;
-    animation: extract-ring 2s ease-out infinite;
-  }
   @keyframes extract-ring {
     0% { transform: scale(0.8); opacity: 0.6; }
     100% { transform: scale(1.4); opacity: 0; }
@@ -1761,4 +1786,10 @@
     border-radius: 2px;
     transition: width 0.3s ease;
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    .player-overlay, .player-overlay *, .spinner, .spinner-sm { animation: none !important; transition: none !important; }
+  }
+  :global([data-motion="reduce"]) .player-overlay,
+  :global([data-motion="reduce"]) .player-overlay * { animation: none !important; transition: none !important; }
 </style>

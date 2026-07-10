@@ -1,14 +1,38 @@
 <script lang="ts">
   import { animeStore } from '../../stores/anime.svelte';
   import Icon from '../Icon.svelte';
-  import { onDestroy } from 'svelte';
-  import { listen } from '@tauri-apps/api/event';
-  import { Button, Card, EmptyState, Input, Overlay } from '../ui';
+  import { Button, Card, EmptyState } from '../ui';
+  import { AsyncState, Drawer, MediaCard } from '../ui-v2';
+  import { focusRovingItem, nextRovingIndex } from './a11y';
 
   let searchInput = $state(animeStore.searchKeyword || '');
   let activeSource = $state<string>('all');
   let showImageSearch = $state(false);
   let imageUrlInput = $state('');
+  let sourceTabRefs: Array<HTMLButtonElement | null> = [];
+  const sourceTabs = $derived([
+    { id: 'all', label: '全部' },
+    { id: 'image', label: '图片搜番' },
+    ...animeStore.rules.map((rule) => ({ id: rule.name, label: rule.name })),
+  ]);
+
+
+  function selectSource(id: string, index: number) {
+    activeSource = id;
+    showImageSearch = id === 'image';
+    focusRovingItem(sourceTabRefs, index);
+  }
+
+  function handleSourceTabKeydown(event: KeyboardEvent, index: number) {
+    const next = nextRovingIndex(event.key, index, sourceTabs.length, 'horizontal');
+    if (next === null) return;
+    event.preventDefault();
+    selectSource(sourceTabs[next].id, next);
+  }
+
+  function closeDrawer() {
+    animeStore.drawerOpen = false;
+  }
 
   function handleHistoryClick(keyword: string) {
     searchInput = keyword;
@@ -56,24 +80,34 @@
   }
 </script>
 
-{#if animeStore.drawerOpen}
-  <div class="drawer-backdrop">
-    <Overlay onClose={() => animeStore.drawerOpen = false} ariaLabel="关闭" />
-  </div>
-  <div class="drawer-panel">
-    <div class="drawer-handle"></div>
-    
+<Drawer
+  open={animeStore.drawerOpen}
+  title="搜索番剧"
+  description="按经典规则来源检索，也可以使用截图识别。"
+  side="bottom"
+  size="lg"
+  onClose={closeDrawer}
+  initialFocus={activeSource === 'image' ? '[data-image-search]' : '[data-anime-drawer-search]'}
+  returnFocus
+  class="anime-search-drawer"
+>
+  <div class="drawer-content">
     <!-- Source Tabs -->
-    <div class="source-tabs">
-      <button class="source-tab" class:active={activeSource === 'all'} onclick={() => activeSource = 'all'}>
-        全部
-      </button>
-      <button class="source-tab" class:active={activeSource === 'image'} onclick={() => { activeSource = 'image'; showImageSearch = true; }}>
-        <Icon name="image" size={12} /> 图片搜番
-      </button>
-      {#each animeStore.rules as rule (rule.name)}
-        <button class="source-tab" class:active={activeSource === rule.name} onclick={() => { activeSource = rule.name; showImageSearch = false; }}>
-          {rule.name}
+    <div class="source-tabs" role="tablist" aria-label="搜索来源">
+      {#each sourceTabs as tab, index (tab.id)}
+        <button
+          bind:this={sourceTabRefs[index]}
+          class="source-tab"
+          class:active={activeSource === tab.id}
+          type="button"
+          role="tab"
+          aria-selected={activeSource === tab.id}
+          tabindex={activeSource === tab.id ? 0 : -1}
+          onclick={() => selectSource(tab.id, index)}
+          onkeydown={(event) => handleSourceTabKeydown(event, index)}
+        >
+          {#if tab.id === 'image'}<Icon name="image" size={12} />{/if}
+          {tab.label}
         </button>
       {/each}
     </div>
@@ -87,13 +121,13 @@
           <small>Powered by trace.moe</small>
         </div>
         <div class="search-row">
-          <!-- svelte-ignore a11y_autofocus -->
-          <Input
+          <input
             class="drawer-input"
-            placeholder="粘贴图片URL..."
+            type="url"
+            placeholder="粘贴图片 URL..."
             bind:value={imageUrlInput}
             onkeydown={handleImageSearchKeydown}
-            autofocus
+            data-image-search
           />
           <Button variant="primary" press={handleImageSearch} disabled={animeStore.imageSearchLoading}>
             {animeStore.imageSearchLoading ? '搜索中...' : '搜索'}
@@ -151,13 +185,13 @@
     {:else}
       <!-- Normal Search -->
       <div class="search-row">
-        <!-- svelte-ignore a11y_autofocus -->
-        <Input
+        <input
           class="drawer-input"
+          type="search"
           placeholder="搜索番剧..."
           bind:value={searchInput}
           onkeydown={handleKeydown}
-          autofocus
+          data-anime-drawer-search
         />
         <Button variant="primary" press={handleSearch}>搜索</Button>
       </div>
@@ -189,22 +223,29 @@
       
       <!-- Results -->
       <div class="drawer-results">
-        {#if animeStore.loading}
-          <div class="drawer-loading"><div class="spinner"></div> 搜索中...</div>
-        {:else}
+        <AsyncState
+          state={animeStore.loading ? 'loading' : animeStore.error ? (animeStore.error.includes('未找到') ? 'no-results' : 'error') : 'ready'}
+          details={animeStore.error || undefined}
+          compact
+        >
           {#each animeStore.searchResults.filter(([source]) => activeSource === 'all' || activeSource === source) as [source, items] (source)}
-            <div class="result-group">
-              <h4 class="result-source">{source}</h4>
-              {#each items as item (item.url)}
-                <Button variant="quiet" fullWidth class="result-item" press={() => openResult(source, item)}>
-                  <Icon name="film" size={14} />
-                  <span>{item.name}</span>
-                  <Icon name="chevronRight" size={12} />
-                </Button>
-              {/each}
-            </div>
+            <section class="result-group" aria-labelledby={`drawer-source-${source}`}>
+              <h4 class="result-source" id={`drawer-source-${source}`}>{source}</h4>
+              <div class="drawer-result-list" role="list">
+                {#each items as item (item.url)}
+                  <MediaCard
+                    title={item.name}
+                    subtitle={source}
+                    variant="landscape"
+                    ariaLabel={`查看 ${item.name} 详情`}
+                    focusKey={`anime-drawer-${source}-${item.url}`}
+                    onActivate={() => openResult(source, item)}
+                  />
+                {/each}
+              </div>
+            </section>
           {/each}
-        {/if}
+        </AsyncState>
       </div>
       
       <!-- Bottom Actions -->
@@ -223,25 +264,14 @@
       </div>
     {/if}
   </div>
-{/if}
+</Drawer>
 
 <style>
-  .drawer-backdrop {
-    position: fixed; inset: 0; z-index: 100;
-    animation: fade-in 0.2s;
-  }
-  .drawer-panel {
-    position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
-    width: 90%; max-width: 600px; max-height: 70vh;
-    background: #1a1d27; border-radius: 16px 16px 0 0;
-    z-index: 101; display: flex; flex-direction: column;
-    animation: slide-up 0.25s ease;
-    box-shadow: 0 -4px 30px rgba(0,0,0,0.5);
-  }
-  .drawer-handle {
-    width: 36px; height: 4px; border-radius: 2px;
-    background: #374151; margin: 8px auto;
-  }
+  :global(.v2-drawer.anime-search-drawer) { width: min(56rem, calc(100vw - 1rem)); max-height: min(78vh, 52rem); }
+  :global(.v2-drawer.anime-search-drawer .v2-drawer__body) { padding: 0; }
+  .drawer-content { min-height: 0; display: flex; flex-direction: column; }
+  .drawer-result-list { display: grid; gap: .65rem; }
+
   .source-tabs {
     display: flex; gap: 6px; padding: 8px 16px;
     overflow-x: auto; scrollbar-width: none;
@@ -257,7 +287,7 @@
   .search-row {
     display: flex; gap: 8px; padding: 0 16px 8px;
   }
-  :global(.ui-input.drawer-input) {
+  .drawer-input {
     flex: 1;
   }
   .drawer-results {
@@ -415,4 +445,10 @@
   }
   .history-item:hover :global(.ui-button.history-delete) { opacity: 1; }
   :global(.ui-button.history-delete:hover) { color: #ef4444; background: rgba(239,68,68,0.1); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .drawer-content, .drawer-content * { animation: none !important; transition: none !important; }
+  }
+  :global([data-motion="reduce"]) .drawer-content,
+  :global([data-motion="reduce"]) .drawer-content * { animation: none !important; transition: none !important; }
 </style>
