@@ -440,6 +440,6 @@ mod tests {
         let result = resize_image(&png_bytes, 400, 300);
         assert!(result.is_ok(), "should resize valid png without error");
         let jpeg = result.unwrap();
-        assert!(jpeg.len() > 0, "should produce non-empty jpeg");
+        assert!(!jpeg.is_empty(), "should produce non-empty jpeg");
     }
 }

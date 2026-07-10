@@ -1,6 +1,8 @@
 // 诊断服务 + 国际化系统
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use sysinfo::System;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -260,49 +262,178 @@ impl I18n {
     }
 }
 
-/// 收集诊断数据并导出为 ZIP 文件。
+/// Remove credentials and user-specific roots before data crosses the diagnostic boundary.
+pub fn redact_diagnostic_text(input: &str) -> String {
+    static PATTERNS: OnceLock<Vec<(regex::Regex, &'static str)>> = OnceLock::new();
+    let patterns = PATTERNS.get_or_init(|| {
+        vec![
+            (
+                regex::Regex::new(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=\-]+").unwrap(),
+                "$1[REDACTED]",
+            ),
+            (
+                regex::Regex::new(r#"(?i)("?(?:api[_-]?key|token|password|secret|authorization|cookie|set-cookie)"?\s*[:=]\s*"?)[^",\s;&]+"#).unwrap(),
+                "$1[REDACTED]",
+            ),
+            (
+                regex::Regex::new(r"(?i)(https?://)[^/@\s:]+:[^/@\s]+@").unwrap(),
+                "$1[REDACTED]@",
+            ),
+        ]
+    });
+    let mut value = input.to_string();
+    for (pattern, replacement) in patterns {
+        value = pattern.replace_all(&value, *replacement).into_owned();
+    }
+    for (root, replacement) in [
+        (dirs::home_dir(), "%USERPROFILE%"),
+        (dirs::data_dir(), "%APPDATA%"),
+    ] {
+        if let Some(root) = root.and_then(|path| path.to_str().map(str::to_owned)) {
+            value = value.replace(&root, replacement);
+            value = value.replace(&root.replace('\\', "/"), replacement);
+        }
+    }
+    value
+}
+
+struct TemporaryDiagnosticsDir(PathBuf);
+
+impl TemporaryDiagnosticsDir {
+    fn create() -> Result<Self, String> {
+        let path = std::env::temp_dir().join(format!("moeplay-diag-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&path).map_err(|error| error.to_string())?;
+        Ok(Self(path))
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TemporaryDiagnosticsDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Collect a redacted diagnostic bundle. Each export uses an isolated temporary
+/// directory, so concurrent exports cannot mix files or leave shared temp state.
 pub fn export_diagnostics_zip(
-    output_path: &std::path::Path,
-    data_dir: &std::path::Path,
+    output_path: &Path,
+    data_dir: &Path,
     game_count: u32,
     db_size_bytes: u64,
 ) -> Result<String, String> {
     use std::io::Write;
 
-    let tmp = std::env::temp_dir().join("moegame_diag");
-    std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
-
+    let tmp = TemporaryDiagnosticsDir::create()?;
     let report = run_diagnostics(data_dir, game_count, db_size_bytes);
     let report_json = serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?;
-    std::fs::write(tmp.join("diagnostics.json"), &report_json).map_err(|e| e.to_string())?;
+    std::fs::write(
+        tmp.path().join("diagnostics.json"),
+        redact_diagnostic_text(&report_json),
+    )
+    .map_err(|e| e.to_string())?;
 
-    let logs = crate::logging::collect_recent_logs(200);
-    std::fs::write(tmp.join("recent.log"), logs.join("\n")).map_err(|e| e.to_string())?;
+    let logs = crate::logging::collect_recent_logs(200)
+        .into_iter()
+        .map(|line| redact_diagnostic_text(&line))
+        .collect::<Vec<_>>();
+    std::fs::write(tmp.path().join("recent.log"), logs.join("\n")).map_err(|e| e.to_string())?;
 
     let stats = serde_json::json!({
         "game_count": game_count,
         "db_size_mb": format!("{:.2}", db_size_bytes as f64 / 1_048_576.0),
     });
     std::fs::write(
-        tmp.join("stats.json"),
+        tmp.path().join("stats.json"),
         serde_json::to_string_pretty(&stats).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
 
-    let zip_file = std::fs::File::create(output_path).map_err(|e| e.to_string())?;
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let zip_file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(output_path)
+        .map_err(|e| e.to_string())?;
     let mut zip = zip::ZipWriter::new(zip_file);
     let options = zip::write::FileOptions::<()>::default()
         .compression_method(zip::CompressionMethod::Deflated);
 
     for entry in &["diagnostics.json", "recent.log", "stats.json"] {
-        let path = tmp.join(entry);
-        if path.exists() {
-            zip.start_file(*entry, options).map_err(|e| e.to_string())?;
-            let data = std::fs::read(&path).map_err(|e| e.to_string())?;
-            zip.write_all(&data).map_err(|e| e.to_string())?;
-        }
+        let path = tmp.path().join(entry);
+        zip.start_file(*entry, options).map_err(|e| e.to_string())?;
+        let data = std::fs::read(&path).map_err(|e| e.to_string())?;
+        zip.write_all(&data).map_err(|e| e.to_string())?;
     }
     zip.finish().map_err(|e| e.to_string())?;
-    std::fs::remove_dir_all(&tmp).ok();
     Ok(output_path.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod diagnostic_export_tests {
+    use super::*;
+
+    #[test]
+    fn redaction_hides_credentials_urls_and_user_roots() {
+        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("C:/Users/example"));
+        let input = format!(
+            "Authorization: Bearer abc.def token=token-value apiKey=key-value password=hunter2 https://user:pass@example.com {}",
+            home.display()
+        );
+        let redacted = redact_diagnostic_text(&input);
+        for secret in [
+            "abc.def",
+            "token-value",
+            "key-value",
+            "hunter2",
+            "user:pass",
+        ] {
+            assert!(!redacted.contains(secret));
+        }
+        assert!(redacted.contains("[REDACTED]"));
+        if dirs::home_dir().is_some() {
+            assert!(!redacted.contains(&home.to_string_lossy().to_string()));
+            assert!(redacted.contains("%USERPROFILE%"));
+        }
+    }
+
+    fn temporary_export_dirs() -> std::collections::BTreeSet<PathBuf> {
+        std::fs::read_dir(std::env::temp_dir())
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with("moeplay-diag-"))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn concurrent_exports_use_distinct_outputs_and_cleanup_temporary_files() {
+        let root = std::env::temp_dir().join(format!("moeplay-diag-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let before = temporary_export_dirs();
+        let first = root.join("first.zip");
+        let second = root.join("second.zip");
+        let one_root = root.clone();
+        let two_root = root.clone();
+        let one_path = first.clone();
+        let two_path = second.clone();
+        let one = std::thread::spawn(move || export_diagnostics_zip(&one_path, &one_root, 1, 64));
+        let two = std::thread::spawn(move || export_diagnostics_zip(&two_path, &two_root, 1, 64));
+        one.join().unwrap().unwrap();
+        two.join().unwrap().unwrap();
+        assert!(first.exists());
+        assert!(second.exists());
+        assert_eq!(temporary_export_dirs(), before);
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

@@ -29,8 +29,9 @@ pub fn export_diagnostics_zip(db: State<'_, Database>) -> Result<String, String>
     let export_path = dirs::document_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(format!(
-            "moeplay_diagnostics_{}.zip",
-            chrono::Utc::now().format("%Y%m%d_%H%M%S")
+            "moeplay_diagnostics_{}_{}.zip",
+            chrono::Utc::now().format("%Y%m%d_%H%M%S%3f"),
+            uuid::Uuid::new_v4()
         ));
 
     diagnostics::export_diagnostics_zip(&export_path, &data_dir, count, db_size)

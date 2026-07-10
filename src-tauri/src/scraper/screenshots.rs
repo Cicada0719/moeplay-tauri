@@ -100,7 +100,7 @@ async fn download_single(
 
     let resp = match client
         .get(url)
-        .header("User-Agent", "MoeGame/0.1")
+        .header("User-Agent", crate::http_client::app_user_agent())
         .send()
         .await
     {

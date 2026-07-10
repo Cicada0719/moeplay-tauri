@@ -74,7 +74,7 @@ pub async fn search(query: &str) -> Result<Vec<ScrapeResult>, ScrapeError> {
 
     let resp = client
         .get(&url)
-        .header("User-Agent", "MoeGame/1.0")
+        .header("User-Agent", crate::http_client::app_user_agent())
         .send()
         .await
         .map_err(|e| ScrapeError::Network(e.to_string()))?;
@@ -146,7 +146,7 @@ pub async fn detail(subject_id: &str) -> Result<ScrapeResult, String> {
 
     let resp = client
         .get(&url)
-        .header("User-Agent", "MoeGame/1.0")
+        .header("User-Agent", crate::http_client::app_user_agent())
         .send()
         .await
         .map_err(|e| format!("Bangumi detail request failed: {}", e))?;

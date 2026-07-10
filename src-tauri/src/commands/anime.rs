@@ -1,6 +1,7 @@
 //! Tauri commands for the anime rule engine
 
 use crate::anime::{self, AnimeRule, AnimeState};
+use crate::secret_store::{SecretKind, SecretStore};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -605,25 +606,116 @@ pub async fn anime_bangumi_episodes_list(
 
 // ── Bangumi 收藏同步 ─────────────────────────────────────────────────────
 
+const BANGUMI_TOKEN_NOT_CONFIGURED: &str = "Bangumi Access Token 未配置";
+const BANGUMI_SECRET_OPERATION_FAILED: &str = "Bangumi 凭据存储操作失败";
+const BANGUMI_TOKEN_REDACTED: &str = "[redacted]";
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BangumiConnectionStatus {
+    pub username: String,
+    pub configured: bool,
+}
+
+fn read_bangumi_token(store: &SecretStore) -> Result<String, String> {
+    let token = store
+        .get(SecretKind::BangumiToken, None)
+        .map_err(|_| BANGUMI_SECRET_OPERATION_FAILED.to_string())?
+        .ok_or_else(|| BANGUMI_TOKEN_NOT_CONFIGURED.to_string())?;
+
+    if token.trim().is_empty() {
+        return Err(BANGUMI_TOKEN_NOT_CONFIGURED.to_string());
+    }
+
+    Ok(token)
+}
+
+fn redact_bangumi_error(error: String, token: &str) -> String {
+    if token.is_empty() {
+        error
+    } else {
+        error.replace(token, BANGUMI_TOKEN_REDACTED)
+    }
+}
+
+async fn read_bangumi_token_async(store: &SecretStore) -> Result<String, String> {
+    let store = store.clone();
+    tauri::async_runtime::spawn_blocking(move || read_bangumi_token(&store))
+        .await
+        .map_err(|_| BANGUMI_SECRET_OPERATION_FAILED.to_string())?
+}
+
+async fn store_bangumi_token(store: &SecretStore, token: String) -> Result<(), String> {
+    let store = store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        store
+            .set(SecretKind::BangumiToken, None, &token)
+            .map(|_| ())
+            .map_err(|_| BANGUMI_SECRET_OPERATION_FAILED.to_string())
+    })
+    .await
+    .map_err(|_| BANGUMI_SECRET_OPERATION_FAILED.to_string())?
+}
+
+/// Validate and persist a newly supplied token, or restore the configured account
+/// when `token` is `None`. The secret itself never crosses back to the frontend.
 #[tauri::command]
-pub async fn anime_bangumi_get_username(token: String) -> Result<String, String> {
-    anime::bangumi_get_username(&token).await
+pub async fn anime_bangumi_get_username(
+    store: State<'_, SecretStore>,
+    token: Option<String>,
+) -> Result<BangumiConnectionStatus, String> {
+    let supplied_token = token.is_some();
+    let token = match token {
+        Some(token) => {
+            let token = token.trim().to_string();
+            if token.is_empty() {
+                return Err("Bangumi Access Token 不能为空".to_string());
+            }
+            token
+        }
+        None => match read_bangumi_token_async(store.inner()).await {
+            Ok(token) => token,
+            Err(error) if error == BANGUMI_TOKEN_NOT_CONFIGURED => {
+                return Ok(BangumiConnectionStatus {
+                    username: String::new(),
+                    configured: false,
+                });
+            }
+            Err(error) => return Err(error),
+        },
+    };
+
+    // Persist only after Bangumi has accepted the credential and returned a username.
+    let username = anime::bangumi_get_username(&token)
+        .await
+        .map_err(|error| redact_bangumi_error(error, &token))?;
+    if supplied_token {
+        store_bangumi_token(store.inner(), token).await?;
+    }
+
+    Ok(BangumiConnectionStatus {
+        username,
+        configured: true,
+    })
 }
 
 #[tauri::command]
 pub async fn anime_bangumi_get_user_collection(
-    token: String,
+    store: State<'_, SecretStore>,
     collection_type: Option<u8>,
     username: Option<String>,
     offset: Option<u32>,
     limit: Option<u32>,
 ) -> Result<(Vec<anime::BangumiCollectionEntry>, i64), String> {
-    // If no username, resolve it from the token first
+    let token = read_bangumi_token_async(store.inner()).await?;
+    // If no username, resolve it from the securely stored token first.
     let resolved_username = match username {
         Some(u) if !u.is_empty() => u,
-        _ => anime::bangumi_get_username(&token).await?,
+        _ => anime::bangumi_get_username(&token)
+            .await
+            .map_err(|error| redact_bangumi_error(error, &token))?,
     };
-    // If collection_type == 0 or None, fetch all types (paginated by frontend)
+    // If collection_type == 0 or None, fetch all types (paginated by frontend).
     let ct = collection_type.unwrap_or(3); // default: 在看
     anime::bangumi_get_collection(
         &resolved_username,
@@ -633,24 +725,29 @@ pub async fn anime_bangumi_get_user_collection(
         limit.unwrap_or(30),
     )
     .await
+    .map_err(|error| redact_bangumi_error(error, &token))
 }
 
 #[tauri::command]
 pub async fn anime_bangumi_get_all_collections(
-    token: String,
+    store: State<'_, SecretStore>,
     username: Option<String>,
 ) -> Result<Vec<anime::BangumiCollectionEntry>, String> {
+    let token = read_bangumi_token_async(store.inner()).await?;
     let resolved_username = match username {
         Some(u) if !u.is_empty() => u,
-        _ => anime::bangumi_get_username(&token).await?,
+        _ => anime::bangumi_get_username(&token)
+            .await
+            .map_err(|error| redact_bangumi_error(error, &token))?,
     };
     let mut all = Vec::new();
     // Fetch all 5 collection types (1=想看,2=看过,3=在看,4=搁置,5=抛弃)
     for bangumi_type in 1u8..=5 {
         match anime::bangumi_get_all_collections(&resolved_username, bangumi_type, &token).await {
             Ok(entries) => all.extend(entries),
-            Err(e) => {
-                tracing::warn!("获取收藏类型 {} 失败: {}", bangumi_type, e);
+            Err(error) => {
+                let error = redact_bangumi_error(error, &token);
+                tracing::warn!("获取收藏类型 {} 失败: {}", bangumi_type, error);
             }
         }
     }
@@ -659,11 +756,14 @@ pub async fn anime_bangumi_get_all_collections(
 
 #[tauri::command]
 pub async fn anime_bangumi_update_collection(
-    token: String,
+    store: State<'_, SecretStore>,
     subject_id: i64,
     collection_type: u8,
 ) -> Result<bool, String> {
-    anime::bangumi_update_collection(subject_id, collection_type, &token).await
+    let token = read_bangumi_token_async(store.inner()).await?;
+    anime::bangumi_update_collection(subject_id, collection_type, &token)
+        .await
+        .map_err(|error| redact_bangumi_error(error, &token))
 }
 
 // ── 视频代理 ────────────────────────────────────────────────────────────
@@ -853,4 +953,108 @@ pub async fn anime_open_download_folder(
     download_id: String,
 ) -> Result<(), String> {
     dl.open_download_folder(&download_id).await
+}
+
+#[cfg(test)]
+mod bangumi_secret_tests {
+    use super::*;
+    use crate::secret_store::{BackendError, SecretBackend};
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct MemoryBackend {
+        value: Mutex<Option<String>>,
+        fail_get: Mutex<bool>,
+    }
+
+    impl SecretBackend for MemoryBackend {
+        fn set(&self, _service: &str, _account: &str, secret: &str) -> Result<(), BackendError> {
+            *self.value.lock().expect("value lock") = Some(secret.to_owned());
+            Ok(())
+        }
+
+        fn get(&self, _service: &str, _account: &str) -> Result<String, BackendError> {
+            if *self.fail_get.lock().expect("fail_get lock") {
+                return Err(BackendError::Failed);
+            }
+            self.value
+                .lock()
+                .expect("value lock")
+                .clone()
+                .ok_or(BackendError::Missing)
+        }
+
+        fn delete(&self, _service: &str, _account: &str) -> Result<(), BackendError> {
+            self.value
+                .lock()
+                .expect("value lock")
+                .take()
+                .map(|_| ())
+                .ok_or(BackendError::Missing)
+        }
+    }
+
+    fn memory_store() -> (SecretStore, Arc<MemoryBackend>) {
+        let backend = Arc::new(MemoryBackend::default());
+        let store = SecretStore::with_backend(backend.clone());
+        (store, backend)
+    }
+
+    #[test]
+    fn bangumi_sync_without_a_configured_token_returns_safe_error() {
+        let (store, _) = memory_store();
+        let error = read_bangumi_token(&store).expect_err("missing token must fail");
+
+        assert_eq!(error, BANGUMI_TOKEN_NOT_CONFIGURED);
+        assert!(!error.contains("Bearer"));
+    }
+
+    #[test]
+    fn credential_store_errors_do_not_include_the_secret_value() {
+        let (store, backend) = memory_store();
+        let secret = "super-sensitive-bangumi-value";
+        store
+            .set(SecretKind::BangumiToken, None, secret)
+            .expect("store secret");
+        *backend.fail_get.lock().expect("fail_get lock") = true;
+
+        let error = read_bangumi_token(&store).expect_err("forced backend failure");
+        assert!(!error.contains(secret));
+    }
+
+    #[test]
+    fn empty_stored_token_is_treated_as_not_configured() {
+        let (store, backend) = memory_store();
+        *backend.value.lock().expect("value lock") = Some("  	".to_string());
+
+        let error = read_bangumi_token(&store).expect_err("blank token must fail");
+        assert_eq!(error, BANGUMI_TOKEN_NOT_CONFIGURED);
+    }
+
+    #[test]
+    fn bangumi_api_errors_redact_the_token_before_crossing_the_command_boundary() {
+        let token = "super-sensitive-bangumi-value";
+        let error = redact_bangumi_error(
+            format!("request failed with Bearer {token}: {token}"),
+            token,
+        );
+
+        assert_eq!(error, "request failed with Bearer [redacted]: [redacted]");
+        assert!(!error.contains(token));
+    }
+
+    #[test]
+    fn connection_status_serialization_contains_only_username_and_configured() {
+        let status = BangumiConnectionStatus {
+            username: "alice".to_string(),
+            configured: true,
+        };
+
+        let json = serde_json::to_value(status).expect("serialize status");
+        assert_eq!(
+            json,
+            serde_json::json!({ "username": "alice", "configured": true })
+        );
+        assert!(json.get("token").is_none());
+    }
 }

@@ -1,6 +1,7 @@
 // 萌游 MoeGame - 库入口
 #![allow(clippy::field_reassign_with_default, clippy::too_many_arguments)]
 
+pub mod ai;
 pub mod anime;
 pub mod archive;
 pub mod auto_scrape;

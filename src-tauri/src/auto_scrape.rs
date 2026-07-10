@@ -273,45 +273,26 @@ fn remove_bracket_content(s: &str, keyword: &str) -> String {
 // 步骤 3: GameLibraryDeduplicator — 去重
 // ============================================================================
 
-/// 检查候选是否与已有库重复
-pub fn is_duplicate(name: &str, exe_path: &str, existing: &[Game]) -> bool {
-    let name_lower = name.to_lowercase();
-    let exe_lower = exe_path.to_lowercase();
-    let name_normalized = normalize_game_name(&name_lower);
-
-    existing.iter().any(|g| {
-        let g_name = g.name.to_lowercase();
-        let g_exe = g.exe_path.to_lowercase();
-
-        // 精确匹配 exe 路径
-        if g_exe == exe_lower {
-            return true;
-        }
-
-        // 精确匹配名称
-        if g_name == name_lower {
-            return true;
-        }
-
-        // 归一化匹配（去除括号、空格等）
-        let g_normalized = normalize_game_name(&g_name);
-        if g_normalized == name_normalized {
-            return true;
-        }
-
-        // 模糊匹配 >85%
-        if let Some(dist) = levenshtein_distance(&g_normalized, &name_normalized) {
-            let max_len = g_normalized.len().max(name_normalized.len()).max(1);
-            let similarity = 1.0 - dist as f64 / max_len as f64;
-            if similarity > 0.85 {
-                return true;
-            }
-        }
-
-        false
-    })
+/// 检查候选是否与已有库重复。
+///
+/// 名称（包括归一化/模糊名称）仅用于召回，绝不能自动判重或合并。
+/// 这里没有平台 ID 输入，因此只接受规范化启动路径这一强身份。
+pub fn is_duplicate(_name: &str, exe_path: &str, existing: &[Game]) -> bool {
+    let exe_normalized = normalize_identity_path(exe_path);
+    !exe_normalized.is_empty()
+        && existing
+            .iter()
+            .any(|game| normalize_identity_path(&game.exe_path) == exe_normalized)
 }
 
+fn normalize_identity_path(path: &str) -> String {
+    path.trim()
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_lowercase()
+}
+
+#[cfg(test)]
 fn normalize_game_name(s: &str) -> String {
     s.chars()
         .filter(|c| c.is_alphanumeric() || c.is_whitespace())
@@ -322,6 +303,7 @@ fn normalize_game_name(s: &str) -> String {
         .to_lowercase()
 }
 
+#[cfg(test)]
 fn levenshtein_distance(a: &str, b: &str) -> Option<usize> {
     let a_chars: Vec<char> = a.chars().collect();
     let b_chars: Vec<char> = b.chars().collect();
@@ -523,7 +505,7 @@ mod tests {
             "c:/games/clannad/clannad.exe",
             &existing
         ));
-        assert!(is_duplicate("Clannad", "c:/other/game.exe", &existing));
+        assert!(!is_duplicate("Clannad", "c:/other/game.exe", &existing));
         assert!(!is_duplicate("Steins Gate", "c:/sg/sg.exe", &existing));
     }
 }
