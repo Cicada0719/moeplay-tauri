@@ -1,53 +1,68 @@
 <script lang="ts">
   import Icon from "../Icon.svelte";
   import { Tag } from "../ui";
-  import { DOCK_ITEMS } from "../../nav";
 
-  type DockItem = { id: string; label: string; icon: string; view: string };
+  type DockItem = {
+    id: string;
+    label: string;
+    ariaLabel?: string;
+    icon: string;
+    view: string;
+    shortcut?: string;
+    surface?: "content" | "utility" | "mode";
+  };
 
-  let { items, current, toolsOpen = false, onpick, windowFullscreen = false, ontogglefullscreen }: {
+  let {
+    items,
+    current,
+    toolsOpen = false,
+    toolsControlsId = "tools-drawer",
+    onpick,
+    windowFullscreen = false,
+    ontogglefullscreen,
+  }: {
     items: DockItem[];
     current: string;
     toolsOpen?: boolean;
+    toolsControlsId?: string;
     onpick: (view: string) => void;
     windowFullscreen?: boolean;
     ontogglefullscreen?: () => void;
   } = $props();
 
-  const contentItems = $derived(items.filter(i => ["home", "records", "continue", "anime", "comic"].includes(i.id)));
-  const utilItems = $derived(items.filter(i => ["tools", "settings"].includes(i.id)));
-  const modeItems = $derived(items.filter(i => i.id === "bigpic"));
+  const contentItems = $derived(items.filter(item => item.surface === "content"));
+  const utilityItems = $derived(items.filter(item => item.surface === "utility"));
+  const modeItems = $derived(items.filter(item => item.surface === "mode"));
 
-  const shortcutNumbers = $derived(() => {
-    const map = new Map<string, number>();
-    for (let i = 0; i < Math.min(5, DOCK_ITEMS.length); i++) {
-      map.set(DOCK_ITEMS[i].id, i + 1);
-    }
-    return map;
-  });
+  function isActive(item: DockItem): boolean {
+    if (item.id === "tools") return toolsOpen || current === "__tools";
+    return current === item.view;
+  }
 
-  function isActive(it: DockItem): boolean {
-    if (it.id === "tools") return toolsOpen || current === "__tools";
-    return current === it.view;
+  function accessibleLabel(item: DockItem): string {
+    return item.ariaLabel ?? item.label;
   }
 </script>
 
-<nav class="dock" aria-label="系统功能">
-  <div class="dock-group">
-    {#each contentItems as it (it.id)}
+<nav class="dock" aria-label="主导航" data-testid="system-dock">
+  <div class="dock-group" aria-label="内容入口">
+    {#each contentItems as item (item.id)}
       <button
+        id="system-dock-{item.id}"
         type="button"
-        class="dock-btn {isActive(it) ? 'active' : ''}"
-        onclick={() => onpick(it.view)}
-        title={it.label}
+        class="dock-btn {isActive(item) ? 'active' : ''}"
+        onclick={() => onpick(item.view)}
+        title={item.label}
+        aria-label={accessibleLabel(item)}
+        aria-current={isActive(item) ? "page" : undefined}
       >
         <span class="dock-btn-content">
-          <span class="ic"><Icon name={it.icon} size={20} /></span>
-          <small>{it.label}</small>
-          {#if shortcutNumbers().has(it.id)}
-            <Tag variant="muted" size="sm" class="shortcut-hint">{shortcutNumbers().get(it.id)}</Tag>
+          <span class="ic"><Icon name={item.icon} size={20} /></span>
+          <small>{item.label}</small>
+          {#if item.shortcut}
+            <Tag variant="muted" size="sm" class="shortcut-hint">{item.shortcut}</Tag>
           {/if}
-          <span class="indicator" class:visible={isActive(it)}></span>
+          <span class="indicator" class:visible={isActive(item)} aria-hidden="true"></span>
         </span>
       </button>
     {/each}
@@ -55,21 +70,26 @@
 
   <div class="dock-sep" aria-hidden="true"></div>
 
-  <div class="dock-group">
-    {#each utilItems as it (it.id)}
+  <div class="dock-group" aria-label="工具与设置">
+    {#each utilityItems as item (item.id)}
       <button
+        id="system-dock-{item.id}"
         type="button"
-        class="dock-btn {isActive(it) ? 'active' : ''}"
-        onclick={() => onpick(it.view)}
-        title={it.label}
+        class="dock-btn {isActive(item) ? 'active' : ''}"
+        onclick={() => onpick(item.view)}
+        title={item.label}
+        aria-label={accessibleLabel(item)}
+        aria-current={item.id !== "tools" && isActive(item) ? "page" : undefined}
+        aria-expanded={item.id === "tools" ? toolsOpen : undefined}
+        aria-controls={item.id === "tools" ? toolsControlsId : undefined}
       >
         <span class="dock-btn-content">
-          <span class="ic"><Icon name={it.icon} size={20} /></span>
-          <small>{it.label}</small>
-          {#if shortcutNumbers().has(it.id)}
-            <Tag variant="muted" size="sm" class="shortcut-hint">{shortcutNumbers().get(it.id)}</Tag>
+          <span class="ic"><Icon name={item.icon} size={20} /></span>
+          <small>{item.label}</small>
+          {#if item.shortcut}
+            <Tag variant="muted" size="sm" class="shortcut-hint">{item.shortcut}</Tag>
           {/if}
-          <span class="indicator" class:visible={isActive(it)}></span>
+          <span class="indicator" class:visible={isActive(item)} aria-hidden="true"></span>
         </span>
       </button>
     {/each}
@@ -77,30 +97,34 @@
 
   <div class="dock-sep" aria-hidden="true"></div>
 
-  <div class="dock-group">
+  <div class="dock-group" aria-label="显示模式">
     {#if ontogglefullscreen}
       <button
+        id="system-dock-fullscreen"
         type="button"
         class="dock-btn dock-mode"
         onclick={ontogglefullscreen}
-        title={windowFullscreen ? '切换到窗口模式' : '切换到全屏模式'}
+        title={windowFullscreen ? "切换到窗口模式" : "切换到全屏模式"}
+        aria-label={windowFullscreen ? "切换到窗口模式" : "切换到全屏模式"}
       >
         <span class="dock-btn-content">
-          <span class="ic"><Icon name={windowFullscreen ? 'shrink' : 'maximize'} size={18} /></span>
-          <small>{windowFullscreen ? '窗口' : '全屏'}</small>
+          <span class="ic"><Icon name={windowFullscreen ? "shrink" : "maximize"} size={18} /></span>
+          <small>{windowFullscreen ? "窗口" : "全屏"}</small>
         </span>
       </button>
     {/if}
-    {#each modeItems as it (it.id)}
+    {#each modeItems as item (item.id)}
       <button
+        id="system-dock-{item.id}"
         type="button"
         class="dock-btn dock-mode"
-        onclick={() => onpick(it.view)}
-        title={it.label}
+        onclick={() => onpick(item.view)}
+        title={item.label}
+        aria-label={accessibleLabel(item)}
       >
         <span class="dock-btn-content">
-          <span class="ic"><Icon name={it.icon} size={18} /></span>
-          <small>{it.label}</small>
+          <span class="ic"><Icon name={item.icon} size={18} /></span>
+          <small>{item.label}</small>
         </span>
       </button>
     {/each}
@@ -130,7 +154,8 @@
   }
 
   .dock-btn {
-    min-width: 0;
+    min-width: 52px;
+    min-height: 52px;
     border: 1px solid transparent;
     border-radius: var(--radius-md);
     background: transparent;
@@ -149,7 +174,7 @@
     transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease, transform 0.12s ease;
   }
   .dock-btn:focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 3px solid var(--accent);
     outline-offset: 2px;
   }
   .dock-btn-content {
@@ -221,7 +246,6 @@
     color: #fff;
   }
 
-  /* ── Big picture mode button ── */
   .dock-mode {
     color: var(--accent);
     opacity: 0.65;
@@ -245,8 +269,20 @@
     .dock { padding: 6px 10px 8px; gap: 2px; }
     .dock-group { gap: 0; }
     .dock-sep { margin: 0 4px 12px; }
-    .dock-btn { padding: 5px 8px 6px; }
+    .dock-btn { min-width: 48px; min-height: 48px; padding: 5px 8px 6px; }
     .dock-btn .ic { width: 32px; height: 32px; }
     .dock-btn small { font-size: 9px; }
+  }
+
+  @media (max-width: 620px) {
+    .dock { overflow-x: auto; justify-content: flex-start; scrollbar-width: none; }
+    .dock::-webkit-scrollbar { display: none; }
+    .dock-btn small { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dock-btn,
+    .dock-btn .ic,
+    .indicator { transition-duration: 0.01ms; }
   }
 </style>

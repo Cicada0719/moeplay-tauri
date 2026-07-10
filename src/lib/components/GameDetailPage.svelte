@@ -3,6 +3,7 @@
   import { gsap } from "gsap";
   import { gameStore } from "../stores/games.svelte";
   import { uiStore } from "../stores/ui.svelte";
+  import { handleBackNavigation } from "../stores/router.svelte";
   import {
     createSaveSnapshot,
     detectSaveCandidates,
@@ -15,7 +16,8 @@
   } from "../api";
   import type { Game } from "../stores/games.svelte";
   import { fileSrc } from "../utils";
-  import { Button, Card, Dialog, EmptyState, Input, Tag } from "./ui";
+  import { Button, Card, Dialog, Input, Tag } from "./ui";
+  import { AsyncState, DetailPanel } from "./ui-v2";
   import RatingRing from "./RatingRing.svelte";
   import Icon from "./Icon.svelte";
   import CachedImage from "./CachedImage.svelte";
@@ -120,6 +122,10 @@
     }
   }
 
+  function closeDetail() {
+    handleBackNavigation();
+  }
+
   function handleBackup() {
     uiStore.currentView = "backup";
   }
@@ -201,193 +207,151 @@
   }
 </script>
 
-{#if game}
-  <section class="detail-page" data-testid="game-detail-page">
-    <!-- Hero -->
-    <div class="hero">
-      {#if currentArt}
-        <div class="bg-layer" style={`background-image: url("${currentArt}")`}></div>
-      {/if}
-      <div class="hero-scrim"></div>
+<DetailPanel
+  open
+  title={game?.name ?? "游戏未找到"}
+  description={game ? [developer, releaseYear !== "----" ? releaseYear : "", platform].filter(Boolean).join(" · ") : "该游戏可能已被移除或数据加载失败"}
+  onClose={closeDetail}
+  side="right"
+  size="lg"
+  initialFocus=".game-detail-primary"
+  returnFocus={false}
+  class="game-detail-panel"
+>
+  {#if game}
+    <section class="detail-page" data-testid="game-detail-page" data-game-id={game.id}>
+      <div class="hero">
+        {#if currentArt}<div class="bg-layer" style={`background-image: url("${currentArt}")`}></div>{/if}
+        <div class="hero-scrim"></div>
 
-      <Button variant="quiet" class="back-btn" press={() => uiStore.currentView = "home"} ariaLabel="返回游戏库">
-        <Icon name="arrowLeft" size={16} />
-      </Button>
-
-      <div class="hero-floor">
-        <div class="poster">
-          <div class="poster-frame">
-            {#if coverSource}
-              <CachedImage source={coverSource} cacheKey={`detail-cover-${game.id}`} alt={`${game.name} 封面`} loading="eager" />
-            {:else}
-              <span class="poster-letter">{game.name?.trim()?.[0]?.toUpperCase() ?? "?"}</span>
-            {/if}
+        <div class="hero-floor">
+          <div class="poster">
+            <div class="poster-frame">
+              {#if coverSource}
+                <CachedImage source={coverSource} cacheKey={`detail-cover-${game.id}`} alt={`${game.name} 封面`} loading="eager" />
+              {:else}
+                <span class="poster-letter">{game.name?.trim()?.[0]?.toUpperCase() ?? "?"}</span>
+              {/if}
+            </div>
           </div>
+
+          <div class="hero-info">
+            {#if originalName}<p class="orig-name">{originalName}</p>{/if}
+            <p class="hero-title">{game.name}</p>
+            <div class="byline">
+              {#if developer && developer !== "未知社团"}<span>{developer}</span>{/if}
+              {#if publisher && publisher !== developer}<span class="sep-dot"></span><span>{publisher}</span>{/if}
+            </div>
+
+            <div class="meta-row">
+              <span class="chip"><b>{releaseYear}</b></span>
+              <span class="chip"><b>{playTime}</b></span>
+              <span class="chip"><b>{platform}</b></span>
+            </div>
+
+            <div class="tags">
+              {#each detailTags.slice(0, 6) as tag, index}<Tag active={index === 0}>{tag}</Tag>{/each}
+            </div>
+
+            <div class="actions">
+              <Button class="game-detail-primary" press={handleLaunch}>启动游戏</Button>
+              <Button variant="secondary" press={handleLaunchJP}>日区启动</Button>
+              <Button variant="secondary" press={handleScrape}>刮削</Button>
+              <Button variant="ghost" press={openEdit}>编辑</Button>
+            </div>
+          </div>
+
+          {#if rating > 0}<div class="hero-rating"><RatingRing value={rating} max={10} size={68} /></div>{/if}
         </div>
+      </div>
 
-        <div class="hero-info">
-          {#if originalName}<p class="orig-name">{originalName}</p>{/if}
-          <h1>{game.name}</h1>
-          <div class="byline">
-            {#if developer && developer !== '未知社团'}
-              <span>{developer}</span>
-            {/if}
-            {#if publisher && publisher !== developer}
-              <span class="sep-dot"></span>
-              <span>{publisher}</span>
-            {/if}
-          </div>
+      <div class="body">
+        <p class="desc">{game.description || "暂无简介。可使用刮削补全剧情简介、标签与截图。"}</p>
 
-          <div class="meta-row">
-            <span class="chip"><b>{releaseYear}</b></span>
-            <span class="chip"><b>{playTime}</b></span>
-            <span class="chip"><b>{platform}</b></span>
-          </div>
-
-          <div class="tags">
-            {#if detailTags.length}
-              {#each detailTags.slice(0, 6) as tag, index}
-                <Tag active={index === 0}>{tag}</Tag>
+        {#if screenshots.length}
+          <section class="gallery" bind:this={galleryEl} aria-label="截图画廊">
+            <div class="gallery-track">
+              {#each screenshots.slice(0, 8) as shot, index}
+                <figure class="shot"><img src={shot} alt={`${game.name} 截图 ${index + 1}`} loading="lazy" /></figure>
               {/each}
-            {/if}
-          </div>
-
-          <div class="actions">
-            <Button press={handleLaunch}>启动游戏</Button>
-            <Button variant="secondary" press={handleLaunchJP}>日区启动</Button>
-            <Button variant="secondary" press={handleScrape}>刮削</Button>
-            <Button variant="ghost" press={openEdit}>编辑</Button>
-          </div>
-        </div>
-
-        {#if rating > 0}
-          <div class="hero-rating">
-            <RatingRing value={rating} max={10} size={68} />
-          </div>
+            </div>
+          </section>
         {/if}
-      </div>
-    </div>
 
-    <!-- Body -->
-    <div class="body">
-      <p class="desc">{game.description || "暂无简介。可使用刮削补全剧情简介、标签与截图。"}</p>
+        <section class="panels" aria-label="存档与成就">
+          <SavePanel gameId={game.id} saveDir={saveDirOf(game)} compact />
 
-      {#if screenshots.length}
-        <section class="gallery" bind:this={galleryEl} aria-label="截图画廊">
-          <div class="gallery-track">
-            {#each screenshots.slice(0, 8) as shot, index}
-              <figure class="shot">
-                <img src={shot} alt={`${game.name} 截图 ${index + 1}`} loading="lazy" />
-              </figure>
-            {/each}
-          </div>
+          <Card class="panel" padding="none">
+            <div class="panel-head"><span class="panel-label">Achievements</span><h3>成就</h3></div>
+            <div class="panel-body">
+              <div class="achieve-row"><div class="achieve-nums"><b>{achievementTotal ? `${achievementPercent}%` : "--"}</b><span>{achievementUnlocked} / {achievementTotal}</span></div></div>
+              <div class="achieve-bar" aria-label={`成就进度 ${achievementPercent}%`}><i style={`width:${achievementPercent}%`}></i></div>
+              <p class="panel-note">{achievementTotal ? "来自平台同步的成就数据。" : "暂无成就数据，Steam 同步后自动填充。"}</p>
+            </div>
+          </Card>
+
+          <Card class="panel" padding="none">
+            <div class="panel-head"><span class="panel-label">Recent Play</span><h3>最近会话</h3></div>
+            <div class="panel-body">
+              {#if recentSessions.length}
+                <div class="session-list">
+                  {#each recentSessions as session}
+                    <div class="session-row">
+                      <span class="session-date">{sessionDate(session.start_time)}</span>
+                      <b class="session-dur">{formatPlayTime(session.duration_seconds)}</b>
+                      <small>{session.notes || (session.end_time ? "已结束" : "进行中")}</small>
+                    </div>
+                  {/each}
+                </div>
+              {:else}<p class="panel-note">还没有游玩记录。</p>{/if}
+            </div>
+          </Card>
         </section>
-      {/if}
 
-      <section class="panels" aria-label="存档与成就">
-        <SavePanel gameId={game.id} saveDir={saveDirOf(game)} compact />
-
-
-        <Card class="panel" padding="none">
-          <div class="panel-head">
-            <span class="panel-label">Achievements</span>
-            <h3>成就</h3>
-          </div>
-          <div class="panel-body">
-            <div class="achieve-row">
-              <div class="achieve-nums">
-                <b>{achievementTotal ? `${achievementPercent}%` : "--"}</b>
-                <span>{achievementUnlocked} / {achievementTotal}</span>
-              </div>
-            </div>
-            <div class="achieve-bar" aria-label="成就进度">
-              <i style={`width:${achievementPercent}%`}></i>
-            </div>
-            <p class="panel-note">
-              {achievementTotal ? "来自平台同步的成就数据。" : "暂无成就数据，Steam 同步后自动填充。"}
-            </p>
-          </div>
-        </Card>
-
-        <Card class="panel" padding="none">
-          <div class="panel-head">
-            <span class="panel-label">Recent Play</span>
-            <h3>最近会话</h3>
-          </div>
-          <div class="panel-body">
-            {#if recentSessions.length}
-              <div class="session-list">
-                {#each recentSessions as session}
-                  <div class="session-row">
-                    <span class="session-date">{sessionDate(session.start_time)}</span>
-                    <b class="session-dur">{formatPlayTime(session.duration_seconds)}</b>
-                    <small>{session.notes || (session.end_time ? "已结束" : "进行中")}</small>
-                  </div>
-                {/each}
-              </div>
-            {:else}
-              <p class="panel-note">还没有游玩记录。</p>
-            {/if}
-          </div>
-        </Card>
-      </section>
-
-      <GameNotes gameId={game.id} />
-    </div>
-
-    <Dialog open={isEditing} onClose={() => isEditing = false} title="编辑：{game.name}">
-      <div class="edit-panel">
-        <header class="edit-header">
-          <h3>编辑：{game.name}</h3>
-          <button class="edit-close" onclick={() => isEditing = false} aria-label="关闭">
-            <Icon name="x" size={18} />
-          </button>
-        </header>
-        <div class="edit-body">
-          <div class="edit-field">
-            <label for="edit-name">游戏名称</label>
-            <Input id="edit-name" bind:value={editName} />
-          </div>
-          <div class="edit-field">
-            <label for="edit-exe">可执行文件路径</label>
-            <Input id="edit-exe" class="mono" bind:value={editExePath} />
-          </div>
-          <div class="edit-field">
-            <label for="edit-desc">游戏简介</label>
-            <textarea id="edit-desc" bind:value={editDesc} rows={5}></textarea>
-          </div>
-        </div>
-        <footer class="edit-footer">
-          <Button press={saveEdit} disabled={isSaving}>{isSaving ? "保存中…" : "保存修改"}</Button>
-          <Button variant="ghost" press={() => isEditing = false}>取消</Button>
-        </footer>
+        <GameNotes gameId={game.id} />
       </div>
-    </Dialog>
-  </section>
-{:else}
-  <section class="detail-page not-found">
-    <EmptyState
-      icon="gamepad"
+
+      <Dialog open={isEditing} onClose={() => isEditing = false} title={`编辑：${game.name}`}>
+        <div class="edit-panel">
+          <header class="edit-header">
+            <h3>编辑：{game.name}</h3>
+            <button class="edit-close" onclick={() => isEditing = false} aria-label="关闭"><Icon name="x" size={18} /></button>
+          </header>
+          <div class="edit-body">
+            <div class="edit-field"><label for="edit-name">游戏名称</label><Input id="edit-name" bind:value={editName} /></div>
+            <div class="edit-field"><label for="edit-exe">可执行文件路径</label><Input id="edit-exe" class="mono" bind:value={editExePath} /></div>
+            <div class="edit-field"><label for="edit-desc">游戏简介</label><textarea id="edit-desc" bind:value={editDesc} rows={5}></textarea></div>
+          </div>
+          <footer class="edit-footer">
+            <Button press={saveEdit} disabled={isSaving}>{isSaving ? "保存中…" : "保存修改"}</Button>
+            <Button variant="ghost" press={() => isEditing = false}>取消</Button>
+          </footer>
+        </div>
+      </Dialog>
+    </section>
+  {:else}
+    <AsyncState
+      state="error"
       title="游戏未找到"
-      description="该游戏可能已被移除或数据加载失败"
-      action={{ label: "返回游戏库", onclick: () => uiStore.currentView = "home" }}
+      description="该游戏可能已被移除或数据加载失败。"
+      primaryAction={{ label: "返回游戏库", onSelect: closeDetail }}
+      class="game-detail-missing"
     />
-  </section>
-{/if}
+  {/if}
+</DetailPanel>
 
 <style>
+  :global(.game-detail-panel .v2-detail-panel__body) { padding: 0; background: var(--bg-deep); }
+  :global(.game-detail-panel.v2-detail-panel) { width: min(100vw, 56rem); }
+  :global(.game-detail-missing) { min-height: 60vh; }
+
   /* ── Page scaffold ── */
   .detail-page {
     position: relative;
     flex: 1;
     min-height: 0;
-    overflow-y: auto;
-    overflow-x: hidden;
+    overflow: visible;
     background: var(--bg-deep);
-  }
-  .detail-page.not-found {
-    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
-    color: var(--text-muted); padding: 48px 24px; text-align: center;
   }
 
   /* ── Background art ── */
@@ -404,7 +368,7 @@
   /* ── Hero ── */
   .hero {
     position: relative;
-    min-height: max(62vh, 460px);
+    min-height: max(48vh, 380px);
     display: flex;
     align-items: flex-end;
   }
@@ -517,7 +481,7 @@
     line-height: 1.3;
   }
 
-  h1 {
+  .hero-title {
     font-size: clamp(26px, 3.2vw, 42px);
     font-weight: 800;
     line-height: 1.08;

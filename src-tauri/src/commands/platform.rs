@@ -1,5 +1,6 @@
 use crate::db::Database;
 use crate::models::{Game, StoreLink};
+use crate::secret_store::{SecretKind, SecretStore};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -831,19 +832,21 @@ fn import_platform_candidate(
 #[tauri::command]
 pub async fn get_platform_import_status(
     db: State<'_, Database>,
+    secret_store: State<'_, SecretStore>,
 ) -> Result<PlatformImportStatus, String> {
     crate::crash_log("get_platform_import_status: START");
-    let settings = db.get_settings();
+    let settings =
+        super::settings::load_settings_with_secret_migration(db.inner(), secret_store.inner())?;
     let steam_path =
         crate::integration::find_steam_install_path().map(|p| p.to_string_lossy().to_string());
     let steam_id = settings
         .steam_id
         .clone()
         .or_else(crate::steam_openid::detect_local_steam_id);
-    let key = settings.steam_api_key.clone().unwrap_or_default();
-    let has_key = !key.trim().is_empty();
-    let key_ok = if has_key {
-        crate::steam_openid::verify_api_key(&key).await.is_ok()
+    let key = read_optional_steam_api_key(secret_store.inner())?;
+    let has_key = key.is_some();
+    let key_ok = if let Some(key) = key.as_deref() {
+        crate::steam_openid::verify_api_key(key).await.is_ok()
     } else {
         false
     };
@@ -864,14 +867,13 @@ pub async fn get_platform_import_status(
 #[tauri::command]
 pub async fn resolve_steam_id(
     db: State<'_, Database>,
+    secret_store: State<'_, SecretStore>,
     input: String,
-    api_key: Option<String>,
 ) -> Result<crate::steam_openid::SteamLoginResult, String> {
-    let key = api_key
-        .filter(|k| !k.trim().is_empty())
-        .or_else(|| db.get_settings().steam_api_key);
-    let result = steam_resolve_url(input, key).await?;
-    let mut settings = db.get_settings();
+    let mut settings =
+        super::settings::load_settings_with_secret_migration(db.inner(), secret_store.inner())?;
+    let key = read_optional_steam_api_key(secret_store.inner())?;
+    let result = resolve_steam_url_with_key(&input, key.as_deref()).await?;
     settings.steam_id = Some(result.steam_id.clone());
     db.update_settings(settings)?;
     Ok(result)
@@ -879,14 +881,10 @@ pub async fn resolve_steam_id(
 
 #[tauri::command]
 pub async fn validate_steam_api_key(
-    db: State<'_, Database>,
+    secret_store: State<'_, SecretStore>,
     api_key: String,
 ) -> Result<String, String> {
-    let result = crate::steam_openid::verify_api_key(&api_key).await?;
-    let mut settings = db.get_settings();
-    settings.steam_api_key = Some(api_key.trim().to_string());
-    db.update_settings(settings)?;
-    Ok(result)
+    verify_and_store_steam_api_key(secret_store.inner(), &api_key).await
 }
 
 #[tauri::command]
@@ -899,8 +897,8 @@ pub async fn scan_platform_library(
     source: PlatformImportSource,
     mode: PlatformImportMode,
     steam_id: Option<String>,
-    api_key: Option<String>,
     db: State<'_, Database>,
+    secret_store: State<'_, SecretStore>,
 ) -> Result<PlatformScanResult, String> {
     let source_name = source.as_str();
     if source_name == "epic" {
@@ -942,16 +940,14 @@ pub async fn scan_platform_library(
         });
     }
 
-    let settings = db.get_settings();
+    let settings =
+        super::settings::load_settings_with_secret_migration(db.inner(), secret_store.inner())?;
     let sid = steam_id
         .filter(|s| !s.trim().is_empty())
         .or(settings.steam_id)
         .or_else(crate::steam_openid::detect_local_steam_id)
         .ok_or_else(|| "缺少 SteamID64，请先检测本地账号、网页登录或手动输入".to_string())?;
-    let key = api_key
-        .filter(|k| !k.trim().is_empty())
-        .or(settings.steam_api_key)
-        .ok_or_else(|| "缺少 Steam Web API Key，无法同步账号全库".to_string())?;
+    let key = read_steam_api_key(secret_store.inner())?;
 
     let account_resp = crate::steam_openid::fetch_owned_games(&sid, &key).await?;
     let account_candidates = account_resp
@@ -1268,16 +1264,23 @@ pub async fn steam_login_webview(app: tauri::AppHandle) -> Result<String, String
 /// 方式 B: 从用户粘贴的 URL 自动解析 SteamID64
 #[tauri::command]
 pub async fn steam_resolve_url(
+    db: State<'_, Database>,
+    secret_store: State<'_, SecretStore>,
     url: String,
-    api_key: Option<String>,
 ) -> Result<crate::steam_openid::SteamLoginResult, String> {
-    let sid = crate::steam_openid::resolve_steamid(&url, api_key.as_deref()).await?;
-    // 如果有 API Key，顺便获取玩家昵称和头像
-    if let Some(ref key) = api_key {
-        if !key.is_empty() {
-            if let Ok(info) = crate::steam_openid::fetch_player_summary(&sid, key).await {
-                return Ok(info);
-            }
+    super::settings::load_settings_with_secret_migration(db.inner(), secret_store.inner())?;
+    let key = read_optional_steam_api_key(secret_store.inner())?;
+    resolve_steam_url_with_key(&url, key.as_deref()).await
+}
+
+async fn resolve_steam_url_with_key(
+    url: &str,
+    api_key: Option<&str>,
+) -> Result<crate::steam_openid::SteamLoginResult, String> {
+    let sid = crate::steam_openid::resolve_steamid(url, api_key).await?;
+    if let Some(key) = api_key.filter(|key| !key.trim().is_empty()) {
+        if let Ok(info) = crate::steam_openid::fetch_player_summary(&sid, key).await {
+            return Ok(info);
         }
     }
     Ok(crate::steam_openid::SteamLoginResult::from_id(
@@ -1291,10 +1294,13 @@ pub async fn steam_openid_login() -> Result<crate::steam_openid::SteamLoginResul
     crate::steam_openid::login_via_openid().await
 }
 
-/// 验证 Steam API Key
+/// 验证 Steam API Key；只有远端验证成功后才写入 SecretStore。
 #[tauri::command]
-pub async fn steam_verify_api_key(api_key: String) -> Result<String, String> {
-    crate::steam_openid::verify_api_key(&api_key).await
+pub async fn steam_verify_api_key(
+    secret_store: State<'_, SecretStore>,
+    api_key: String,
+) -> Result<String, String> {
+    verify_and_store_steam_api_key(secret_store.inner(), &api_key).await
 }
 
 /// 检测本地 Steam 客户端是否已登录，返回 SteamID64
@@ -1303,12 +1309,15 @@ pub fn steam_detect_local() -> Result<Option<String>, String> {
     Ok(crate::steam_openid::detect_local_steam_id())
 }
 
-/// 获取 Steam 用户拥有的全部游戏（需 SteamID + API Key）
+/// 获取 Steam 用户拥有的全部游戏（API Key 仅从 SecretStore 读取）
 #[tauri::command]
 pub async fn steam_fetch_owned_games(
+    db: State<'_, Database>,
+    secret_store: State<'_, SecretStore>,
     steam_id: String,
-    api_key: String,
 ) -> Result<crate::steam_openid::SteamOwnedGamesResponse, String> {
+    super::settings::load_settings_with_secret_migration(db.inner(), secret_store.inner())?;
+    let api_key = read_steam_api_key(secret_store.inner())?;
     crate::steam_openid::fetch_owned_games(&steam_id, &api_key).await
 }
 
@@ -1316,10 +1325,12 @@ pub async fn steam_fetch_owned_games(
 #[tauri::command]
 pub async fn steam_fetch_and_import(
     db: State<'_, Database>,
+    secret_store: State<'_, SecretStore>,
     steam_id: String,
-    api_key: String,
     app: tauri::AppHandle,
 ) -> Result<crate::steam_openid::SteamOwnedGamesResponse, String> {
+    super::settings::load_settings_with_secret_migration(db.inner(), secret_store.inner())?;
+    let api_key = read_steam_api_key(secret_store.inner())?;
     let resp = crate::steam_openid::fetch_owned_games(&steam_id, &api_key).await?;
     if resp.games.is_empty() {
         return Err("未获取到任何游戏。请检查: 1) Steam 个人资料→隐私设置→游戏详情→公开 2) API Key 是否正确".to_string());
@@ -1681,6 +1692,36 @@ fn apply_platform_import_fields(
     game.touch_updated();
 }
 
+fn read_optional_steam_api_key(store: &SecretStore) -> Result<Option<String>, String> {
+    store
+        .get(SecretKind::SteamApiKey, None)
+        .map_err(|error| error.to_string())
+}
+
+fn read_steam_api_key(store: &SecretStore) -> Result<String, String> {
+    read_optional_steam_api_key(store)?
+        .filter(|key| !key.trim().is_empty())
+        .ok_or_else(|| "缺少 Steam Web API Key".to_string())
+}
+
+async fn verify_and_store_steam_api_key(
+    store: &SecretStore,
+    api_key: &str,
+) -> Result<String, String> {
+    let api_key = api_key.trim();
+    if api_key.is_empty() {
+        return Err("Steam Web API Key 不能为空".to_string());
+    }
+    let result = crate::steam_openid::verify_api_key(api_key).await?;
+    store
+        .set(SecretKind::SteamApiKey, None, api_key)
+        .map_err(|error| error.to_string())?;
+    match store.get(SecretKind::SteamApiKey, None) {
+        Ok(Some(stored)) if stored == api_key => Ok(result),
+        _ => Err("Steam API Key 保存失败".to_string()),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncAchievementsResult {
     pub synced: usize,
@@ -1692,20 +1733,18 @@ pub struct SyncAchievementsResult {
 #[tauri::command]
 pub async fn sync_steam_achievements(
     db: State<'_, Database>,
+    secret_store: State<'_, SecretStore>,
 ) -> Result<SyncAchievementsResult, String> {
     tracing::info!("sync_steam_achievements: START");
     crate::crash_log("sync_steam_achievements: START");
-    let settings = db.get_settings();
+    let settings =
+        super::settings::load_settings_with_secret_migration(db.inner(), secret_store.inner())?;
     let steam_id = settings
         .steam_id
         .clone()
         .or_else(crate::steam_openid::detect_local_steam_id)
         .ok_or_else(|| "缺少 SteamID64，请先设置 Steam 账号".to_string())?;
-    let api_key = settings
-        .steam_api_key
-        .clone()
-        .filter(|k| !k.trim().is_empty())
-        .ok_or_else(|| "缺少 Steam Web API Key".to_string())?;
+    let api_key = read_steam_api_key(secret_store.inner())?;
 
     let games = db.get_games();
     let steam_games: Vec<(String, u32)> = games

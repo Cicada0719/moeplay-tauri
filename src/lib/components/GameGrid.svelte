@@ -2,31 +2,37 @@
   import { onMount } from "svelte";
   import { gsap } from "gsap";
   import { gameStore } from "../stores/games.svelte";
+  import { routerStore } from "../stores/router.svelte";
   import { uiStore } from "../stores/ui.svelte";
+  import { AsyncState, ContentGrid, MediaCard } from "./ui-v2";
   import GameCard from "./GameCard.svelte";
-  import EmptyState from "./EmptyState.svelte";
-  import Skeleton from "./Skeleton.svelte";
+
+  const initialRouteOffset = routerStore.current.view === "home" ? routerStore.current.scrollOffset : 0;
+  const initialWidth = typeof window === "undefined" ? 1200 : Math.max(320, window.innerWidth - 96);
+  const initialHeight = typeof window === "undefined" ? 720 : Math.max(320, window.innerHeight - 120);
 
   let gridEl = $state<HTMLDivElement>();
   let errorMessage = $state("");
-  let scrollTop = $state(0);
-  let viewportHeight = $state(0);
-  let containerWidth = $state(0);
+  let scrollTop = $state(initialRouteOffset);
+  let viewportHeight = $state(initialHeight);
+  let containerWidth = $state(initialWidth);
+  let filterSignature = $state(`${gameStore.quickFilter ?? ""}|${gameStore.filterTag ?? ""}|${gameStore.sortBy}|${gameStore.searchQuery}`);
 
   const isListMode = $derived(uiStore.viewMode === "list");
-  const gap = $derived(uiStore.viewMode === "compact" ? 12 : 16);
-  const minColumnWidth = $derived(uiStore.viewMode === "compact" ? 132 : 150);
+  const isCompactMode = $derived(uiStore.viewMode === "compact");
+  const gap = $derived(isCompactMode ? 12 : 16);
+  const minColumnWidth = $derived(isCompactMode ? 132 : 150);
   const paddingX = $derived(containerWidth <= 760 ? 16 : 28);
   const paddingTop = 24;
   const paddingBottom = 32;
   const cardChrome = 98;
   const columnCount = $derived(
-    isListMode ? 1 : Math.max(1, Math.floor((containerWidth - paddingX * 2 + gap) / (minColumnWidth + gap)))
+    isListMode ? 1 : Math.max(1, Math.floor((containerWidth - paddingX * 2 + gap) / (minColumnWidth + gap))),
   );
   const columnWidth = $derived(
     isListMode
       ? Math.max(0, containerWidth - paddingX * 2)
-      : Math.max(minColumnWidth, (Math.max(0, containerWidth - paddingX * 2) - gap * (columnCount - 1)) / columnCount)
+      : Math.max(minColumnWidth, (Math.max(0, containerWidth - paddingX * 2) - gap * (columnCount - 1)) / columnCount),
   );
   const rowHeight = $derived(isListMode ? 96 : Math.round(columnWidth * 4 / 3 + cardChrome));
   const rowCount = $derived(Math.ceil(gameStore.games.length / columnCount));
@@ -34,48 +40,65 @@
   const visibleRows = $derived(Math.ceil(viewportHeight / (rowHeight + gap)) + 5);
   const lastRow = $derived(Math.min(rowCount, firstRow + visibleRows));
   const visibleGames = $derived(
-    gameStore.games.slice(firstRow * columnCount, Math.min(gameStore.games.length, lastRow * columnCount))
+    gameStore.games.slice(firstRow * columnCount, Math.min(gameStore.games.length, lastRow * columnCount)),
   );
   const topSpacer = $derived(paddingTop + firstRow * (rowHeight + gap));
-  const totalHeight = $derived(paddingTop + paddingBottom + Math.max(0, rowCount * rowHeight + Math.max(0, rowCount - 1) * gap));
+  const totalHeight = $derived(
+    paddingTop + paddingBottom + Math.max(0, rowCount * rowHeight + Math.max(0, rowCount - 1) * gap),
+  );
+  const gridState = $derived(
+    errorMessage
+      ? "error"
+      : gameStore.loading && gameStore.games.length === 0
+        ? "loading"
+        : gameStore.loading
+          ? "refreshing"
+          : gameStore.games.length === 0
+            ? (gameStore.allGames.length === 0 ? "empty" : "no-results")
+            : "ready",
+  );
 
-  // 筛选 / 排序 / 搜索变化时回到顶部：虚拟滚动若停在旧的大 scrollTop，
-  // 切到更小的结果集会算出越界的可见区间而显示空白（看起来像「筛选结果不对」）。
   $effect(() => {
-    void gameStore.quickFilter;
-    void gameStore.filterTag;
-    void gameStore.sortBy;
-    void gameStore.searchQuery;
+    const nextSignature = `${gameStore.quickFilter ?? ""}|${gameStore.filterTag ?? ""}|${gameStore.sortBy}|${gameStore.searchQuery}`;
+    if (nextSignature === filterSignature) return;
+    filterSignature = nextSignature;
     if (gridEl) gridEl.scrollTop = 0;
     scrollTop = 0;
   });
 
   onMount(() => {
     if (!gridEl) return;
-    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    const rect = gridEl.getBoundingClientRect();
+    if (rect.height > 0) viewportHeight = rect.height;
+    if (rect.width > 0) containerWidth = rect.width;
+    if (initialRouteOffset > 0) {
+      gridEl.scrollTop = initialRouteOffset;
+      scrollTop = initialRouteOffset;
+    }
+
     const observer = new ResizeObserver(([entry]) => {
-      const rect = entry.contentRect;
-      viewportHeight = rect.height;
-      containerWidth = rect.width;
+      viewportHeight = entry.contentRect.height;
+      containerWidth = entry.contentRect.width;
     });
     observer.observe(gridEl);
 
-    let ctx: gsap.Context | null = null;
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    let context: gsap.Context | null = null;
     if (!reduce) {
-      ctx = gsap.context(() => {
-        gsap.from(gridEl!.querySelectorAll(".grid-item"), {
+      context = gsap.context(() => {
+        gsap.from(gridEl!.querySelectorAll("[data-testid^='game-card-']"), {
           opacity: 0,
           y: 14,
-          duration: 0.5,
+          duration: 0.4,
           ease: "power3.out",
-          stagger: 0.03,
+          stagger: 0.025,
         });
       }, gridEl);
     }
 
     return () => {
       observer.disconnect();
-      ctx?.revert();
+      context?.revert();
     };
   });
 
@@ -87,124 +110,108 @@
       errorMessage = `导入失败：${error}`;
     }
   }
+
+  function clearFilters() {
+    errorMessage = "";
+    gameStore.searchQuery = "";
+    gameStore.quickFilter = null;
+    gameStore.filterTag = null;
+    gameStore.sortBy = "recent";
+  }
 </script>
+
+{#snippet loadingCards()}
+  <ContentGrid
+    label="正在加载游戏"
+    role={isListMode ? "list" : "grid"}
+    columns={isListMode ? 1 : undefined}
+    minItemWidth={isCompactMode ? "8.25rem" : "9.375rem"}
+    gap={isCompactMode ? "sm" : "md"}
+    class="game-grid-loading"
+  >
+    {#each Array(isListMode ? 6 : 10) as _, index (index)}
+      <MediaCard
+        title={`游戏 ${index + 1}`}
+        variant={isListMode ? "landscape" : "poster"}
+        loading
+        itemRole={isListMode ? "listitem" : "gridcell"}
+      />
+    {/each}
+  </ContentGrid>
+{/snippet}
 
 <div
   class="game-grid"
-  class:compact={uiStore.viewMode === "compact"}
+  class:compact={isCompactMode}
   class:list={isListMode}
   bind:this={gridEl}
+  data-route-scroll
+  data-testid="game-library-scroll"
   onscroll={() => (scrollTop = gridEl?.scrollTop ?? 0)}
 >
-  {#if errorMessage}
-    <div class="inline-error" role="alert">{errorMessage}</div>
-  {/if}
-
-  {#if gameStore.loading}
-    <div class="static-grid">
-      <Skeleton variant="card" count={10} className="grid-item" />
-    </div>
-  {:else if gameStore.games.length === 0}
-    <div class="empty-wrap">
-      <EmptyState
-        title="还没有游戏"
-        description="导入本地 galgame 后，封面、标签与游玩状态会出现在这里。"
-        actionLabel="添加游戏"
-        onAction={handleImport}
-      />
-    </div>
-  {:else}
-    <div
-      class="virtual-canvas"
-      style={`height:${totalHeight}px; --grid-cols:${columnCount}; --grid-gap:${gap}px; --grid-padding-x:${paddingX}px; --grid-col-width:${columnWidth}px;`}
-    >
-      <div class="virtual-grid" style={`transform:translateY(${topSpacer}px);`}>
-        {#each visibleGames as game (game.id)}
-          <div class="grid-item">
-            <GameCard {game} />
-          </div>
-        {/each}
+  <AsyncState
+    state={gridState}
+    loading={loadingCards}
+    loadingDelayMs={0}
+    preserveContent={gridState === "refreshing"}
+    title={gridState === "no-results" ? "没有匹配的游戏" : gridState === "empty" ? "还没有游戏" : gridState === "error" ? "导入失败" : undefined}
+    description={gridState === "no-results"
+      ? "请清除筛选或尝试其他搜索条件。"
+      : gridState === "empty"
+        ? "导入本地 galgame 后，封面、标签与游玩状态会出现在这里。"
+        : gridState === "error"
+          ? errorMessage
+          : undefined}
+    primaryAction={gridState === "no-results"
+      ? { label: "清除筛选", onSelect: clearFilters }
+      : gridState === "empty" || gridState === "error"
+        ? { label: "添加游戏", onSelect: handleImport }
+        : undefined}
+    class="game-grid-state"
+  >
+    {#snippet children()}
+      <div
+        class="virtual-canvas"
+        style={`height:${totalHeight}px; --grid-cols:${columnCount}; --grid-gap:${gap}px; --grid-padding-x:${paddingX}px; --grid-col-width:${columnWidth}px; --grid-top-spacer:${topSpacer}px;`}
+      >
+        <ContentGrid
+          label="游戏列表"
+          role={isListMode ? "list" : "grid"}
+          columns={columnCount}
+          gap={isCompactMode ? "sm" : "md"}
+          class="virtual-grid"
+        >
+          {#each visibleGames as game (game.id)}
+            <GameCard
+              {game}
+              selected={gameStore.isSelected(game.id)}
+              disabled={false}
+              loading={false}
+              itemRole={isListMode ? "listitem" : "gridcell"}
+            />
+          {/each}
+        </ContentGrid>
       </div>
-    </div>
-  {/if}
+    {/snippet}
+  </AsyncState>
 </div>
 
 <style>
-  .game-grid {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
-    position: relative;
-  }
+  .game-grid { flex: 1; min-height: 0; overflow: auto; position: relative; overscroll-behavior: contain; }
+  .virtual-canvas { position: relative; min-height: 100%; }
 
-  .static-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    align-content: start;
-    gap: 16px;
-    padding: 24px 28px 32px;
-  }
-
-  .game-grid.compact .static-grid {
-    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
-    gap: 12px;
-  }
-
-  .game-grid.list .static-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .grid-item { min-width: 0; }
-
-  .game-grid.list .grid-item {
-    height: 96px;
-  }
-
-  .virtual-canvas {
-    position: relative;
-    min-height: 100%;
-  }
-
-  .virtual-grid {
+  :global(.virtual-grid.v2-content-grid) {
     position: absolute;
     left: var(--grid-padding-x);
     right: var(--grid-padding-x);
-    top: 0;
-    display: grid;
-    grid-template-columns: repeat(var(--grid-cols), minmax(0, var(--grid-col-width)));
+    top: var(--grid-top-spacer);
     gap: var(--grid-gap);
     align-content: start;
-    will-change: transform;
   }
-
-  .empty-wrap,
-  .inline-error {
-    margin: 24px 28px 0;
-  }
-
-  .empty-wrap {
-    display: grid;
-    min-height: 58vh;
-    align-items: center;
-  }
+  :global(.game-grid-loading.v2-content-grid) { padding: 1.5rem 1.75rem 2rem; }
+  :global(.game-grid-state[data-state]:not([data-state="ready"])) { min-height: 58vh; margin: 1.5rem; }
 
   @media (max-width: 760px) {
-    .static-grid {
-      padding-inline: 16px;
-    }
-
-    .empty-wrap,
-    .inline-error {
-      margin-inline: 16px;
-    }
-  }
-
-  .inline-error {
-    border: 1px solid rgba(240, 85, 107, 0.35);
-    background: rgba(240, 85, 107, 0.10);
-    color: var(--color-error);
-    border-radius: var(--radius-md);
-    padding: 10px 12px;
-    font-size: 13px;
+    :global(.game-grid-loading.v2-content-grid) { padding-inline: 1rem; }
   }
 </style>

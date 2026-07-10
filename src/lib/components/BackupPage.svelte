@@ -3,6 +3,7 @@
   import Icon from "./Icon.svelte";
   import { Button, Card, EmptyState, Input } from "./ui";
   import {
+    compareSaveSnapshot,
     createSaveSnapshot,
     detectSaveCandidates,
     getGames,
@@ -11,7 +12,9 @@
     type Game,
     type SaveCandidateDir,
     type SaveSnapshot,
+    type SnapshotDiff,
   } from "../api";
+  import { summarizeSnapshotDiff } from "../features/backup/preview";
 
   let games = $state<Game[]>([]);
   let selectedId = $state("");
@@ -20,6 +23,9 @@
   let note = $state("");
   let loading = $state(true);
   let error = $state<string | null>(null);
+  let restorePreview = $state<{ snapshot: SaveSnapshot; saveDir: string; diff: SnapshotDiff } | null>(null);
+  let previewingPath = $state<string | null>(null);
+  let restoring = $state(false);
 
   const selected = $derived(games.find((game) => game.id === selectedId));
 
@@ -52,6 +58,44 @@
     await createSaveSnapshot(selectedId, path ?? null, note || null);
     note = "";
     await refresh();
+  }
+
+  async function previewRestore(snapshot: SaveSnapshot) {
+    const saveDir = selected?.save_data.save_dir ?? candidates[0]?.path;
+    if (!saveDir) {
+      error = "无法确定当前存档目录，请先在游戏详情中设置存档目录。";
+      return;
+    }
+    previewingPath = snapshot.file_path;
+    error = null;
+    try {
+      const diff = await compareSaveSnapshot(snapshot.file_path, saveDir);
+      restorePreview = { snapshot, saveDir, diff };
+    } catch (e) {
+      error = String(e);
+    } finally {
+      previewingPath = null;
+    }
+  }
+
+  async function confirmRestore() {
+    if (!restorePreview || !selectedId) return;
+    restoring = true;
+    error = null;
+    try {
+      await restoreSaveSnapshot(
+        selectedId,
+        restorePreview.snapshot.file_path,
+        restorePreview.saveDir,
+        true,
+      );
+      restorePreview = null;
+      await refresh();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      restoring = false;
+    }
   }
 
   onMount(() => {
@@ -133,9 +177,9 @@
                   <strong>{snapshot.file_name}</strong>
                   <span><span class="aura-num">{snapshot.created_at}</span> · <span class="aura-num">{snapshot.file_count}</span> 文件</span>
                 </div>
-                <Button variant="ghost" size="sm" press={() => restoreSaveSnapshot(selectedId, snapshot.file_path)}>
+                <Button variant="ghost" size="sm" press={() => previewRestore(snapshot)} loading={previewingPath === snapshot.file_path} disabled={previewingPath !== null}>
                   <Icon name="refresh" size={15} />
-                  <span>恢复</span>
+                  <span>预览恢复</span>
                 </Button>
               </article>
             {/each}
@@ -146,6 +190,55 @@
       </Card>
     {/if}
   </div>
+
+  {#if restorePreview}
+    {@const summary = summarizeSnapshotDiff(restorePreview.diff)}
+    <div class="restore-backdrop" role="presentation" onclick={(event) => { if (event.currentTarget === event.target && !restoring) restorePreview = null; }}>
+      <div class="restore-dialog-shell" role="dialog" aria-modal="true" aria-labelledby="restore-title">
+        <Card class="restore-dialog">
+        <div class="panel-head">
+          <div>
+            <h2 id="restore-title">确认恢复快照</h2>
+            <p>{restorePreview.snapshot.file_name}</p>
+          </div>
+          <Button variant="quiet" size="sm" press={() => restorePreview = null} disabled={restoring} ariaLabel="关闭恢复预览">
+            <Icon name="x" size={15} />
+          </Button>
+        </div>
+        <div class="restore-summary">
+          <strong>{summary.changedFiles} 个文件将发生变化</strong>
+          <span>新增 {restorePreview.diff.added.length} · 覆盖 {restorePreview.diff.changed.length} · 移除 {restorePreview.diff.removed.length} · 不变 {restorePreview.diff.unchanged}</span>
+          <span>恢复前会自动创建当前存档的安全检查点。</span>
+        </div>
+        {#if summary.destructive}
+          <p class="restore-warning" role="alert">该操作会覆盖或移除当前存档文件，请确认快照正确。</p>
+        {/if}
+        <div class="diff-columns">
+          {#each [
+            { label: "新增", values: restorePreview.diff.added },
+            { label: "覆盖", values: restorePreview.diff.changed },
+            { label: "移除", values: restorePreview.diff.removed },
+          ] as group}
+            <div>
+              <strong>{group.label}</strong>
+              {#if group.values.length}
+                {#each group.values.slice(0, 8) as value}<code>{value}</code>{/each}
+                {#if group.values.length > 8}<span>另有 {group.values.length - 8} 项</span>{/if}
+              {:else}
+                <span>无</span>
+              {/if}
+            </div>
+          {/each}
+        </div>
+        <div class="restore-actions">
+          <Button variant="ghost" press={() => restorePreview = null} disabled={restoring}>取消</Button>
+          <Button variant="primary" press={confirmRestore} loading={restoring} disabled={restoring}>创建检查点并恢复</Button>
+        </div>
+        </Card>
+      </div>
+    </div>
+  {/if}
+
 </section>
 
 <style>
@@ -411,4 +504,16 @@
       width: auto;
     }
   }
+
+  .restore-backdrop { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 24px; background: rgba(0, 0, 0, 0.66); }
+  .restore-dialog-shell { width: min(760px, 100%); }
+  :global(.ui-card.restore-dialog) { width: 100%; max-height: min(760px, calc(100vh - 48px)); overflow: auto; display: grid; gap: 16px; padding: 20px; }
+  .restore-summary { display: grid; gap: 6px; }
+  .restore-summary span, .restore-warning, .diff-columns span { color: var(--text-secondary); }
+  .restore-warning { margin: 0; padding: 12px; border: 1px solid color-mix(in srgb, var(--danger, #ef4444) 45%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--danger, #ef4444) 10%, transparent); }
+  .diff-columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .diff-columns > div { min-width: 0; display: grid; align-content: start; gap: 6px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-inset, var(--bg-base)); }
+  .diff-columns code { overflow: hidden; color: var(--text-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+  .restore-actions { display: flex; justify-content: flex-end; gap: 10px; }
+  @media (max-width: 760px) { .diff-columns { grid-template-columns: 1fr; } }
 </style>

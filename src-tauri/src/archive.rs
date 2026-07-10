@@ -33,7 +33,33 @@ pub enum ArchiveFormat {
     Unknown,
 }
 
+/// 当前归档实现可以承诺的取消粒度。
+///
+/// 纯 Rust ZIP 循环可以在条目边界检查取消，但单个条目的同步 copy
+/// 仍不可中断；外部 7z/rar 使用阻塞 `Command::output`，只能在进程退出后
+/// 观察取消。调用方不得把这两类行为描述成即时取消。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArchiveCancellationSupport {
+    BetweenEntries,
+    AfterExternalProcessExit,
+    NotApplicable,
+}
+
+pub const ARCHIVE_CANCELLATION_LIMITATION: &str =
+    "ZIP 仅能在条目之间取消，当前条目会继续写完；7z/rar/tar/gz 要等待外部进程退出，已写文件不会回滚";
+
 impl ArchiveFormat {
+    pub fn cancellation_support(&self) -> ArchiveCancellationSupport {
+        match self {
+            Self::Zip => ArchiveCancellationSupport::BetweenEntries,
+            Self::SevenZip | Self::Rar | Self::Tar | Self::Gz => {
+                ArchiveCancellationSupport::AfterExternalProcessExit
+            }
+            Self::Unknown => ArchiveCancellationSupport::NotApplicable,
+        }
+    }
+
     pub fn from_path(path: &Path) -> Self {
         match path
             .extension()
@@ -487,20 +513,21 @@ fn find_all_exes(dir: &Path) -> Vec<ExeCandidate> {
 // 重复检测
 // ============================================================================
 
-/// 重复检测：按 exe_path + 名称相似度判断。
-pub fn is_duplicate(new_name: &str, new_path: &str, existing: &[crate::models::Game]) -> bool {
-    let new_name_lower = new_name.to_lowercase();
-    let new_path_lower = new_path.to_lowercase();
+/// 重复检测只接受规范化启动路径这一强身份。
+/// 同名/近似名仅用于上层召回，不能在解压导入阶段自动合并。
+pub fn is_duplicate(_new_name: &str, new_path: &str, existing: &[crate::models::Game]) -> bool {
+    let normalized = normalize_identity_path(new_path);
+    !normalized.is_empty()
+        && existing
+            .iter()
+            .any(|game| normalize_identity_path(&game.exe_path) == normalized)
+}
 
-    existing.iter().any(|g| {
-        // 路径完全一致
-        g.exe_path.to_lowercase() == new_path_lower
-        // 名称完全相同
-        || g.name.to_lowercase() == new_name_lower
-        // 名称包含
-        || (new_name_lower.len() > 3 && g.name.to_lowercase().contains(&new_name_lower))
-        || (g.name.len() > 3 && new_name_lower.contains(&g.name.to_lowercase()))
-    })
+fn normalize_identity_path(path: &str) -> String {
+    path.trim()
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_lowercase()
 }
 
 // ============================================================================
@@ -567,6 +594,23 @@ mod tests {
     }
 
     #[test]
+    fn cancellation_support_is_explicit_and_never_claims_immediate_interrupt() {
+        assert_eq!(
+            ArchiveFormat::Zip.cancellation_support(),
+            ArchiveCancellationSupport::BetweenEntries
+        );
+        assert_eq!(
+            ArchiveFormat::SevenZip.cancellation_support(),
+            ArchiveCancellationSupport::AfterExternalProcessExit
+        );
+        assert_eq!(
+            ArchiveFormat::Rar.cancellation_support(),
+            ArchiveCancellationSupport::AfterExternalProcessExit
+        );
+        assert!(ARCHIVE_CANCELLATION_LIMITATION.contains("不会回滚"));
+    }
+
+    #[test]
     fn test_find_game_root_current_has_exe() {
         let tmp = std::env::temp_dir().join("m4_test_root1");
         fs::create_dir_all(&tmp).unwrap();
@@ -608,7 +652,11 @@ mod tests {
     #[test]
     fn test_is_duplicate_name() {
         let g = crate::models::Game::new("Test Game".into(), "C:\\Games\\Other.exe".into());
-        assert!(is_duplicate("Test Game", "D:\\Test.exe", &[g.clone()]));
+        assert!(!is_duplicate(
+            "Test Game",
+            "D:\\Test.exe",
+            std::slice::from_ref(&g)
+        ));
         assert!(!is_duplicate("Different", "D:\\Test.exe", &[g]));
     }
 

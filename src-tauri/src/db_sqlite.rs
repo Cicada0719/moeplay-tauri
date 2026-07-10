@@ -16,8 +16,205 @@ use rusqlite::{params, Connection};
 use std::path::Path;
 use std::sync::Mutex;
 
-/// 当前 schema 版本。每次破坏性改表都 +1，并在 `migrate` 里加升级分支。
-pub const SCHEMA_VERSION: i64 = 2;
+/// Current schema version. v5 adds short-lived, validated AI task-result persistence
+/// without storing raw prompts, raw provider responses, headers, or credentials.
+pub const SCHEMA_VERSION: i64 = 5;
+
+/// Staged module registration keeps the repository layer compiled and testable while
+/// `lib.rs` remains untouched for the Batch integrator.
+#[path = "repositories/mod.rs"]
+pub mod repositories;
+
+#[derive(Debug, Clone, Copy)]
+struct SchemaMigration {
+    version: i64,
+    name: &'static str,
+    checksum: &'static str,
+}
+
+const SCHEMA_MIGRATIONS: &[SchemaMigration] = &[
+    SchemaMigration {
+        version: 1,
+        name: "legacy_base_schema",
+        checksum: "sha256:ce4ab5de8ac3bb1e7e7dceec17d90b24c6f43d6ea14c1b5afcc606cf6fd6af24",
+    },
+    SchemaMigration {
+        version: 2,
+        name: "legacy_sqlite_v2_projections",
+        checksum: "sha256:8e9eb519d229cabf79729db6b7782c64b4a581d07d29de4a4d63d3133e6d214f",
+    },
+    SchemaMigration {
+        version: 3,
+        name: "domain_activity_progress_health_jobs",
+        checksum: "sha256:0316ec4a5a9c14970660c8a10355c16060e5147236e80f1f7ea59cf4b6e32262",
+    },
+    SchemaMigration {
+        version: 4,
+        name: "provider_config_non_secret_json",
+        checksum: "sha256:dd9d6d953d8d0dfc426fa87addd35f21cf1f715c945ff59b9ebb4da8934fdad5",
+    },
+    SchemaMigration {
+        version: 5,
+        name: "validated_ai_task_results",
+        checksum: "sha256:d564e622ca8b5c86ab3d3e8fc5746e576099e36474579a97f685aa04b6b7b422",
+    },
+];
+
+fn migration_by_version(version: i64) -> Option<&'static SchemaMigration> {
+    SCHEMA_MIGRATIONS
+        .iter()
+        .find(|migration| migration.version == version)
+}
+
+fn validate_migration_ledger(conn: &Connection) -> Result<(), String> {
+    let mut statement = conn
+        .prepare("SELECT version,name,checksum FROM schema_migrations ORDER BY version")
+        .map_err(|e| e.to_string())?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+    for row in rows {
+        let (version, name, checksum) = row.map_err(|e| e.to_string())?;
+        let expected = migration_by_version(version).ok_or_else(|| {
+            format!("database migration ledger contains unsupported version {version}")
+        })?;
+        if name != expected.name || checksum != expected.checksum {
+            return Err(format!(
+                "database migration ledger checksum mismatch for version {version}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn record_migration(conn: &Connection, migration: &SchemaMigration) -> Result<(), String> {
+    conn.execute(
+        "INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?1,?2,?3,?4) \
+         ON CONFLICT(version) DO NOTHING",
+        params![
+            migration.version,
+            migration.name,
+            migration.checksum,
+            chrono::Utc::now().to_rfc3339(),
+        ],
+    )
+    .map(|_| ())
+    .map_err(|e| e.to_string())
+}
+
+fn apply_v3_schema(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS activity_events (
+            id               TEXT PRIMARY KEY,
+            resource_kind    TEXT NOT NULL,
+            resource_id      TEXT NOT NULL,
+            event_type       TEXT NOT NULL,
+            started_at       TEXT NOT NULL,
+            ended_at         TEXT,
+            duration_seconds INTEGER CHECK(duration_seconds IS NULL OR duration_seconds >= 0),
+            duration_quality TEXT NOT NULL DEFAULT 'none' CHECK(duration_quality IN ('exact','estimated','baseline','none')),
+            session_id       TEXT,
+            source_legacy_id TEXT,
+            provider_id      TEXT,
+            payload_json     TEXT NOT NULL CHECK(json_valid(payload_json))
+         );
+         CREATE INDEX IF NOT EXISTS idx_activity_events_started_at
+            ON activity_events(started_at DESC, id DESC);
+         CREATE INDEX IF NOT EXISTS idx_activity_events_type_started_at
+            ON activity_events(resource_kind, event_type, started_at DESC, id DESC);
+         CREATE INDEX IF NOT EXISTS idx_activity_events_resource_started_at
+            ON activity_events(resource_kind, resource_id, started_at DESC, id DESC);
+
+         CREATE TABLE IF NOT EXISTS progress_records (
+            resource_kind TEXT NOT NULL,
+            resource_id   TEXT NOT NULL,
+            provider_id   TEXT NOT NULL DEFAULT '',
+            position_json TEXT NOT NULL CHECK(json_valid(position_json)),
+            updated_at    TEXT NOT NULL,
+            completed     INTEGER NOT NULL DEFAULT 0 CHECK(completed IN (0,1)),
+            PRIMARY KEY(resource_kind, resource_id, provider_id)
+         );
+         CREATE INDEX IF NOT EXISTS idx_progress_records_resource_updated
+            ON progress_records(resource_kind, resource_id, updated_at DESC);
+         CREATE INDEX IF NOT EXISTS idx_progress_records_updated_at
+            ON progress_records(updated_at DESC);
+
+         CREATE TABLE IF NOT EXISTS provider_health (
+            provider_id          TEXT NOT NULL,
+            operation            TEXT NOT NULL,
+            state                TEXT NOT NULL,
+            success_count        INTEGER NOT NULL DEFAULT 0 CHECK(success_count >= 0),
+            failure_count        INTEGER NOT NULL DEFAULT 0 CHECK(failure_count >= 0),
+            consecutive_failures INTEGER NOT NULL DEFAULT 0 CHECK(consecutive_failures >= 0),
+            latency_ms_ema       REAL,
+            last_success_at      TEXT,
+            last_failure_at      TEXT,
+            circuit_open_until   TEXT,
+            last_error_kind      TEXT,
+            PRIMARY KEY(provider_id, operation)
+         );
+         CREATE INDEX IF NOT EXISTS idx_provider_health_state
+            ON provider_health(state, provider_id, operation);
+
+         CREATE TABLE IF NOT EXISTS background_jobs (
+            id            TEXT PRIMARY KEY,
+            kind          TEXT NOT NULL,
+            title         TEXT NOT NULL,
+            status        TEXT NOT NULL,
+            progress      REAL NOT NULL DEFAULT 0 CHECK(progress >= 0.0 AND progress <= 1.0),
+            created_at    TEXT NOT NULL,
+            updated_at    TEXT NOT NULL,
+            error_json    TEXT CHECK(error_json IS NULL OR json_valid(error_json)),
+            metadata_json TEXT NOT NULL CHECK(json_valid(metadata_json))
+         );
+         CREATE INDEX IF NOT EXISTS idx_background_jobs_status_updated
+            ON background_jobs(status, updated_at DESC, id DESC);
+         CREATE INDEX IF NOT EXISTS idx_background_jobs_kind_status
+            ON background_jobs(kind, status, updated_at DESC);",
+    )
+    .map_err(|e| e.to_string())
+}
+
+const V4_SCHEMA_SQL: &str = "CREATE TABLE IF NOT EXISTS provider_configs (
+    provider_id    TEXT NOT NULL CHECK(length(trim(provider_id)) > 0),
+    resource_kind  TEXT NOT NULL CHECK(length(trim(resource_kind)) > 0),
+    provider_kind  TEXT NOT NULL CHECK(length(trim(provider_kind)) > 0),
+    config_version INTEGER NOT NULL CHECK(config_version > 0),
+    config_json    TEXT NOT NULL CHECK(json_valid(config_json)),
+    enabled        INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL,
+    PRIMARY KEY(provider_id, resource_kind)
+ );
+ CREATE INDEX IF NOT EXISTS idx_provider_configs_resource_enabled
+    ON provider_configs(resource_kind, enabled, provider_id);
+ CREATE INDEX IF NOT EXISTS idx_provider_configs_kind
+    ON provider_configs(resource_kind, provider_kind, enabled);";
+
+fn apply_v4_schema(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(V4_SCHEMA_SQL).map_err(|e| e.to_string())
+}
+
+const V5_SCHEMA_SQL: &str = "CREATE TABLE IF NOT EXISTS ai_task_results (
+    task_id        TEXT PRIMARY KEY CHECK(length(trim(task_id)) > 0 AND length(task_id) <= 128),
+    outcome_kind   TEXT NOT NULL CHECK(outcome_kind IN ('succeeded','failed')),
+    outcome_json   TEXT NOT NULL CHECK(json_valid(outcome_json)),
+    schema_version INTEGER NOT NULL DEFAULT 1 CHECK(schema_version = 1),
+    created_at     TEXT NOT NULL,
+    expires_at     TEXT NOT NULL
+ );
+ CREATE INDEX IF NOT EXISTS idx_ai_task_results_expires
+    ON ai_task_results(expires_at, task_id);";
+
+fn apply_v5_schema(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(V5_SCHEMA_SQL).map_err(|e| e.to_string())
+}
 
 /// 若 `table` 里不存在 `column`，则 ALTER TABLE 添加之。幂等。
 fn column_exists(conn: &rusqlite::Connection, table: &str, column: &str) -> Result<bool, String> {
@@ -224,15 +421,23 @@ impl SqliteDb {
         upsert_with(&conn, game)
     }
 
-    /// 幂等迁移：建表 → 补列 → 建索引，三步走保证旧库可升级。
+    /// Idempotent, transactional migration. Connection PRAGMAs live outside the
+    /// transaction; every schema/data change and the version bump commit together.
     fn migrate(&self) -> Result<(), String> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        self.migrate_with_hook(|| Ok(()))
+    }
 
-        // Step 1: 基础表（不含索引，避免旧表缺列时 CREATE INDEX 失败）
-        conn.execute_batch(
-            "PRAGMA journal_mode=WAL;
-             PRAGMA foreign_keys=ON;
-             CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
+    fn migrate_with_hook<F>(&self, after_v4_schema: F) -> Result<(), String>
+    where
+        F: FnOnce() -> Result<(), String>,
+    {
+        let mut conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")
+            .map_err(|e| e.to_string())?;
+
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
              CREATE TABLE IF NOT EXISTS games (
                 id         TEXT PRIMARY KEY,
                 name       TEXT NOT NULL,
@@ -251,41 +456,96 @@ impl SqliteDb {
         )
         .map_err(|e| e.to_string())?;
 
-        // Step 2: 补齐 v1 新增列（旧库升级时 CREATE TABLE 会跳过，需手动 ALTER）
-        migrate_games_table(&conn)?;
-        migrate_settings_table(&conn)?;
-
-        // Step 3: 索引（此时列已保证存在）
-        conn.execute_batch(
+        // Preserve the existing v1/v2 repair path inside this transaction.
+        migrate_games_table(&tx)?;
+        migrate_settings_table(&tx)?;
+        tx.execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_games_sort ON games(sort_name);
-             CREATE INDEX IF NOT EXISTS idx_games_type ON games(game_type);",
+             CREATE INDEX IF NOT EXISTS idx_games_type ON games(game_type);
+             CREATE TABLE IF NOT EXISTS schema_migrations (
+                version    INTEGER PRIMARY KEY,
+                name       TEXT NOT NULL,
+                checksum   TEXT NOT NULL,
+                applied_at TEXT NOT NULL
+             );",
         )
         .map_err(|e| e.to_string())?;
 
-        let have: i64 = conn
-            .query_row("SELECT COUNT(*) FROM schema_version", [], |r| r.get(0))
+        let legacy_version: i64 = tx
+            .query_row(
+                "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if legacy_version > SCHEMA_VERSION {
+            return Err(format!(
+                "database schema version {legacy_version} is newer than supported version {SCHEMA_VERSION}"
+            ));
+        }
+
+        validate_migration_ledger(&tx)?;
+        // Pre-ledger v1/v2 databases are now structurally repaired, so ledger rows
+        // are backfilled atomically before v3 is applied.
+        record_migration(&tx, migration_by_version(1).expect("v1 migration exists"))?;
+        record_migration(&tx, migration_by_version(2).expect("v2 migration exists"))?;
+
+        apply_v3_schema(&tx)?;
+        record_migration(&tx, migration_by_version(3).expect("v3 migration exists"))?;
+
+        apply_v4_schema(&tx)?;
+        // Test-only failure injection exercises the same transaction used in production.
+        after_v4_schema()?;
+        record_migration(&tx, migration_by_version(4).expect("v4 migration exists"))?;
+
+        apply_v5_schema(&tx)?;
+        record_migration(&tx, migration_by_version(5).expect("v5 migration exists"))?;
+
+        let have: i64 = tx
+            .query_row("SELECT COUNT(*) FROM schema_version", [], |row| row.get(0))
             .map_err(|e| e.to_string())?;
         if have == 0 {
-            conn.execute(
-                "INSERT INTO schema_version (version) VALUES (?1)",
+            tx.execute(
+                "INSERT INTO schema_version(version) VALUES(?1)",
                 params![SCHEMA_VERSION],
             )
             .map_err(|e| e.to_string())?;
         } else {
-            conn.execute(
-                "UPDATE schema_version SET version=?1 WHERE version < ?1",
+            tx.execute(
+                "UPDATE schema_version SET version=?1",
                 params![SCHEMA_VERSION],
             )
             .map_err(|e| e.to_string())?;
         }
-        Ok(())
+
+        tx.commit().map_err(|e| e.to_string())
+    }
+
+    pub(crate) fn with_connection<T>(
+        &self,
+        operation: impl FnOnce(&Connection) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        operation(&conn)
+    }
+
+    pub(crate) fn with_connection_mut<T>(
+        &self,
+        operation: impl FnOnce(&mut Connection) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let mut conn = self.conn.lock().map_err(|e| e.to_string())?;
+        operation(&mut conn)
     }
 
     /// 当前 schema 版本。
     pub fn schema_version(&self) -> Result<i64, String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
-        conn.query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))
-            .map_err(|e| e.to_string())
+        conn.query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())
     }
 
     // ========================================================================
@@ -371,60 +631,41 @@ impl SqliteDb {
     /// 全文搜索（名称/描述/标签/别名/开发商/发行商/原版标题/exe路径）。
     /// 复用 db::Database 的搜索逻辑：加载全部→内存过滤。
     pub fn search_games(&self, query: &str) -> Result<Vec<Game>, String> {
-        let all = self.list_games()?;
+        let query = query.trim();
+        if query.is_empty() {
+            return self.list_games();
+        }
         let query_lower = query.to_lowercase();
-        Ok(all
+
+        // ASCII queries use SQLite to narrow the candidate set before JSON
+        // deserialization. Non-ASCII case folding stays in Rust so CJK and
+        // Unicode behavior remains identical to the legacy implementation.
+        let candidates = if query.is_ascii() {
+            let conn = self.conn.lock().map_err(|e| e.to_string())?;
+            let escaped = query
+                .replace('\\', r"\\")
+                .replace('%', r"\%")
+                .replace('_', r"\_");
+            let pattern = format!("%{escaped}%");
+            let mut statement = conn
+                .prepare(
+                    r"SELECT data_json FROM games
+                      WHERE name LIKE ?1 ESCAPE '\' OR sort_name LIKE ?1 ESCAPE '\'
+                         OR data_json LIKE ?1 ESCAPE '\'
+                      ORDER BY sort_name",
+                )
+                .map_err(|e| e.to_string())?;
+            let rows = statement
+                .query_map(params![pattern], |row| row.get::<_, String>(0))
+                .map_err(|e| e.to_string())?;
+            collect_games(rows)?
+        } else {
+            self.list_games()?
+        };
+
+        Ok(candidates
             .into_iter()
-            .filter(|game| {
-                if game.name.to_lowercase().contains(&query_lower) {
-                    return true;
-                }
-                if let Some(ref desc) = game.description {
-                    if desc.to_lowercase().contains(&query_lower) {
-                        return true;
-                    }
-                }
-                if game
-                    .tags
-                    .iter()
-                    .any(|t| t.to_lowercase().contains(&query_lower))
-                {
-                    return true;
-                }
-                if game
-                    .tag_entries
-                    .iter()
-                    .any(|t| t.name.to_lowercase().contains(&query_lower))
-                {
-                    return true;
-                }
-                if game
-                    .aliases
-                    .iter()
-                    .any(|a| a.name.to_lowercase().contains(&query_lower))
-                {
-                    return true;
-                }
-                if let Some(ref dev) = game.metadata.developer {
-                    if dev.to_lowercase().contains(&query_lower) {
-                        return true;
-                    }
-                }
-                if let Some(ref pub_) = game.metadata.publisher {
-                    if pub_.to_lowercase().contains(&query_lower) {
-                        return true;
-                    }
-                }
-                if let Some(ref orig) = game.metadata.original_name {
-                    if orig.to_lowercase().contains(&query_lower) {
-                        return true;
-                    }
-                }
-                if game.exe_path.to_lowercase().contains(&query_lower) {
-                    return true;
-                }
-                false
-            })
+            .filter(|game| game_matches_search(game, &query_lower))
             .collect())
     }
 
@@ -1525,6 +1766,42 @@ fn push_store_link(stores: &mut Vec<StoreLink>, name: &str, url: String) {
 }
 
 /// 把 `query_map` 的行（data_json 字符串）收成 `Vec<Game>`，跳过反序列化失败的脏行。
+fn game_matches_search(game: &Game, query_lower: &str) -> bool {
+    game.name.to_lowercase().contains(query_lower)
+        || game
+            .description
+            .as_deref()
+            .is_some_and(|value| value.to_lowercase().contains(query_lower))
+        || game
+            .tags
+            .iter()
+            .any(|value| value.to_lowercase().contains(query_lower))
+        || game
+            .tag_entries
+            .iter()
+            .any(|value| value.name.to_lowercase().contains(query_lower))
+        || game
+            .aliases
+            .iter()
+            .any(|value| value.name.to_lowercase().contains(query_lower))
+        || game
+            .metadata
+            .developer
+            .as_deref()
+            .is_some_and(|value| value.to_lowercase().contains(query_lower))
+        || game
+            .metadata
+            .publisher
+            .as_deref()
+            .is_some_and(|value| value.to_lowercase().contains(query_lower))
+        || game
+            .metadata
+            .original_name
+            .as_deref()
+            .is_some_and(|value| value.to_lowercase().contains(query_lower))
+        || game.exe_path.to_lowercase().contains(query_lower)
+}
+
 fn collect_games(
     rows: rusqlite::MappedRows<'_, impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<String>>,
 ) -> Result<Vec<Game>, String> {
@@ -1566,6 +1843,249 @@ mod tests {
             Some("\"sakura\"")
         );
         assert_eq!(db.get_setting("missing").unwrap(), None);
+    }
+
+    #[test]
+    fn v5_schema_contains_ledger_domain_tables_and_indexes() {
+        let db = SqliteDb::open_in_memory().unwrap();
+        db.with_connection(|conn| {
+            let ledger = conn
+                .prepare("SELECT version, name, checksum FROM schema_migrations ORDER BY version")
+                .map_err(|e| e.to_string())?
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })
+                .map_err(|e| e.to_string())?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| e.to_string())?;
+            assert_eq!(ledger.len(), SCHEMA_MIGRATIONS.len());
+            for (actual, expected) in ledger.iter().zip(SCHEMA_MIGRATIONS) {
+                assert_eq!(actual.0, expected.version);
+                assert_eq!(actual.1, expected.name);
+                assert_eq!(actual.2, expected.checksum);
+            }
+
+            for table in [
+                "activity_events",
+                "progress_records",
+                "provider_health",
+                "background_jobs",
+                "provider_configs",
+                "ai_task_results",
+            ] {
+                let exists: bool = conn
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
+                        params![table],
+                        |row| row.get(0),
+                    )
+                    .map_err(|e| e.to_string())?;
+                assert!(exists, "missing schema table {table}");
+            }
+
+            for index in [
+                "idx_activity_events_started_at",
+                "idx_activity_events_type_started_at",
+                "idx_activity_events_resource_started_at",
+                "idx_progress_records_resource_updated",
+                "idx_progress_records_updated_at",
+                "idx_provider_health_state",
+                "idx_background_jobs_status_updated",
+                "idx_background_jobs_kind_status",
+                "idx_provider_configs_resource_enabled",
+                "idx_provider_configs_kind",
+                "idx_ai_task_results_expires",
+            ] {
+                let exists: bool = conn
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='index' AND name=?1)",
+                        params![index],
+                        |row| row.get(0),
+                    )
+                    .map_err(|e| e.to_string())?;
+                assert!(exists, "missing schema index {index}");
+            }
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn v2_upgrade_is_idempotent_and_preserves_legacy_rows() {
+        let path = std::env::temp_dir().join(format!(
+            "moeplay_v2_upgrade_{}.sqlite",
+            uuid::Uuid::new_v4()
+        ));
+        let _ = std::fs::remove_file(&path);
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE schema_version (version INTEGER NOT NULL);
+                 INSERT INTO schema_version(version) VALUES (2);
+                 CREATE TABLE games (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    sort_name TEXT,
+                    game_type TEXT,
+                    favorite INTEGER NOT NULL DEFAULT 0,
+                    hidden INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT,
+                    updated_at TEXT,
+                    data_json TEXT NOT NULL
+                 );
+                 INSERT INTO games(id,name,sort_name,data_json)
+                 VALUES('legacy','Legacy Game','legacy','{}');
+                 CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
+                 INSERT INTO settings(key,value_json) VALUES('custom','\"kept\"');",
+            )
+            .unwrap();
+        }
+
+        {
+            let db = SqliteDb::open(&path).unwrap();
+            assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
+            assert_eq!(db.game_count().unwrap(), 1);
+            db.with_connection(|conn| {
+                let count: i64 = conn
+                    .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+                        row.get(0)
+                    })
+                    .map_err(|e| e.to_string())?;
+                assert_eq!(count, SCHEMA_MIGRATIONS.len() as i64);
+                Ok(())
+            })
+            .unwrap();
+        }
+        {
+            let db = SqliteDb::open(&path).unwrap();
+            assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
+            assert_eq!(db.game_count().unwrap(), 1);
+            db.with_connection(|conn| {
+                let count: i64 = conn
+                    .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+                        row.get(0)
+                    })
+                    .map_err(|e| e.to_string())?;
+                assert_eq!(count, SCHEMA_MIGRATIONS.len() as i64);
+                Ok(())
+            })
+            .unwrap();
+        }
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
+    }
+
+    #[test]
+    fn migration_ledger_checksum_mismatch_fails_closed() {
+        let db = SqliteDb::open_in_memory().unwrap();
+        db.with_connection(|conn| {
+            conn.execute(
+                "UPDATE schema_migrations SET checksum='sha256:tampered' WHERE version=4",
+                [],
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+        })
+        .unwrap();
+        let error = db.migrate().unwrap_err();
+        assert!(error.contains("checksum mismatch for version 4"));
+    }
+
+    #[test]
+    fn migration_failure_rolls_back_schema_and_ledger() {
+        let db = SqliteDb {
+            conn: Mutex::new(Connection::open_in_memory().unwrap()),
+        };
+        let error = db
+            .migrate_with_hook(|| Err("injected v4 failure".to_string()))
+            .unwrap_err();
+        assert_eq!(error, "injected v4 failure");
+        db.with_connection(|conn| {
+            for table in [
+                "schema_version",
+                "games",
+                "settings",
+                "schema_migrations",
+                "activity_events",
+                "progress_records",
+                "provider_health",
+                "background_jobs",
+                "provider_configs",
+                "ai_task_results",
+            ] {
+                let exists: bool = conn
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
+                        params![table],
+                        |row| row.get(0),
+                    )
+                    .map_err(|e| e.to_string())?;
+                assert!(!exists, "failed migration left table {table}");
+            }
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn failed_v4_upgrade_preserves_existing_v3_schema_and_ledger() {
+        let db = SqliteDb::open_in_memory().unwrap();
+        db.with_connection(|conn| {
+            conn.execute_batch(
+                "DROP TABLE provider_configs;
+                 DROP TABLE ai_task_results;
+                 DELETE FROM schema_migrations WHERE version>=4;
+                 UPDATE schema_version SET version=3;
+                 INSERT INTO provider_health(provider_id,operation,state)
+                 VALUES('preserved','search','healthy');",
+            )
+            .map_err(|e| e.to_string())
+        })
+        .unwrap();
+
+        let error = db
+            .migrate_with_hook(|| Err("injected v4 upgrade failure".to_string()))
+            .unwrap_err();
+        assert_eq!(error, "injected v4 upgrade failure");
+        assert_eq!(db.schema_version().unwrap(), 3);
+        db.with_connection(|conn| {
+            let ledger_count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get(0))
+                .map_err(|e| e.to_string())?;
+            assert_eq!(ledger_count, 3);
+            let provider_configs_exists: bool = conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='provider_configs')",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            assert!(!provider_configs_exists);
+            let ai_results_exists: bool = conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='ai_task_results')",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            assert!(!ai_results_exists);
+            let preserved: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM provider_health WHERE provider_id='preserved'",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            assert_eq!(preserved, 1);
+            Ok(())
+        })
+        .unwrap();
     }
 
     #[test]
@@ -2010,5 +2530,146 @@ mod tests {
         let found = db.search_games("Game 500").unwrap();
         assert!(!found.is_empty());
         assert!(t0.elapsed().as_millis() < 200, "Search too slow");
+    }
+    #[test]
+    fn benchmark_5000_games_release_candidate_budget() {
+        let db = SqliteDb::open_in_memory().unwrap();
+        let games: Vec<Game> = (0..5_000)
+            .map(|index| {
+                mock(
+                    &format!("perf-{index:05}"),
+                    &format!("Performance Game {index}"),
+                )
+            })
+            .collect();
+
+        let started = std::time::Instant::now();
+        assert_eq!(db.import_games(&games).unwrap(), 5_000);
+        let import_ms = started.elapsed().as_millis();
+        assert!(import_ms < 15_000, "Import 5000 games took {import_ms}ms");
+
+        let started = std::time::Instant::now();
+        let all = db.list_games().unwrap();
+        let list_ms = started.elapsed().as_millis();
+        assert_eq!(all.len(), 5_000);
+        assert!(list_ms < 2_000, "List 5000 games took {list_ms}ms");
+
+        let started = std::time::Instant::now();
+        let found = db.search_games("Performance Game 4321").unwrap();
+        let search_ms = started.elapsed().as_millis();
+        assert_eq!(
+            found.first().map(|game| game.id.as_str()),
+            Some("perf-04321")
+        );
+        assert!(search_ms < 750, "Search 5000 games took {search_ms}ms");
+    }
+
+    fn percentile_ms(samples: &mut [u128], percentile: usize) -> u128 {
+        samples.sort_unstable();
+        let index = ((samples.len() - 1) * percentile).div_ceil(100);
+        samples[index.min(samples.len() - 1)]
+    }
+
+    #[test]
+    #[ignore = "nightly Windows performance gate"]
+    fn benchmark_10000_games_nightly() {
+        let path = std::env::temp_dir().join(format!(
+            "moeplay_10k_nightly_{}.sqlite",
+            uuid::Uuid::new_v4()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let games: Vec<Game> = (0..10_000)
+            .map(|index| {
+                mock(
+                    &format!("nightly-{index:05}"),
+                    &format!("Nightly Performance Game {index}"),
+                )
+            })
+            .collect();
+
+        let (list_ms, search_p95, update_p95, update_p99) = {
+            let db = SqliteDb::open(&path).unwrap();
+            assert_eq!(db.import_games(&games).unwrap(), 10_000);
+
+            let started = std::time::Instant::now();
+            let all = db.list_games().unwrap();
+            let list_ms = started.elapsed().as_millis();
+            assert_eq!(all.len(), 10_000);
+            assert!(list_ms <= 4_000, "List 10000 games took {list_ms}ms");
+
+            let mut search_samples = Vec::new();
+            for index in (0..10_000).step_by(499).take(20) {
+                let started = std::time::Instant::now();
+                let found = db
+                    .search_games(&format!("Nightly Performance Game {index}"))
+                    .unwrap();
+                search_samples.push(started.elapsed().as_millis());
+                let expected_id = format!("nightly-{index:05}");
+                assert!(found.iter().any(|game| game.id == expected_id));
+            }
+            let search_p95 = percentile_ms(&mut search_samples, 95);
+            assert!(
+                search_p95 <= 150,
+                "Search 10000 games P95 took {search_p95}ms"
+            );
+
+            let mut update_samples = Vec::new();
+            for index in 0..100 {
+                let started = std::time::Instant::now();
+                db.update_game_name("nightly-05000", format!("Nightly Updated Game {index}"))
+                    .unwrap();
+                update_samples.push(started.elapsed().as_millis());
+            }
+            let update_p95 = percentile_ms(&mut update_samples.clone(), 95);
+            let update_p99 = percentile_ms(&mut update_samples, 99);
+            assert!(update_p95 <= 50, "Update P95 took {update_p95}ms");
+            assert!(update_p99 <= 150, "Update P99 took {update_p99}ms");
+
+            // Recreate the metadata shape of a structurally repaired v2 database
+            // so reopening measures the full v3-v5 migration on a 10k library.
+            db.with_connection(|conn| {
+                conn.execute_batch(
+                    "DROP TABLE activity_events;
+                     DROP TABLE progress_records;
+                     DROP TABLE provider_health;
+                     DROP TABLE background_jobs;
+                     DROP TABLE provider_configs;
+                     DROP TABLE ai_task_results;
+                     DELETE FROM schema_migrations WHERE version>=3;
+                     UPDATE schema_version SET version=2;",
+                )
+                .map_err(|error| error.to_string())
+            })
+            .unwrap();
+            (list_ms, search_p95, update_p95, update_p99)
+        };
+
+        let migration_started = std::time::Instant::now();
+        let migrated = SqliteDb::open(&path).unwrap();
+        let migration_ms = migration_started.elapsed().as_millis();
+        assert_eq!(migrated.schema_version().unwrap(), SCHEMA_VERSION);
+        assert_eq!(migrated.game_count().unwrap(), 10_000);
+        assert!(
+            migration_ms <= 30_000,
+            "v2 to v5 migration for 10000 games took {migration_ms}ms"
+        );
+        drop(migrated);
+
+        let mut open_samples = Vec::new();
+        for _ in 0..20 {
+            let started = std::time::Instant::now();
+            let db = SqliteDb::open(&path).unwrap();
+            assert_eq!(db.game_count().unwrap(), 10_000);
+            open_samples.push(started.elapsed().as_millis());
+        }
+        let open_p95 = percentile_ms(&mut open_samples, 95);
+        assert!(open_p95 <= 250, "DB open P95 took {open_p95}ms");
+
+        println!(
+            "10k-nightly list_ms={list_ms} search_p95_ms={search_p95} update_p95_ms={update_p95} update_p99_ms={update_p99} migration_ms={migration_ms} open_p95_ms={open_p95}"
+        );
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
     }
 }

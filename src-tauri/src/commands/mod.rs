@@ -10,6 +10,8 @@ mod import;
 pub use import::*;
 mod settings;
 pub use settings::*;
+mod secrets;
+pub use secrets::*;
 mod tasks;
 pub use tasks::*;
 mod translation;
@@ -53,3 +55,21 @@ pub use manga::*;
 
 mod anime;
 pub use anime::*;
+
+mod activity;
+pub use activity::*;
+
+mod library_v2;
+pub use library_v2::*;
+
+mod anime_provider;
+pub use anime_provider::*;
+
+mod comic_provider;
+pub use comic_provider::*;
+
+mod ai_v2;
+pub use ai_v2::*;
+
+mod ai_changes;
+pub use ai_changes::*;

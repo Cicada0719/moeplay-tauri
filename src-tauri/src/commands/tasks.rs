@@ -1,16 +1,25 @@
 use crate::task_queue::{AppTask, TaskQueue, TaskStatus};
 use tauri::State;
 
+/// Legacy command name backed by the persistent BackgroundJob control plane.
 #[tauri::command]
-pub fn enqueue_task(queue: State<'_, TaskQueue>, title: String, kind: String) -> AppTask {
-    queue.enqueue(title, kind)
+pub fn enqueue_task(
+    queue: State<'_, TaskQueue>,
+    title: String,
+    kind: String,
+    idempotency_key: Option<String>,
+) -> Result<AppTask, String> {
+    queue.enqueue_with_key(title, kind, idempotency_key)
 }
 
 #[tauri::command]
-pub fn get_tasks(queue: State<'_, TaskQueue>) -> Vec<AppTask> {
-    queue.list()
+pub fn get_tasks(queue: State<'_, TaskQueue>) -> Result<Vec<AppTask>, String> {
+    queue.list_result()
 }
 
+/// `progress` accepts both the new fraction (`0..=1`) and the legacy
+/// percentage (`0..=100`) at the command boundary. It is persisted as a
+/// fraction by TaskQueue.
 #[tauri::command]
 pub fn update_task(
     queue: State<'_, TaskQueue>,
@@ -28,6 +37,6 @@ pub fn cancel_task(queue: State<'_, TaskQueue>, id: String) -> Result<AppTask, S
 }
 
 #[tauri::command]
-pub fn clear_finished_tasks(queue: State<'_, TaskQueue>) {
-    queue.clear_finished();
+pub fn clear_finished_tasks(queue: State<'_, TaskQueue>) -> Result<(), String> {
+    queue.clear_finished()
 }
