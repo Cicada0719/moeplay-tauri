@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "cargoDenyVersion": "0.20.2",
+  "target": "x86_64-pc-windows-msvc",
+  "advisoryExceptions": []
+}

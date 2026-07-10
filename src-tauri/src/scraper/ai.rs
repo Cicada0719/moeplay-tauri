@@ -5,14 +5,9 @@
 //! - 推断更准确的标签分类
 //! - 生成背景图搜索关键词
 
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use tokio::time::Duration;
-
+use super::ai_presets::{self, AiProvider};
 use super::error::ScrapeError;
-
-/// HTTP 请求超时
-const REQUEST_TIMEOUT_SECS: u64 = 30;
+use serde::{Deserialize, Serialize};
 
 // ========== 公共类型 ==========
 
@@ -24,48 +19,40 @@ pub struct AiEnhancedMeta {
     pub background: Option<String>,
 }
 
-/// AI 刮削配置
+/// AI 刮削配置。
+///
+/// Provider 与 API Key 保持在同一份已校验对象中，调用方不能再单独替换 endpoint
+/// 后继续复用原 Key。
 #[derive(Debug, Clone)]
 pub struct AiScrapeConfig {
-    pub api_url: String,
-    pub api_key: String,
-    pub model: String,
+    provider: AiProvider,
+}
+
+impl AiScrapeConfig {
+    pub fn from_legacy_settings(
+        api_url: &str,
+        api_key: &str,
+        model: &str,
+    ) -> Result<Self, ScrapeError> {
+        let provider = ai_presets::provider_from_legacy_settings(api_url, api_key, model)
+            .map_err(ScrapeError::Config)?;
+        Ok(Self { provider })
+    }
+
+    #[cfg(test)]
+    fn provider(&self) -> &AiProvider {
+        &self.provider
+    }
 }
 
 impl Default for AiScrapeConfig {
     fn default() -> Self {
-        Self {
-            api_url: "https://api.openai.com/v1/chat/completions".to_string(),
-            api_key: String::new(),
-            model: "gpt-4o-mini".to_string(),
-        }
+        let provider = ai_presets::builtin_providers()
+            .into_iter()
+            .next()
+            .expect("builtin OpenAI provider must exist");
+        Self { provider }
     }
-}
-
-// ========== OpenAI 兼容请求/响应 ==========
-
-#[derive(Debug, Serialize)]
-struct ChatRequest {
-    model: String,
-    messages: Vec<ChatMessage>,
-    max_tokens: u32,
-    temperature: f32,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct ChatMessage {
-    role: String,
-    content: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct ChatResponse {
-    choices: Vec<ChatChoice>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ChatChoice {
-    message: ChatMessage,
 }
 
 // ========== 公共 API ==========
@@ -82,15 +69,6 @@ pub async fn enhance(
     existing_desc: Option<&str>,
     existing_tags: &[String],
 ) -> Result<AiEnhancedMeta, ScrapeError> {
-    if config.api_key.is_empty() {
-        return Err(ScrapeError::Config("AI API Key 未配置".into()));
-    }
-
-    let client = Client::builder()
-        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .build()
-        .map_err(|e| ScrapeError::Network(e.to_string()))?;
-
     let tag_str = if existing_tags.is_empty() {
         "无".to_string()
     } else {
@@ -118,58 +96,22 @@ pub async fn enhance(
         game_name, desc_hint, tag_str
     );
 
-    let req = ChatRequest {
-        model: config.model.clone(),
-        messages: vec![
-            ChatMessage {
-                role: "system".to_string(),
-                content: system_prompt.to_string(),
-            },
-            ChatMessage {
-                role: "user".to_string(),
-                content: user_prompt,
-            },
-        ],
-        max_tokens: 800,
-        temperature: 0.7,
-    };
-
-    let resp = client
-        .post(&config.api_url)
-        .header("Authorization", format!("Bearer {}", config.api_key))
-        .header("Content-Type", "application/json")
-        .json(&req)
-        .send()
-        .await
-        .map_err(|e| ScrapeError::Network(e.to_string()))?;
-
-    let status = resp.status();
-    if !status.is_success() {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(ScrapeError::Api {
-            status: status.as_u16(),
-            body,
-        });
-    }
-
-    let chat_resp: ChatResponse = resp
-        .json()
-        .await
-        .map_err(|e| ScrapeError::Parse(e.to_string()))?;
-
-    let content = chat_resp
-        .choices
-        .first()
-        .ok_or_else(|| ScrapeError::Parse("AI 未返回结果".into()))?
-        .message
-        .content
-        .clone();
+    let content = ai_presets::call_llm(
+        &config.provider,
+        &config.provider.default_model,
+        system_prompt,
+        &user_prompt,
+        0.7,
+        800,
+    )
+    .await
+    .map_err(ScrapeError::Network)?;
 
     // 从可能包含 markdown 代码块的响应中提取 JSON
     let json_str = extract_json(&content);
 
     let enhanced: AiEnhancedMeta = serde_json::from_str(json_str)
-        .map_err(|e| ScrapeError::Parse(format!("AI 输出解析失败: {} | 原文: {}", e, content)))?;
+        .map_err(|_| ScrapeError::Parse("AI 输出不是有效的元数据 JSON".to_string()))?;
 
     Ok(enhanced)
 }
@@ -212,4 +154,58 @@ fn extract_json(content: &str) -> &str {
     }
 
     trimmed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scraper::ai_presets::ProviderType;
+
+    #[test]
+    fn scrape_config_accepts_local_provider_without_key() {
+        let config = AiScrapeConfig::from_legacy_settings(
+            "http://[::1]:11434/v1/chat/completions",
+            "",
+            "qwen2.5:7b",
+        )
+        .unwrap();
+
+        assert_eq!(config.provider().provider_type, ProviderType::Ollama);
+        assert!(config.provider().api_key().is_empty());
+    }
+
+    #[test]
+    fn scrape_config_rejects_remote_plaintext_and_unknown_key_origin() {
+        let plaintext = AiScrapeConfig::from_legacy_settings(
+            "http://api.openai.com/v1/chat/completions",
+            "sk-secret",
+            "gpt-4o-mini",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(plaintext.contains("HTTPS"));
+        assert!(!plaintext.contains("sk-secret"));
+
+        let unknown = AiScrapeConfig::from_legacy_settings(
+            "https://proxy.example.com/v1/chat/completions",
+            "sk-secret",
+            "gpt-4o-mini",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(unknown.contains("安全绑定"));
+        assert!(!unknown.contains("sk-secret"));
+    }
+
+    #[test]
+    fn json_parse_errors_do_not_include_full_model_output() {
+        let model_output = "sensitive model output that is not json";
+        let json = extract_json(model_output);
+        let error = serde_json::from_str::<AiEnhancedMeta>(json)
+            .map_err(|_| ScrapeError::Parse("AI 输出不是有效的元数据 JSON".to_string()))
+            .unwrap_err()
+            .to_string();
+
+        assert!(!error.contains(model_output));
+    }
 }
