@@ -14,10 +14,18 @@
   let {
     title,
     items,
+    startIndex = 0,
+    activeIndex = -1,
+    zoneActive = false,
+    onfocusitem,
     onselect,
   }: {
     title: string;
     items: MediaItem[];
+    startIndex?: number;
+    activeIndex?: number;
+    zoneActive?: boolean;
+    onfocusitem?: (index: number) => void;
     onselect?: (item: MediaItem) => void;
   } = $props();
 
@@ -27,24 +35,43 @@
     if (!scroller) return;
     scroller.scrollBy({ left: dir * 300, behavior: "smooth" });
   }
+
+  $effect(() => {
+    const index = activeIndex;
+    if (!zoneActive || index < startIndex || index >= startIndex + items.length) return;
+    queueMicrotask(() => {
+      const target = scroller?.querySelector<HTMLElement>(`[data-media-index="${index}"]`);
+      target?.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" });
+      target?.focus({ preventScroll: true });
+    });
+  });
 </script>
 
 {#if items.length > 0}
-  <div class="bpmr-section">
+  <section class="bpmr-section" aria-label={title}>
     <div class="bpmr-header">
       <h4 class="bpmr-title">{title}</h4>
-      <div class="bpmr-nav">
-        <button class="bpmr-arrow" onclick={() => scroll(-1)} aria-label="左滚">
+      <div class="bpmr-nav" aria-hidden="true">
+        <button class="bpmr-arrow" tabindex="-1" onclick={() => scroll(-1)} aria-label="左滚">
           <Icon name="chevronLeft" size={14} />
         </button>
-        <button class="bpmr-arrow" onclick={() => scroll(1)} aria-label="右滚">
+        <button class="bpmr-arrow" tabindex="-1" onclick={() => scroll(1)} aria-label="右滚">
           <Icon name="chevronRight" size={14} />
         </button>
       </div>
     </div>
-    <div class="bpmr-track" bind:this={scroller}>
-      {#each items as item (item.id)}
-        <button class="bpmr-card" onclick={() => onselect?.(item)}>
+    <div class="bpmr-track" bind:this={scroller} role="group" aria-label={title}>
+      {#each items as item, localIndex (item.id)}
+        {@const globalIndex = startIndex + localIndex}
+        <button
+          class="bpmr-card"
+          class:zone-focus={zoneActive && activeIndex === globalIndex}
+          data-media-index={globalIndex}
+          tabindex={zoneActive && activeIndex === globalIndex ? 0 : -1}
+          aria-current={activeIndex === globalIndex ? "true" : undefined}
+          onclick={() => onselect?.(item)}
+          onfocus={() => onfocusitem?.(globalIndex)}
+        >
           <div class="bpmr-cover">
             {#if item.cover}
               <CachedImage source={item.cover} cacheKey={`bpmr-${item.id}`} alt={item.title} />
@@ -52,22 +79,18 @@
               <div class="bpmr-placeholder">{item.title[0]}</div>
             {/if}
             {#if item.progress !== undefined}
-              <div class="bpmr-progress-bar">
-                <div class="bpmr-progress-fill" style="width:{item.progress}%"></div>
-              </div>
+              <div class="bpmr-progress-bar"><div class="bpmr-progress-fill" style="width:{item.progress}%"></div></div>
             {/if}
             <span class="bpmr-type-badge">{item.type === "anime" ? "📺" : "📖"}</span>
           </div>
           <div class="bpmr-info">
             <span class="bpmr-name">{item.title}</span>
-            {#if item.progressLabel}
-              <span class="bpmr-progress-label">{item.progressLabel}</span>
-            {/if}
+            {#if item.progressLabel}<span class="bpmr-progress-label">{item.progressLabel}</span>{/if}
           </div>
         </button>
       {/each}
     </div>
-  </div>
+  </section>
 {/if}
 
 <style>
@@ -97,7 +120,7 @@
     padding: 2px; transition: all 0.15s;
   }
   .bpmr-card:hover { border-color: rgba(255,255,255,0.15); }
-  .bpmr-card:focus { border-color: var(--accent); outline: none; }
+  .bpmr-card:focus, .bpmr-card.zone-focus { border-color: var(--accent); outline: none; box-shadow: var(--ring-switch, 0 0 0 3px rgba(232,85,127,.35)); }
 
   .bpmr-cover {
     width: 100%; aspect-ratio: 3/4; border-radius: 6px; overflow: hidden;

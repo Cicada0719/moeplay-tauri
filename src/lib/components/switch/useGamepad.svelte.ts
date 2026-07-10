@@ -1,6 +1,13 @@
-// Switch/PS5 外壳共用的手柄导航 composable。
-// 用 Gamepad API + requestAnimationFrame 轮询，按钮做边沿去抖（按下→释放才触发一次）。
-// 仅在有手柄连接且窗口聚焦时轮询；返回 detach 清理函数。
+import {
+  getDefaultGamepadFocusRuntime,
+  type GamepadFocusRuntime,
+  type GamepadScopeController,
+  type GamepadScopeHandlers,
+  type GamepadScopeOptions,
+  type GamepadZone,
+} from "../../actions/a11y/gamepadFocus";
+
+// 兼容旧调用的手柄入口，同时委托给共享的 scope/zone runtime。
 //
 // 按键映射（Xbox / PS 通用下标）：
 //   0 = A / ✕  → launch（启动）
@@ -9,92 +16,81 @@
 //   3 = Y / △  → activate（详情）
 //   4/5 = LB/RB → pageLeft/pageRight
 //   12-15 = 十字键 上/下/左/右
-// 左摇杆水平轴用 latch 去抖。
+// 左摇杆双轴与十字键共享 320ms 初始延迟、100ms 连发。
 
-export type GamepadHandlers = {
-  left?: () => void;
-  right?: () => void;
-  pageLeft?: () => void;
-  pageRight?: () => void;
-  activate?: () => void;
-  launch?: () => void;
-  favorite?: () => void;
-  back?: () => void;
+export type GamepadHandlers = GamepadScopeHandlers;
+
+export type AttachGamepadOptions = GamepadScopeOptions & {
+  runtime?: GamepadFocusRuntime | null;
 };
 
-const BTN = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, DUP: 12, DDOWN: 13, DLEFT: 14, DRIGHT: 15 };
+export type GamepadAttachment = (() => void) & {
+  readonly id: string | null;
+  pause(): void;
+  resume(): void;
+  activate(): void;
+  setZone(zone: GamepadZone | null): void;
+  setPriority(priority: number): void;
+  setOverlay(overlay: boolean): void;
+  setEnabled(enabled: boolean): void;
+  updateHandlers(handlers: GamepadHandlers): void;
+};
 
-export function attachGamepad(handlers: GamepadHandlers): () => void {
-  if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") {
-    return () => {};
-  }
+function inertAttachment(): GamepadAttachment {
+  const detach = (() => {}) as GamepadAttachment;
+  Object.defineProperty(detach, "id", { value: null });
+  detach.pause = () => {};
+  detach.resume = () => {};
+  detach.activate = () => {};
+  detach.setZone = () => {};
+  detach.setPriority = () => {};
+  detach.setOverlay = () => {};
+  detach.setEnabled = () => {};
+  detach.updateHandlers = () => {};
+  return detach;
+}
 
-  let raf = 0;
-  let running = false;
-  const prev: Record<number, boolean> = {};
-  let axisLatch = 0; // -1 | 0 | 1
-
-  const edge = (i: number, pressed: boolean): boolean => {
-    const was = prev[i] ?? false;
-    prev[i] = pressed;
-    return pressed && !was;
+function adaptHandlers(handlers: GamepadHandlers): GamepadScopeHandlers {
+  return {
+    ...handlers,
+    // Existing call sites used pageLeft/pageRight as their vertical movement
+    // hooks. Keep that behavior until the visual components adopt explicit
+    // up/down handlers in P0-05.
+    up: handlers.up ?? handlers.pageLeft,
+    down: handlers.down ?? handlers.pageRight,
   };
+}
 
-  const anyPad = (): boolean =>
-    Array.from(navigator.getGamepads?.() ?? []).some((p) => p != null);
+function attachmentFor(controller: GamepadScopeController): GamepadAttachment {
+  let detached = false;
+  const detach = (() => {
+    if (detached) return;
+    detached = true;
+    controller.destroy();
+  }) as GamepadAttachment;
 
-  const loop = () => {
-    if (!running) return;
-    raf = requestAnimationFrame(loop);
+  Object.defineProperty(detach, "id", { get: () => controller.id });
+  detach.pause = () => controller.pause();
+  detach.resume = () => controller.resume();
+  detach.activate = () => controller.activate();
+  detach.setZone = (zone) => controller.setZone(zone);
+  detach.setPriority = (priority) => controller.setPriority(priority);
+  detach.setOverlay = (overlay) => controller.setOverlay(overlay);
+  detach.setEnabled = (enabled) => controller.setEnabled(enabled);
+  detach.updateHandlers = (handlers) => controller.updateHandlers(adaptHandlers(handlers));
+  return detach;
+}
 
-    if (typeof document !== "undefined" && typeof document.hasFocus === "function" && !document.hasFocus()) {
-      return;
-    }
-
-    const pad = Array.from(navigator.getGamepads?.() ?? []).find((p) => p != null);
-    if (!pad) return;
-
-    const b = pad.buttons;
-    const ax = pad.axes[0] ?? 0;
-
-    if (ax < -0.5) {
-      if (axisLatch !== -1) { axisLatch = -1; handlers.left?.(); }
-    } else if (ax > 0.5) {
-      if (axisLatch !== 1) { axisLatch = 1; handlers.right?.(); }
-    } else {
-      axisLatch = 0;
-    }
-
-    if (edge(BTN.DLEFT, !!b[BTN.DLEFT]?.pressed)) handlers.left?.();
-    if (edge(BTN.DRIGHT, !!b[BTN.DRIGHT]?.pressed)) handlers.right?.();
-    if (edge(BTN.LB, !!b[BTN.LB]?.pressed)) (handlers.pageLeft ?? handlers.left)?.();
-    if (edge(BTN.RB, !!b[BTN.RB]?.pressed)) (handlers.pageRight ?? handlers.right)?.();
-    if (edge(BTN.A, !!b[BTN.A]?.pressed)) handlers.launch?.();
-    if (edge(BTN.Y, !!b[BTN.Y]?.pressed)) handlers.activate?.();
-    if (edge(BTN.X, !!b[BTN.X]?.pressed)) handlers.favorite?.();
-    if (edge(BTN.B, !!b[BTN.B]?.pressed)) handlers.back?.();
-  };
-
-  const start = () => {
-    if (running) return;
-    running = true;
-    loop();
-  };
-  const stop = () => {
-    running = false;
-    cancelAnimationFrame(raf);
-  };
-
-  const onConnect = () => start();
-  const onDisconnect = () => { if (!anyPad()) stop(); };
-
-  window.addEventListener("gamepadconnected", onConnect);
-  window.addEventListener("gamepaddisconnected", onDisconnect);
-  if (anyPad()) start();
-
-  return () => {
-    stop();
-    window.removeEventListener("gamepadconnected", onConnect);
-    window.removeEventListener("gamepaddisconnected", onDisconnect);
-  };
+/**
+ * Register a gamepad handler scope. Existing `attachGamepad(handlers)` callers
+ * remain valid and receive a callable detach function; newer callers may use
+ * the controller methods attached to that function.
+ */
+export function attachGamepad(
+  handlers: GamepadHandlers,
+  options: AttachGamepadOptions = {},
+): GamepadAttachment {
+  const { runtime = getDefaultGamepadFocusRuntime(), ...scopeOptions } = options;
+  if (!runtime) return inertAttachment();
+  return attachmentFor(runtime.registerScope(adaptHandlers(handlers), scopeOptions));
 }

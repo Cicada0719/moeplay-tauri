@@ -1,16 +1,26 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { coverOf as gameCoverOf, isInstalled } from "../../utils/game";
   import type { Game } from "../../stores/games.svelte";
   import { fileSrc } from "../../utils";
   import Icon from "../Icon.svelte";
+  import { attachGamepad, type GamepadAttachment } from "../switch/useGamepad.svelte";
 
   let {
     games,
     focusIdx,
     filterAll,
     prefersReducedMotion,
+    active = false,
     onSelect,
     onActivate,
+    onLaunch,
+    onFavorite,
+    onMoveToHero,
+    onMoveToTop,
+    onBack,
+    onTabPrevious,
+    onTabNext,
     onToggleFilter,
     onOpenImport,
   }: {
@@ -18,13 +28,22 @@
     focusIdx: number;
     filterAll: boolean;
     prefersReducedMotion: boolean;
+    active?: boolean;
     onSelect: (idx: number) => void;
     onActivate: (idx: number) => void;
+    onLaunch: (idx: number) => void;
+    onFavorite: (idx: number) => void;
+    onMoveToHero: () => void;
+    onMoveToTop: () => void;
+    onBack: () => void;
+    onTabPrevious: () => void;
+    onTabNext: () => void;
     onToggleFilter: () => void;
     onOpenImport: () => void;
   } = $props();
 
   let railEl = $state<HTMLDivElement>();
+  let scope: GamepadAttachment | null = null;
 
   const WHEEL_RADIUS = 8;
   const wheelRange = $derived({
@@ -35,21 +54,63 @@
     games.slice(wheelRange.start, wheelRange.end + 1).map((g, vi) => ({ g, origIdx: vi + wheelRange.start }))
   );
 
-  $effect(() => {
-    const idx = focusIdx;
-    queueMicrotask(() => {
-      railEl?.querySelector<HTMLElement>(`[data-idx="${idx}"]`)?.scrollIntoView({
-        inline: "nearest",
-        block: "center",
-        behavior: prefersReducedMotion ? "auto" : "smooth",
-      });
+  function move(delta: number) {
+    if (games.length === 0) return;
+    onSelect(Math.max(0, Math.min(games.length - 1, focusIdx + delta)));
+  }
+
+  function focusSelected() {
+    const target = railEl?.querySelector<HTMLElement>(`[data-idx="${focusIdx}"]`);
+    target?.scrollIntoView({
+      inline: "nearest",
+      block: "center",
+      behavior: prefersReducedMotion ? "auto" : "smooth",
     });
+    if (active) target?.focus({ preventScroll: true });
+  }
+
+  function onCardKeydown(event: KeyboardEvent, index: number) {
+    switch (event.key) {
+      case "ArrowUp": event.preventDefault(); move(-1); break;
+      case "ArrowDown": event.preventDefault(); move(1); break;
+      case "ArrowRight": event.preventDefault(); onMoveToHero(); break;
+      case "ArrowLeft": event.preventDefault(); onMoveToTop(); break;
+      case "PageUp": event.preventDefault(); move(-6); break;
+      case "PageDown": event.preventDefault(); move(6); break;
+      case "Home": event.preventDefault(); onSelect(0); break;
+      case "End": event.preventDefault(); onSelect(games.length - 1); break;
+      case "Enter": event.preventDefault(); onActivate(index); break;
+      case " ": event.preventDefault(); onLaunch(index); break;
+      case "Escape": event.preventDefault(); onBack(); break;
+    }
+  }
+
+  $effect(() => {
+    focusIdx;
+    active;
+    queueMicrotask(focusSelected);
+  });
+
+  onMount(() => {
+    scope = attachGamepad({
+      up: () => move(-1),
+      down: () => move(1),
+      left: () => onMoveToTop(),
+      right: () => onMoveToHero(),
+      launch: () => onLaunch(focusIdx),
+      activate: () => onActivate(focusIdx),
+      favorite: () => onFavorite(focusIdx),
+      back: () => onBack(),
+      pageLeft: () => onTabPrevious(),
+      pageRight: () => onTabNext(),
+    }, { id: "big-picture-wheel", zone: "wheel", priority: 20 });
+    return () => { scope?.(); scope = null; };
   });
 
   const monogram = (g: Game) => (g.name?.trim()?.[0] ?? "?").toUpperCase();
 </script>
 
-<aside class="bp-sidebar">
+<aside class="bp-sidebar" data-focus-zone="wheel" data-active={active ? "true" : "false"}>
   <header class="bp-sidebar-head">
     <div class="bp-sidebar-titles">
       <span class="bp-sidebar-kicker">游戏库</span>
@@ -60,6 +121,7 @@
       data-on={filterAll ? "all" : "installed"}
       onclick={onToggleFilter}
       aria-label={filterAll ? "当前：全部，点击仅看已安装" : "当前：已安装，点击查看全部"}
+      tabindex="-1"
     >
       <span class="bp-filter-opt">全部</span>
       <span class="bp-filter-opt">已装</span>
@@ -83,9 +145,10 @@
         onclick={() => onSelect(i)}
         ondblclick={() => { onSelect(i); onActivate(i); }}
         onfocus={() => onSelect(i)}
+        onkeydown={(event) => onCardKeydown(event, i)}
         aria-label={g.name}
         aria-current={i === focusIdx ? "true" : undefined}
-        tabindex={i === focusIdx ? 0 : -1}
+        tabindex={active && i === focusIdx ? 0 : -1}
       >
         <span class="bp-card-art">
           {#if fileSrc(gameCoverOf(g))}
@@ -250,7 +313,7 @@
     50% { box-shadow: 0 0 0 2px var(--accent), 0 18px 44px -12px rgba(232, 85, 127, 0.78); }
   }
   .bp-card:hover { opacity: 1; }
-  .bp-card:focus-visible { outline: none; }
+  .bp-card:focus-visible, .bp-card.focus { outline: none; }
   .bp-card:focus-visible .bp-card-art { box-shadow: var(--ring-switch); }
 
   .bp-progress {
