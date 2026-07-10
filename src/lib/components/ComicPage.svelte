@@ -1,6 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { comicStore, SORT_OPTIONS, type OrdinaryComicSource } from "../stores/comic.svelte";
+  import {
+    comicStore,
+    ORDINARY_SOURCE_OPTIONS,
+    SORT_OPTIONS,
+    type OrdinaryComicSource,
+    type OrdinarySourceKey,
+  } from "../stores/comic.svelte";
   import ComicCard from "./comic/ComicCard.svelte";
   import ComicDetail from "./comic/ComicDetail.svelte";
   import ComicReader from "./comic/ComicReader.svelte";
@@ -17,12 +23,7 @@
   let picacgSearchInput = $state("");
   let punchingIn = $state(false);
 
-  const sourceOptions: { value: OrdinaryComicSource; label: string; hint: string }[] = [
-    { value: "auto", label: "自动", hint: "多源聚合" },
-    { value: "mangadex", label: "MangaDex", hint: "公开 API" },
-    { value: "dm5", label: "DM5", hint: "网页源" },
-    { value: "ikkk", label: "1kkk", hint: "备用网页源" },
-  ];
+  const sourceOptions = ORDINARY_SOURCE_OPTIONS;
 
   const activeSourceLabel = $derived(
     sourceOptions.find((source) => source.value === comicStore.ordinarySource)?.label ?? "自动"
@@ -192,30 +193,55 @@
     </div>
 
     <main class="comic-content">
-      {#if comicStore.mangaDexLoading && comicStore.mangaDexResults.length === 0}
+      {#if comicStore.ordinarySourceSections.length > 0}
+        <div class="ordinary-source-results">
+          <div class="result-head">
+            <span>多源搜索结果</span>
+            <Tag variant="muted" size="sm">{comicStore.mangaDexResults.length} 条</Tag>
+          </div>
+          {#each comicStore.ordinarySourceSections as section (section.source)}
+            <section class="ordinary-source-section">
+              <div class="ordinary-source-head">
+                <div>
+                  <h2>{section.label}</h2>
+                  <span>{section.loading ? "搜索中" : `${section.docs.length} 条结果`}</span>
+                </div>
+                {#if section.error}
+                  <Button variant="ghost" size="sm" press={() => comicStore.retryOrdinarySource(section.source as OrdinarySourceKey)}>重试</Button>
+                {/if}
+              </div>
+              {#if section.loading && section.docs.length === 0}
+                <div class="source-section-loading">
+                  <LoadingSkeleton rows={2} columns={4} />
+                </div>
+              {:else if section.error}
+                <div class="source-section-error"><Icon name="x" size={14} /><span>{section.error}</span></div>
+              {:else if section.docs.length > 0}
+                <div class="comics-grid">
+                  {#each section.docs as comic (comic.id)}
+                    <ComicCard {comic} onclick={() => comicStore.openOrdinaryComic(comic.id)} />
+                  {/each}
+                </div>
+              {:else}
+                <p class="source-section-empty">该图源没有找到结果</p>
+              {/if}
+            </section>
+          {/each}
+        </div>
+      {:else if comicStore.mangaDexLoading}
         <div class="content-loading">
           <LoadingSkeleton rows={4} columns={4} />
           <span class="loading-hint">正在从普通漫画源检索...</span>
         </div>
       {:else if comicStore.mangaDexError}
         <EmptyState icon="x" title="普通漫画源暂时不可用" description={comicStore.mangaDexError} />
-      {:else if comicStore.mangaDexResults.length > 0}
-        <div class="result-head">
-          <span>搜索结果</span>
-          <Tag variant="muted" size="sm">{comicStore.mangaDexResults.length} 条</Tag>
-        </div>
-        <div class="comics-grid">
-          {#each comicStore.mangaDexResults as comic (comic.id)}
-            <ComicCard {comic} onclick={() => comicStore.openMangaDexComic(comic.id)} />
-          {/each}
-        </div>
       {:else}
         <div class="ordinary-empty">
           <Icon name="search" size={30} />
           <h2>搜索漫画，直接阅读</h2>
-          <p>默认走普通漫画源，进入详情后选择章节即可打开同一个漫画阅读器。</p>
+          <p>自动模式会并行搜索所有内置漫画源，单个图源失败不会影响其他结果。</p>
           <div class="quick-searches">
-            {#each ["one piece", "frieren", "dungeon meshi", "chainsaw man"] as keyword}
+            {#each ["海贼王", "葬送的芙莉莲", "迷宫饭", "电锯人"] as keyword}
               <Button variant="ghost" size="sm" press={() => searchOrdinary(keyword)}>{keyword}</Button>
             {/each}
           </div>
@@ -847,6 +873,71 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     gap: 14px;
+  }
+
+  .ordinary-source-results {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .ordinary-source-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .ordinary-source-section:last-child {
+    border-bottom: 0;
+  }
+
+  .ordinary-source-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .ordinary-source-head h2 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 15px;
+  }
+
+  .ordinary-source-head span {
+    display: block;
+    margin-top: 2px;
+    color: var(--text-muted);
+    font-size: 10.5px;
+  }
+
+  .source-section-loading {
+    min-height: 118px;
+  }
+
+  .source-section-error,
+  .source-section-empty {
+    margin: 0;
+    min-height: 70px;
+    padding: 14px;
+    border: 1px dashed var(--border);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  .source-section-error {
+    color: #fca5a5;
+    background: rgba(248,113,113,0.05);
+  }
+
+  .source-section-empty {
+    justify-content: center;
   }
 
   .rank-list,

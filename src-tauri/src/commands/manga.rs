@@ -10,6 +10,8 @@ fn is_allowed_manga_url(url: &str) -> bool {
                         | Some("uploads.mangadex.org")
                         | Some("www.dm5.com")
                         | Some("www.1kkk.com")
+                        | Some("cn.baozimhcn.com")
+                        | Some("cn.dzmanga.com")
                 )
         }
         Err(_) => false,
@@ -22,7 +24,7 @@ pub async fn manga_fetch_json(url: String) -> Result<Value, String> {
         return Err("不允许访问该漫画源地址".into());
     }
 
-    let client = crate::http_client::build_reqwest_client(20, "MoePlay/0.11.9 manga");
+    let client = crate::http_client::build_reqwest_client(20, "MoePlay/0.12.0 manga");
     let response = client
         .get(&url)
         .header(reqwest::header::ACCEPT, "application/json")
@@ -47,26 +49,48 @@ pub async fn manga_fetch_text(url: String) -> Result<String, String> {
         return Err("不允许访问该漫画源地址".into());
     }
 
-    let client = crate::http_client::build_reqwest_client(20, "MoePlay/0.11.9 manga");
-    let response = client
-        .get(&url)
-        .header(
+    let parsed = url::Url::parse(&url).map_err(|e| format!("漫画源地址解析失败: {e}"))?;
+    let is_baozi = matches!(
+        parsed.host_str(),
+        Some("cn.baozimhcn.com") | Some("cn.dzmanga.com")
+    );
+    let user_agent = if is_baozi {
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36 MoePlay/0.12.0"
+    } else {
+        "MoePlay/0.12.0 manga"
+    };
+    let client = crate::http_client::build_reqwest_client(20, user_agent);
+    let attempts = if is_baozi { 3 } else { 1 };
+    let mut last_error = String::new();
+
+    for attempt in 0..attempts {
+        let mut request = client.get(&url).header(
             reqwest::header::ACCEPT,
             "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        )
-        .send()
-        .await
-        .map_err(|e| format!("漫画源请求失败: {e}"))?;
-    let status = response.status();
-
-    if !status.is_success() {
-        return Err(format!("漫画源返回 HTTP {}", status.as_u16()));
+        );
+        if is_baozi {
+            request = request.header(reqwest::header::REFERER, "https://cn.baozimhcn.com/");
+        }
+        match request.send().await {
+            Ok(response) => {
+                let status = response.status();
+                if !status.is_success() {
+                    last_error = format!("漫画源返回 HTTP {}", status.as_u16());
+                } else {
+                    match response.text().await {
+                        Ok(text) => return Ok(text),
+                        Err(error) => last_error = format!("漫画源响应读取失败: {error}"),
+                    }
+                }
+            }
+            Err(error) => last_error = format!("漫画源请求失败: {error}"),
+        }
+        if attempt + 1 < attempts {
+            tokio::time::sleep(std::time::Duration::from_millis(300 * (attempt + 1) as u64)).await;
+        }
     }
 
-    response
-        .text()
-        .await
-        .map_err(|e| format!("漫画源响应读取失败: {e}"))
+    Err(last_error)
 }
 
 #[cfg(test)]
@@ -76,9 +100,21 @@ mod tests {
     #[test]
     fn only_allows_known_manga_hosts() {
         assert!(is_allowed_manga_url("https://api.mangadex.org/manga"));
-        assert!(is_allowed_manga_url("https://uploads.mangadex.org/covers/id/file.jpg"));
-        assert!(is_allowed_manga_url("https://www.dm5.com/search?title=onepiece"));
-        assert!(is_allowed_manga_url("https://www.1kkk.com/search?title=onepiece"));
+        assert!(is_allowed_manga_url(
+            "https://uploads.mangadex.org/covers/id/file.jpg"
+        ));
+        assert!(is_allowed_manga_url(
+            "https://www.dm5.com/search?title=onepiece"
+        ));
+        assert!(is_allowed_manga_url(
+            "https://www.1kkk.com/search?title=onepiece"
+        ));
+        assert!(is_allowed_manga_url(
+            "https://cn.baozimhcn.com/search?q=onepiece"
+        ));
+        assert!(is_allowed_manga_url(
+            "https://cn.dzmanga.com/comic/chapter/id/0_1_1.html"
+        ));
         assert!(!is_allowed_manga_url("http://api.mangadex.org/manga"));
         assert!(!is_allowed_manga_url("https://evil.example/manga"));
     }

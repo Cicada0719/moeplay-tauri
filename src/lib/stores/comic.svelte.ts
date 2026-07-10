@@ -1,5 +1,10 @@
 import { invokeCmd } from "../api/core";
 import {
+  loadBaoziChapterImages,
+  loadBaoziDetail,
+  searchBaozi,
+} from "../sources/baoziProvider";
+import {
   DM5_SOURCE_CONFIG,
   loadDm5Detail,
   searchDm5,
@@ -69,8 +74,32 @@ export interface ComicImage {
   url: string;
 }
 
-export type ComicProvider = "mangadex" | "dm5" | "picacg";
-export type OrdinaryComicSource = "auto" | "mangadex" | Dm5SourceKey;
+export type ComicProvider = "mangadex" | "baozi" | "dm5" | "picacg";
+export type OrdinarySourceKey = "mangadex" | "baozi" | Dm5SourceKey;
+export type OrdinaryComicSource = "auto" | OrdinarySourceKey;
+
+export interface OrdinarySourceSection {
+  source: OrdinarySourceKey;
+  label: string;
+  docs: ComicSummary[];
+  loading: boolean;
+  error: string | null;
+}
+
+export const ORDINARY_SOURCE_OPTIONS: Array<{ value: OrdinaryComicSource; label: string; hint: string }> = [
+  { value: "auto", label: "自动", hint: "并行聚合" },
+  { value: "mangadex", label: "MangaDex", hint: "公开 API" },
+  { value: "baozi", label: "包子漫画", hint: "中文图片源" },
+  { value: "dm5", label: "DM5", hint: "网页源" },
+  { value: "ikkk", label: "1kkk", hint: "备用网页源" },
+];
+
+const ORDINARY_SOURCE_LABELS: Record<OrdinarySourceKey, string> = {
+  mangadex: "MangaDex",
+  baozi: "包子漫画",
+  dm5: DM5_SOURCE_CONFIG.dm5.label,
+  ikkk: DM5_SOURCE_CONFIG.ikkk.label,
+};
 
 export interface ComicListPage {
   docs: ComicSummary[];
@@ -173,6 +202,12 @@ const mangaTextFetcher: Dm5TextFetch = async (url) => {
   return response.text();
 };
 
+async function performOrdinarySearch(source: OrdinarySourceKey, keyword: string): Promise<ComicSummary[]> {
+  if (source === "mangadex") return searchMangaDex(mangaDexFetcher, keyword);
+  if (source === "baozi") return searchBaozi(mangaTextFetcher, keyword);
+  return searchDm5(mangaTextFetcher, keyword, source);
+}
+
 function loadHistory(): ReadRecord[] {
   try {
     return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "[]");
@@ -239,6 +274,9 @@ let _mangaDexResults = $state<ComicSummary[]>([]);
 let _mangaDexLoading = $state(false);
 let _mangaDexError = $state<string | null>(null);
 let _ordinarySource = $state<OrdinaryComicSource>("auto");
+let _ordinarySourceSections = $state<OrdinarySourceSection[]>([]);
+let _ordinaryKeyword = $state("");
+let _ordinarySearchVersion = 0;
 
 // 详情
 let _currentComic = $state<ComicDetail | null>(null);
@@ -298,6 +336,8 @@ export const comicStore = {
   get mangaDexLoading() { return _mangaDexLoading; },
   get mangaDexError() { return _mangaDexError; },
   get ordinarySource() { return _ordinarySource; },
+  get ordinarySourceSections() { return _ordinarySourceSections; },
+  get ordinaryKeyword() { return _ordinaryKeyword; },
   get currentComic() { return _currentComic; },
   get chapters() { return _chapters; },
   get recommendations() { return _recommendations; },
@@ -485,69 +525,81 @@ export const comicStore = {
     }
   },
 
-  async searchMangaDex(keyword: string) {
-    _mangaDexLoading = true;
-    _mangaDexError = null;
-    _mangaDexResults = [];
+  _syncOrdinarySearchState() {
+    _mangaDexResults = _ordinarySourceSections.flatMap((section) => section.docs);
+    _mangaDexLoading = _ordinarySourceSections.some((section) => section.loading);
+    const errors = _ordinarySourceSections
+      .filter((section) => section.error)
+      .map((section) => `${section.label}: ${section.error}`);
+    _mangaDexError = !_mangaDexLoading && _mangaDexResults.length === 0 && errors.length > 0
+      ? errors.join("；")
+      : null;
+  },
+
+  async _searchOrdinarySource(source: OrdinarySourceKey, keyword: string, version: number) {
     try {
-      _mangaDexResults = await searchMangaDex(mangaDexFetcher, keyword);
+      const docs = await performOrdinarySearch(source, keyword);
+      if (version !== _ordinarySearchVersion) return;
+      _ordinarySourceSections = _ordinarySourceSections.map((section) => section.source === source
+        ? { ...section, docs, loading: false, error: null }
+        : section);
     } catch (e) {
-      _mangaDexError = String(e);
+      if (version !== _ordinarySearchVersion) return;
+      _ordinarySourceSections = _ordinarySourceSections.map((section) => section.source === source
+        ? { ...section, docs: [], loading: false, error: String(e) }
+        : section);
     } finally {
-      _mangaDexLoading = false;
+      if (version === _ordinarySearchVersion) this._syncOrdinarySearchState();
     }
+  },
+
+  async _searchOrdinarySources(keyword: string, sources: OrdinarySourceKey[]) {
+    const normalizedKeyword = keyword.trim();
+    if (!normalizedKeyword) return;
+    _ordinaryKeyword = normalizedKeyword;
+    const version = ++_ordinarySearchVersion;
+    _mangaDexResults = [];
+    _mangaDexError = null;
+    _ordinarySourceSections = sources.map((source) => ({
+      source,
+      label: ORDINARY_SOURCE_LABELS[source],
+      docs: [],
+      loading: true,
+      error: null,
+    }));
+    this._syncOrdinarySearchState();
+    await Promise.all(sources.map((source) => this._searchOrdinarySource(source, normalizedKeyword, version)));
+    if (version === _ordinarySearchVersion) this._syncOrdinarySearchState();
+  },
+
+  async retryOrdinarySource(source: OrdinarySourceKey) {
+    if (!_ordinaryKeyword) return;
+    const version = _ordinarySearchVersion;
+    _ordinarySourceSections = _ordinarySourceSections.map((section) => section.source === source
+      ? { ...section, loading: true, error: null }
+      : section);
+    this._syncOrdinarySearchState();
+    await this._searchOrdinarySource(source, _ordinaryKeyword, version);
+  },
+
+  async searchMangaDex(keyword: string) {
+    await this._searchOrdinarySources(keyword, ["mangadex"]);
+  },
+
+  async searchBaoziSource(keyword: string) {
+    await this._searchOrdinarySources(keyword, ["baozi"]);
   },
 
   async searchDm5Source(keyword: string, source: Dm5SourceKey) {
-    _mangaDexLoading = true;
-    _mangaDexError = null;
-    _mangaDexResults = [];
-    try {
-      _mangaDexResults = await searchDm5(mangaTextFetcher, keyword, source);
-    } catch (e) {
-      _mangaDexError = `${DM5_SOURCE_CONFIG[source].label} 失败: ${String(e)}`;
-    } finally {
-      _mangaDexLoading = false;
-    }
+    await this._searchOrdinarySources(keyword, [source]);
   },
 
   async searchOrdinary(keyword: string) {
-    if (_ordinarySource === "mangadex") {
-      await this.searchMangaDex(keyword);
+    if (_ordinarySource === "auto") {
+      await this._searchOrdinarySources(keyword, ["mangadex", "baozi", "dm5", "ikkk"]);
       return;
     }
-    if (_ordinarySource === "dm5" || _ordinarySource === "ikkk") {
-      await this.searchDm5Source(keyword, _ordinarySource);
-      return;
-    }
-
-    _mangaDexLoading = true;
-    _mangaDexError = null;
-    _mangaDexResults = [];
-    const errors: string[] = [];
-    const results: ComicSummary[] = [];
-    try {
-      try {
-        results.push(...await searchMangaDex(mangaDexFetcher, keyword));
-      } catch (e) {
-        errors.push(`MangaDex: ${String(e)}`);
-      }
-
-      for (const source of ["dm5", "ikkk"] as Dm5SourceKey[]) {
-        try {
-          results.push(...await searchDm5(mangaTextFetcher, keyword, source));
-        } catch (e) {
-          errors.push(`${DM5_SOURCE_CONFIG[source].label}: ${String(e)}`);
-        }
-      }
-
-      _mangaDexResults = results;
-      _mangaDexError = results.length === 0
-        ? (errors.join("；") || "没有找到普通漫画结果")
-        : null;
-    } finally {
-      _mangaDexLoading = false;
-    }
+    await this._searchOrdinarySources(keyword, [_ordinarySource]);
   },
 
   // ── 排行榜 ───────────────────────────────────────────────────────────────
@@ -668,7 +720,15 @@ export const comicStore = {
     _recommendations = [];
   },
 
+  async openOrdinaryComic(id: string) {
+    await this.openMangaDexComic(id);
+  },
+
   async openMangaDexComic(id: string) {
+    if (id.startsWith("baozi:")) {
+      await this.openBaoziComic(id);
+      return;
+    }
     if (id.startsWith("dm5:") || id.startsWith("ikkk:")) {
       await this.openDm5Comic(id);
       return;
@@ -711,6 +771,29 @@ export const comicStore = {
     _recommendations = [];
     try {
       const { detail, chapters } = await loadDm5Detail(mangaTextFetcher, id);
+      _currentComic = detail;
+      _chapters = chapters;
+    } catch (e) {
+      _error = String(e);
+      _view = "home";
+      _currentExternalId = "";
+    } finally {
+      _loading = false;
+    }
+  },
+
+  async openBaoziComic(id: string) {
+    _loading = true;
+    _error = null;
+    _view = "detail";
+    _currentProvider = "baozi";
+    _currentExternalId = id;
+    _comments = [];
+    _commentsPage = 1;
+    _commentsTotal = 0;
+    _recommendations = [];
+    try {
+      const { detail, chapters } = await loadBaoziDetail(mangaTextFetcher, id);
       _currentComic = detail;
       _chapters = chapters;
     } catch (e) {
@@ -791,6 +874,10 @@ export const comicStore = {
         const chapter = _chapters.find((c) => c.order === order);
         if (!chapter) throw new Error("未找到 DM5 章节");
         _readerWebUrl = chapter.id;
+      } else if (_currentProvider === "baozi") {
+        const chapter = _chapters.find((c) => c.order === order);
+        if (!chapter) throw new Error("未找到包子漫画章节");
+        _readerImages = await loadBaoziChapterImages(mangaTextFetcher, chapter.id);
       } else if (_currentProvider === "mangadex") {
         const chapter = _chapters.find((c) => c.order === order);
         if (!chapter) throw new Error("未找到 MangaDex 章节");
@@ -865,7 +952,7 @@ export const comicStore = {
 
   async resumeHistory(record: ReadRecord) {
     if (!record?.id) return;
-    if (record.id.startsWith("mangadex:") || record.id.startsWith("dm5:") || record.id.startsWith("ikkk:")) {
+    if (record.id.startsWith("mangadex:") || record.id.startsWith("baozi:") || record.id.startsWith("dm5:") || record.id.startsWith("ikkk:")) {
       await this.openMangaDexComic(record.id);
     } else {
       await this.openComic(record.id);

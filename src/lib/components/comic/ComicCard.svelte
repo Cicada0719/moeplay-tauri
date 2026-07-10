@@ -3,6 +3,7 @@
   import { Card } from "../ui";
 
   let { comic, onclick }: { comic: ComicSummary; onclick?: () => void } = $props();
+  const sourceLabel = $derived(comic.categories[0] ?? "");
 </script>
 
 <Card class="comic-card" padding="none" hoverable focusable role="button" ariaLabel={comic.title} {onclick}>
@@ -14,6 +15,7 @@
       class="thumb"
       onerror={(e) => { (e.currentTarget as HTMLImageElement).src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='170' viewBox='0 0 120 170'%3E%3Crect fill='%231a1d27' width='120' height='170'/%3E%3Ctext x='60' y='90' text-anchor='middle' fill='%23666' font-size='28'%3E📚%3C/text%3E%3C/svg%3E"; }}
     />
+    {#if sourceLabel}<span class="badge-source">{sourceLabel}</span>{/if}
     {#if comic.finished}
       <span class="badge-finished">完结</span>
     {/if}
@@ -21,7 +23,10 @@
   <div class="info">
     <p class="title" title={comic.title}>{comic.title}</p>
     <p class="author">{comic.author || "未知作者"}</p>
-    <p class="meta">{comic.eps_count}话 · {(comic.total_views / 1000).toFixed(0)}k</p>
+    <p class="meta">
+      {comic.eps_count > 0 ? `${comic.eps_count}话` : comic.categories.slice(1, 3).join(" · ") || "在线漫画"}
+      {#if comic.total_views > 0} · {(comic.total_views / 1000).toFixed(0)}k{/if}
+    </p>
   </div>
 </Card>
 
@@ -45,6 +50,23 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+  }
+  .badge-source {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    max-width: calc(100% - 62px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    background: rgba(10,12,18,0.78);
+    color: rgba(255,255,255,0.88);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px;
+    padding: 3px 6px;
+    font-size: 9px;
+    font-weight: 700;
+    backdrop-filter: blur(5px);
   }
   .badge-finished {
     position: absolute;

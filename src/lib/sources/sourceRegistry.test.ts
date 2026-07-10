@@ -21,6 +21,16 @@ describe("source registry", () => {
     expect(active.some((source) => source.mediaType === "comic")).toBe(true);
   });
 
+  it("tracks the v0.12.0 built-in comic adapters as active sources", () => {
+    const activeIds = getSourceAdaptersByLifecycle("active").map((source) => source.id);
+    expect(activeIds).toEqual(expect.arrayContaining([
+      "picacg-current",
+      "mangadex-api",
+      "baozi-native",
+      "dm5-web-sources",
+    ]));
+  });
+
   it("tracks GitHub reference ecosystems for manga and video expansion", () => {
     const references = getSourceAdaptersByLifecycle("reference");
     expect(references.some((source) => source.id === "tachiyomi-mihon-model")).toBe(true);
