@@ -334,14 +334,24 @@
         try { v.load(); } catch {}
         startAttempt();
       } else {
-        console.error(`[播放器] 加载失败(${why})，判定 error`);
+        console.error(`[播放器] 加载失败(${why})，尝试保进度自动换源`);
         settled = true;
-        // 缓存地址可能已过期/无效，避免重试时立即命中同一 broken URL
         if (pageUrl) animeStore.invalidateVideoCache(pageUrl);
+        const failureKind = why.includes('network') || why.includes('timeout') || why.includes('stalled')
+          ? 'proxyHttp'
+          : 'extractEncrypted';
+        const recoveryStarted = animeStore.recoverPlaybackFailure(
+          failureKind,
+          `播放中断（${why}），正在尝试备用源`,
+          Math.floor(v.currentTime * 1000),
+        );
+        if (recoveryStarted) {
+          invokeCmd('frontend_log', { level: 'info', message: `[播放器] 播放失败(${why})，已启动自动换源` }).catch(() => {});
+          return;
+        }
         animeStore.playerExtractStatus = "error";
-        // 若用户开启自动网页播放兜底，或当前规则本来就要求网页播放，直接切到源站播放器。
         if ((animeStore.autoWebFallback || prefersWebPlayback) && pageUrl) {
-          invokeCmd('frontend_log', { level: 'info', message: '[播放器] 视频加载失败，自动切换网页播放兜底' }).catch(() => {});
+          invokeCmd('frontend_log', { level: 'info', message: '[播放器] 无可用备用源，自动切换网页播放兜底' }).catch(() => {});
           switchToWebFallback();
         }
       }

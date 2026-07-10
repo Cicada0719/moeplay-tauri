@@ -2,6 +2,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { invokeCmd } from "../api/core";
 import { listen } from "@tauri-apps/api/event";
 import { debugLog } from "../utils/debug";
+import { findBestEpisodeMatch, rankSearchItems } from "../utils/animeSource";
 
 // ── 类型 ──────────────────────────────────────────────────────────────────
 
@@ -631,6 +632,42 @@ export const animeStore = {
     _playerFailureMessage = message || failureMessage(kind);
     if (_playerExtractStatus === 'extracting') _playerExtractStatus = 'error';
     if (_playerRuleName) recordSourceHealth(_playerRuleName, { success: false, failureKind: kind, animeName: _detailName });
+  },
+
+  /** 播放已经开始后发生黑屏、断流或媒体错误时，保留进度自动尝试备用源。 */
+  recoverPlaybackFailure(kind: PlayerFailureKind, message: string, seekMs: number): boolean {
+    if (_failoverStatus === 'trying') return true;
+    const episode = _roads[_playerRoadIdx]?.episodes[_playerEpisodeIdx];
+    if (!episode) return false;
+
+    const currentRule = _playerRuleName || _detailRuleName;
+    if (currentRule) {
+      _failoverTriedSources = new Set([..._failoverTriedSources, currentRule]);
+      recordSourceHealth(currentRule, { success: false, failureKind: kind, animeName: _detailName });
+    }
+    if (_playerUrl) _videoUrlCache.delete(_playerUrl);
+
+    if (!_rules.some(rule => !_failoverTriedSources.has(rule.name))) {
+      _playerFailureKind = kind;
+      _playerFailureMessage = message || failureMessage(kind);
+      _playerExtractStatus = 'error';
+      return false;
+    }
+
+    _pendingSeekMs = Math.max(_pendingSeekMs, Math.max(0, Math.floor(seekMs)));
+    _playerFailureKind = kind;
+    _playerFailureMessage = message || failureMessage(kind);
+    _playerVideoSrc = '';
+    _playerExtractStatus = 'extracting';
+    const playGen = _playGeneration;
+    void this._tryAutoFailover(episode.name, episode.url, playGen).catch((error) => {
+      if (playGen !== _playGeneration) return;
+      console.error('[换源] 播放中断恢复失败:', error);
+      _failoverStatus = 'allFailed';
+      _failoverMessage = '自动换源失败，请手动选源或使用网页播放';
+      _playerExtractStatus = 'error';
+    });
+    return true;
   },
 
   getSourceHealth(ruleName: string) {
@@ -1347,7 +1384,7 @@ export const animeStore = {
    *  Phase 1: 并行搜索所有备选源 + 获取线路 + 匹配集数（通常 3-5s）
    *  Phase 2: 对找到集数的候选源依次提取视频 URL（需 WebView，无法并行）
    */
-  async _tryAutoFailover(episodeName: string, _episodeUrl: string, _gen: number) {
+  async _tryAutoFailover(episodeName: string, _episodeUrl: string, playGen: number) {
     const failoverGen = ++_failoverGeneration;
     _failoverStatus = 'trying';
     _failoverTriedSources = new Set([..._failoverTriedSources, _detailRuleName]);
@@ -1364,11 +1401,6 @@ export const animeStore = {
       return;
     }
 
-    // 标记所有规则为已尝试（防止并行期间重复触发）
-    for (const r of availableRules) {
-      _failoverTriedSources = new Set([..._failoverTriedSources, r.name]);
-    }
-
     _failoverMessage = `正在搜索 ${availableRules.length} 个备选源…`;
     debugLog(`[换源] Phase 1: 并行搜索 ${availableRules.length} 个源`);
 
@@ -1379,6 +1411,8 @@ export const animeStore = {
       roads: Road[];
       targetRoad: Road;
       targetEp: Episode;
+      targetRoadIndex: number;
+      targetEpisodeIndex: number;
       pageUrl: string;
     };
 
@@ -1391,35 +1425,36 @@ export const animeStore = {
         );
         if (items.length === 0) { debugLog(`[换源] ${rule.name}: 未找到`); return null; }
 
-        const searchItem = items[0];
-        const roads = await withTimeout(
-          invokeCmd<Road[]>('anime_fetch_roads', { ruleName: rule.name, pageUrl: searchItem.url }),
-          18_000,
-          `${rule.name} 获取线路超时`
-        );
-        if (roads.length === 0) { debugLog(`[换源] ${rule.name}: 无线路`); return null; }
+        for (const searchItem of rankSearchItems(_detailName, items).slice(0, 3)) {
+          const roads = await withTimeout(
+            invokeCmd<Road[]>('anime_fetch_roads', { ruleName: rule.name, pageUrl: searchItem.url }),
+            18_000,
+            `${rule.name} 获取线路超时`
+          );
+          if (playGen !== _playGeneration || failoverGen !== _failoverGeneration) return null;
+          if (roads.length === 0) continue;
 
-        const targetRoad = roads[0];
-        // 尽量保持原集数：先按索引，再按标题，再按标题中的数字，最后兜底第 1 集
-        const originalIdx = _playerEpisodeIdx;
-        const epNumMatch = episodeName.match(/(\d+)/);
-        const epNum = epNumMatch ? parseInt(epNumMatch[1]) : null;
-        const targetEp = targetRoad.episodes[originalIdx]
-          || targetRoad.episodes.find(ep => ep.name === episodeName)
-          || (epNum !== null
-              ? targetRoad.episodes.find(ep => {
-                  const m = ep.name.match(/(\d+)/);
-                  return m ? parseInt(m[1]) === epNum : false;
-                })
-              : undefined)
-          || targetRoad.episodes[0];
-        if (!targetEp) { debugLog(`[换源] ${rule.name}: 无匹配集数`); return null; }
+          const match = findBestEpisodeMatch(roads, { episodeName, episodeIndex: _playerEpisodeIdx });
+          if (!match) {
+            debugLog(`[换源] ${rule.name}/${searchItem.name}: 无可信分集匹配`);
+            continue;
+          }
+          const pageUrl = await invokeCmd<string>("anime_build_url", {
+            ruleName: rule.name, url: match.episode.url,
+          }).catch(() => match.episode.url);
 
-        const pageUrl = await invokeCmd<string>("anime_build_url", {
-          ruleName: rule.name, url: targetEp.url,
-        }).catch(() => targetEp.url);
-
-        return { rule, searchItem, roads, targetRoad, targetEp, pageUrl };
+          return {
+            rule,
+            searchItem,
+            roads,
+            targetRoad: match.road,
+            targetEp: match.episode,
+            targetRoadIndex: match.roadIndex,
+            targetEpisodeIndex: match.episodeIndex,
+            pageUrl,
+          };
+        }
+        return null;
       } catch (e) {
         console.warn(`[换源] ${rule.name} 搜索失败:`, e);
         return null;
@@ -1427,7 +1462,7 @@ export const animeStore = {
     });
 
     const settled = await Promise.allSettled(candidatePromises);
-    if (failoverGen !== _failoverGeneration) return;
+    if (failoverGen !== _failoverGeneration || playGen !== _playGeneration) return;
 
     const candidates = settled
       .filter((r): r is PromiseFulfilledResult<Candidate | null> => r.status === 'fulfilled')
@@ -1454,8 +1489,8 @@ export const animeStore = {
 
     // ── Phase 2: 依次提取视频 URL（WebView 资源密集，不并行）────────────
     for (let i = 0; i < candidates.length; i++) {
-      if (failoverGen !== _failoverGeneration) return;
-      const { rule, searchItem, roads, targetRoad, targetEp, pageUrl } = candidates[i];
+      if (failoverGen !== _failoverGeneration || playGen !== _playGeneration) return;
+      const { rule, searchItem, roads, targetRoad, targetEp, targetRoadIndex, targetEpisodeIndex, pageUrl } = candidates[i];
       _failoverCurrent = i + 1;
       _failoverMessage = `正在提取 ${rule.name}（${_failoverCurrent}/${_failoverTotal}）`;
 
@@ -1471,7 +1506,7 @@ export const animeStore = {
           FAILOVER_EXTRACT_TIMEOUT,
           "换源提取超时"
         );
-        if (failoverGen !== _failoverGeneration) return;
+        if (failoverGen !== _failoverGeneration || playGen !== _playGeneration) return;
 
         const playerPageUrl = result.tab_url || pageUrl || rule.baseUrl || '';
         const playerReferer = result.tab_url || pageUrl || rule.referer || rule.baseUrl || '';
@@ -1480,15 +1515,16 @@ export const animeStore = {
           3_000,
           "生成代理地址超时"
         );
-        if (failoverGen !== _failoverGeneration) return;
+        if (failoverGen !== _failoverGeneration || playGen !== _playGeneration) return;
 
         debugLog(`[换源] 成功！使用源: ${rule.name}`);
 
+        _failoverTriedSources = new Set([..._failoverTriedSources, rule.name]);
         _detailRuleName = rule.name;
         _detailUrl = searchItem.url;
         _roads = roads;
-        _playerRoadIdx = roads.indexOf(targetRoad);
-        _playerEpisodeIdx = targetRoad.episodes.indexOf(targetEp);
+        _playerRoadIdx = targetRoadIndex;
+        _playerEpisodeIdx = targetEpisodeIndex;
         _playerEpisodeName = targetEp.name;
         _playerRuleName = rule.name;
         _playerUrl = pageUrl;
@@ -1509,17 +1545,19 @@ export const animeStore = {
         _videoUrlCache.set(pageUrl, { proxyUrl, isM3u8: _playerIsM3u8, tabUrl: playerPageUrl, referer: playerReferer, ts: Date.now() });
         saveSuccessSource(_detailName, rule.name);
         recordSourceHealth(rule.name, { success: true, animeName: _detailName });
-        this._updateHistory(_playerRoadIdx, _playerEpisodeIdx, targetEp.name, 0);
+        this._updateHistory(_playerRoadIdx, _playerEpisodeIdx, targetEp.name, _pendingSeekMs);
         this.searchDanmakuForAnime(_detailName, _playerEpisodeIdx);
+        this._preExtractNext(_playerRoadIdx, _playerEpisodeIdx, playGen);
         return;
       } catch (e) {
         console.warn(`[换源] ${rule.name} 提取失败:`, e);
         const failureKind = classifyFailure(e, 'extractEncrypted');
+        _failoverTriedSources = new Set([..._failoverTriedSources, rule.name]);
         recordSourceHealth(rule.name, { success: false, failureKind, animeName: _detailName });
       }
     }
 
-    if (failoverGen !== _failoverGeneration) return;
+    if (failoverGen !== _failoverGeneration || playGen !== _playGeneration) return;
     debugLog("[换源] 所有候选源提取均失败");
     _failoverStatus = 'allFailed';
     _failoverMessage = '所有播放源均失败，请手动选源';

@@ -5,6 +5,7 @@ import { invokeCmd } from '../../api/core';
   import Icon from '../Icon.svelte';
   import { Button, EmptyState, Overlay, Tag } from '../ui';
   import { debugLog } from '../../utils/debug';
+  import { rankSearchItems } from '../../utils/animeSource';
 
   const rules = $derived(animeStore.rules);
   const detailName = $derived(animeStore.detailName);
@@ -72,7 +73,7 @@ import { invokeCmd } from '../../api/core';
           if (token !== searchToken) return;
           const ok = items.length > 0;
           const next = new Map(searchResults);
-          next.set(ruleName, { items, status: ok ? 'success' : 'noResult' });
+          next.set(ruleName, { items: rankSearchItems(detailName, items), status: ok ? 'success' : 'noResult' });
           searchResults = next;
           if (ok) {
             const cur = rules[activeSourceIdx]?.name;
@@ -107,7 +108,7 @@ import { invokeCmd } from '../../api/core';
         if (token !== searchToken) return;
         const ok = items.length > 0;
         const n = new Map(searchResults);
-        n.set(ruleName, { items, status: ok ? 'success' : 'noResult' });
+        n.set(ruleName, { items: rankSearchItems(detailName, items), status: ok ? 'success' : 'noResult' });
         searchResults = n;
       })
       .catch((err) => {

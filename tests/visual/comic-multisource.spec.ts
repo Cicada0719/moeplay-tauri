@@ -17,6 +17,24 @@ const baoziHtml = `
   </div></div>
 `;
 
+const baoziDetailHtml = `
+  <meta name="og:url" content="https://www.baozimh.com/comic/baozi-test" />
+  <meta name="description" content="用于验收漫画详情和阅读器" />
+  <div class="comics-detail"><div class="l-content">
+    <amp-img src="//img.test/baozi-detail.jpg"></amp-img>
+    <div class="comics-detail__title">包子测试漫画</div>
+    <div class="comics-detail__author">包子作者</div>
+    <div class="tag-list"><span class="tag">热血</span><span class="tag">连载中</span></div>
+  </div></div>
+  <div id="chapter-items">
+    <div><a href="/user/page_direct?comic_id=baozi-test&amp;section_slot=0&amp;chapter_slot=1"><span>第1话</span></a></div>
+  </div>
+`;
+
+const baoziChapterHtml = `
+  <div class="comic-contain"><div><amp-img src="https://img.test/baozi-page-1.jpg"></amp-img></div></div>
+`;
+
 const dm5Html = `
   <div class="mh-item mh-card-wrap">
     <div class="mh-item-detali"><a href="/manhua-test/" title="动漫屋测试漫画">动漫屋测试漫画</a></div>
@@ -25,7 +43,8 @@ const dm5Html = `
 `;
 
 test("v0.12 comic auto mode renders isolated parallel source sections", async ({ page }) => {
-  await page.addInitScript(({ mockSettings, baoziSearchHtml, dm5SearchHtml }) => {
+  await page.addInitScript(({ mockSettings, baoziSearchHtml, dm5SearchHtml, detail, chapter }) => {
+    (window as any).__comicFixtures = { detail, chapter };
     const invoke = async (command: string, args?: Record<string, unknown>) => {
       if (command === "get_database_health") return { ready: true, mode: "ready", reason: null, db_path: "mock", schema_version: 3 };
       if (command === "get_settings") return mockSettings;
@@ -44,12 +63,16 @@ test("v0.12 comic auto mode renders isolated parallel source sections", async ({
       };
       if (command === "manga_fetch_text") {
         const url = String(args?.url || "");
+        if (url.includes("dzmanga.com/comic/chapter")) return (window as any).__baoziChapterHtml;
+        if (url.includes("baozimh") && !url.includes("/search")) return (window as any).__baoziDetailHtml;
         return url.includes("baozimh") ? baoziSearchHtml : dm5SearchHtml;
       }
       if (command.startsWith("plugin:window|is_fullscreen")) return false;
       if (command.startsWith("plugin:updater|")) return null;
       return null;
     };
+    (window as any).__baoziDetailHtml = (window as any).__comicFixtures.detail;
+    (window as any).__baoziChapterHtml = (window as any).__comicFixtures.chapter;
     (window as any).__TAURI_INTERNALS__ = {
       metadata: { currentWindow: { label: "main" } },
       invoke,
@@ -57,7 +80,7 @@ test("v0.12 comic auto mode renders isolated parallel source sections", async ({
       unregisterCallback: () => {},
       convertFileSrc: (filePath: string) => `asset://localhost/${filePath}`,
     };
-  }, { mockSettings: settings, baoziSearchHtml: baoziHtml, dm5SearchHtml: dm5Html });
+  }, { mockSettings: settings, baoziSearchHtml: baoziHtml, dm5SearchHtml: dm5Html, detail: baoziDetailHtml, chapter: baoziChapterHtml });
 
   await page.goto("/?skip_wizard");
   await page.getByRole("button", { name: "漫画" }).click();
@@ -70,4 +93,19 @@ test("v0.12 comic auto mode renders isolated parallel source sections", async ({
   await expect(page.getByRole("heading", { name: "1kkk" })).toBeVisible();
   await expect(page.getByText("MangaDex测试漫画")).toBeVisible();
   await expect(page.getByText("包子测试漫画")).toBeVisible();
+
+  await page.route("https://img.test/**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "image/png",
+      body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"),
+    });
+  });
+  const baoziSection = page.locator(".ordinary-source-section").filter({ has: page.getByRole("heading", { name: "包子漫画" }) });
+  await baoziSection.getByRole("button", { name: "包子测试漫画" }).dispatchEvent("click");
+  await expect(page.getByRole("heading", { name: "包子测试漫画" })).toBeVisible();
+  await expect(page.getByText("用于验收漫画详情和阅读器")).toBeVisible();
+  await page.getByRole("button", { name: "第1话" }).click();
+  await expect(page.locator(".reader-overlay")).toBeVisible();
+  await expect(page.locator('img[src="https://img.test/baozi-page-1.jpg"]')).toBeVisible();
 });

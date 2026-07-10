@@ -456,6 +456,7 @@ pub fn run() {
             // 之前调用 clear_thumbnail_cache() 会清空整盘缓存，导致 500+ 封面每次启动全部重生成、首屏变慢。
             tauri::async_runtime::spawn(async {
                 let _ = thumbnail::prune_thumbnails(30);
+                let _ = anime::prune_proxy_image_cache(30, 2 * 1024 * 1024 * 1024);
             });
 
             // 启动视频流代理服务器（解决 CORS / 防盗链 Referer 问题）
