@@ -5,14 +5,29 @@
 //! 解决浏览器层 CORS / 防盗链 Referer / 混合内容问题。
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
+use std::sync::OnceLock;
 use tauri::{AppHandle, Emitter};
 
 /// 代理服务器监听端口（启动时随机分配）
 static PROXY_PORT: AtomicU16 = AtomicU16::new(0);
 
 /// 最大允许跟随的重定向次数
-const MAX_REDIRECTS: u32 = 15;
+const MAX_REDIRECTS: u32 = 10;
+const MAX_ACTIVE_CONNECTIONS: usize = 32;
+const MAX_M3U8_BYTES: u64 = 5 * 1024 * 1024;
+static ACTIVE_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
+static PROXY_TOKEN: OnceLock<String> = OnceLock::new();
+
+fn proxy_token() -> &'static str {
+    PROXY_TOKEN.get_or_init(|| {
+        format!(
+            "{}{}",
+            uuid::Uuid::new_v4().simple(),
+            uuid::Uuid::new_v4().simple()
+        )
+    })
+}
 
 /// 获取代理端口
 pub fn get_proxy_port() -> u16 {
@@ -33,8 +48,9 @@ pub fn get_video_proxy_port() -> u16 {
 /// 把原始 URL 转为代理 URL
 pub fn to_proxy_url(original_url: &str, referer: Option<&str>) -> String {
     let mut url = format!(
-        "{}/proxy?url={}",
+        "{}/proxy?token={}&url={}",
         get_proxy_base(),
+        proxy_token(),
         urlencoding::encode(original_url)
     );
     if let Some(r) = referer {
@@ -170,6 +186,56 @@ fn resolve_url(base: &url::Url, relative: &str) -> String {
         .unwrap_or_else(|_| relative.to_string())
 }
 
+fn validate_target_url(value: &str) -> Result<url::Url, String> {
+    let parsed = url::Url::parse(value).map_err(|_| "无效的代理 URL".to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(format!("不允许代理协议: {}", parsed.scheme()));
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("代理 URL 不得包含用户名或密码".to_string());
+    }
+    Ok(parsed)
+}
+
+fn safe_url_for_log(value: &str) -> String {
+    validate_target_url(value)
+        .map(|mut parsed| {
+            parsed.set_query(None);
+            parsed.set_fragment(None);
+            parsed.to_string()
+        })
+        .unwrap_or_else(|_| "<invalid-url>".to_string())
+}
+
+fn request_origin(request: &str) -> Result<Option<String>, String> {
+    let origin = request.lines().find_map(|line| {
+        line.split_once(':').and_then(|(name, value)| {
+            name.eq_ignore_ascii_case("origin")
+                .then(|| value.trim().to_string())
+        })
+    });
+    let Some(origin) = origin else {
+        return Ok(None);
+    };
+    let allowed = matches!(
+        origin.as_str(),
+        "http://tauri.localhost"
+            | "https://tauri.localhost"
+            | "tauri://localhost"
+            | "http://127.0.0.1:1420"
+            | "http://localhost:1420"
+    );
+    if allowed {
+        Ok(Some(origin))
+    } else {
+        Err("不允许的代理请求来源".to_string())
+    }
+}
+
+fn cors_origin(origin: Option<&str>) -> &str {
+    origin.unwrap_or("http://tauri.localhost")
+}
+
 /// 判断 HTTP 状态码是否为重定向
 fn is_redirect_status(status: u16) -> bool {
     matches!(status, 301 | 302 | 303 | 307 | 308)
@@ -180,11 +246,12 @@ fn fetch_with_redirects(
     initial_url: &str,
     referer: &str,
     range_header: Option<&str>,
-) -> Result<(ureq::Response, String, u32), Box<ureq::Error>> {
+) -> Result<(ureq::Response, String, u32), String> {
     let mut url = initial_url.to_string();
     let mut redirects: u32 = 0;
 
     loop {
+        validate_target_url(&url)?;
         let req = build_upstream_request(&url, referer, range_header);
         // ureq 在非 2xx 时会返回 Err::Status；手动模式需要把 3xx 也当正常响应处理才能取到 Location。
         let (resp, status) = match req.call() {
@@ -193,7 +260,9 @@ fn fetch_with_redirects(
                 (r, s)
             }
             Err(ureq::Error::Status(s, r)) => (r, s),
-            Err(e) => return Err(Box::new(e)),
+            Err(ureq::Error::Transport(error)) => {
+                return Err(format!("上游请求失败: {:?}", error.kind()));
+            }
         };
 
         if is_redirect_status(status) && redirects < MAX_REDIRECTS {
@@ -206,8 +275,8 @@ fn fetch_with_redirects(
                     "[proxy] HTTP {} redirect #{}: {} -> {}",
                     status,
                     redirects,
-                    url,
-                    resolved
+                    safe_url_for_log(&url),
+                    safe_url_for_log(&resolved)
                 );
                 url = resolved;
                 continue;
@@ -252,8 +321,16 @@ pub fn start_proxy_server(app: AppHandle) {
                     continue;
                 }
             };
+            if ACTIVE_CONNECTIONS.fetch_add(1, Ordering::AcqRel) >= MAX_ACTIVE_CONNECTIONS {
+                ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::AcqRel);
+                let mut stream = stream;
+                use std::io::Write;
+                let _ = stream.write_all(b"HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                continue;
+            }
             std::thread::spawn(move || {
                 handle_connection(stream);
+                ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::AcqRel);
             });
         }
     });
@@ -276,19 +353,24 @@ fn handle_connection(mut stream: std::net::TcpStream) {
     };
     let request = String::from_utf8_lossy(&buf[..n]);
     let first_line = request.lines().next().unwrap_or("");
+    let origin = match request_origin(&request) {
+        Ok(origin) => origin,
+        Err(_) => {
+            let _ = stream.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n");
+            return;
+        }
+    };
+    let allowed_origin = cors_origin(origin.as_deref()).to_string();
 
     // 解析 GET /proxy?url=xxx&referer=yyy HTTP/1.1
     let parts: Vec<&str> = first_line.split_whitespace().collect();
     // CORS 预检：hls.js 对带 Range 的分片请求会先发 OPTIONS，必须放行否则分片全失败
     if parts.first() == Some(&"OPTIONS") {
         tracing::info!("[proxy] OPTIONS 预检请求");
-        let resp = "HTTP/1.1 204 No Content\r\n\
-                    Access-Control-Allow-Origin: *\r\n\
-                    Access-Control-Allow-Methods: GET, OPTIONS\r\n\
-                    Access-Control-Allow-Headers: *\r\n\
-                    Access-Control-Max-Age: 86400\r\n\
-                    Content-Length: 0\r\n\
-                    Connection: close\r\n\r\n";
+        let resp = format!(
+            "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: {}\r\nAccess-Control-Allow-Methods: GET, OPTIONS\r\nAccess-Control-Allow-Headers: Range, Content-Type\r\nAccess-Control-Max-Age: 86400\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            allowed_origin
+        );
         let _ = stream.write_all(resp.as_bytes());
         return;
     }
@@ -299,7 +381,7 @@ fn handle_connection(mut stream: std::net::TcpStream) {
     }
 
     let path = parts[1];
-    let (target_url, referer) = match parse_proxy_path(path) {
+    let (target_url, referer, token) = match parse_proxy_path(path) {
         Some(v) => v,
         None => {
             tracing::warn!("[proxy] 无效路径: {}", path);
@@ -308,13 +390,27 @@ fn handle_connection(mut stream: std::net::TcpStream) {
             return;
         }
     };
+    if token != proxy_token() {
+        let response = format!("HTTP/1.1 401 Unauthorized\r\nAccess-Control-Allow-Origin: {}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", allowed_origin);
+        let _ = stream.write_all(response.as_bytes());
+        return;
+    }
+    if let Err(message) = validate_target_url(&target_url) {
+        let body = format!("HTTP/1.1 400 Bad Request\r\nAccess-Control-Allow-Origin: {}\r\nContent-Length: {}\r\n\r\n{}", allowed_origin, message.len(), message);
+        let _ = stream.write_all(body.as_bytes());
+        return;
+    }
+    if !referer.is_empty() {
+        if let Err(message) = validate_target_url(&referer) {
+            let message = format!("无效的 Referer: {message}");
+            let body = format!("HTTP/1.1 400 Bad Request\r\nAccess-Control-Allow-Origin: {}\r\nContent-Length: {}\r\n\r\n{}", allowed_origin, message.len(), message);
+            let _ = stream.write_all(body.as_bytes());
+            return;
+        }
+    }
 
-    // 截短 URL 用于日志
-    let short_url = if target_url.len() > 100 {
-        format!("{}...", &target_url[..100])
-    } else {
-        target_url.clone()
-    };
+    // 截短 URL 用于日志，避免把查询参数中的 token / signature 写入磁盘。
+    let short_url = safe_url_for_log(&target_url);
     tracing::info!(
         "[proxy] {} → {}",
         if is_m3u8_url(&target_url) {
@@ -324,9 +420,6 @@ fn handle_connection(mut stream: std::net::TcpStream) {
         },
         short_url
     );
-    if !referer.is_empty() {
-        tracing::info!("[proxy] Referer: {}", referer);
-    }
 
     // 解析客户端的 Range 头（hls.js 分片请求必须透传，否则返回 200 而非 206 → hls.js 拒绝）
     let range_header = request
@@ -351,8 +444,8 @@ fn handle_connection(mut stream: std::net::TcpStream) {
             Err(e) => {
                 tracing::error!("[proxy] 请求失败: {} → {}", e, short_url);
                 let body = format!(
-                    "HTTP/1.1 502 Bad Gateway\r\nAccess-Control-Allow-Origin: *\r\n\r\n{}",
-                    e
+                    "HTTP/1.1 502 Bad Gateway\r\nAccess-Control-Allow-Origin: {}\r\n\r\n{}",
+                    allowed_origin, e
                 );
                 let _ = stream.write_all(body.as_bytes());
                 return;
@@ -369,9 +462,9 @@ fn handle_connection(mut stream: std::net::TcpStream) {
 
     if redirects > 0 {
         tracing::info!(
-            "[proxy] 最终 URL (after {} redirect(s)): {}",
+            "[proxy] completed {} redirect(s) for {}",
             redirects,
-            final_url
+            short_url
         );
     }
     tracing::debug!(
@@ -388,15 +481,23 @@ fn handle_connection(mut stream: std::net::TcpStream) {
 
     // 状态文本
     let status_text = match status {
-        200 => "200 OK",
-        206 => "206 Partial Content",
-        301 => "301 Moved Permanently",
-        302 => "302 Found",
-        304 => "304 Not Modified",
-        403 => "403 Forbidden",
-        404 => "404 Not Found",
-        416 => "416 Range Not Satisfiable",
-        _ => "200 OK",
+        200 => "200 OK".to_string(),
+        206 => "206 Partial Content".to_string(),
+        301 => "301 Moved Permanently".to_string(),
+        302 => "302 Found".to_string(),
+        304 => "304 Not Modified".to_string(),
+        400 => "400 Bad Request".to_string(),
+        401 => "401 Unauthorized".to_string(),
+        403 => "403 Forbidden".to_string(),
+        404 => "404 Not Found".to_string(),
+        408 => "408 Request Timeout".to_string(),
+        416 => "416 Range Not Satisfiable".to_string(),
+        429 => "429 Too Many Requests".to_string(),
+        500 => "500 Internal Server Error".to_string(),
+        502 => "502 Bad Gateway".to_string(),
+        503 => "503 Service Unavailable".to_string(),
+        504 => "504 Gateway Timeout".to_string(),
+        _ => format!("{status} Upstream Response"),
     };
 
     // 先读一小段头，用"内容"判断是否为 HLS manifest。
@@ -412,8 +513,15 @@ fn handle_connection(mut stream: std::net::TcpStream) {
         // m3u8 是文本、量小：读完整后改写分片地址，再一次性发出
         let mut body = head_bytes.to_vec();
         let mut rest = Vec::new();
-        if reader.read_to_end(&mut rest).is_err() {
-            let _ = stream.write_all(b"HTTP/1.1 502 Bad Gateway\r\n\r\n");
+        if reader
+            .by_ref()
+            .take(MAX_M3U8_BYTES + 1)
+            .read_to_end(&mut rest)
+            .is_err()
+            || rest.len() as u64 > MAX_M3U8_BYTES
+        {
+            let response = format!("HTTP/1.1 413 Payload Too Large\r\nAccess-Control-Allow-Origin: {}\r\nContent-Length: 0\r\n\r\n", allowed_origin);
+            let _ = stream.write_all(response.as_bytes());
             return;
         }
         body.extend_from_slice(&rest);
@@ -429,7 +537,7 @@ fn handle_connection(mut stream: std::net::TcpStream) {
         );
 
         let rewritten = if is_real_m3u8 {
-            tracing::info!("[proxy] 改写 m3u8，基址 URL: {}", final_url);
+            tracing::info!("[proxy] 改写 m3u8，基址: {}", short_url);
             rewrite_m3u8(&content, &final_url, &referer).into_bytes()
         } else {
             tracing::warn!(
@@ -444,14 +552,15 @@ fn handle_connection(mut stream: std::net::TcpStream) {
             "HTTP/1.1 {}\r\n\
              Content-Type: application/vnd.apple.mpegurl\r\n\
              Content-Length: {}\r\n\
-             Access-Control-Allow-Origin: *\r\n\
+             Access-Control-Allow-Origin: {}\r\n\
              Access-Control-Allow-Methods: GET, OPTIONS\r\n\
-             Access-Control-Allow-Headers: *\r\n\
+             Access-Control-Allow-Headers: Range, Content-Type\r\n\
              Access-Control-Expose-Headers: Content-Range, Content-Length, Content-Type\r\n\
              Connection: close\r\n\
              Cache-Control: no-cache\r\n",
             status_text,
-            rewritten.len()
+            rewritten.len(),
+            allowed_origin
         );
         if let Some(ref cr) = content_range {
             header.push_str(&format!("Content-Range: {}\r\n", cr));
@@ -464,13 +573,13 @@ fn handle_connection(mut stream: std::net::TcpStream) {
         let mut header = format!(
             "HTTP/1.1 {}\r\n\
              Content-Type: {}\r\n\
-             Access-Control-Allow-Origin: *\r\n\
+             Access-Control-Allow-Origin: {}\r\n\
              Access-Control-Allow-Methods: GET, OPTIONS\r\n\
-             Access-Control-Allow-Headers: *\r\n\
+             Access-Control-Allow-Headers: Range, Content-Type\r\n\
              Access-Control-Expose-Headers: Content-Range, Content-Length, Content-Type\r\n\
              Connection: close\r\n\
              Cache-Control: no-cache\r\n",
-            status_text, content_type
+            status_text, content_type, allowed_origin
         );
         if let Some(ref cl) = content_length {
             header.push_str(&format!("Content-Length: {}\r\n", cl));
@@ -503,7 +612,7 @@ fn handle_connection(mut stream: std::net::TcpStream) {
 }
 
 /// 解析代理路径: /proxy?url=xxx&referer=yyy → (url, referer)
-fn parse_proxy_path(path: &str) -> Option<(String, String)> {
+fn parse_proxy_path(path: &str) -> Option<(String, String, String)> {
     let query_start = path.find('?')?;
     let query = &path[query_start + 1..];
     let mut params: HashMap<String, String> = HashMap::new();
@@ -518,7 +627,8 @@ fn parse_proxy_path(path: &str) -> Option<(String, String)> {
     }
     let url = params.get("url")?.clone();
     let referer = params.get("referer").cloned().unwrap_or_default();
-    Some((url, referer))
+    let token = params.get("token")?.clone();
+    Some((url, referer, token))
 }
 
 /// 检查字节流是否像 HLS manifest（跳过 BOM 与空白）
@@ -554,13 +664,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn proxy_only_accepts_http_and_https_without_credentials() {
+        assert!(validate_target_url("https://127.0.0.1:8080/video.m3u8").is_ok());
+        assert!(validate_target_url("http://nas.local/video.mp4").is_ok());
+        assert!(validate_target_url("file:///C:/video.mp4").is_err());
+        assert!(validate_target_url("ftp://example.com/video").is_err());
+        assert!(validate_target_url("https://user:pass@example.com/video").is_err());
+    }
+
+    #[test]
+    fn safe_url_logging_removes_queries_and_fragments() {
+        let safe = safe_url_for_log("https://cdn.example.com/video.m3u8?token=secret#part");
+        assert_eq!(safe, "https://cdn.example.com/video.m3u8");
+        assert!(!safe.contains("secret"));
+    }
+
+    #[test]
     fn parse_proxy_path_extracts_url_and_referer() {
-        let (u, r) = parse_proxy_path(
-            "/proxy?url=https%3A%2F%2Fa.com%2Fx.m3u8&referer=https%3A%2F%2Fb.com%2F",
+        let (u, r, token) = parse_proxy_path(
+            "/proxy?token=test&url=https%3A%2F%2Fa.com%2Fx.m3u8&referer=https%3A%2F%2Fb.com%2F",
         )
         .expect("should parse");
         assert_eq!(u, "https://a.com/x.m3u8");
         assert_eq!(r, "https://b.com/");
+        assert_eq!(token, "test");
     }
 
     #[test]

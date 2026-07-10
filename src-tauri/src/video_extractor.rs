@@ -1069,12 +1069,12 @@ mod base64 {
         while chars.peek().is_some() {
             let mut buf = [0u8; 4];
             let mut pad = 0usize;
-            for item in &mut buf {
+            for byte in &mut buf {
                 match chars.next() {
                     Some('=') | None => {
                         pad += 1;
                     }
-                    Some(c) => *item = table(c)?,
+                    Some(c) => *byte = table(c)?,
                 }
             }
             if pad > 2 {

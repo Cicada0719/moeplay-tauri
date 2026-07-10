@@ -1,6 +1,7 @@
 //! Tauri commands for the anime rule engine
 
 use crate::anime::{self, AnimeRule, AnimeState};
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -526,6 +527,13 @@ pub async fn anime_fetch_page(
     referer: Option<String>,
     user_agent: Option<String>,
 ) -> Result<String, String> {
+    let parsed = url::Url::parse(&url).map_err(|_| "无效页面 URL".to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return Err("页面代理只允许不含凭据的 HTTP/HTTPS 地址".to_string());
+    }
     let ua = user_agent.unwrap_or_else(|| "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36".into());
     let client = crate::http_client::build_reqwest_client(15, &ua);
     let mut req = client.get(&url);
@@ -535,7 +543,23 @@ pub async fn anime_fetch_page(
         }
     }
     let resp = req.send().await.map_err(|e| format!("网络错误: {}", e))?;
-    resp.text().await.map_err(|e| e.to_string())
+    const MAX_PAGE_BYTES: u64 = 5 * 1024 * 1024;
+    if resp
+        .content_length()
+        .is_some_and(|size| size > MAX_PAGE_BYTES)
+    {
+        return Err("页面响应超过 5 MiB 限制".to_string());
+    }
+    let mut stream = resp.bytes_stream();
+    let mut bytes = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| e.to_string())?;
+        if bytes.len().saturating_add(chunk.len()) as u64 > MAX_PAGE_BYTES {
+            return Err("页面响应超过 5 MiB 限制".to_string());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    String::from_utf8(bytes).map_err(|_| "页面响应不是 UTF-8 文本".to_string())
 }
 
 // ── Bangumi 详情 ──────────────────────────────────────────────────────

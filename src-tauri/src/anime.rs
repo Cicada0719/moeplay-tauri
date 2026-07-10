@@ -1,5 +1,6 @@
 //! 番剧规则引擎 — 兼容 Kazumi 社区规则 JSON（XPath → CSS 自动转换）
 
+use futures_util::StreamExt;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::sync::Mutex;
 
@@ -656,9 +657,58 @@ fn image_cache_path(url: &str) -> std::path::PathBuf {
     cache_dir.join(format!("{:016x}.jpg", hash))
 }
 
+pub fn prune_proxy_image_cache(max_age_days: i64, max_total_bytes: u64) -> Result<u64, String> {
+    let dir = dirs::data_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("moeplay/bgm_covers");
+    if !dir.exists() {
+        return Ok(0);
+    }
+    let now = std::time::SystemTime::now();
+    let max_age = std::time::Duration::from_secs((max_age_days.max(0) as u64) * 86_400);
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let meta = entry.metadata().map_err(|e| e.to_string())?;
+        if !meta.is_file() {
+            continue;
+        }
+        let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        files.push((entry.path(), meta.len(), modified));
+    }
+    let mut removed = 0;
+    for (path, _, modified) in &files {
+        if now.duration_since(*modified).unwrap_or_default() > max_age
+            && std::fs::remove_file(path).is_ok()
+        {
+            removed += 1;
+        }
+    }
+    files.retain(|(path, _, _)| path.exists());
+    files.sort_by_key(|(_, _, modified)| *modified);
+    let mut total: u64 = files.iter().map(|(_, size, _)| *size).sum();
+    for (path, size, _) in files {
+        if total <= max_total_bytes {
+            break;
+        }
+        if std::fs::remove_file(path).is_ok() {
+            total = total.saturating_sub(size);
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
 pub async fn proxy_image(url: &str) -> Result<String, String> {
     if url.is_empty() {
         return Err("空 URL".into());
+    }
+    let parsed = url::Url::parse(url).map_err(|_| "无效图片 URL".to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return Err("图片 URL 只允许不含凭据的 HTTP/HTTPS 地址".to_string());
     }
 
     let path = image_cache_path(url);
@@ -687,11 +737,26 @@ pub async fn proxy_image(url: &str) -> Result<String, String> {
     if !resp.status().is_success() {
         return Err(format!("HTTP {}", resp.status()));
     }
-
-    let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+    const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
+    if resp
+        .content_length()
+        .is_some_and(|size| size as usize > MAX_IMAGE_BYTES)
+    {
+        return Err("图片超过 20 MiB 限制".to_string());
+    }
+    let mut stream = resp.bytes_stream();
+    let mut bytes = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| e.to_string())?;
+        if bytes.len().saturating_add(chunk.len()) > MAX_IMAGE_BYTES {
+            return Err("图片超过 20 MiB 限制".to_string());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
     if bytes.is_empty() {
         return Err("空响应".into());
     }
+    image::load_from_memory(&bytes).map_err(|_| "上游响应不是有效图片".to_string())?;
 
     std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().to_string())
