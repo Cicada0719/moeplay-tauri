@@ -56,6 +56,12 @@ jobs:
       - name: Test release evidence generators
         run: npm run test:release-evidence
 
+      - name: Test updater artifact verifier
+        run: node --test scripts/verify-updater-artifacts.node-test.mjs
+
+      - name: Verify ordinary workspace updater state
+        run: node scripts/verify-updater-artifacts.mjs --expect-absent
+
       - name: Test installed-upgrade report verifier
         run: npm run test:upgrade-report
 
@@ -118,6 +124,8 @@ jobs:
 
       - name: Release artifact self-check
         if: github.event_name == 'push'
+        env:
+          UPDATER_RELEASE_MODE: Disabled
         run: npm run verify:artifacts
 
       - name: Upload release artifacts

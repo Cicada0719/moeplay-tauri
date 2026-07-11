@@ -1,21 +1,28 @@
-import { cancelTask, clearFinishedTasks, getTasks } from "../../api";
 import { invokeCmd } from "../../api/core";
 import type { AppTask, DownloadTask } from "../../api/types";
-import type { JobsApi } from "./contracts";
+import type { JobsApi, JobsFilter } from "./contracts";
 
-/** Feature-local DTO bridge so the legacy command can carry a durable key. */
+function listArgs(filter: JobsFilter = {}): Record<string, unknown> {
+  const args: Record<string, unknown> = {};
+  if (filter.status && filter.status !== "all") args.status = filter.status;
+  if (filter.kind && filter.kind !== "all") args.kind = filter.kind;
+  if (filter.limit !== undefined) args.limit = filter.limit;
+  return args;
+}
+
+/** Task Center command bridge. Commands use Tauri's camelCase argument convention. */
 export const tauriJobsApi: JobsApi = {
-  list: getTasks,
-  cancel: cancelTask,
-  clearFinished: clearFinishedTasks,
+  list: (filter) => invokeCmd<AppTask[]>("get_tasks", listArgs(filter)),
+  cancel: (id) => invokeCmd<AppTask>("cancel_task", { id }),
+  clearFinished: () => invokeCmd("clear_finished_tasks"),
   enqueue: (title, kind, idempotencyKey) => {
     const args: Record<string, unknown> = { title, kind };
     if (idempotencyKey) args.idempotencyKey = idempotencyKey;
     return invokeCmd<AppTask>("enqueue_task", args);
   },
-  pause: (id) => invokeCmd("download_pause", { taskId: id }),
-  resume: (id) => invokeCmd("download_resume", { taskId: id }),
-  retry: (id) => invokeCmd("download_retry", { taskId: id }),
+  pause: (id) => invokeCmd<AppTask>("pause_task", { id }),
+  resume: (id) => invokeCmd<AppTask>("resume_task", { id }),
+  retry: (id) => invokeCmd<AppTask>("retry_task", { id }),
 };
 
 export interface StartPersistentDownloadOptions {
