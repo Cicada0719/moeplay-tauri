@@ -107,6 +107,19 @@ impl AnimeProviderOrchestrator {
             .collect()
     }
 
+    /// Clears every in-memory circuit record for one provider. Persistent health
+    /// is cleared separately by Source Center, so a user-requested reset is not
+    /// merely cosmetic.
+    pub fn reset_provider_health(&self, provider_id: &str) -> bool {
+        let mut circuits = self
+            .circuits
+            .lock()
+            .expect("anime provider health mutex poisoned");
+        let before = circuits.len();
+        circuits.retain(|(record_provider_id, _), _| record_provider_id != provider_id);
+        circuits.len() != before
+    }
+
     pub async fn search(&self, query: AnimeSearchQuery) -> AnimeSearchResponse {
         let mut items = Vec::new();
         let mut failures = Vec::new();

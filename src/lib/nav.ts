@@ -35,6 +35,7 @@ export const TOOL_ITEMS: NavItem[] = [
   { id: "discovery",   label: "发现",   ariaLabel: "打开资源发现", icon: "compass",  view: "discovery",    group: "tools",   surface: "utility" },
   { id: "scraper",     label: "刮削",   ariaLabel: "打开刮削中心", icon: "star",     view: "scraper",      group: "tools",   surface: "utility" },
   { id: "tasks",       label: "任务",   ariaLabel: "打开任务中心", icon: "list",     view: "tasks",        group: "tools",   surface: "utility" },
+  { id: "sources",     label: "来源",   ariaLabel: "打开来源中心", icon: "compass",  view: "sources",      group: "tools",   surface: "utility" },
   { id: "downloads",   label: "下载",   ariaLabel: "打开下载任务", icon: "download", view: "downloads",    group: "tools",   surface: "utility" },
   { id: "backup",      label: "存档",   ariaLabel: "打开存档管理", icon: "save",     view: "backup",       group: "tools",   surface: "utility" },
   { id: "stats",       label: "统计",   ariaLabel: "打开统计",     icon: "chart",    view: "stats",        group: "tools",   surface: "utility" },
