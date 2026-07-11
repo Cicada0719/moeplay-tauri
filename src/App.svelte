@@ -9,7 +9,7 @@
   import { uiStore } from "./lib/stores/ui.svelte";
   import { continueStore } from "./lib/stores/continue.svelte";
   import SwitchHome from "./lib/components/switch/SwitchHome.svelte";
-  import SystemDock from "./lib/components/switch/SystemDock.svelte";
+  import { GlobalTopNavigation } from "./lib/shell";
   import Notifications from "./lib/components/Notifications.svelte";
   import WallpaperStage from "./lib/components/WallpaperStage.svelte";
   import BigPicturePage from "./lib/components/BigPicturePage.svelte";
@@ -29,7 +29,7 @@
     openOverlay,
   } from "./lib/stores/router.svelte";
   import { motionStore } from "./lib/stores/motion.svelte";
-  import { createJobsStore, TaskActivityBadge } from "./lib/features/jobs";
+  import { createJobsStore } from "./lib/features/jobs";
   import { invokeCmd } from "./lib/api/core";
   import { wallpaperStore } from "./lib/stores/wallpapers.svelte";
 
@@ -321,12 +321,31 @@
   {#if !isBigPicture}
     <WallpaperStage surface={wallpaperSurface} />
 
-    <div class="main-content" data-testid="main-content">
+    <div class="global-top-navigation">
+      <GlobalTopNavigation
+        currentView={uiStore.currentView}
+        contentItems={DOCK_ITEMS.filter(item => item.surface === "content")}
+        onNavigate={pickDock}
+        onSearch={focusCurrentSearch}
+        onStatus={() => navigateTo("tasks")}
+        onTools={openToolsDrawer}
+        onSettings={() => navigateTo("settings")}
+        onToggleFullscreen={toggleWindowFullscreen}
+        onBigPicture={() => pickDock("__bigpicture")}
+        windowFullscreen={isWindowFullscreen}
+        toolsOpen={toolsDrawerOpen}
+        {taskActiveCount}
+        {taskFailedCount}
+      />
+    </div>
+
+    <div id="main-content" class="main-content" data-testid="main-content">
       {#key uiStore.currentView}
         <div
           class="view-wrapper"
           data-route-root
           data-route-view={uiStore.currentView}
+          data-module-style={uiStore.currentView === "home" || uiStore.currentView === "game-detail" ? "cinematic" : uiStore.currentView === "anime" ? "editorial" : uiStore.currentView === "comic" ? "kinetic" : "system"}
           aria-label={getViewLabel(uiStore.currentView)}
           tabindex="-1"
           in:fade={{ duration: 240, easing: cubicOut }}
@@ -432,25 +451,7 @@
       </div>
     </Drawer>
 
-    <button
-      class="global-task-badge"
-      type="button"
-      aria-label={`任务状态：进行中 ${taskActiveCount}，失败 ${taskFailedCount}；激活以查看详情`}
-      onclick={() => navigateTo("tasks")}
-    >
-      <TaskActivityBadge activeCount={taskActiveCount} failedCount={taskFailedCount} />
-    </button>
 
-    <div class="global-dock">
-      <SystemDock
-        items={DOCK_ITEMS}
-        current={isToolView ? "__tools" : uiStore.currentView}
-        toolsOpen={toolsDrawerOpen}
-        onpick={pickDock}
-        windowFullscreen={isWindowFullscreen}
-        ontogglefullscreen={toggleWindowFullscreen}
-      />
-    </div>
   {:else}
     <BigPicturePage />
   {/if}
@@ -476,112 +477,36 @@
 
 <style>
   .app-container {
-    display: flex; flex-direction: column; height: 100dvh; width: 100vw;
-    background: var(--bg-deep);
-    position: relative; overflow: hidden;
-  }
-  .app-container.fullscreen {
-    background: #050914;
-  }
-
-  .bg-layers { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
-  .global-task-badge { position: fixed; z-index: 12; right: max(16px, env(safe-area-inset-right)); bottom: calc(64px + env(safe-area-inset-bottom)); border: 0; padding: 0; background: transparent; cursor: pointer; }
-  .global-task-badge:focus-visible { outline: none; border-radius: 999px; box-shadow: 0 0 0 2px var(--accent-ring); }
-  .bg-gradient {
-    position: absolute; inset: 0;
-    background: linear-gradient(135deg, var(--bg-deep) 0%, var(--bg) 50%, var(--bg-deep) 100%);
-  }
-  .bg-scrim {
-    position: absolute; inset: 0;
-    background: rgba(11, 14, 20, 0.36);
-  }
-
-  .main-content {
-    flex: 1; display: flex; flex-direction: column; overflow: hidden;
-    min-width: 0; position: relative; z-index: 1;
-  }
-
-  .view-wrapper {
-    position: absolute; inset: 0;
-    display: flex; flex-direction: column; overflow: hidden;
-    z-index: 1;
-  }
-
-  /* ── Tools drawer content ── */
-  .tools-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 6px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 64px minmax(0, 1fr);
+    width: 100vw;
+    height: 100dvh;
+    position: relative;
+    overflow: hidden;
+    background: var(--c-black, #050505);
   }
+  .app-container.fullscreen { display: block; background: #050914; }
+  .global-top-navigation { grid-column: 1; grid-row: 1; position: relative; z-index: 95; min-width: 0; }
+  .main-content { grid-column: 1; grid-row: 2; min-width: 0; min-height: 0; position: relative; z-index: 1; overflow: hidden; }
+  .view-wrapper { position: absolute; inset: 0; display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; z-index: 1; }
 
-  @keyframes toolCellIn {
-    from { opacity: 0; transform: translateY(8px) scale(0.95); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
-  }
+  .tools-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--c-line, var(--border)); border-left: 1px solid var(--c-line, var(--border)); }
+  .tool-cell { min-height: 94px; display: grid; grid-template-columns: 34px 1fr; align-items: center; gap: 12px; padding: 14px 16px; border: 0; border-right: 1px solid var(--c-line, var(--border)); border-bottom: 1px solid var(--c-line, var(--border)); border-radius: 0; background: transparent; color: var(--c-muted, var(--text-secondary)); text-align: left; cursor: pointer; transition: color 160ms ease, background 160ms ease; }
+  .tool-cell:hover, .tool-cell.active { color: var(--c-paper, var(--text-primary)); background: rgba(238,234,224,.04); }
+  .tool-cell.active { box-shadow: inset 2px 0 var(--c-accent, var(--accent)); }
+  .tool-icon { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid var(--c-line, var(--border)); border-radius: 0; }
+  .tool-label { font: 650 12px/1 var(--font-ui); letter-spacing: .08em; }
+  .tool-cell:focus-visible { outline: 1px solid var(--c-paper, white); outline-offset: -3px; }
 
-  .tool-cell {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    padding: 14px 8px;
-    border: none;
-    border-radius: 14px;
-    background: transparent;
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
-    animation: toolCellIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  @media (max-width: 760px) {
+    .app-container { grid-template-columns: minmax(0, 1fr); grid-template-rows: 56px minmax(0, 1fr); }
+    .global-top-navigation { grid-column: 1; grid-row: 1; }
+    .main-content { grid-column: 1; grid-row: 2; }
+    .tools-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
-  .tool-cell:hover {
-    background: rgba(255,255,255,0.06);
-    color: var(--text-primary);
-    transform: translateY(-2px);
-  }
-  .tool-cell:active {
-    transform: scale(0.96);
-  }
-  .tool-cell.active {
-    color: var(--accent);
-    background: var(--accent-lo);
-  }
-  .tool-icon {
-    width: 44px; height: 44px;
-    display: grid; place-items: center;
-    border-radius: 12px;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.06);
-    transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
-  }
-  .tool-icon--tools { color: rgba(139,166,245,0.85); }
-  .tool-icon--import { color: rgba(94,211,172,0.85); }
-  .tool-icon--system { color: rgba(245,179,100,0.85); }
-  .tool-cell:hover .tool-icon {
-    background: rgba(255,255,255,0.08);
-    border-color: rgba(255,255,255,0.1);
-    box-shadow: 0 2px 8px -2px rgba(0,0,0,0.2);
-  }
-  .tool-cell.active .tool-icon {
-    background: var(--accent-lo);
-    border-color: var(--accent-ring, rgba(232,85,127,0.3));
-    color: var(--accent);
-  }
-  .tool-label {
-    font-size: 11px;
-    font-weight: 600;
-  }
-
-  /* ── Global dock ── */
-  .global-dock {
-    flex-shrink: 0;
-    position: relative; z-index: 90;
-    border-top: 1px solid var(--border);
-    background: rgba(10, 13, 20, 0.72);
-    backdrop-filter: blur(16px) saturate(1.1);
-    -webkit-backdrop-filter: blur(16px) saturate(1.1);
-  }
-
-  @media (max-width: 520px) {
-    .tools-grid { grid-template-columns: repeat(3, 1fr); }
-  }
+  @media (max-width: 520px) { .tools-grid { grid-template-columns: 1fr; } }
+  @media (prefers-reduced-motion: reduce) { .tool-cell { transition: none; } }
 </style>
+
+

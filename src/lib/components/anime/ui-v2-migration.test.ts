@@ -7,16 +7,17 @@ function source(path: string): string {
 }
 
 describe("anime UI-v2 migration contract", () => {
-  it("uses the shared page, filter, async and media patterns", () => {
+  it("uses the shared page primitives inside an editorial content stage", () => {
     const page = source("src/lib/components/AnimePage.svelte");
-    const media = source("src/lib/components/anime/AnimeMediaSection.svelte");
+    const editorial = source("src/lib/components/anime/editorial/AnimeEditorialHome.svelte");
     expect(page).toContain('<PageShell as="div"');
-    expect(page).toContain("<PageHeader");
-    expect(page).toContain("<FilterBar");
+    expect(page).toContain("<AnimeEditorialHome");
     expect(page).toContain("<AsyncSection");
     expect(page).toContain("<MediaCard");
-    expect(media).toContain("<ContentGrid");
-    expect(media).toContain("<MediaCard");
+    expect(page).toContain('data-search-scope="anime"');
+    expect(editorial).toContain("editorial");
+    expect(editorial).toContain("onResumeHistory");
+    expect(editorial).toContain("onOpenSubject");
   });
 
   it("locks tab semantics and roving keyboard navigation into classic and provider views", () => {

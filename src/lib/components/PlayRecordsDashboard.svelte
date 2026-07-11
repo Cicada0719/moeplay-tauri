@@ -12,6 +12,7 @@
   import ActivityV2Section from "./activity/ActivityV2Section.svelte";
   import LegacyInsightsSection from "./activity/LegacyInsightsSection.svelte";
   import LegacyOverviewSection from "./activity/LegacyOverviewSection.svelte";
+  import RecordsArchiveView from "./activity/RecordsArchiveView.svelte";
   import type { DashboardMediaActivity, DashboardStat } from "./activity/dashboard-model";
   import {
     activityChartPoints,
@@ -30,6 +31,8 @@
   } from "./activity/dashboard-data";
   import { PageHeader, PageShell } from "./ui-v2";
 
+  type RecordsMode = "archive" | "index";
+
   const activityStore = createActivityStore(tauriActivityApi);
   let summary = $state<PlaytimeSummary | null>(null);
   let loading = $state(true);
@@ -44,6 +47,7 @@
   let editActivity = $state<ActivityEventView | null>(null);
   let editing = $state(false);
   let deletingActivityId = $state<string | null>(null);
+  let recordsMode = $state<RecordsMode>("archive");
 
   const localSummary = $derived(buildLocalSummary(gameStore.allGames));
   const activeSummary = $derived(summary ?? localSummary);
@@ -153,42 +157,63 @@
 </script>
 
 <PageShell as="div" ariaLabel="游玩记录" width="full" class="records-v2-shell">
-  <PageHeader title="游玩记录" eyebrow="Play Records" description="统一查看游戏会话、番剧观看和漫画阅读进度；Activity v2 不可用时自动保留旧版聚合视图。" id="records-page-title">
-    {#snippet actions()}
-      <div class="records-header-actions">
-        {#if latestActivity}<button class="primary" type="button" onclick={() => openActivity(latestActivity)}>继续 {latestActivity.title}</button>
-        {:else if lastPlayedGame}<button class="primary" type="button" onclick={() => launchGame(lastPlayedGame?.id)}>继续 {lastPlayedGame.name}</button>
-        {:else}<button class="primary" type="button" onclick={() => (uiStore.currentView = "steam-import")}>导入游戏</button>{/if}
-        {#if lastPlayedGame}<button type="button" onclick={() => openGame(lastPlayedGame?.id)}>查看最近游戏</button>{/if}
-      </div>
-    {/snippet}
-  </PageHeader>
+  <div class="records-modebar">
+    <div><span>02 / ACTIVITY ARCHIVE</span><strong>个人媒体年鉴</strong></div>
+    <div role="group" aria-label="记录页视图">
+      <button type="button" class:active={recordsMode === "archive"} aria-pressed={recordsMode === "archive"} onclick={() => (recordsMode = "archive")}>ARCHIVE / 档案</button>
+      <button type="button" class:active={recordsMode === "index"} aria-pressed={recordsMode === "index"} onclick={() => (recordsMode = "index")}>INDEX / 管理</button>
+    </div>
+  </div>
 
-  <ActivityV2Section
-    state={activityV2State}
-    loaded={activityV2Loaded}
-    unavailable={activityV2Unavailable}
-    loadError={activityV2LoadError}
-    mutationError={activityV2MutationError}
-    exportStatus={activityExportStatus}
-    exportPath={activityExportPath}
-    exportFormat={activityExportFormat}
-    exactSeconds={activityV2Metrics.exactSeconds}
-    estimatedSeconds={activityV2Metrics.estimatedSeconds}
-    progressOnlyEvents={activityV2Metrics.progressOnlyEvents}
-    onFiltersChange={(filters) => { void applyActivityFilters(filters); }}
-    onClearFilters={() => { void applyActivityFilters({}); }}
-    onContinue={(candidate) => { void openContinueCandidate(candidate); }}
-    onLoadMore={() => { void activityStore.loadMore(); }}
-    onEdit={editActivityEvent}
-    onDelete={(event) => { void deleteActivityEvent(event); }}
-    onExport={(path, format) => { void exportActivity(path, format); }}
-    onRetry={() => { void loadActivityV2(); }}
-  />
+  {#if recordsMode === "archive"}
+    <RecordsArchiveView
+      items={mediaActivities}
+      stats={dashboardStats}
+      {dailyPoints}
+      {monthlyPoints}
+      warning={summaryWarning}
+      {loading}
+      onOpen={(item) => { void openActivity(item); }}
+      onImport={() => (uiStore.currentView = "steam-import")}
+    />
+  {:else}
+    <section class="records-index" aria-labelledby="records-page-title">
+      <PageHeader title="活动索引" eyebrow="Activity Index" description="筛选、编辑、删除和导出完整活动记录；Activity v2 不可用时保留旧版聚合数据。" id="records-page-title">
+        {#snippet actions()}
+          <div class="records-header-actions">
+            {#if latestActivity}<button class="primary" type="button" onclick={() => openActivity(latestActivity)}>继续 {latestActivity.title}</button>
+            {:else if lastPlayedGame}<button class="primary" type="button" onclick={() => launchGame(lastPlayedGame?.id)}>继续 {lastPlayedGame.name}</button>
+            {:else}<button class="primary" type="button" onclick={() => (uiStore.currentView = "steam-import")}>导入游戏</button>{/if}
+            {#if lastPlayedGame}<button type="button" onclick={() => openGame(lastPlayedGame?.id)}>查看最近游戏</button>{/if}
+          </div>
+        {/snippet}
+      </PageHeader>
 
-  <LegacyOverviewSection loading={loading} {hasRecords} stats={dashboardStats} continueItems={continueItems} warning={summaryWarning} onOpenActivity={(item) => { void openActivity(item); }} onImport={() => (uiStore.currentView = "steam-import")} onHome={() => (uiStore.currentView = "home")} />
-
-  <LegacyInsightsSection {hasRecords} {dailyPoints} {dailySummary} {monthlyPoints} {monthlySummary} activityPoints={combinedActivityPoints} activitySummary={activitySummaryText} {mediaCounts} {topGames} mediaActivities={mediaActivities} {recentSessions} onOpenGame={openGame} onOpenActivity={(item) => { void openActivity(item); }} />
+      <ActivityV2Section
+        state={activityV2State}
+        loaded={activityV2Loaded}
+        unavailable={activityV2Unavailable}
+        loadError={activityV2LoadError}
+        mutationError={activityV2MutationError}
+        exportStatus={activityExportStatus}
+        exportPath={activityExportPath}
+        exportFormat={activityExportFormat}
+        exactSeconds={activityV2Metrics.exactSeconds}
+        estimatedSeconds={activityV2Metrics.estimatedSeconds}
+        progressOnlyEvents={activityV2Metrics.progressOnlyEvents}
+        onFiltersChange={(filters) => { void applyActivityFilters(filters); }}
+        onClearFilters={() => { void applyActivityFilters({}); }}
+        onContinue={(candidate) => { void openContinueCandidate(candidate); }}
+        onLoadMore={() => { void activityStore.loadMore(); }}
+        onEdit={editActivityEvent}
+        onDelete={(event) => { void deleteActivityEvent(event); }}
+        onExport={(path, format) => { void exportActivity(path, format); }}
+        onRetry={() => { void loadActivityV2(); }}
+      />
+      <LegacyOverviewSection loading={loading} {hasRecords} stats={dashboardStats} continueItems={continueItems} warning={summaryWarning} onOpenActivity={(item) => { void openActivity(item); }} onImport={() => (uiStore.currentView = "steam-import")} onHome={() => (uiStore.currentView = "home")} />
+      <LegacyInsightsSection {hasRecords} {dailyPoints} {dailySummary} {monthlyPoints} {monthlySummary} activityPoints={combinedActivityPoints} activitySummary={activitySummaryText} {mediaCounts} {topGames} mediaActivities={mediaActivities} {recentSessions} onOpenGame={openGame} onOpenActivity={(item) => { void openActivity(item); }} />
+    </section>
+  {/if}
 </PageShell>
 
 {#if editActivity}
@@ -196,10 +221,21 @@
 {/if}
 
 <style>
-  :global(.records-v2-shell .v2-page-shell__inner) { display: grid; align-content: start; gap: var(--v2-space-6); max-width: min(106rem, 100%); }
+  :global(.records-v2-shell) { height: 100%; overflow: auto; background: #060606; }
+  :global(.records-v2-shell .v2-page-shell__inner) { display: block; width: 100%; max-width: none; min-height: 100%; padding: 0; }
+  .records-modebar { position: sticky; top: 0; z-index: 18; min-height: 58px; display: flex; align-items: stretch; justify-content: space-between; border-bottom: 1px solid rgba(238,234,224,.18); background: rgba(5,5,5,.96); backdrop-filter: blur(14px); color: #eeeae0; }
+  .records-modebar > div:first-child { display: grid; align-content: center; gap: 3px; padding: 0 clamp(20px,3vw,48px); }
+  .records-modebar span { color: #c7472f; font: 650 8px/1 var(--font-mono); letter-spacing: .15em; }
+  .records-modebar strong { font-size: 12px; letter-spacing: .08em; }
+  .records-modebar [role="group"] { display: flex; }
+  .records-modebar button { min-width: 138px; padding: 0 18px; border: 0; border-left: 1px solid rgba(238,234,224,.18); border-radius: 0; background: transparent; color: #8f8c84; font: 650 10px/1 var(--font-mono); letter-spacing: .08em; cursor: pointer; }
+  .records-modebar button:hover,.records-modebar button.active { color: #eeeae0; background: rgba(238,234,224,.045); }
+  .records-modebar button.active { box-shadow: inset 0 -2px #c7472f; }
+  .records-modebar button:focus-visible { outline: 1px solid #eeeae0; outline-offset: -3px; }
+  .records-index { display: grid; align-content: start; gap: 24px; max-width: 106rem; margin: 0 auto; padding: clamp(24px,4vw,64px); }
   .records-header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--v2-space-2); }
-  .records-header-actions button { min-height: 2.75rem; padding: .55rem .85rem; border: 1px solid var(--v2-color-border); border-radius: var(--v2-radius-md); background: var(--v2-color-surface); color: var(--v2-color-text); font: inherit; font-weight: 800; cursor: pointer; }
-  .records-header-actions button.primary { border-color: var(--v2-color-accent); background: var(--v2-color-accent); color: var(--v2-color-on-accent, #fff); }
-  .records-header-actions button:focus-visible { outline: none; box-shadow: var(--v2-focus-ring); }
-  @media (max-width: 42rem) { .records-header-actions { width: 100%; justify-content: stretch; } .records-header-actions button { flex: 1 1 auto; } }
+  .records-header-actions button { min-height: 2.75rem; padding: .55rem .85rem; border: 1px solid var(--v2-color-border); border-radius: 0; background: transparent; color: var(--v2-color-text); font: inherit; font-weight: 800; cursor: pointer; }
+  .records-header-actions button.primary { border-color: #c7472f; background: #c7472f; color: #080706; }
+  .records-header-actions button:focus-visible { outline: 1px solid #eeeae0; outline-offset: 2px; }
+  @media(max-width:760px){.records-modebar>div:first-child strong{display:none}.records-modebar button{min-width:auto;padding:0 12px;font-size:8px}.records-index{padding:20px}.records-header-actions{width:100%;justify-content:stretch}.records-header-actions button{flex:1 1 auto}}
 </style>

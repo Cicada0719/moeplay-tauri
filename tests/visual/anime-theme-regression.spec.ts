@@ -50,7 +50,7 @@ for (const theme of themes) {
     test.use({ appState: themedState(theme.id) });
 
     test(`renders ${theme.id} through settings and WallpaperStage`, async ({ appPage }) => {
-      await appPage.getByTestId("system-dock").getByRole("button", { name: "打开设置" }).click();
+      await appPage.getByRole("banner").getByRole("button", { name: "打开设置" }).click();
       await expect(appPage).toHaveURL(/#settings$/);
 
       const root = appPage.locator("html");
@@ -84,7 +84,7 @@ test.describe("anime theme surface and accessibility modes", () => {
     const browseFilter = await image.evaluate((element) => getComputedStyle(element).filter);
     const browseScrim = await scrim.evaluate((element) => getComputedStyle(element).backgroundColor);
 
-    await appPage.getByTestId("system-dock").getByRole("button", { name: "打开设置" }).click();
+    await appPage.getByRole("banner").getByRole("button", { name: "打开设置" }).click();
     await expect(stage).toHaveAttribute("data-surface", "management");
 
     const managementFilter = await image.evaluate((element) => getComputedStyle(element).filter);
@@ -112,7 +112,7 @@ test.describe("contrast anime theme accessibility", () => {
   test.use({ appState: themedState("yozakura", "contrast") });
 
   test("contrast removes decorative effects and has no serious settings violations", async ({ appPage }) => {
-    await appPage.getByTestId("system-dock").getByRole("button", { name: "打开设置" }).click();
+    await appPage.getByRole("banner").getByRole("button", { name: "打开设置" }).click();
 
     const root = appPage.locator("html");
     await expect(root).toHaveAttribute("data-color-mode", "contrast");

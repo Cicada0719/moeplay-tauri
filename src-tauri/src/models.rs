@@ -747,23 +747,19 @@ pub struct SaveInfo {
 // 应用设置
 // ============================================================================
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum ThemePackId {
+    #[default]
     Yozakura,
     AfterSchool,
     NeonIsekai,
 }
 
-impl Default for ThemePackId {
-    fn default() -> Self {
-        Self::Yozakura
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum ColorMode {
+    #[default]
     PackDefault,
     System,
     Light,
@@ -772,23 +768,12 @@ pub enum ColorMode {
     Contrast,
 }
 
-impl Default for ColorMode {
-    fn default() -> Self {
-        Self::PackDefault
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum WallpaperRotation {
+    #[default]
     StartupRandom,
     Fixed,
-}
-
-impl Default for WallpaperRotation {
-    fn default() -> Self {
-        Self::StartupRandom
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]

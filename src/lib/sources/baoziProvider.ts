@@ -6,6 +6,8 @@ const BAOZI_BASE = "https://cn.baozimhcn.com";
 const BAOZI_READER_BASE = "https://cn.dzmanga.com";
 const SOURCE_PREFIX = "baozi:";
 const SOURCE_LABEL = "包子漫画";
+const BAOZI_BLOCKED_IMAGE_HOSTS = new Set(["static-tw.baozimh.com"]);
+const BAOZI_IMAGE_MIRROR_HOST = "static-tw.baozimhcn.com";
 
 function parseHtml(html: string): Document {
   return new DOMParser().parseFromString(html, "text/html");
@@ -19,6 +21,26 @@ function absoluteUrl(value: string, base = BAOZI_BASE): string {
     return new URL(trimmed, base).toString();
   } catch {
     return trimmed;
+  }
+}
+
+/**
+ * 包子页面仍会下发被 Cloudflare 拒绝的 static-tw.baozimh.com 图片地址。
+ * 同路径的 baozimhcn 镜像可直接作为 WebView 图片源，并保留尺寸/质量参数。
+ */
+export function normalizeBaoziImageUrl(value: string, base = BAOZI_BASE): string {
+  const absolute = absoluteUrl(value, base);
+  if (!absolute) return "";
+
+  try {
+    const url = new URL(absolute);
+    if (BAOZI_BLOCKED_IMAGE_HOSTS.has(url.hostname.toLowerCase())) {
+      url.hostname = BAOZI_IMAGE_MIRROR_HOST;
+      url.protocol = "https:";
+    }
+    return url.toString();
+  } catch {
+    return absolute;
   }
 }
 
@@ -57,7 +79,7 @@ export function parseBaoziSearchResults(html: string): ComicSummary[] {
       id: providerId(id),
       title,
       author: text(card.querySelector(".comics-card__info .tags")) || SOURCE_LABEL,
-      thumb_url: absoluteUrl(cover),
+      thumb_url: normalizeBaoziImageUrl(cover),
       categories: [SOURCE_LABEL, ...categories],
       likes_count: 0,
       total_views: 0,
@@ -123,7 +145,7 @@ export function parseBaoziDetail(html: string, id: string): { detail: ComicDetai
       title,
       author,
       description,
-      thumb_url: absoluteUrl(cover),
+      thumb_url: normalizeBaoziImageUrl(cover),
       categories: [SOURCE_LABEL, ...tags.slice(0, 3)],
       tags,
       likes_count: 0,
@@ -149,7 +171,7 @@ export function parseBaoziChapterPage(html: string, currentUrl: string): { image
     document.querySelectorAll(".comic-contain > div:not(#div_top_ads):not(.mobadsq) amp-img"),
   )
     .map((element) => element.getAttribute("src") || element.getAttribute("data-src") || "")
-    .map((value) => absoluteUrl(value, currentUrl))
+    .map((value) => normalizeBaoziImageUrl(value, currentUrl))
     .filter(Boolean);
   const next = Array.from(document.querySelectorAll<HTMLAnchorElement>("div.next_chapter a"))
     .find((element) => text(element).includes("下一页"));

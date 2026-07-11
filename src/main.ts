@@ -8,6 +8,7 @@ import "@fontsource/jetbrains-mono/600.css";
 import "./app.css";
 import "./lib/styles/tokens-v2.css";
 import "./lib/styles/anime-themes.css";
+import "./lib/styles/scheme-c.css";
 import { mount } from "svelte";
 import App from "./App.svelte";
 

@@ -25,6 +25,6 @@ export default defineConfig({
     environment: "happy-dom",
     globals: true,
     setupFiles: [path.join(root, "src/lib/testing/vitest-setup.ts")],
-    exclude: ["tests/visual/**", "node_modules/**", "dist/**", "src-tauri/**"],
+    exclude: ["tests/visual/**", "tests/concept/**", "node_modules/**", "dist/**", "src-tauri/**"],
   },
 });

@@ -1,0 +1,265 @@
+/*
+ * MoePlay Scheme C — global product language
+ * SHIFTBRAIN product skeleton + cinematic content + editorial management.
+ * This layer intentionally overrides legacy rounded/glass dashboard styling.
+ */
+:root {
+  --c-black: #050505;
+  --c-void: #070707;
+  --c-surface-1: #0c0c0c;
+  --c-surface-2: #111110;
+  --c-surface-3: #171716;
+  --c-paper: #eeeae0;
+  --c-muted: #99958c;
+  --c-dim: #67645e;
+  --c-line: rgba(238, 234, 224, .16);
+  --c-line-strong: rgba(238, 234, 224, .42);
+  --c-accent: #c7472f;
+  --c-accent-hi: #e05a3e;
+  --c-edge: clamp(14px, 2.1vw, 34px);
+  --c-header-height: 64px;
+  --c-dock-width: 78px;
+  --c-ease: cubic-bezier(.22, 1, .36, 1);
+}
+
+html[data-theme-pack], html[data-theme], :root {
+  --bg-void: var(--c-black);
+  --bg-deep: var(--c-void);
+  --bg: var(--c-surface-1);
+  --bg-base: var(--c-surface-1);
+  --bg-surface: var(--c-surface-1);
+  --bg-secondary: var(--c-surface-2);
+  --bg-elev: var(--c-surface-2);
+  --bg-card: var(--c-surface-3);
+  --bg-hover: #1d1d1b;
+  --bg-active: rgba(199, 71, 47, .13);
+  --text-primary: var(--c-paper);
+  --text-secondary: #b9b5ad;
+  --text-muted: var(--c-muted);
+  --text-dim: var(--c-dim);
+  --accent: var(--c-accent);
+  --accent-hi: var(--c-accent-hi);
+  --accent-lo: rgba(199, 71, 47, .13);
+  --accent-ring: rgba(199, 71, 47, .52);
+  --border: var(--c-line);
+  --border-hover: var(--c-line-strong);
+  --border-glass: var(--c-line);
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --glass-bg: rgba(5, 5, 5, .88);
+  --glass-border: var(--c-line);
+  --glass-highlight: inset 0 1px rgba(255,255,255,.035);
+  --glass-blur: blur(18px);
+  --focus-ring: 0 0 0 2px var(--c-paper), 0 0 0 4px rgba(5,5,5,.9);
+}
+
+body { background: var(--c-black); color: var(--c-paper); }
+.app-container::after { content: ""; position: fixed; inset: 0; z-index: 3; pointer-events: none; opacity: .055; mix-blend-mode: soft-light; background-image: repeating-radial-gradient(circle at 20% 30%, rgba(255,255,255,.04) 0 1px, transparent 1px 4px); }
+
+/* Scheme C page identity */
+.view-wrapper { --page-accent: var(--c-accent); }
+.view-wrapper[data-route-view="anime"] { --page-accent: #d15848; }
+.view-wrapper[data-route-view="comic"] { --page-accent: #d0b45f; }
+.view-wrapper[data-route-view="records"],
+.view-wrapper[data-route-view="stats"] { --page-accent: #7d9a91; }
+.view-wrapper[data-route-view="tasks"],
+.view-wrapper[data-route-view="sources"],
+.view-wrapper[data-route-view="downloads"],
+.view-wrapper[data-route-view="settings"],
+.view-wrapper[data-route-view="diagnostics"] { --page-accent: #a5a199; }
+
+/* Shared pages become dark editorial documents instead of rounded dashboards. */
+.view-wrapper:not([data-route-view="home"]) :where(.v2-page-shell) { background: linear-gradient(135deg, rgba(5,5,5,.96), rgba(14,14,13,.91)); }
+.view-wrapper:not([data-route-view="home"]) :where(.v2-page-shell__inner) { max-width: 1680px; padding: clamp(18px, 3vw, 48px); }
+.view-wrapper:not([data-route-view="home"]) :where(.v2-page-header) { position: relative; padding: 16px 0 22px; border-top: 1px solid var(--c-line); border-bottom: 1px solid var(--c-line); }
+.view-wrapper:not([data-route-view="home"]) :where(.v2-page-header)::before { content: attr(data-section); color: var(--page-accent); font: 600 9px/1 var(--font-mono); letter-spacing: .18em; }
+.view-wrapper:not([data-route-view="home"]) :where(.v2-page-header__title) { color: var(--c-paper); font-family: var(--font-display); font-size: clamp(30px, 4.3vw, 72px); font-weight: 600; line-height: .9; letter-spacing: -.055em; }
+.view-wrapper:not([data-route-view="home"]) :where(.v2-page-header__description) { max-width: 64ch; color: var(--c-muted); }
+.view-wrapper:not([data-route-view="home"]) :where(.v2-card, .ui-card, .card, .panel, .section-card) { border-color: var(--c-line); border-radius: 0 !important; background: rgba(14,14,13,.82); box-shadow: none; }
+.view-wrapper:not([data-route-view="home"]) :where(.v2-card:hover, .ui-card:hover, button.card:hover) { border-color: var(--c-line-strong); background: rgba(20,20,18,.9); transform: none; }
+.view-wrapper:not([data-route-view="home"]) :where(.v2-filter-bar, .filter-bar) { border-radius: 0 !important; border-color: var(--c-line); background: rgba(9,9,9,.88); }
+
+/* Global control language: rectangular, type-led, one accent. */
+.view-wrapper :where(button:not(.dock-btn):not(.mw-v2-fragment):not(.mw-v2-scene__item button), .ui-button, input, select, textarea) { border-radius: 0 !important; }
+.view-wrapper :where(input, select, textarea) { border-color: var(--c-line); background: rgba(8,8,8,.88); }
+.view-wrapper :where(input, select, textarea):focus { border-color: var(--page-accent); box-shadow: inset 0 -1px var(--page-accent); }
+.view-wrapper :where(button):focus-visible { outline: 2px solid var(--c-paper); outline-offset: 3px; }
+
+/* Management routes: denser, quieter, wallpaper subdued. */
+.view-wrapper:is([data-route-view="tasks"],[data-route-view="sources"],[data-route-view="downloads"],[data-route-view="backup"],[data-route-view="settings"],[data-route-view="diagnostics"],[data-route-view="scraper"]) { background: rgba(5,5,5,.82); }
+.view-wrapper:is([data-route-view="tasks"],[data-route-view="sources"],[data-route-view="downloads"],[data-route-view="backup"],[data-route-view="settings"],[data-route-view="diagnostics"],[data-route-view="scraper"]) :where(h1,h2,h3) { letter-spacing: -.035em; }
+
+@media (max-width: 760px) {
+  :root { --c-dock-width: 0px; --c-header-height: 56px; }
+  .app-container::after { display: none; }
+  .view-wrapper:not([data-route-view="home"]) :where(.v2-page-shell__inner) { padding: 14px; }
+}
+@media (prefers-reduced-motion: reduce) { .app-container::after { display: none; } }
+@media (forced-colors: active) { .app-container::after { display: none; } }
+
+
+/* Scheme C overlays and content-specific pages. */
+.v2-drawer__backdrop, .v2-detail-panel__backdrop { background: rgba(0,0,0,.76) !important; backdrop-filter: blur(4px); }
+.v2-drawer, .v2-detail-panel { border-color: var(--c-line) !important; border-radius: 0 !important; background: rgba(7,7,7,.97) !important; box-shadow: -18px 0 60px rgba(0,0,0,.44) !important; }
+.v2-drawer__header, .v2-drawer__footer, .v2-detail-panel__header, .v2-detail-panel__footer { border-color: var(--c-line) !important; }
+.v2-drawer__title, .v2-detail-panel__title { font-family: var(--font-display); letter-spacing: -.035em; }
+.v2-drawer__close, .v2-detail-panel__close { border-radius: 0 !important; }
+.tools-grid { gap: 0 !important; border-top: 1px solid var(--c-line); border-left: 1px solid var(--c-line); }
+.tool-cell { border-right: 1px solid var(--c-line) !important; border-bottom: 1px solid var(--c-line) !important; border-radius: 0 !important; padding: 18px 10px !important; }
+.tool-cell:hover { transform: none !important; background: rgba(238,234,224,.045) !important; }
+.tool-icon { border: 0 !important; border-radius: 0 !important; background: transparent !important; color: var(--c-muted) !important; }
+.tool-cell.active { color: var(--c-paper) !important; background: rgba(199,71,47,.1) !important; box-shadow: inset 2px 0 var(--c-accent); }
+
+/* Content modules: preserve their data behavior, replace the visual grammar. */
+.anime-page, .comic-v2-shell, .records-v2-shell { --v2-color-accent: var(--page-accent); }
+.anime-page :where(.media-card, .ui-card), .comic-v2-shell :where(.comic-card, .media-row), .records-v2-shell :where(.ui-card, .v2-card) { border-radius: 0 !important; box-shadow: none !important; }
+.anime-page :where(.media-card img), .comic-v2-shell :where(img) { filter: saturate(.88) contrast(1.04); transition: filter 220ms ease, transform 420ms var(--c-ease); }
+.anime-page :where(.media-card:hover img), .comic-v2-shell :where(button:hover img, a:hover img) { filter: saturate(1.02) contrast(1.06); transform: scale(1.018); }
+.records-v2-shell :where(.records-grid, .stats-grid) { gap: 1px !important; background: var(--c-line); }
+.records-v2-shell :where(.records-grid, .stats-grid) > * { background: var(--c-surface-1); }
+
+/* Detail becomes a broad cinematic document rather than a small rounded side card. */
+.v2-detail-panel.game-detail-panel { width: min(calc(100vw - var(--c-dock-width)), 1120px) !important; }
+.v2-detail-panel.game-detail-panel .v2-detail-panel__body { padding: 0 !important; }
+.v2-detail-panel.game-detail-panel .v2-detail-panel__header { min-height: 58px; align-items: center; background: rgba(5,5,5,.9); }
+
+@media (max-width: 760px) {
+  .v2-detail-panel.game-detail-panel { width: 100vw !important; }
+}
+
+
+/* Scheme C owns the skeleton; theme packs provide only subdued atmosphere. */
+.wallpaper-stage[data-surface="browse"] .wallpaper-stage__image { filter: brightness(.24) saturate(.5) contrast(1.08) !important; }
+.wallpaper-stage[data-surface="browse"] .wallpaper-stage__scrim { background: linear-gradient(90deg, rgba(5,5,5,.86), rgba(5,5,5,.54) 48%, rgba(5,5,5,.72)), linear-gradient(180deg, rgba(5,5,5,.18), rgba(5,5,5,.72)) !important; }
+.wallpaper-stage[data-surface="management"] .wallpaper-stage__image { filter: brightness(.09) saturate(.15) !important; }
+.wallpaper-stage[data-surface="management"] .wallpaper-stage__scrim { background: rgba(5,5,5,.9) !important; }
+.wallpaper-stage__decor { display: none !important; }
+
+
+/* Fixed module art direction: Games=Cinematic, Anime=Editorial, Comics=Kinetic. */
+.view-wrapper[data-module-style="cinematic"] { --page-accent: #c7472f; --module-paper: #eeeae0; }
+.view-wrapper[data-module-style="editorial"] { --page-accent: #d0b45f; --module-paper: #e5dfd0; }
+.view-wrapper[data-module-style="kinetic"] { --page-accent: #68a99f; --module-paper: #edf2ef; }
+
+.view-wrapper[data-module-style="editorial"] :where(.anime-page) { background: linear-gradient(105deg, rgba(13,12,10,.97), rgba(20,18,13,.88)); }
+.view-wrapper[data-module-style="editorial"] :where(.anime-page .v2-page-header) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+.view-wrapper[data-module-style="editorial"] :where(.anime-page .v2-page-header__title) { max-width: 10ch; font-weight: 500; }
+.view-wrapper[data-module-style="editorial"] :where(.anime-page .v2-page-header__eyebrow) { color: #d0b45f; }
+.view-wrapper[data-module-style="editorial"] :where(.anime-page .v2-content-grid, .anime-page .media-grid) { gap: 1px !important; background: var(--c-line); }
+.view-wrapper[data-module-style="editorial"] :where(.anime-page .v2-media-card, .anime-page .media-card) { background: #0e0d0a; }
+
+.view-wrapper[data-module-style="kinetic"] :where(.comic-v2-shell) { background: radial-gradient(circle at 75% 26%, rgba(104,169,159,.11), rgba(5,7,7,.96) 52%); }
+.view-wrapper[data-module-style="kinetic"] :where(.comic-v2-shell .v2-page-header__eyebrow) { color: #68a99f; }
+.view-wrapper[data-module-style="kinetic"] :where(.comic-v2-shell .v2-page-header__title) { font-style: italic; transform: skewX(-4deg); transform-origin: left; }
+.view-wrapper[data-module-style="kinetic"] :where(.comic-v2-shell .comic-card:nth-child(3n+2), .comic-v2-shell .v2-media-row:nth-child(3n+2)) { transform: translateY(12px); }
+.view-wrapper[data-module-style="kinetic"] :where(.comic-v2-shell .comic-card:nth-child(4n), .comic-v2-shell .v2-media-row:nth-child(4n)) { transform: translateY(-6px); }
+.view-wrapper[data-module-style="kinetic"] :where(.comic-v2-shell .comic-card, .comic-v2-shell .v2-media-row) { transition: transform 320ms var(--c-ease), border-color 160ms ease; }
+.view-wrapper[data-module-style="kinetic"] :where(.comic-v2-shell .comic-card:hover, .comic-v2-shell .v2-media-row:hover) { transform: translateY(-3px); border-color: rgba(104,169,159,.5); }
+
+@media (prefers-reduced-motion: reduce) {
+  .view-wrapper[data-module-style="kinetic"] :where(.comic-v2-shell .comic-card, .comic-v2-shell .v2-media-row) { transform: none !important; transition: none; }
+}
+/* ── 0.13 production composition reset ────────────────────────────────
+   SHIFTBRAIN is the common product skeleton. Module art direction lives
+   inside each content stage, never in competing global navigation layers. */
+
+:root {
+  --mp-shell-rail: 64px;
+  --mp-shell-head: 64px;
+  --mp-paper: #eeeae0;
+  --mp-black: #050505;
+  --mp-warm-black: #0a0908;
+  --mp-line: rgba(238, 234, 224, .16);
+  --mp-line-strong: rgba(238, 234, 224, .38);
+  --mp-red: #c7472f;
+}
+
+.app-container .v2-page-shell,
+.app-container .v2-page-shell__inner { border-radius: 0 !important; }
+
+.view-wrapper[data-module-style="system"] .v2-page-shell__inner {
+  max-width: 1540px;
+  padding: clamp(20px, 3vw, 48px);
+}
+
+.view-wrapper[data-module-style="system"] :is(.v2-page-header, .v2-filter-bar, .v2-async-section, .settings-card, .card) {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.view-wrapper[data-module-style="system"] .v2-page-header {
+  padding-bottom: clamp(18px, 2vw, 30px);
+  border-bottom: 1px solid var(--mp-line);
+}
+
+/* Management pages read as indexes, not floating dashboard cards. */
+.view-wrapper[data-module-style="system"] :is(.v2-filter-bar, .v2-async-section) {
+  border-color: var(--mp-line) !important;
+  background: rgba(5, 5, 5, .74) !important;
+}
+
+.view-wrapper[data-module-style="editorial"] {
+  --v2-radius-sm: 0px;
+  --v2-radius-md: 0px;
+  --v2-radius-lg: 0px;
+  --v2-color-accent: #d7a14b;
+  background: linear-gradient(130deg, rgba(74, 54, 30, .12), transparent 46%), var(--mp-warm-black);
+}
+
+.view-wrapper[data-module-style="kinetic"] {
+  --v2-radius-sm: 0px;
+  --v2-radius-md: 0px;
+  --v2-radius-lg: 0px;
+  --v2-color-accent: #8fb7c4;
+  background: linear-gradient(150deg, rgba(69, 111, 125, .11), transparent 48%), #050708;
+}
+
+.view-wrapper[data-module-style="editorial"] :is(.v2-page-header, .v2-filter-bar, .v2-async-section),
+.view-wrapper[data-module-style="kinetic"] :is(.v2-page-header, .v2-filter-bar, .v2-async-section) {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.view-wrapper[data-module-style="editorial"] .v2-page-header__title,
+.view-wrapper[data-module-style="kinetic"] .v2-page-header__title {
+  font-size: clamp(2.4rem, 5.8vw, 6.4rem);
+  line-height: .86;
+  letter-spacing: -.065em;
+}
+
+/* Comics: continuous, offset cover stream instead of a uniform card wall. */
+.view-wrapper[data-module-style="kinetic"] .v2-content-grid {
+  align-items: start;
+  grid-auto-flow: dense;
+  gap: clamp(14px, 2vw, 32px) !important;
+}
+.view-wrapper[data-module-style="kinetic"] .v2-content-grid > :nth-child(4n + 2) { transform: translateY(clamp(22px, 4vw, 64px)); }
+.view-wrapper[data-module-style="kinetic"] .v2-content-grid > :nth-child(5n + 3) { transform: translateY(clamp(-12px, -1vw, -24px)); }
+.view-wrapper[data-module-style="kinetic"] .v2-content-grid > :nth-child(6n + 1) { grid-row: span 2; }
+.view-wrapper[data-module-style="kinetic"] .comic-page-frame { padding-bottom: 11vh; }
+
+/* Anime: magazine-like horizontal divisions. */
+.view-wrapper[data-module-style="editorial"] .anime-page-frame,
+.view-wrapper[data-module-style="editorial"] .v2-page-shell__inner { gap: clamp(18px, 3vw, 42px); }
+.view-wrapper[data-module-style="editorial"] .v2-content-grid { gap: 1px !important; background: var(--mp-line); }
+.view-wrapper[data-module-style="editorial"] .v2-content-grid > * { background: var(--mp-warm-black); }
+
+@media (max-width: 760px) {
+  :root { --mp-shell-rail: 0px; --mp-shell-head: 56px; }
+  .view-wrapper[data-module-style="kinetic"] .v2-content-grid > * { transform: none !important; }
+  .view-wrapper[data-module-style="editorial"] .v2-page-header__title,
+  .view-wrapper[data-module-style="kinetic"] .v2-page-header__title { font-size: clamp(2rem, 13vw, 4.2rem); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view-wrapper[data-module-style="kinetic"] .v2-content-grid > * { transform: none !important; }
+}
+/* Records owns the full exhibition canvas; generic management-page gutters must not constrain it. */
+.view-wrapper[data-route-view="records"] .records-v2-shell .v2-page-shell__inner {
+  max-width: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+.view-wrapper[data-route-view="records"] .records-v2-shell { background: #060606 !important; }

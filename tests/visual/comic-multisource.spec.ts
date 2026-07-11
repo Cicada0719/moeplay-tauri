@@ -93,7 +93,7 @@ test("v0.12 comic auto mode renders isolated parallel source sections", async ({
   await expect(autoTab).toBeFocused();
 
   await page.getByPlaceholder("搜索普通漫画...").fill("测试");
-  await page.getByRole("button", { name: "搜索" }).click();
+  await page.getByTestId("comic-page").getByRole("button", { name: "搜索", exact: true }).click();
 
   await expect(page.getByRole("heading", { name: "MangaDex", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "包子漫画", exact: true })).toBeVisible();

@@ -52,7 +52,8 @@ test.use({
 test.describe("records and Continue UI-v2 keyboard focus", () => {
   test("activity editor traps Escape and restores the edit trigger", async ({ appPage: page }) => {
     await page.getByRole("button", { name: "打开游玩记录" }).click();
-    await expect(page.getByRole("heading", { level: 1, name: "游玩记录" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "ACTIVITY ARCHIVE" })).toBeVisible();
+    await page.getByRole("button", { name: "INDEX / 管理" }).click();
     const edit = page.getByRole("button", { name: "编辑 fixture-game-1 活动" });
     await edit.focus();
     await page.keyboard.press("Enter");

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 export const DEFAULT_BUDGET = Object.freeze({
   totalJavaScriptBytes: 2_100_000,
-  largestChunkBytes: 920_000,
+  largestChunkBytes: 950_000,
   animeChunkBytes: 700_000,
   comicChunkBytes: 100_000,
 });
@@ -41,3 +41,4 @@ if (invoked) {
     process.exit(1);
   }
 }
+

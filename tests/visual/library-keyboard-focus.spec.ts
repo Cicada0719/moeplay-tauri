@@ -32,7 +32,7 @@ test.use({
 
 test.describe("P1-02 game library keyboard and focus", () => {
   test("detail closes to the originating card and restores virtual scroll", async ({ appPage: page }) => {
-    await page.getByRole("button", { name: "查看全部游戏" }).click();
+    await page.getByRole("button", { name: /索引.*完整游戏库/ }).click();
     await expect(page.getByTestId("all-games-panel")).toBeVisible();
 
     const scroll = page.getByTestId("game-library-scroll");
@@ -76,7 +76,7 @@ test.describe("P1-02 game library keyboard and focus", () => {
   });
 
   test("delete confirmation defaults to Cancel and returns focus safely", async ({ appPage: page }) => {
-    await page.getByRole("button", { name: "查看全部游戏" }).click();
+    await page.getByRole("button", { name: /索引.*完整游戏库/ }).click();
     await expect(page.getByTestId("all-games-panel")).toBeVisible();
 
     const deleteButton = page.getByRole("button", { name: /删除 游戏 001/ });

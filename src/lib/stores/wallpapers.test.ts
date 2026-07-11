@@ -57,6 +57,18 @@ beforeEach(() => {
   wallpaperApi.downloadWallpaper.mockResolvedValue(undefined);
 });
 
+describe("wallpaperStore defensive loading", () => {
+  it("treats a null backend payload as an empty wallpaper list", async () => {
+    const store = await loadStore();
+    wallpaperApi.listWallpapers.mockResolvedValue(null);
+
+    await expect(store.load()).resolves.toBeUndefined();
+
+    expect(store.records).toEqual([]);
+    expect(store.installedFor("yozakura")).toEqual([]);
+  });
+});
+
 describe("wallpaperStore content rating", () => {
   it("keeps installed general wallpapers in hide mode and permits suggestive/adult wallpapers for blur or show", async () => {
     const store = await loadStore();

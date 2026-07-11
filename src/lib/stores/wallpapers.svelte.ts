@@ -14,10 +14,16 @@ export const wallpaperStore = {
   get records() { return records; },
   get syncing() { return syncing; },
   installedFor(themePack: string, nsfwMode = "blur") {
-    return records.filter((record) => record.installed && record.local_path && record.asset.theme_pack === themePack && ratingAllowed(record.asset.rating, nsfwMode));
+    const available = Array.isArray(records) ? records : [];
+    return available.filter((record) => record.installed && record.local_path && record.asset.theme_pack === themePack && ratingAllowed(record.asset.rating, nsfwMode));
   },
   async load(themePack?: string) {
-    try { records = await listWallpapers(themePack); } catch { records = []; }
+    try {
+      const result = await listWallpapers(themePack);
+      records = Array.isArray(result) ? result : [];
+    } catch {
+      records = [];
+    }
   },
   async initialize(appearance: AppearanceSettings, nsfwMode = "blur") {
     if (initialized) return;

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   loadBaoziChapterImages,
   loadBaoziDetail,
+  normalizeBaoziImageUrl,
   parseBaoziChapterPage,
   parseBaoziDetail,
   parseBaoziSearchResults,
@@ -33,6 +34,32 @@ const detailHtml = `
 `;
 
 describe("baozi provider", () => {
+  it("rewrites the blocked Baozi image CDN to the working mirror", () => {
+    expect(normalizeBaoziImageUrl(
+      "https://static-tw.baozimh.com/cover/test.jpg?w=285&h=375&q=100",
+    )).toBe("https://static-tw.baozimhcn.com/cover/test.jpg?w=285&h=375&q=100");
+    expect(normalizeBaoziImageUrl("//static-tw.baozimh.com/cover/test.jpg"))
+      .toBe("https://static-tw.baozimhcn.com/cover/test.jpg");
+    expect(normalizeBaoziImageUrl("https://img.test/cover.jpg"))
+      .toBe("https://img.test/cover.jpg");
+  });
+
+  it("normalizes Baozi cover URLs from search and detail pages", () => {
+    const blockedSearchHtml = searchHtml.replace(
+      "//img.test/cover.jpg",
+      "https://static-tw.baozimh.com/cover/test.jpg?w=285&amp;h=375&amp;q=100",
+    );
+    const blockedDetailHtml = detailHtml.replace(
+      "//img.test/detail.jpg",
+      "https://static-tw.baozimh.com/cover/detail.jpg?w=285&amp;h=375&amp;q=100",
+    );
+
+    expect(parseBaoziSearchResults(blockedSearchHtml)[0]?.thumb_url)
+      .toBe("https://static-tw.baozimhcn.com/cover/test.jpg?w=285&h=375&q=100");
+    expect(parseBaoziDetail(blockedDetailHtml, "test-manga").detail.thumb_url)
+      .toBe("https://static-tw.baozimhcn.com/cover/detail.jpg?w=285&h=375&q=100");
+  });
+
   it("parses search cards into unified summaries", () => {
     expect(parseBaoziSearchResults(searchHtml)).toEqual([
       {
@@ -77,11 +104,11 @@ describe("baozi provider", () => {
 
   it("parses chapter images and follows the next-page link", () => {
     const html = `
-      <div class="comic-contain"><div><amp-img src="//img.test/1.jpg"></amp-img></div></div>
+      <div class="comic-contain"><div><amp-img src="//static-tw.baozimh.com/comic/id/1.jpg"></amp-img></div></div>
       <div class="next_chapter"><a href="/comic/chapter/id/0_1_2.html">下一页</a></div>
     `;
     expect(parseBaoziChapterPage(html, "https://cn.dzmanga.com/comic/chapter/id/0_1_1.html")).toEqual({
-      images: ["https://img.test/1.jpg"],
+      images: ["https://static-tw.baozimhcn.com/comic/id/1.jpg"],
       nextUrl: "https://cn.dzmanga.com/comic/chapter/id/0_1_2.html",
     });
   });

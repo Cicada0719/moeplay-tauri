@@ -7,11 +7,11 @@
   import SearchDrawer from "./anime/SearchDrawer.svelte";
   import SourceSheet from "./anime/SourceSheet.svelte";
   import ProviderV2Workspace from "./anime/provider-v2/ProviderV2Workspace.svelte";
-  import AnimeMediaSection from "./anime/AnimeMediaSection.svelte";
+  import AnimeEditorialHome from "./anime/editorial/AnimeEditorialHome.svelte";
   import { focusRovingItem, nextRovingIndex } from "./anime/a11y";
   import Icon from "./Icon.svelte";
   import { Button, Card, EmptyState, SegmentControl, StatBlock, Tag } from "./ui";
-  import { AsyncSection, FilterBar, MediaCard, PageHeader, PageShell } from "./ui-v2";
+  import { AsyncSection, MediaCard, PageShell } from "./ui-v2";
   import type { ViewState } from "./ui-v2";
 
   let searchInput = $state("");
@@ -30,12 +30,6 @@
     { id: "rules", label: "规则", icon: "settings" },
   ] as const;
   type MainTab = (typeof MAIN_TABS)[number]["id"];
-
-  function mediaSectionState(loading: boolean, count: number): ViewState {
-    if (loading && count === 0) return "loading";
-    if (loading && count > 0) return "refreshing";
-    return count > 0 ? "ready" : "empty";
-  }
 
   function searchSectionState(): ViewState {
     const resultCount = animeStore.searchResults.reduce((total, [, items]) => total + items.length, 0);
@@ -155,67 +149,25 @@
 <PageShell as="div" ariaLabel="番剧主内容" width="full" class="anime-page">
   <section class="anime-page-frame" data-testid="anime-page">
   <div class="anime-shell" class:hidden-by-overlay={providerV2Active || animeStore.view === "detail" || animeStore.view === "player"}>
-    <!-- Header -->
-    {#snippet pageActions()}
-      <button class="provider-v2-entry" type="button" onclick={openProviderV2}>
-        <Icon name="layers" size={15} />
-        <span>Provider v2</span>
-      </button>
-    {/snippet}
-
-    <PageHeader
-      title="番剧"
-      eyebrow="Anime"
-      description="在 Bangumi 元数据、经典规则源与 Provider v2 之间安全浏览和播放。"
-      actions={pageActions}
-      id="anime-page-title"
-    />
-
-    {#snippet searchControls()}
+    <header class="editorial-chrome">
+      <div class="editorial-identity">
+        <span>ANIME / PROGRAM ARCHIVE</span>
+        <strong>番剧节目画报</strong>
+      </div>
       <form class="search-form" onsubmit={handleSearch}>
         <label class="search-wrap" aria-label="搜索番剧">
-          <Icon name="search" size={15} />
-          <input
-            class="search-input"
-            type="search"
-            placeholder="搜索番剧..."
-            bind:value={searchInput}
-            aria-busy={animeStore.loading}
-            data-search-scope="anime"
-          />
-          {#if searchInput}
-            <button class="search-clear" type="button" aria-label="清空搜索" onclick={clearSearch}>
-              <Icon name="x" size={13} />
-            </button>
-          {/if}
+          <span class="search-index">SEARCH</span>
+          <Icon name="search" size={14} />
+          <input class="search-input" type="search" placeholder="搜索番剧..." bind:value={searchInput} aria-busy={animeStore.loading} data-search-scope="anime" />
+          {#if searchInput}<button class="search-clear" type="button" aria-label="清空搜索" onclick={clearSearch}><Icon name="x" size={13} /></button>{/if}
         </label>
-
         {#if animeStore.rules.length > 0}
-          <label class="rule-filter">
-            <span class="sr-only">搜索来源</span>
-            <select class="rule-select" aria-label="搜索来源" onchange={(e) => animeStore.setSelectedRule((e.currentTarget as HTMLSelectElement).value || null)}>
-              <option value="">全部源</option>
-              {#each animeStore.rules as rule (rule.name)}
-                <option value={rule.name}>{rule.name}</option>
-              {/each}
-            </select>
-          </label>
+          <label class="rule-filter"><span class="sr-only">搜索来源</span><select class="rule-select" aria-label="搜索来源" onchange={(e) => animeStore.setSelectedRule((e.currentTarget as HTMLSelectElement).value || null)}><option value="">全部源</option>{#each animeStore.rules as rule (rule.name)}<option value={rule.name}>{rule.name}</option>{/each}</select></label>
         {/if}
-
-        <Button type="submit" variant="primary" disabled={!searchInput.trim() || isSearching}>
-          {isSearching ? "搜索中…" : "搜索"}
-        </Button>
+        <button class="editorial-search-submit" type="submit" disabled={!searchInput.trim() || isSearching}>{isSearching ? "搜索中" : "搜索"}</button>
       </form>
-    {/snippet}
-
-    <FilterBar
-      controls={searchControls}
-      label="番剧搜索与来源筛选"
-      activeCount={searchInput.trim() ? 1 : 0}
-      onClear={clearSearch}
-      busy={isSearching}
-      class="anime-filter-bar"
-    />
+      <button class="provider-v2-entry" type="button" onclick={openProviderV2}><Icon name="layers" size={15} /><span>Provider v2</span></button>
+    </header>
 
     <!-- Tab Bar -->
     <div class="tab-bar" role="tablist" aria-label="番剧内容分类">
@@ -287,48 +239,24 @@
            推荐页 — Kazumi 风格 (热门 + 本季新番 + 高分)
            ═══════════════════════════════════════════════════════════ -->
       {:else if animeStore.activeTab === "recommend"}
-        <div
-          class="rec-page"
-          id="anime-panel-recommend"
-          role="tabpanel"
-          aria-labelledby="anime-tab-recommend"
-          tabindex="0"
-        >
-          <AnimeMediaSection
-            title="本季新番"
-            description="按当前季度整理的放送作品。"
-            subjects={animeStore.recSeasonal}
-            state={mediaSectionState(animeStore.recSeasonalLoading, animeStore.recSeasonal.length)}
+        <div class="rec-page" id="anime-panel-recommend" role="tabpanel" aria-labelledby="anime-tab-recommend" tabindex="0">
+          <AnimeEditorialHome
+            history={animeStore.history}
+            seasonal={animeStore.recSeasonal}
+            trending={animeStore.recTrending}
+            topRated={animeStore.recTopRated}
+            seasonalLoading={animeStore.recSeasonalLoading}
+            trendingLoading={animeStore.recTrendingLoading}
+            topRatedLoading={animeStore.recTopRatedLoading}
+            seasonalMore={animeStore.recSeasonalTotal > animeStore.recSeasonal.length}
+            trendingMore={animeStore.recTrendingTotal > animeStore.recTrending.length}
+            topRatedMore={animeStore.recTopRatedTotal > animeStore.recTopRated.length}
             getImage={(url) => animeStore.getImg(url)}
-            onOpen={searchBangumi}
-            onMore={() => animeStore.loadMoreSeasonal()}
-            moreAvailable={animeStore.recSeasonalTotal > animeStore.recSeasonal.length}
-            moreBusy={animeStore.recSeasonalLoading}
-            accent="seasonal"
-          />
-          <AnimeMediaSection
-            title="热门推荐"
-            description="近期讨论度较高的作品。"
-            subjects={animeStore.recTrending}
-            state={mediaSectionState(animeStore.recTrendingLoading, animeStore.recTrending.length)}
-            getImage={(url) => animeStore.getImg(url)}
-            onOpen={searchBangumi}
-            onMore={() => animeStore.loadMoreTrending()}
-            moreAvailable={animeStore.recTrendingTotal > animeStore.recTrending.length}
-            moreBusy={animeStore.recTrendingLoading}
-            accent="trending"
-          />
-          <AnimeMediaSection
-            title="Bangumi 排行"
-            description="基于 Bangumi 评分与排名整理。"
-            subjects={animeStore.recTopRated}
-            state={mediaSectionState(animeStore.recTopRatedLoading, animeStore.recTopRated.length)}
-            getImage={(url) => animeStore.getImg(url)}
-            onOpen={searchBangumi}
-            onMore={() => animeStore.loadMoreTopRated()}
-            moreAvailable={animeStore.recTopRatedTotal > animeStore.recTopRated.length}
-            moreBusy={animeStore.recTopRatedLoading}
-            accent="toprated"
+            onOpenSubject={searchBangumi}
+            onResumeHistory={(item, trigger) => { detailReturnFocus = trigger; animeStore.openDetail(item.ruleName, { name: item.name, url: item.sourceUrl }, item.image); }}
+            onMoreSeasonal={() => animeStore.loadMoreSeasonal()}
+            onMoreTrending={() => animeStore.loadMoreTrending()}
+            onMoreTopRated={() => animeStore.loadMoreTopRated()}
           />
         </div>
 
@@ -780,133 +708,77 @@
     pointer-events: none;
   }
 
+  .editorial-chrome {
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: minmax(12rem, .7fr) minmax(24rem, 1.35fr) auto;
+    align-items: center;
+    gap: clamp(1rem, 3vw, 3rem);
+    min-height: 5.25rem;
+    padding: 1rem clamp(1rem, 3vw, 2.25rem);
+    border-bottom: 1px solid rgba(255,255,255,.14);
+    background: #090b0e;
+  }
+  .editorial-identity { display: grid; gap: .3rem; }
+  .editorial-identity span { color: #ef5b43; font: 700 .58rem/1 var(--font-mono, monospace); letter-spacing: .18em; }
+  .editorial-identity strong { font: 750 1.05rem/1 var(--font-display, var(--font-ui)); letter-spacing: -.02em; }
   .provider-v2-entry {
-    height: 34px;
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    flex-shrink: 0;
-    padding: 0 10px;
-    border: 1px solid rgba(103,183,163,0.28);
-    border-radius: 8px;
-    background: rgba(103,183,163,0.07);
-    color: #7dc4b3;
-    font: inherit;
-    font-size: 11px;
-    font-weight: 700;
-    cursor: pointer;
+    min-height: 2.8rem; display: inline-flex; align-items: center; gap: .55rem; padding: 0 .85rem;
+    border: 1px solid rgba(255,255,255,.25); border-radius: 0; background: transparent; color: rgba(255,255,255,.72);
+    font: 700 .62rem/1 var(--font-mono, monospace); letter-spacing: .08em; cursor: pointer;
   }
-  .provider-v2-entry:hover {
-    border-color: rgba(103,183,163,0.5);
-    background: rgba(103,183,163,0.12);
-    color: #a1d9cc;
-  }
-
-  .search-form {
-    flex: 1;
-    display: flex;
-    gap: 8px;
-  }
+  .provider-v2-entry:hover, .provider-v2-entry:focus-visible { color: #fff; border-color: #ef5b43; outline: none; }
+  .search-form { min-width: 0; display: flex; gap: 1px; background: rgba(255,255,255,.17); }
   .search-wrap {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 0 10px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: rgba(255,255,255,0.03);
-    color: var(--text-muted);
-    transition: border-color 0.15s;
+    min-width: 0; flex: 1; display: flex; align-items: center; gap: .7rem; min-height: 2.8rem; padding: 0 .85rem;
+    border: 0; border-radius: 0; background: #111419; color: rgba(255,255,255,.5);
   }
-  .search-wrap:focus-within {
-    border-color: var(--accent);
-    color: var(--text-primary);
-  }
-  :global(.ui-input.search-input) {
-    flex: 1;
-    background: transparent;
-    border: none;
-    color: var(--text-primary);
-    font-size: 13px;
-    outline: none;
-    padding: 8px 0;
-  }
-  :global(.ui-input.search-input::placeholder) { color: var(--text-muted); }
-  :global(.ui-button.search-clear) {
-    background: transparent;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    padding: 0;
-    display: flex;
-    align-items: center;
-  }
+  .search-wrap:focus-within { box-shadow: inset 0 -2px #ef5b43; color: #fff; }
+  .search-index { flex: 0 0 auto; color: #ef5b43; font: 700 .55rem/1 var(--font-mono, monospace); letter-spacing: .16em; }
+  .search-input { min-width: 0; flex: 1; padding: 0; border: 0; outline: 0; background: transparent; color: #f4f1eb; font: 500 .82rem/1.2 var(--font-ui); }
+  .search-input::placeholder { color: rgba(255,255,255,.34); }
+  .search-clear { flex: 0 0 auto; width: 1.8rem; height: 1.8rem; border-radius: 0; color: rgba(255,255,255,.52); }
+  .rule-filter { display: contents; }
   .rule-select {
-    padding: 0 10px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: rgba(255,255,255,0.03);
-    color: var(--text-muted);
-    font-size: 12.5px;
-    cursor: pointer;
-    outline: none;
-    max-width: 120px;
+    min-width: 8rem; padding: 0 .7rem; border: 0; border-radius: 0; outline: 0; background: #111419; color: rgba(255,255,255,.68);
+    font: 600 .68rem/1 var(--font-mono, monospace); cursor: pointer;
   }
-  .rule-select:focus { border-color: var(--accent); }
-  /* ── Tab bar (Kazumi 风格) ───────────────────────────────── */
+  .rule-select:focus { box-shadow: inset 0 -2px #ef5b43; }
+  .editorial-search-submit { min-width: 4.5rem; border: 0; background: #ef5b43; color: #0a0b0d; font-weight: 800; cursor: pointer; }
+  .editorial-search-submit:disabled { opacity: .35; cursor: not-allowed; }
   .tab-bar {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    padding: 4px 20px 8px;
-    border-bottom: 1px solid var(--border);
+    flex: 0 0 auto; display: flex; align-items: stretch; gap: 0; min-height: 3.35rem; padding: 0 clamp(1rem, 3vw, 2.25rem);
+    border-bottom: 1px solid rgba(255,255,255,.14); background: #090b0e;
   }
   .tab-btn {
-    padding: 7px 16px;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    background: transparent;
-    color: var(--text-muted);
-    font-size: 13px;
-    font-weight: 550;
-    cursor: pointer;
-    transition: all 0.15s;
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
+    position: relative; display: inline-flex; align-items: center; gap: .5rem; min-width: 7rem; padding: 0 1rem;
+    border: 0; border-right: 1px solid rgba(255,255,255,.11); border-radius: 0; background: transparent; color: rgba(255,255,255,.42);
+    font: 700 .68rem/1 var(--font-mono, monospace); letter-spacing: .08em; cursor: pointer;
   }
-  .tab-btn.active {
-    background: var(--accent-lo, rgba(232,85,127,0.1));
-    border-color: var(--accent-ring, rgba(232,85,127,0.3));
-    color: var(--accent);
-    font-weight: 700;
+  .tab-btn:first-of-type { border-left: 1px solid rgba(255,255,255,.11); }
+  .tab-btn.active { background: #e8e3d8; color: #101112; }
+  .tab-btn.active::after { content: ""; position: absolute; right: 0; bottom: 0; left: 0; height: 3px; background: #ef5b43; }
+  .tab-btn:not(.active):hover, .tab-btn:focus-visible { color: #fff; outline: none; }
+  .search-label { flex: 1; align-self: center; color: rgba(255,255,255,.64); font: 650 .7rem/1 var(--font-mono, monospace); letter-spacing: .08em; }
+  .anime-content { flex: 1; min-height: 0; overflow-y: auto; padding: 0; display: flex; flex-direction: column; background: #090b0e; }
+  .anime-content > :not(.rec-page) { margin: clamp(1rem, 3vw, 2.25rem); }
+  .rec-page { display: block; min-height: 100%; outline: none; }
+  :global(.ui-empty.rec-empty) { padding: 24px 0; text-align: center; color: var(--text-muted); font-size: 13px; }
+  @media (max-width: 900px) {
+    .editorial-chrome { grid-template-columns: 1fr auto; }
+    .editorial-identity { display: none; }
+    .search-form { grid-column: 1; }
+    .provider-v2-entry { grid-column: 2; }
+    .tab-btn { min-width: 0; flex: 1; justify-content: center; }
   }
-  .tab-btn:not(.active):hover {
-    background: rgba(255,255,255,0.04);
-    color: var(--text-primary);
-  }
-  .search-label {
-    font-size: 13px;
-    color: var(--text-muted);
-    flex: 1;
-  }
-  .anime-content {
-    flex: 1;
-    overflow-y: auto;
-    padding: 16px 20px 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  /* ═══════════════════════════════════════════════════════════
-     推荐页
-     ═══════════════════════════════════════════════════════════ */
-  .rec-page { display: flex; flex-direction: column; gap: 28px; }
-  :global(.ui-empty.rec-empty) {
-    padding: 24px 0; text-align: center; color: var(--text-muted); font-size: 13px;
+  @media (max-width: 620px) {
+    .editorial-chrome { grid-template-columns: 1fr auto; gap: .5rem; padding: .75rem 1rem; }
+    .search-index, .rule-filter { display: none; }
+    .provider-v2-entry span { display: none; }
+    .provider-v2-entry { width: 2.8rem; justify-content: center; padding: 0; }
+    .tab-bar { padding-inline: 1rem; }
+    .tab-btn { padding-inline: .4rem; font-size: .6rem; }
+    .tab-btn :global(svg) { display: none; }
   }
 
   /* ── Cover Card Grid ─────────────────────────────────────── */

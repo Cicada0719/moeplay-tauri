@@ -1,0 +1,407 @@
+{
+  "version": 1,
+  "generatedAt": "2026-07-11",
+  "policy": {
+    "delivery": "local-only",
+    "hotlinking": false,
+    "assetRoot": "/concept/assets/",
+    "notes": "Downloaded raster references for an internal concept demo. Source pages remain recorded for attribution and review."
+  },
+  "assets": [
+    {
+      "id": "aemeath-splash",
+      "contentId": "wuwa-aemeath",
+      "title": "Aemeath splash art",
+      "src": "/concept/assets/aemeath-splash.png",
+      "sourceUrl": "https://wutheringwaves.fandom.com/wiki/File:Aemeath_Splash_Art.png",
+      "downloadedFrom": "https://static.wikia.nocookie.net/wutheringwaves/images/e/e4/Aemeath_Splash_Art.png/revision/latest?cb=20260204135601",
+      "mime": "image/png",
+      "width": 2033,
+      "height": 2048,
+      "tone": "light",
+      "dominantColor": "#AEE6EE",
+      "ratio": "square",
+      "shotType": "hero",
+      "focalPoint": {
+        "x": 0.5,
+        "y": 0.38
+      },
+      "templateUsage": [
+        "cinematic",
+        "editorial",
+        "kinetic"
+      ],
+      "shotMapping": {
+        "cinematic": "hero",
+        "editorial": "cover",
+        "kinetic": "character"
+      },
+      "byteSize": 4896733,
+      "sha256": "50ae75fb0badce7f3f50032d43dc172048b5ea504141cccb78b94bf257a61ddd"
+    },
+    {
+      "id": "aemeath-header",
+      "contentId": "wuwa-aemeath",
+      "title": "Aemeath profile header",
+      "src": "/concept/assets/aemeath-header.jpg",
+      "sourceUrl": "https://wutheringwaves.fandom.com/wiki/File:Aemeath_Profile_Header.jpg",
+      "downloadedFrom": "https://static.wikia.nocookie.net/wutheringwaves/images/d/d7/Aemeath_Profile_Header.jpg/revision/latest?cb=20260201222450",
+      "mime": "image/jpeg",
+      "width": 2560,
+      "height": 1440,
+      "tone": "dark",
+      "dominantColor": "#111844",
+      "ratio": "wide",
+      "shotType": "scene",
+      "focalPoint": {
+        "x": 0.68,
+        "y": 0.42
+      },
+      "templateUsage": [
+        "cinematic",
+        "kinetic"
+      ],
+      "shotMapping": {
+        "cinematic": "scene",
+        "editorial": "detail",
+        "kinetic": "hero"
+      },
+      "byteSize": 1023262,
+      "sha256": "9de4d7b182df1f5e4a0d95cdfec6a5d25639222650a7ed47b67b4ef5f05b52e1"
+    },
+    {
+      "id": "aemeath-showcase",
+      "contentId": "wuwa-aemeath",
+      "title": "Aemeath showcase frame",
+      "src": "/concept/assets/aemeath-showcase.jpg",
+      "sourceUrl": "https://wutheringwaves.fandom.com/wiki/File:Aemeath_Showcase_1.jpg",
+      "downloadedFrom": "https://static.wikia.nocookie.net/wutheringwaves/images/b/b4/Aemeath_Showcase_1.jpg/revision/latest?cb=20260203075823",
+      "mime": "image/jpeg",
+      "width": 1920,
+      "height": 1080,
+      "tone": "light",
+      "dominantColor": "#F6F6F6",
+      "ratio": "wide",
+      "shotType": "detail",
+      "focalPoint": {
+        "x": 0.56,
+        "y": 0.43
+      },
+      "templateUsage": [
+        "editorial",
+        "kinetic"
+      ],
+      "shotMapping": {
+        "cinematic": "detail",
+        "editorial": "scene",
+        "kinetic": "detail"
+      },
+      "byteSize": 238531,
+      "sha256": "534c6f96f6a925641733af7692ae6456592f5013e044e976664d95fc63f272f5"
+    },
+    {
+      "id": "aemeath-sheet",
+      "contentId": "wuwa-aemeath",
+      "title": "Aemeath character sheet",
+      "src": "/concept/assets/aemeath-sheet.png",
+      "sourceUrl": "https://wutheringwaves.fandom.com/wiki/File:Aemeath_Character_Sheet.png",
+      "downloadedFrom": "https://static.wikia.nocookie.net/wutheringwaves/images/c/cb/Aemeath_Character_Sheet.png/revision/latest?cb=20260101030807",
+      "mime": "image/png",
+      "width": 1920,
+      "height": 1080,
+      "tone": "dark",
+      "dominantColor": "#1B204D",
+      "ratio": "wide",
+      "shotType": "character",
+      "focalPoint": {
+        "x": 0.49,
+        "y": 0.48
+      },
+      "templateUsage": [
+        "editorial"
+      ],
+      "shotMapping": {
+        "cinematic": "detail",
+        "editorial": "character",
+        "kinetic": "strip"
+      },
+      "byteSize": 3235062,
+      "sha256": "675d692501133de2f630691bd6fd78f90f7c7192f39eb8135d8c8f15d71abdb1"
+    },
+    {
+      "id": "cartethyia-card",
+      "contentId": "wuwa-ensemble",
+      "title": "Cartethyia card",
+      "src": "/concept/assets/cartethyia-card.png",
+      "sourceUrl": "https://wutheringwaves.fandom.com/wiki/File:Cartethyia_Card.png",
+      "downloadedFrom": "https://static.wikia.nocookie.net/wutheringwaves/images/d/d5/Cartethyia_Card.png/revision/latest?cb=20250509103319",
+      "mime": "image/png",
+      "width": 600,
+      "height": 1079,
+      "tone": "dark",
+      "dominantColor": "#202327",
+      "ratio": "portrait",
+      "shotType": "character",
+      "focalPoint": {
+        "x": 0.5,
+        "y": 0.32
+      },
+      "templateUsage": [
+        "editorial",
+        "kinetic"
+      ],
+      "shotMapping": {
+        "cinematic": "character",
+        "editorial": "cover",
+        "kinetic": "character"
+      },
+      "byteSize": 728638,
+      "sha256": "5e19756e5e9d47fc22bcf2549bf8ed31dfcbd8cf37457f6719318d673429fb67"
+    },
+    {
+      "id": "shorekeeper-header",
+      "contentId": "wuwa-ensemble",
+      "title": "The Shorekeeper profile header",
+      "src": "/concept/assets/shorekeeper-header.jpg",
+      "sourceUrl": "https://wutheringwaves.fandom.com/wiki/File:The_Shorekeeper_Profile_Header.jpg",
+      "downloadedFrom": "https://static.wikia.nocookie.net/wutheringwaves/images/f/f8/The_Shorekeeper_Profile_Header.jpg/revision/latest?cb=20240927043527",
+      "mime": "image/jpeg",
+      "width": 1920,
+      "height": 1080,
+      "tone": "dark",
+      "dominantColor": "#151C36",
+      "ratio": "wide",
+      "shotType": "scene",
+      "focalPoint": {
+        "x": 0.7,
+        "y": 0.43
+      },
+      "templateUsage": [
+        "cinematic",
+        "kinetic"
+      ],
+      "shotMapping": {
+        "cinematic": "hero",
+        "editorial": "scene",
+        "kinetic": "scene"
+      },
+      "byteSize": 534540,
+      "sha256": "4543815ee6c3889b4bc541e8c80dae715e12b854c9392039a21b318718038f16"
+    },
+    {
+      "id": "jinhsi-new-year",
+      "contentId": "wuwa-ensemble",
+      "title": "Jinhsi New Year artwork",
+      "src": "/concept/assets/jinhsi-new-year.jpg",
+      "sourceUrl": "https://wutheringwaves.fandom.com/wiki/File:Jinhsi_2025-01-28.jpg",
+      "downloadedFrom": "https://static.wikia.nocookie.net/wutheringwaves/images/f/f8/Jinhsi_2025-01-28.jpg/revision/latest?cb=20250128120455",
+      "mime": "image/jpeg",
+      "width": 2048,
+      "height": 1152,
+      "tone": "mixed",
+      "dominantColor": "#53261A",
+      "ratio": "wide",
+      "shotType": "scene",
+      "focalPoint": {
+        "x": 0.52,
+        "y": 0.4
+      },
+      "templateUsage": [
+        "cinematic",
+        "editorial"
+      ],
+      "shotMapping": {
+        "cinematic": "scene",
+        "editorial": "hero",
+        "kinetic": "detail"
+      },
+      "byteSize": 554877,
+      "sha256": "fa61fd75186b729216d8b9ba516d2e8e7fe9efd755447ee521f717de6a235a65"
+    },
+    {
+      "id": "changli-official",
+      "contentId": "wuwa-ensemble",
+      "title": "Changli official artwork",
+      "src": "/concept/assets/changli-official.jpg",
+      "sourceUrl": "https://wutheringwaves.fandom.com/wiki/File:Changli_official_art_1.jpg",
+      "downloadedFrom": "https://static.wikia.nocookie.net/wutheringwaves/images/6/69/Changli_official_art_1.jpg/revision/latest?cb=20240725105931",
+      "mime": "image/jpeg",
+      "width": 1920,
+      "height": 1080,
+      "tone": "dark",
+      "dominantColor": "#1F1616",
+      "ratio": "wide",
+      "shotType": "hero",
+      "focalPoint": {
+        "x": 0.62,
+        "y": 0.38
+      },
+      "templateUsage": [
+        "cinematic",
+        "editorial",
+        "kinetic"
+      ],
+      "shotMapping": {
+        "cinematic": "hero",
+        "editorial": "detail",
+        "kinetic": "scene"
+      },
+      "byteSize": 509127,
+      "sha256": "a90c934f969e7ab51c2b5f3b2d605fb57ab28eb2e1dd525504c878eaa445962b"
+    },
+    {
+      "id": "camellya-showcase",
+      "contentId": "wuwa-ensemble",
+      "title": "Camellya showcase frame",
+      "src": "/concept/assets/camellya-showcase.jpg",
+      "sourceUrl": "https://wutheringwaves.fandom.com/wiki/File:Camellya_Showcase_1.jpg",
+      "downloadedFrom": "https://static.wikia.nocookie.net/wutheringwaves/images/2/2d/Camellya_Showcase_1.jpg/revision/latest?cb=20241112114230",
+      "mime": "image/jpeg",
+      "width": 1920,
+      "height": 1080,
+      "tone": "light",
+      "dominantColor": "#F6F6F6",
+      "ratio": "wide",
+      "shotType": "character",
+      "focalPoint": {
+        "x": 0.58,
+        "y": 0.4
+      },
+      "templateUsage": [
+        "editorial",
+        "kinetic"
+      ],
+      "shotMapping": {
+        "cinematic": "detail",
+        "editorial": "character",
+        "kinetic": "hero"
+      },
+      "byteSize": 170764,
+      "sha256": "f0a44b1018102953962bba8f5cf378b90da49229f988b3917f0a7d19ec3a2f10"
+    },
+    {
+      "id": "wuwa-resonators",
+      "contentId": "wuwa-ensemble",
+      "title": "Wuthering Waves Resonator ensemble",
+      "src": "/concept/assets/wuwa-resonators.jpg",
+      "sourceUrl": "https://wutheringwaves.fandom.com/wiki/File:Resonator.jpg",
+      "downloadedFrom": "https://static.wikia.nocookie.net/wutheringwaves/images/9/9e/Resonator.jpg/revision/latest?cb=20240417073237",
+      "mime": "image/jpeg",
+      "width": 2304,
+      "height": 4096,
+      "tone": "mixed",
+      "dominantColor": "#4D565F",
+      "ratio": "portrait",
+      "shotType": "cover",
+      "focalPoint": {
+        "x": 0.5,
+        "y": 0.38
+      },
+      "templateUsage": [
+        "cinematic",
+        "editorial",
+        "kinetic"
+      ],
+      "shotMapping": {
+        "cinematic": "scene",
+        "editorial": "cover",
+        "kinetic": "hero"
+      },
+      "byteSize": 1198706,
+      "sha256": "258644a180a9cf351e7771b9063bad1e63aaafa00e2d64224689376ff127d3e2"
+    },
+    {
+      "id": "frieren-character",
+      "contentId": "anime-frieren",
+      "title": "Frieren character visual",
+      "src": "/concept/assets/frieren-character.png",
+      "sourceUrl": "https://frieren.fandom.com/wiki/File:Frieren_character_visual.png",
+      "downloadedFrom": "https://static.wikia.nocookie.net/frieren/images/3/35/Frieren_character_visual.png/revision/latest?cb=20230521080010",
+      "mime": "image/png",
+      "width": 1966,
+      "height": 2785,
+      "tone": "light",
+      "dominantColor": "#EEF2F5",
+      "ratio": "portrait",
+      "shotType": "character",
+      "focalPoint": {
+        "x": 0.5,
+        "y": 0.28
+      },
+      "templateUsage": [
+        "cinematic",
+        "editorial",
+        "kinetic"
+      ],
+      "shotMapping": {
+        "cinematic": "character",
+        "editorial": "cover",
+        "kinetic": "detail"
+      },
+      "byteSize": 3073296,
+      "sha256": "2cec857898b7c3ce63ce6a1a7e471cb0199b4a3ecb109e4bb49718c2a04a38ff"
+    },
+    {
+      "id": "chainsaw-key-visual",
+      "contentId": "anime-chainsaw-man",
+      "title": "Chainsaw Man textless key visual",
+      "src": "/concept/assets/chainsaw-key-visual.png",
+      "sourceUrl": "https://chainsaw-man.fandom.com/wiki/File:Chainsaw_Man_TV_Anime_Key_Visual_2_(Textless).png",
+      "downloadedFrom": "https://static.wikia.nocookie.net/chainsaw-man/images/1/11/Chainsaw_Man_TV_Anime_Key_Visual_2_%28Textless%29.png/revision/latest?cb=20251221083810",
+      "mime": "image/png",
+      "width": 1200,
+      "height": 1697,
+      "tone": "mixed",
+      "dominantColor": "#93E39D",
+      "ratio": "portrait",
+      "shotType": "cover",
+      "focalPoint": {
+        "x": 0.5,
+        "y": 0.43
+      },
+      "templateUsage": [
+        "cinematic",
+        "editorial",
+        "kinetic"
+      ],
+      "shotMapping": {
+        "cinematic": "hero",
+        "editorial": "cover",
+        "kinetic": "scene"
+      },
+      "byteSize": 2385779,
+      "sha256": "34912e72968c3bd719ef0db0dc32de7ca5e795e0aace68cb53dc3fc82884286e"
+    },
+    {
+      "id": "chobits-20th-cover",
+      "contentId": "comics-chobits",
+      "title": "Chobits 20th anniversary edition cover",
+      "src": "/concept/assets/chobits-20th-cover.jpg",
+      "sourceUrl": "https://chobits.fandom.com/wiki/File:20th_Anniversary_Edition_1.jpg",
+      "downloadedFrom": "https://static.wikia.nocookie.net/chobits/images/2/27/20th_Anniversary_Edition_1.jpg/revision/latest?cb=20201031024109",
+      "mime": "image/jpeg",
+      "width": 1597,
+      "height": 2446,
+      "tone": "light",
+      "dominantColor": "#4FA2CC",
+      "ratio": "portrait",
+      "shotType": "manga-page",
+      "focalPoint": {
+        "x": 0.5,
+        "y": 0.38
+      },
+      "templateUsage": [
+        "cinematic",
+        "editorial",
+        "kinetic"
+      ],
+      "shotMapping": {
+        "cinematic": "character",
+        "editorial": "manga-page",
+        "kinetic": "cover"
+      },
+      "byteSize": 743289,
+      "sha256": "81925cea3811c14a871641f5f99672dfe4302bb64d1a050f33d7bddd2f43f411"
+    }
+  ]
+}

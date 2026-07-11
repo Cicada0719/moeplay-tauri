@@ -1,24 +1,44 @@
 import type { ComicChapter, ComicDetail, ComicImage, ComicSummary } from "../stores/comic.svelte";
 
 export interface MangaDexMangaResponse {
+  result?: string;
   data?: MangaDexManga[];
+  errors?: MangaDexApiError[];
+  limit?: number;
+  offset?: number;
+  total?: number;
 }
 
 export interface MangaDexSingleMangaResponse {
+  result?: string;
   data?: MangaDexManga;
+  errors?: MangaDexApiError[];
 }
 
 export interface MangaDexChapterResponse {
+  result?: string;
   data?: MangaDexChapter[];
+  errors?: MangaDexApiError[];
+  limit?: number;
+  offset?: number;
+  total?: number;
 }
 
 export interface MangaDexAtHomeResponse {
+  result?: string;
+  errors?: MangaDexApiError[];
   baseUrl?: string;
   chapter?: {
     hash?: string;
     data?: string[];
     dataSaver?: string[];
   };
+}
+
+interface MangaDexApiError {
+  title?: string;
+  detail?: string;
+  status?: number;
 }
 
 interface MangaDexManga {
@@ -44,6 +64,8 @@ interface MangaDexChapter {
     pages?: number;
     translatedLanguage?: string;
     updatedAt?: string;
+    externalUrl?: string | null;
+    isUnavailable?: boolean;
   };
 }
 
@@ -64,6 +86,8 @@ const SOURCE_NAME = "MangaDex";
 const SOURCE_PREFIX = "mangadex:";
 const FALLBACK_COVER = "";
 const PREFERRED_LANGUAGES = ["zh", "zh-hk", "zh-ro", "en"];
+const MAX_FEED_PAGE_SIZE = 100;
+const DEFAULT_CHAPTER_LIMIT = 500;
 
 function pickLocalized(value: Record<string, string> | undefined, fallback = ""): string {
   if (!value) return fallback;
@@ -92,13 +116,23 @@ function appendMulti(params: URLSearchParams, key: string, values: string[]) {
   for (const value of values) params.append(key, value);
 }
 
-async function requestJson<T>(fetcher: MangaDexFetch, path: string, params?: URLSearchParams): Promise<T> {
+async function requestJson<T extends { result?: string; errors?: MangaDexApiError[] }>(
+  fetcher: MangaDexFetch,
+  path: string,
+  params?: URLSearchParams,
+): Promise<T> {
   const url = `${MANGADEX_API}${path}${params ? `?${params}` : ""}`;
   const response = await fetcher(url, { headers: { accept: "application/json" } });
   if (!response.ok) {
     throw new Error(`MangaDex 返回 HTTP ${response.status}`);
   }
-  return (await response.json()) as T;
+  const payload = (await response.json()) as T;
+  if (payload.result && payload.result !== "ok") {
+    const error = payload.errors?.[0];
+    const message = error?.detail || error?.title || "API 返回失败结果";
+    throw new Error(`MangaDex 请求失败：${message}`);
+  }
+  return payload;
 }
 
 export function normalizeMangaDexSummary(manga: MangaDexManga): ComicSummary {
@@ -144,18 +178,25 @@ export function normalizeMangaDexDetail(manga: MangaDexManga): ComicDetail {
 }
 
 export function normalizeMangaDexChapters(chapters: MangaDexChapter[]): ComicChapter[] {
-  return chapters.map((chapter, index) => {
-    const order = chapterOrder(chapter, index);
-    const language = chapter.attributes?.translatedLanguage || "all";
-    const title = chapter.attributes?.title || (chapter.attributes?.chapter ? `第 ${chapter.attributes.chapter} 话` : `第 ${order} 话`);
+  return chapters
+    .filter((chapter) => (
+      !chapter.attributes?.externalUrl
+      && !chapter.attributes?.isUnavailable
+      && (chapter.attributes?.pages ?? 1) > 0
+    ))
+    .map((chapter, index) => {
+      const order = chapterOrder(chapter, index);
+      const language = chapter.attributes?.translatedLanguage || "all";
+      const title = chapter.attributes?.title
+        || (chapter.attributes?.chapter ? `第 ${chapter.attributes.chapter} 话` : `第 ${order} 话`);
 
-    return {
-      id: chapter.id,
-      title: `${title} · ${language}`,
-      order,
-      updated_at: chapter.attributes?.updatedAt ?? "",
-    };
-  });
+      return {
+        id: chapter.id,
+        title: `${title} · ${language}`,
+        order,
+        updated_at: chapter.attributes?.updatedAt ?? "",
+      };
+    });
 }
 
 export async function searchMangaDex(fetcher: MangaDexFetch, keyword: string, limit = 20): Promise<ComicSummary[]> {
@@ -180,13 +221,34 @@ export async function loadMangaDexDetail(fetcher: MangaDexFetch, mangaId: string
   return normalizeMangaDexDetail(payload.data);
 }
 
-export async function loadMangaDexChapters(fetcher: MangaDexFetch, mangaId: string, limit = 100): Promise<ComicChapter[]> {
-  const params = new URLSearchParams();
-  params.set("limit", String(limit));
-  params.set("order[chapter]", "asc");
-  appendMulti(params, "translatedLanguage[]", PREFERRED_LANGUAGES);
-  const payload = await requestJson<MangaDexChapterResponse>(fetcher, `/manga/${mangaId}/feed`, params);
-  return normalizeMangaDexChapters(payload.data ?? []);
+export async function loadMangaDexChapters(
+  fetcher: MangaDexFetch,
+  mangaId: string,
+  limit = DEFAULT_CHAPTER_LIMIT,
+): Promise<ComicChapter[]> {
+  const requestedLimit = Math.max(0, Math.floor(limit));
+  if (requestedLimit === 0) return [];
+
+  const chapters: MangaDexChapter[] = [];
+  let offset = 0;
+
+  while (chapters.length < requestedLimit) {
+    const pageSize = Math.min(MAX_FEED_PAGE_SIZE, requestedLimit - chapters.length);
+    const params = new URLSearchParams();
+    params.set("limit", String(pageSize));
+    params.set("offset", String(offset));
+    params.set("order[chapter]", "asc");
+    appendMulti(params, "translatedLanguage[]", PREFERRED_LANGUAGES);
+
+    const payload = await requestJson<MangaDexChapterResponse>(fetcher, `/manga/${mangaId}/feed`, params);
+    const page = payload.data ?? [];
+    chapters.push(...page);
+    offset += page.length;
+
+    if (page.length === 0 || offset >= (payload.total ?? offset) || page.length < pageSize) break;
+  }
+
+  return normalizeMangaDexChapters(chapters);
 }
 
 export async function loadMangaDexChapterImages(fetcher: MangaDexFetch, chapterId: string): Promise<ComicImage[]> {

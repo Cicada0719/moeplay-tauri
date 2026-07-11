@@ -57,3 +57,5 @@ design-assets/
 
 # Playwright MCP session cache (temp, auto-recreated)
 .playwright-mcp/
+
+dist-concept/
