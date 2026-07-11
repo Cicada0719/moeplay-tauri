@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-verify-sources-batch"
+description = "Enables the verify_sources_batch command without any pre-configured scope."
+commands.allow = ["verify_sources_batch"]
+
+[[permission]]
+identifier = "deny-verify-sources-batch"
+description = "Denies the verify_sources_batch command without any pre-configured scope."
+commands.deny = ["verify_sources_batch"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-source-preference"
+description = "Enables the update_source_preference command without any pre-configured scope."
+commands.allow = ["update_source_preference"]
+
+[[permission]]
+identifier = "deny-update-source-preference"
+description = "Denies the update_source_preference command without any pre-configured scope."
+commands.deny = ["update_source_preference"]

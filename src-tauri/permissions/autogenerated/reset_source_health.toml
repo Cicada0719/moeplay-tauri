@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-reset-source-health"
+description = "Enables the reset_source_health command without any pre-configured scope."
+commands.allow = ["reset_source_health"]
+
+[[permission]]
+identifier = "deny-reset-source-health"
+description = "Denies the reset_source_health command without any pre-configured scope."
+commands.deny = ["reset_source_health"]

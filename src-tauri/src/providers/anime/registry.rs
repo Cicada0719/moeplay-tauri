@@ -188,6 +188,13 @@ impl AnimeProviderRegistry {
         Ok(self.orchestrator()?.health())
     }
 
+    /// Clears all ephemeral circuit-breaker evidence for a configured source.
+    /// Source Center also deletes the persisted health projection in the same
+    /// command, keeping reset semantics truthful across app layers.
+    pub fn reset_health(&self, provider_id: &str) -> ProviderResult<bool> {
+        Ok(self.orchestrator()?.reset_provider_health(provider_id))
+    }
+
     pub async fn search(&self, query: AnimeSearchQuery) -> AnimeSearchResponse {
         let orchestrator = match self.orchestrator() {
             Ok(orchestrator) => orchestrator,

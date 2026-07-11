@@ -43,7 +43,10 @@ pub mod translator;
 pub mod utils;
 
 pub mod anime_download;
+pub mod extension_index;
 pub mod external_player;
+pub mod source_center;
+pub mod source_selection;
 pub mod video_extractor;
 pub mod video_proxy;
 use anime_download::AnimeDownloader;
@@ -135,6 +138,7 @@ pub fn run() {
         .manage(AnimeDownloader::new(anime_download_dir))
         .manage(Downloader::new(download_dir, 3))
         .manage(task_queue)
+        .manage(extension_index::ExtensionIndexService::default())
         .manage(ai_changes_service)
         .manage(ai_v2_state)
         .manage(LocaleEmulatorManager::new())
@@ -316,6 +320,13 @@ pub fn run() {
             commands::get_tasks,
             commands::get_task_detail,
             commands::get_task_events,
+            commands::list_source_descriptors,
+            commands::update_source_preference,
+            commands::verify_source,
+            commands::verify_sources_batch,
+            commands::reset_source_health,
+            commands::refresh_extension_index,
+            commands::get_extension_index_snapshot,
             commands::update_task,
             commands::cancel_task,
             commands::pause_task,

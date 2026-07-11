@@ -12,12 +12,13 @@ use crate::models::{
     AppDatabase, CompletionStatus, Game, GameAlias, GameMetadata, GamePlatform, PlaySession,
     PlayTracker, SaveBackup, SaveData, Settings, StoreLink, Tag,
 };
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Mutex;
 
-/// Current schema version. v6 adds bounded, redacted background-job event timelines.
-pub const SCHEMA_VERSION: i64 = 6;
+/// Current schema version. v7 adds per-media source preferences for Source Center.
+pub const SCHEMA_VERSION: i64 = 7;
 
 /// Staged module registration keeps the repository layer compiled and testable while
 /// `lib.rs` remains untouched for the Batch integrator.
@@ -61,6 +62,11 @@ const SCHEMA_MIGRATIONS: &[SchemaMigration] = &[
         version: 6,
         name: "background_job_event_timelines",
         checksum: "sha256:fb584e57117039681ce5664ea411bc788cc8ce7c3b79821c7c7a20be007d1cc9",
+    },
+    SchemaMigration {
+        version: 7,
+        name: "source_preferences_unified_source_center",
+        checksum: "sha256:9c68e7ad272db4f5d196897509c407c1f7e081bf1a1cbe875378f8640eb14455",
     },
 ];
 
@@ -241,6 +247,154 @@ const V6_SCHEMA_SQL: &str = "CREATE TABLE IF NOT EXISTS background_job_events (
 
 fn apply_v6_schema(conn: &Connection) -> Result<(), String> {
     conn.execute_batch(V6_SCHEMA_SQL).map_err(|e| e.to_string())
+}
+
+const V7_SCHEMA_SQL: &str = "CREATE TABLE IF NOT EXISTS source_preferences (
+    provider_id TEXT NOT NULL CHECK(length(trim(provider_id)) BETWEEN 1 AND 200),
+    media_type  TEXT NOT NULL CHECK(length(trim(media_type)) BETWEEN 1 AND 64),
+    enabled     INTEGER NOT NULL CHECK(enabled IN (0, 1)),
+    priority    INTEGER NOT NULL CHECK(priority BETWEEN -10000 AND 10000),
+    updated_at  TEXT NOT NULL,
+    PRIMARY KEY(provider_id, media_type)
+);
+CREATE INDEX IF NOT EXISTS idx_source_preferences_media_priority
+    ON source_preferences(media_type, enabled DESC, priority DESC, updated_at DESC);";
+
+fn apply_v7_schema(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(V7_SCHEMA_SQL).map_err(|e| e.to_string())
+}
+
+/// Non-secret Source Center preference projection. It deliberately contains no
+/// provider configuration, URL, or credential material.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourcePreferenceRecord {
+    pub provider_id: String,
+    pub media_type: String,
+    pub enabled: bool,
+    pub priority: i32,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourcePreferenceUpsert {
+    pub provider_id: String,
+    pub media_type: String,
+    pub enabled: bool,
+    pub priority: i32,
+}
+
+/// Source preferences are scoped by both provider and media type so a future
+/// external runtime cannot accidentally inherit Anime or Comic settings.
+pub struct SourcePreferenceRepository<'db> {
+    db: &'db SqliteDb,
+}
+
+impl<'db> SourcePreferenceRepository<'db> {
+    pub fn new(db: &'db SqliteDb) -> Self {
+        Self { db }
+    }
+
+    pub fn get(
+        &self,
+        provider_id: &str,
+        media_type: &str,
+    ) -> Result<Option<SourcePreferenceRecord>, String> {
+        let provider_id = validate_source_preference_token("provider_id", provider_id, 200)?;
+        let media_type = validate_media_type(media_type)?;
+        self.db.with_connection(|conn| {
+            let mut statement = conn
+                .prepare(
+                    "SELECT provider_id,media_type,enabled,priority,updated_at \
+                     FROM source_preferences WHERE provider_id=?1 AND media_type=?2",
+                )
+                .map_err(|error| error.to_string())?;
+            statement
+                .query_row(params![provider_id, media_type], read_source_preference)
+                .optional()
+                .map_err(|error| error.to_string())
+        })
+    }
+
+    pub fn list(&self) -> Result<Vec<SourcePreferenceRecord>, String> {
+        self.db.with_connection(|conn| {
+            let mut statement = conn
+                .prepare(
+                    "SELECT provider_id,media_type,enabled,priority,updated_at \
+                     FROM source_preferences ORDER BY media_type, priority DESC, provider_id",
+                )
+                .map_err(|error| error.to_string())?;
+            let rows = statement
+                .query_map([], read_source_preference)
+                .map_err(|error| error.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|error| error.to_string())
+        })
+    }
+
+    pub fn upsert(&self, value: SourcePreferenceUpsert) -> Result<SourcePreferenceRecord, String> {
+        let provider_id = validate_source_preference_token("provider_id", &value.provider_id, 200)?;
+        let media_type = validate_media_type(&value.media_type)?;
+        if !(-10_000..=10_000).contains(&value.priority) {
+            return Err("source preference priority must be between -10000 and 10000".to_string());
+        }
+        let updated_at = chrono::Utc::now().to_rfc3339();
+        self.db.with_connection(|conn| {
+            conn.execute(
+                "INSERT INTO source_preferences(provider_id,media_type,enabled,priority,updated_at) \
+                 VALUES(?1,?2,?3,?4,?5) \
+                 ON CONFLICT(provider_id,media_type) DO UPDATE SET \
+                    enabled=excluded.enabled, priority=excluded.priority, updated_at=excluded.updated_at",
+                params![provider_id, media_type, i64::from(value.enabled), value.priority, updated_at],
+            )
+            .map_err(|error| error.to_string())?;
+            Ok(SourcePreferenceRecord {
+                provider_id,
+                media_type,
+                enabled: value.enabled,
+                priority: value.priority,
+                updated_at,
+            })
+        })
+    }
+}
+
+fn read_source_preference(row: &rusqlite::Row<'_>) -> rusqlite::Result<SourcePreferenceRecord> {
+    Ok(SourcePreferenceRecord {
+        provider_id: row.get(0)?,
+        media_type: row.get(1)?,
+        enabled: row.get::<_, i64>(2)? != 0,
+        priority: row.get(3)?,
+        updated_at: row.get(4)?,
+    })
+}
+
+fn validate_media_type(value: &str) -> Result<String, String> {
+    let media_type =
+        validate_source_preference_token("media_type", value, 64)?.to_ascii_lowercase();
+    match media_type.as_str() {
+        "anime" | "comic" | "external_runtime" => Ok(media_type),
+        _ => Err("source preference media_type is unsupported".to_string()),
+    }
+}
+
+fn validate_source_preference_token(
+    field: &str,
+    value: &str,
+    max_len: usize,
+) -> Result<String, String> {
+    let normalized = value.trim();
+    if normalized.is_empty() || normalized.len() > max_len {
+        return Err(format!("{field} must contain 1..={max_len} characters"));
+    }
+    if !normalized
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
+    {
+        return Err(format!("{field} contains unsupported characters"));
+    }
+    Ok(normalized.to_owned())
 }
 
 /// 若 `table` 里不存在 `column`，则 ALTER TABLE 添加之。幂等。
@@ -530,6 +684,9 @@ impl SqliteDb {
 
         apply_v6_schema(&tx)?;
         record_migration(&tx, migration_by_version(6).expect("v6 migration exists"))?;
+
+        apply_v7_schema(&tx)?;
+        record_migration(&tx, migration_by_version(7).expect("v7 migration exists"))?;
 
         let have: i64 = tx
             .query_row("SELECT COUNT(*) FROM schema_version", [], |row| row.get(0))

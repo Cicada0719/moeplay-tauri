@@ -332,6 +332,10 @@
             {#await import("./lib/features/jobs/TaskCenterPage.svelte") then { default: Comp }}
               <Comp />
             {/await}
+          {:else if uiStore.currentView === "sources"}
+            {#await import("./lib/features/sources/SourceCenterPage.svelte") then { default: Comp }}
+              <Comp />
+            {/await}
           {:else if uiStore.currentView === "downloads"}
             {#await import("./lib/components/DownloadPage.svelte") then { default: Comp }}
               <Comp />

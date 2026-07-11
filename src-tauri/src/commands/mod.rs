@@ -73,3 +73,9 @@ pub use ai_v2::*;
 
 mod ai_changes;
 pub use ai_changes::*;
+
+mod sources;
+pub use sources::*;
+
+mod extension_index;
+pub use extension_index::*;
