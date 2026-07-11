@@ -314,6 +314,10 @@
             {#await import("./lib/components/ScraperPage.svelte") then { default: Comp }}
               <Comp />
             {/await}
+          {:else if uiStore.currentView === "tasks"}
+            {#await import("./lib/features/jobs/TaskCenterPage.svelte") then { default: Comp }}
+              <Comp />
+            {/await}
           {:else if uiStore.currentView === "downloads"}
             {#await import("./lib/components/DownloadPage.svelte") then { default: Comp }}
               <Comp />

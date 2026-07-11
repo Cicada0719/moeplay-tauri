@@ -31,6 +31,11 @@
 - 诊断导出改为默认脱敏 ZIP，使用并发隔离临时目录并清理；日志执行 7 天/100 MiB 保留策略，诊断页不再误导为数据库导出。
 - 存档恢复增加文件差异预览、破坏性变更提醒和恢复前安全检查点确认。
 - 运行时 User-Agent 统一由 Cargo 包版本生成，版本检查会拒绝源码中的硬编码旧版本 User-Agent。
+- 修复通用下载器状态未注册问题，恢复默认下载目录与并发控制；Rust `fmt`、`clippy -D warnings` 和全量测试重新全绿。
+- 前端单测启动改为直接使用本地 Vitest CLI 和绝对配置路径，移除 Windows `shell: true`/Node DEP0190 风险，并补充路径与启动契约测试。
+- 统一 BackgroundJob Task Center 投影，新增按状态/类型/数量过滤、结构化控制错误、真实下载暂停/恢复/重试命令，以及重启后下载暂停恢复和其他任务失败收口语义。
+- 新增全局任务中心页面与工具入口，提供状态摘要、筛选、脱敏消息、恢复标识和 capability 驱动操作；下载页复用统一任务控制面并保留旧列表回退。
+- 自动更新发布新增签名 Secret gate：签名可用时强制验证 `latest.json`、本地产物和 detached signature；缺少密钥时仅保留明确标记的 installer-only Draft，并阻止发布晋级。
 - 发布证据新增 CycloneDX SBOM、构建 commit/toolchain metadata 与自动验证，release 构建前清理 Rust target。
 
 ## 0.12.0 - 2026-07-08

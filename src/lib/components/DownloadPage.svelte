@@ -142,7 +142,7 @@
   }
 
   async function clearGeneralFinished() {
-    await downloadClearFinished();
+    await Promise.allSettled([downloadClearFinished(), jobsStore.clearFinished()]);
     await refresh();
   }
 
@@ -308,7 +308,7 @@
                 <span class="pct aura-num">({Math.round(rowProgress(row) * 100)}%)</span>
               </span>
               <span class="speed-info aura-num">
-                {#if row.job?.status === "running" || (!row.job && row.task?.status === "Downloading")}
+                {#if row.job?.pausable || (!row.job && row.task?.status === "Downloading")}
                   <Icon name="download" size={12} /> {speedStr(row.task?.speed ?? 0)}
                   {#if row.task && etaStr(row.task)}
                     <span class="eta aura-num">剩余 {etaStr(row.task)}</span>
@@ -340,13 +340,13 @@
               {#if row.job?.status === "running" || (!row.job && row.task?.status === "Downloading")}
                 <Button variant="ghost" size="sm" press={() => act(row, "pause")}><Icon name="chevronDown" size={14} /> 暂停</Button>
               {/if}
-              {#if row.job?.status === "paused" || (!row.job && row.task?.status === "Paused")}
+              {#if (row.job?.status === "paused" && row.job.resumable) || (!row.job && row.task?.status === "Paused")}
                 <Button variant="ghost" size="sm" press={() => act(row, "resume")}><Icon name="play" size={14} /> {row.job?.recovered ? "继续恢复" : "继续"}</Button>
               {/if}
-              {#if row.job?.status === "failed" || (row.job?.status === "paused" && row.job.retryable) || (!row.job && row.task?.status === "Failed")}
+              {#if (row.job?.retryable && (row.job.status === "failed" || row.job.status === "paused")) || (!row.job && row.task?.status === "Failed")}
                 <Button variant="ghost" size="sm" press={() => act(row, "retry")}><Icon name="refresh" size={14} /> 重试</Button>
               {/if}
-              {#if row.job?.status === "queued" || row.job?.status === "running" || row.job?.status === "paused" || (!row.job && row.task?.status === "Downloading")}
+              {#if row.job?.cancellable || (!row.job && row.task?.status === "Downloading")}
                 <Button variant="ghost" size="sm" class="danger" press={() => act(row, "cancel")}><Icon name="x" size={14} /> 取消</Button>
               {/if}
               {#if row.job?.status === "paused" || row.job?.status === "failed" || row.job?.status === "succeeded" || row.job?.status === "cancelled" || (!row.job && row.task?.status !== "Downloading")}

@@ -5,7 +5,7 @@
 //! Progress is always persisted as a fraction in the inclusive range `0..=1`.
 
 use crate::db_sqlite::{repositories::BackgroundJobRepository, SqliteDb};
-use crate::domain::{BackgroundJob, BackgroundJobStatus};
+use crate::domain::{BackgroundJob, BackgroundJobStatus, ProviderError, ProviderErrorKind};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -74,6 +74,156 @@ pub struct AppTask {
     pub resumable: bool,
     #[serde(default)]
     pub retryable: bool,
+}
+
+/// Stable application-level task categories. Persisted jobs may use a more
+/// specific implementation kind (for example `ai_v2.recommendation`); the Task
+/// Center always maps those values into this forward-compatible projection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskKind {
+    Download,
+    Import,
+    Scrape,
+    ProviderVerify,
+    Ai,
+    Backup,
+    Restore,
+    Diagnostics,
+    Update,
+    Generic,
+}
+
+impl TaskKind {
+    pub fn from_storage_kind(kind: &str) -> Self {
+        let normalized = kind.trim().to_ascii_lowercase();
+        if normalized == "download" || normalized.starts_with("download.") {
+            Self::Download
+        } else if normalized == "import"
+            || normalized.starts_with("import.")
+            || normalized.starts_with("library_import")
+        {
+            Self::Import
+        } else if normalized == "scrape"
+            || normalized.starts_with("scrape.")
+            || normalized.contains("metadata_refresh")
+        {
+            Self::Scrape
+        } else if normalized == "provider_verify"
+            || normalized.starts_with("provider_verify.")
+            || (normalized.contains("provider") && normalized.contains("verify"))
+        {
+            Self::ProviderVerify
+        } else if normalized == "ai"
+            || normalized.starts_with("ai_")
+            || normalized.starts_with("ai.")
+        {
+            Self::Ai
+        } else if normalized == "backup" || normalized.starts_with("backup.") {
+            Self::Backup
+        } else if normalized == "restore" || normalized.starts_with("restore.") {
+            Self::Restore
+        } else if normalized == "diagnostics" || normalized.starts_with("diagnostics.") {
+            Self::Diagnostics
+        } else if normalized == "update" || normalized.starts_with("update.") {
+            Self::Update
+        } else {
+            Self::Generic
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskSource {
+    pub area: String,
+    pub entity_id: Option<String>,
+    pub label: Option<String>,
+}
+
+/// Canonical Task Center DTO. Field names intentionally remain snake_case to
+/// preserve the established `AppTask` wire shape; the frontend mapper accepts
+/// both this shape and camelCase aliases.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TaskCenterJob {
+    pub id: String,
+    pub kind: TaskKind,
+    pub title: String,
+    pub status: TaskStatus,
+    pub progress: f64,
+    pub message: Option<String>,
+    pub error_kind: Option<String>,
+    pub retryable: bool,
+    pub resumable: bool,
+    pub cancellable: bool,
+    /// Compatibility extension used by the current JobsPanel.
+    pub pausable: bool,
+    pub recovered: bool,
+    pub created_at: String,
+    pub updated_at: String,
+    pub idempotency_key: Option<String>,
+    pub source: Option<TaskSource>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskAction {
+    Pause,
+    Resume,
+    Retry,
+    Cancel,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskControlError {
+    pub code: String,
+    pub message: String,
+    pub action: Option<TaskAction>,
+    pub task_id: Option<String>,
+    pub kind: Option<TaskKind>,
+    pub status: Option<TaskStatus>,
+}
+
+impl TaskControlError {
+    pub fn unsupported(action: TaskAction, task: &TaskCenterJob) -> Self {
+        Self {
+            code: "action_not_supported".to_string(),
+            message: format!("任务类型 {:?} 不支持 {:?} 操作", task.kind, action),
+            action: Some(action),
+            task_id: Some(task.id.clone()),
+            kind: Some(task.kind),
+            status: Some(task.status),
+        }
+    }
+
+    pub fn invalid_state(action: TaskAction, task: &TaskCenterJob) -> Self {
+        Self {
+            code: "invalid_task_state".to_string(),
+            message: format!("任务当前状态不允许 {:?} 操作", action),
+            action: Some(action),
+            task_id: Some(task.id.clone()),
+            kind: Some(task.kind),
+            status: Some(task.status),
+        }
+    }
+
+    pub fn internal(message: String) -> Self {
+        Self {
+            code: "task_control_failed".to_string(),
+            message,
+            action: None,
+            task_id: None,
+            kind: None,
+            status: None,
+        }
+    }
+
+    pub fn with_context(mut self, action: TaskAction, task: &TaskCenterJob) -> Self {
+        self.action = Some(action);
+        self.task_id = Some(task.id.clone());
+        self.kind = Some(task.kind);
+        self.status = Some(task.status);
+        self
+    }
 }
 
 /// A cancellation handle handed to the operation that performs a job.
@@ -264,8 +414,31 @@ impl TaskQueue {
             .map(|jobs| jobs.iter().map(to_app_task).collect())
     }
 
+    pub fn list_task_center(
+        &self,
+        status: Option<TaskStatus>,
+        kind: Option<TaskKind>,
+        limit: Option<usize>,
+    ) -> Result<Vec<TaskCenterJob>, String> {
+        let statuses = status
+            .map(|status| vec![BackgroundJobStatus::from(status)])
+            .unwrap_or_default();
+        let requested_limit = limit.unwrap_or(500).clamp(1, 500);
+        let jobs = self.repository().list(&statuses, 500)?;
+        Ok(jobs
+            .iter()
+            .map(to_task_center_job)
+            .filter(|job| kind.is_none_or(|kind| job.kind == kind))
+            .take(requested_limit)
+            .collect())
+    }
+
     pub fn get(&self, id: &str) -> Result<AppTask, String> {
         self.get_job(id).map(|job| to_app_task(&job))
+    }
+
+    pub fn get_task_center(&self, id: &str) -> Result<TaskCenterJob, String> {
+        self.get_job(id).map(|job| to_task_center_job(&job))
     }
 
     pub fn metadata(&self, id: &str) -> Result<Value, String> {
@@ -348,10 +521,24 @@ impl TaskQueue {
     }
 
     pub fn pause(&self, id: &str, message: Option<String>) -> Result<AppTask, String> {
+        let task = self.get_task_center(id)?;
+        if task.kind != TaskKind::Download {
+            return Err("该任务类型不支持暂停".to_string());
+        }
+        if !task.pausable {
+            return Err("任务当前状态不可暂停".to_string());
+        }
         self.update(id, Some(TaskStatus::Paused), None, message)
     }
 
     pub fn resume(&self, id: &str, message: Option<String>) -> Result<AppTask, String> {
+        let current = self.get_task_center(id)?;
+        if current.kind != TaskKind::Download {
+            return Err("该任务类型不支持恢复".to_string());
+        }
+        if !current.resumable {
+            return Err("任务当前状态不可恢复".to_string());
+        }
         let task = self.update_with_metadata(
             id,
             Some(TaskStatus::Running),
@@ -376,6 +563,9 @@ impl TaskQueue {
             .map_err(|e| e.to_string())?;
         let repository = self.repository();
         let mut job = self.get_job_locked(&repository, id)?;
+        if TaskKind::from_storage_kind(&job.kind) != TaskKind::Download {
+            return Err("该任务类型不支持重试".to_string());
+        }
         if !matches!(
             job.status,
             BackgroundJobStatus::Failed | BackgroundJobStatus::Paused
@@ -482,24 +672,30 @@ impl TaskQueue {
             .lock()
             .map_err(|e| e.to_string())?;
         let repository = self.repository();
-        let jobs = repository.list(
-            &[
-                BackgroundJobStatus::Succeeded,
-                BackgroundJobStatus::Failed,
-                BackgroundJobStatus::Cancelled,
-            ],
-            500,
-        )?;
-        for job in jobs {
-            if kind.is_some_and(|kind| job.kind != kind) {
-                continue;
+        loop {
+            let jobs = repository.list_filtered(
+                &[
+                    BackgroundJobStatus::Succeeded,
+                    BackgroundJobStatus::Failed,
+                    BackgroundJobStatus::Cancelled,
+                ],
+                kind,
+                500,
+            )?;
+            if jobs.is_empty() {
+                break;
             }
-            repository.delete(&job.id)?;
-            self.inner
-                .cancellations
-                .lock()
-                .map_err(|e| e.to_string())?
-                .remove(&job.id);
+            for job in &jobs {
+                repository.delete_if_terminal(&job.id)?;
+                self.inner
+                    .cancellations
+                    .lock()
+                    .map_err(|e| e.to_string())?
+                    .remove(&job.id);
+            }
+            if jobs.len() < 500 {
+                break;
+            }
         }
         Ok(())
     }
@@ -550,21 +746,41 @@ impl TaskQueue {
             return;
         };
         for mut job in jobs {
-            job.status = BackgroundJobStatus::Paused;
+            let kind = TaskKind::from_storage_kind(&job.kind);
+            let resumable = kind == TaskKind::Download;
+            job.status = if resumable {
+                BackgroundJobStatus::Paused
+            } else {
+                BackgroundJobStatus::Failed
+            };
             job.updated_at = timestamp();
-            if let Value::Object(metadata) = &mut job.metadata {
-                metadata.insert("recoverable".to_string(), Value::Bool(true));
-                metadata.insert("recovered".to_string(), Value::Bool(true));
-                metadata.insert("resumable".to_string(), Value::Bool(true));
-                metadata.insert("retryable".to_string(), Value::Bool(true));
-                metadata.insert(
-                    "recoveryReason".to_string(),
-                    Value::String("process_restart".to_string()),
-                );
-                metadata.insert(
-                    "message".to_string(),
-                    Value::String("已从上次运行恢复，可继续或重试".to_string()),
-                );
+            if !job.metadata.is_object() {
+                job.metadata = json!({});
+            }
+            merge_metadata(
+                &mut job.metadata,
+                json!({
+                    "recoverable": resumable,
+                    "recovered": true,
+                    "resumable": resumable,
+                    "retryable": resumable,
+                    "recoveryReason": "process_restart",
+                    "message": if resumable {
+                        "已从上次运行恢复，可继续或重试"
+                    } else {
+                        "应用重启时任务仍在运行，已安全标记为失败"
+                    }
+                }),
+            );
+            if !resumable {
+                job.error = Some(ProviderError {
+                    kind: ProviderErrorKind::Unknown,
+                    message: "task interrupted by process restart".to_string(),
+                    retryable: false,
+                    retry_after_ms: None,
+                    provider_id: None,
+                    operation: Some("process_restart_recovery".to_string()),
+                });
             }
             let _ = repository.upsert(&job);
         }
@@ -594,6 +810,74 @@ fn to_app_task(job: &BackgroundJob) -> AppTask {
         retryable: metadata_bool(&job.metadata, "retryable")
             || job.status == BackgroundJobStatus::Failed,
     }
+}
+
+fn to_task_center_job(job: &BackgroundJob) -> TaskCenterJob {
+    let kind = TaskKind::from_storage_kind(&job.kind);
+    let status = TaskStatus::from(job.status);
+    let is_active = matches!(
+        job.status,
+        BackgroundJobStatus::Queued | BackgroundJobStatus::Running | BackgroundJobStatus::Paused
+    );
+    let is_download = kind == TaskKind::Download;
+    let pausable = is_download && job.status == BackgroundJobStatus::Running;
+    let resumable = is_download && job.status == BackgroundJobStatus::Paused;
+    let retryable = is_download
+        && matches!(
+            job.status,
+            BackgroundJobStatus::Failed | BackgroundJobStatus::Paused
+        );
+    TaskCenterJob {
+        id: job.id.clone(),
+        kind,
+        title: job.title.clone(),
+        status,
+        progress: f64::from(job.progress).clamp(0.0, 1.0),
+        message: message_from_metadata(&job.metadata)
+            .or_else(|| job.error.as_ref().map(|error| error.message.clone())),
+        error_kind: job
+            .error
+            .as_ref()
+            .and_then(|error| serialized_enum_name(&error.kind)),
+        retryable,
+        resumable,
+        cancellable: is_active,
+        pausable,
+        recovered: metadata_bool(&job.metadata, "recovered"),
+        created_at: job.created_at.clone(),
+        updated_at: job.updated_at.clone(),
+        idempotency_key: metadata_idempotency_key(&job.metadata),
+        source: source_from_metadata(&job.metadata),
+    }
+}
+
+fn serialized_enum_name<T: Serialize>(value: &T) -> Option<String> {
+    serde_json::to_value(value)
+        .ok()?
+        .as_str()
+        .map(ToOwned::to_owned)
+}
+
+fn source_from_metadata(metadata: &Value) -> Option<TaskSource> {
+    let source = metadata.get("source")?.as_object()?;
+    let area = source.get("area")?.as_str()?.trim();
+    if area.is_empty() {
+        return None;
+    }
+    Some(TaskSource {
+        area: area.to_string(),
+        entity_id: source
+            .get("entityId")
+            .or_else(|| source.get("entity_id"))
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(ToOwned::to_owned),
+        label: source
+            .get("label")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(ToOwned::to_owned),
+    })
 }
 
 fn idempotent_job_id(key: &str) -> String {
@@ -779,18 +1063,22 @@ mod tests {
     }
 
     #[test]
-    fn running_jobs_are_recovered_as_paused_after_restart() {
+    fn non_resumable_running_jobs_are_recovered_as_failed_after_restart() {
         let db = Arc::new(SqliteDb::open_in_memory().unwrap());
         let first = TaskQueue::from_database(Arc::clone(&db));
-        let task = first.enqueue("recover".into(), "test".into());
+        let task = first.enqueue("recover".into(), "ai_v2.recommendation".into());
         first
             .update(&task.id, Some(TaskStatus::Running), None, None)
             .unwrap();
         drop(first);
         let restarted = TaskQueue::from_database(db);
-        let recovered = restarted.list();
-        assert_eq!(recovered[0].status, TaskStatus::Paused);
-        assert_eq!(recovered[0].progress, 0.0);
+        let recovered = restarted.get_task_center(&task.id).unwrap();
+        assert_eq!(recovered.status, TaskStatus::Failed);
+        assert_eq!(recovered.kind, TaskKind::Ai);
+        assert!(recovered.recovered);
+        assert!(!recovered.resumable);
+        assert!(!recovered.retryable);
+        assert_eq!(recovered.error_kind.as_deref(), Some("unknown"));
     }
 
     #[test]
@@ -843,6 +1131,129 @@ mod tests {
         assert!(recovered.resumable);
         assert!(recovered.retryable);
         assert!(recovered.message.unwrap().contains("恢复"));
+    }
+
+    #[test]
+    fn task_center_projection_maps_kinds_capabilities_and_metadata() {
+        let queue = queue();
+        let task = queue
+            .enqueue_with_metadata(
+                "AI recommendation".into(),
+                "ai_v2.recommendation".into(),
+                Some("ai-key".into()),
+                json!({
+                    "source": { "area": "library", "entityId": "game-1", "label": "Game" }
+                }),
+            )
+            .unwrap();
+        queue
+            .update(&task.id, Some(TaskStatus::Running), Some(0.25), None)
+            .unwrap();
+
+        let projected = queue.get_task_center(&task.id).unwrap();
+        assert_eq!(projected.kind, TaskKind::Ai);
+        assert_eq!(projected.progress, 0.25);
+        assert!(projected.cancellable);
+        assert!(!projected.pausable);
+        assert!(!projected.resumable);
+        assert!(!projected.retryable);
+        assert_eq!(projected.idempotency_key.as_deref(), Some("ai-key"));
+        assert_eq!(
+            projected.source.unwrap().entity_id.as_deref(),
+            Some("game-1")
+        );
+    }
+
+    #[test]
+    fn task_center_list_applies_status_kind_and_limit_filters() {
+        let queue = queue();
+        let download = queue.enqueue("download".into(), "download".into());
+        queue
+            .update(&download.id, Some(TaskStatus::Running), None, None)
+            .unwrap();
+        queue.enqueue("ai".into(), "ai_v2.library_cleanup".into());
+        queue.enqueue("other".into(), "future_kind".into());
+
+        let running_downloads = queue
+            .list_task_center(
+                Some(TaskStatus::Running),
+                Some(TaskKind::Download),
+                Some(10),
+            )
+            .unwrap();
+        assert_eq!(running_downloads.len(), 1);
+        assert_eq!(running_downloads[0].id, download.id);
+        assert_eq!(
+            queue
+                .list_task_center(None, Some(TaskKind::Ai), Some(1))
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            queue.list_task_center(None, None, Some(2)).unwrap().len(),
+            2
+        );
+    }
+
+    #[test]
+    fn producer_specific_actions_reject_unsupported_kinds() {
+        let queue = queue();
+        let ai = queue.enqueue("ai".into(), "ai_v2.recommendation".into());
+        queue
+            .update(&ai.id, Some(TaskStatus::Running), None, None)
+            .unwrap();
+        assert!(queue
+            .pause(&ai.id, None)
+            .unwrap_err()
+            .contains("不支持暂停"));
+    }
+
+    #[test]
+    fn clear_finished_keeps_every_non_terminal_job() {
+        let queue = queue();
+        let queued = queue.enqueue("queued".into(), "generic".into());
+        let paused = queue.enqueue("paused".into(), "download".into());
+        queue
+            .update(&paused.id, Some(TaskStatus::Running), None, None)
+            .unwrap();
+        queue.pause(&paused.id, None).unwrap();
+        let succeeded = queue.enqueue("done".into(), "generic".into());
+        queue
+            .update(&succeeded.id, Some(TaskStatus::Running), None, None)
+            .unwrap();
+        queue
+            .update(&succeeded.id, Some(TaskStatus::Succeeded), Some(1.0), None)
+            .unwrap();
+        let failed = queue.enqueue("failed".into(), "generic".into());
+        queue
+            .update(&failed.id, Some(TaskStatus::Running), None, None)
+            .unwrap();
+        queue
+            .update(&failed.id, Some(TaskStatus::Failed), None, None)
+            .unwrap();
+
+        queue.clear_finished().unwrap();
+        let remaining = queue.list();
+        assert_eq!(remaining.len(), 2);
+        assert!(remaining.iter().any(|job| job.id == queued.id));
+        assert!(remaining.iter().any(|job| job.id == paused.id));
+        assert!(queue.get(&succeeded.id).is_err());
+        assert!(queue.get(&failed.id).is_err());
+    }
+
+    #[test]
+    fn structured_unsupported_error_has_stable_wire_fields() {
+        let queue = queue();
+        let task = queue.enqueue("ai".into(), "ai_v2.recommendation".into());
+        let projected = queue.get_task_center(&task.id).unwrap();
+        let value =
+            serde_json::to_value(TaskControlError::unsupported(TaskAction::Pause, &projected))
+                .unwrap();
+        assert_eq!(value["code"], "action_not_supported");
+        assert_eq!(value["action"], "pause");
+        assert_eq!(value["kind"], "ai");
+        assert_eq!(value["status"], "queued");
     }
 
     #[test]

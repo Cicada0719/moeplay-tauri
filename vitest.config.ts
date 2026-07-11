@@ -1,6 +1,7 @@
 import { defineConfig } from "vitest/config";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 function normalizeWindowsDrive(p: string): string {
   if (process.platform === "win32" && /^[a-z]:/.test(p)) {
@@ -9,7 +10,10 @@ function normalizeWindowsDrive(p: string): string {
   return p;
 }
 
-const root = normalizeWindowsDrive(path.resolve("."));
+// Anchor config resolution to this file rather than the caller's current
+// directory. This keeps Vite/Vitest module IDs consistent on Windows, where
+// drive-letter casing is preserved by child_process cwd handling.
+const root = normalizeWindowsDrive(path.resolve(fileURLToPath(new URL(".", import.meta.url))));
 
 export default defineConfig({
   root,
@@ -20,7 +24,7 @@ export default defineConfig({
   test: {
     environment: "happy-dom",
     globals: true,
-    setupFiles: ["src/lib/testing/vitest-setup.ts"],
+    setupFiles: [path.join(root, "src/lib/testing/vitest-setup.ts")],
     exclude: ["tests/visual/**", "node_modules/**", "dist/**", "src-tauri/**"],
   },
 });

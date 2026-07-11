@@ -1,3 +1,8 @@
+param(
+  [ValidateSet("Auto", "Required", "Disabled")]
+  [string]$UpdaterMode = $(if ($env:UPDATER_RELEASE_MODE) { $env:UPDATER_RELEASE_MODE } else { "Auto" })
+)
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
@@ -56,6 +61,28 @@ $Expected = @(
 )
 
 $Artifacts = @()
+$UpdaterManifestPath = Join-Path $Root "latest.json"
+$UpdaterVerifier = Join-Path $Root "scripts\verify-updater-artifacts.mjs"
+$UpdaterStatus = "not-generated"
+$UpdaterArguments = @($UpdaterVerifier)
+if ($UpdaterMode -eq "Required") {
+  $UpdaterArguments += @("--require", "--artifacts-dir", $ReleaseDir, $UpdaterManifestPath)
+  $UpdaterStatus = "verified"
+}
+elseif ($UpdaterMode -eq "Disabled") {
+  $UpdaterArguments += @("--expect-absent")
+  $UpdaterStatus = "blocked-no-signing-secret"
+}
+elseif (Test-Path -LiteralPath $UpdaterManifestPath) {
+  $UpdaterArguments += @("--artifacts-dir", $ReleaseDir, $UpdaterManifestPath)
+  $UpdaterStatus = "verified"
+}
+
+& node @UpdaterArguments
+if ($LASTEXITCODE -ne 0) {
+  throw "Updater artifact verification failed in $UpdaterMode mode"
+}
+
 foreach ($Item in $Expected) {
   if (-not $Item.Path -or -not (Test-Path -LiteralPath $Item.Path)) {
     throw "Missing release artifact [$($Item.Kind)]: $($Item.Path)"
@@ -73,6 +100,41 @@ foreach ($Item in $Expected) {
     bytes = $File.Length
     sha256 = $Hash
     lastWriteTime = $File.LastWriteTime.ToString("o")
+  }
+}
+
+if ($UpdaterMode -eq "Required") {
+  $UpdaterFiles = @((Get-Item -LiteralPath $UpdaterManifestPath))
+  $SignatureFiles = @(Get-ChildItem -LiteralPath $ReleaseDir -Recurse -File -Filter "*.sig")
+  if ($SignatureFiles.Count -eq 0) {
+    throw "Signed updater mode did not produce detached signature files"
+  }
+  $UpdaterFiles += $SignatureFiles
+  foreach ($SignatureFile in $SignatureFiles) {
+    $SignedArtifactPath = $SignatureFile.FullName.Substring(0, $SignatureFile.FullName.Length - 4)
+    if (-not (Test-Path -LiteralPath $SignedArtifactPath)) {
+      throw "Detached updater signature has no matching artifact: $($SignatureFile.FullName)"
+    }
+    $UpdaterFiles += Get-Item -LiteralPath $SignedArtifactPath
+  }
+
+  foreach ($File in @($UpdaterFiles | Sort-Object FullName -Unique)) {
+    if ($Artifacts.path -contains $File.FullName) {
+      continue
+    }
+    $Artifacts += [pscustomobject]@{
+      kind = $(if ($File.Name -eq "latest.json") { "updater-manifest" } elseif ($File.Extension -eq ".sig") { "updater-signature" } else { "updater-artifact" })
+      path = $File.FullName
+      bytes = $File.Length
+      sha256 = Get-Sha256 $File.FullName
+      lastWriteTime = $File.LastWriteTime.ToString("o")
+    }
+  }
+}
+elseif ($UpdaterMode -eq "Disabled") {
+  $UnexpectedSignatures = @(Get-ChildItem -LiteralPath $ReleaseDir -Recurse -File -Filter "*.sig" -ErrorAction SilentlyContinue)
+  if ($UnexpectedSignatures.Count -gt 0) {
+    throw "Unsigned/degraded mode produced updater signatures unexpectedly: $($UnexpectedSignatures.FullName -join ', ')"
   }
 }
 
@@ -122,6 +184,11 @@ $Manifest = [pscustomobject]@{
   productName = [string]$TauriConfig.productName
   version = $Version
   generatedAt = (Get-Date).ToUniversalTime().ToString("o")
+  updater = [pscustomobject]@{
+    mode = $UpdaterMode.ToLowerInvariant()
+    status = $UpdaterStatus
+    manifest = $(if (Test-Path -LiteralPath $UpdaterManifestPath) { $UpdaterManifestPath } else { $null })
+  }
   artifacts = $Artifacts
 }
 

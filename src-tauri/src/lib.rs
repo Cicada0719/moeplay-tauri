@@ -3,9 +3,6 @@
 
 pub mod ai;
 pub mod anime;
-pub mod domain;
-pub mod providers;
-pub mod secret_store;
 pub mod archive;
 pub mod auto_scrape;
 pub mod autostart;
@@ -15,6 +12,7 @@ pub mod commands;
 pub mod db;
 pub mod db_sqlite;
 pub mod diagnostics;
+pub mod domain;
 pub mod downloader;
 pub mod emulator;
 pub mod gal_download;
@@ -29,9 +27,11 @@ pub mod models;
 pub mod nsfw;
 pub mod performance;
 pub mod process_monitor;
+pub mod providers;
 pub mod recommender;
 pub mod resource_fetcher;
 pub mod scraper;
+pub mod secret_store;
 pub mod security;
 pub mod services;
 pub mod stats;
@@ -132,6 +132,7 @@ pub fn run() {
         .manage(anime::AnimeState::default())
         .manage(comic::ComicState::default())
         .manage(AnimeDownloader::new(anime_download_dir))
+        .manage(Downloader::new(download_dir, 3))
         .manage(task_queue)
         .manage(ai_changes_service)
         .manage(ai_v2_state)
@@ -314,6 +315,9 @@ pub fn run() {
             commands::get_tasks,
             commands::update_task,
             commands::cancel_task,
+            commands::pause_task,
+            commands::resume_task,
+            commands::retry_task,
             commands::clear_finished_tasks,
             // ---- Anime Provider v2 ----
             commands::anime_provider_configure,

@@ -41,17 +41,37 @@ impl<'db> BackgroundJobRepository<'db> {
         statuses: &[BackgroundJobStatus],
         limit: usize,
     ) -> Result<Vec<BackgroundJob>, String> {
+        self.list_filtered(statuses, None, limit)
+    }
+
+    /// Lists jobs with optional exact storage-kind filtering. Higher-level
+    /// category filtering (for example all `ai_v2.*` jobs as `ai`) belongs in
+    /// TaskQueue's public projection mapper.
+    pub fn list_filtered(
+        &self,
+        statuses: &[BackgroundJobStatus],
+        kind: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<BackgroundJob>, String> {
         let limit = limit.clamp(1, 500);
         self.db.with_connection(|conn| {
             let mut values = Vec::<SqlValue>::new();
-            let where_clause = if statuses.is_empty() {
-                String::new()
-            } else {
+            let mut predicates = Vec::<String>::new();
+            if !statuses.is_empty() {
                 let placeholders = (0..statuses.len()).map(|_| "?").collect::<Vec<_>>().join(",");
                 for status in statuses {
                     values.push(SqlValue::Text(enum_text(status)?));
                 }
-                format!(" WHERE status IN ({placeholders})")
+                predicates.push(format!("status IN ({placeholders})"));
+            }
+            if let Some(kind) = kind.map(str::trim).filter(|kind| !kind.is_empty()) {
+                predicates.push("kind = ?".to_string());
+                values.push(SqlValue::Text(kind.to_string()));
+            }
+            let where_clause = if predicates.is_empty() {
+                String::new()
+            } else {
+                format!(" WHERE {}", predicates.join(" AND "))
             };
             values.push(SqlValue::Integer(limit as i64));
             let sql = format!(
@@ -71,6 +91,19 @@ impl<'db> BackgroundJobRepository<'db> {
             conn.execute("DELETE FROM background_jobs WHERE id=?1", params![id])
                 .map(|changed| changed > 0)
                 .map_err(|e| e.to_string())
+        })
+    }
+
+    /// Atomic guard used by Task Center cleanup: active/paused jobs can never
+    /// be removed even if another producer changes state between list/delete.
+    pub fn delete_if_terminal(&self, id: &str) -> Result<bool, String> {
+        self.db.with_connection(|conn| {
+            conn.execute(
+                "DELETE FROM background_jobs WHERE id=?1 AND status IN ('succeeded','failed','cancelled')",
+                params![id],
+            )
+            .map(|changed| changed > 0)
+            .map_err(|e| e.to_string())
         })
     }
 
@@ -197,5 +230,48 @@ mod tests {
             vec![job]
         );
         assert!(repository.delete("job-1").unwrap());
+    }
+
+    #[test]
+    fn filtered_list_and_terminal_delete_are_guarded_in_sql() {
+        let db = SqliteDb::open_in_memory().unwrap();
+        let repository = BackgroundJobRepository::new(&db);
+        for (id, kind, status) in [
+            ("active", "download", BackgroundJobStatus::Running),
+            ("paused", "download", BackgroundJobStatus::Paused),
+            ("done", "download", BackgroundJobStatus::Succeeded),
+            (
+                "ai-failed",
+                "ai_v2.recommendation",
+                BackgroundJobStatus::Failed,
+            ),
+        ] {
+            repository
+                .insert(&BackgroundJob {
+                    id: id.to_string(),
+                    kind: kind.to_string(),
+                    title: id.to_string(),
+                    status,
+                    progress: 0.0,
+                    created_at: "2026-01-01T00:00:00Z".to_string(),
+                    updated_at: format!("2026-01-01T00:00:0{}Z", id.len()),
+                    error: None,
+                    metadata: json!({}),
+                })
+                .unwrap();
+        }
+
+        let downloads = repository.list_filtered(&[], Some("download"), 10).unwrap();
+        assert_eq!(downloads.len(), 3);
+        let terminal_downloads = repository
+            .list_filtered(&[BackgroundJobStatus::Succeeded], Some("download"), 10)
+            .unwrap();
+        assert_eq!(terminal_downloads[0].id, "done");
+
+        assert!(!repository.delete_if_terminal("active").unwrap());
+        assert!(!repository.delete_if_terminal("paused").unwrap());
+        assert!(repository.delete_if_terminal("done").unwrap());
+        assert!(repository.get("active").unwrap().is_some());
+        assert!(repository.get("paused").unwrap().is_some());
     }
 }
