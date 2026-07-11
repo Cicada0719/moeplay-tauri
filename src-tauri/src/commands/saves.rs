@@ -1,6 +1,8 @@
 use crate::db::Database;
+use crate::domain::{ProviderError, ProviderErrorKind};
 use crate::models::{Game, SaveBackup, SaveData, SaveInfo};
 use crate::sync;
+use crate::task_queue::{JobOperation, TaskEventLevel, TaskQueue};
 use std::{fs, path::PathBuf};
 use tauri::State;
 
@@ -133,7 +135,13 @@ pub fn get_game_saves(game_id: String, db: State<'_, Database>) -> Result<Vec<Sa
 }
 
 #[tauri::command]
-pub fn backup_save(save_path: String) -> Result<String, String> {
+pub fn backup_save(queue: State<'_, TaskQueue>, save_path: String) -> Result<String, String> {
+    observe_result_task(&queue, ObservedSaveOperation::BackupFile, || {
+        backup_save_impl(save_path)
+    })
+}
+
+fn backup_save_impl(save_path: String) -> Result<String, String> {
     let src = PathBuf::from(&save_path);
     if !src.exists() {
         return Err("存档文件不存在".to_string());
@@ -166,7 +174,17 @@ pub fn backup_save(save_path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn restore_save(backup_path: String, target_path: String) -> Result<(), String> {
+pub fn restore_save(
+    queue: State<'_, TaskQueue>,
+    backup_path: String,
+    target_path: String,
+) -> Result<(), String> {
+    observe_result_task(&queue, ObservedSaveOperation::RestoreFile, || {
+        restore_save_impl(backup_path, target_path)
+    })
+}
+
+fn restore_save_impl(backup_path: String, target_path: String) -> Result<(), String> {
     let src = PathBuf::from(&backup_path);
     let dst = PathBuf::from(&target_path);
 
@@ -221,6 +239,18 @@ pub fn scan_save_dir(save_dir: String) -> Result<Vec<sync::SaveInfo>, String> {
 #[tauri::command]
 pub fn create_save_snapshot(
     db: State<'_, Database>,
+    queue: State<'_, TaskQueue>,
+    game_id: String,
+    save_dir: Option<String>,
+    note: Option<String>,
+) -> Result<sync::SaveSnapshot, String> {
+    observe_result_task(&queue, ObservedSaveOperation::CreateSnapshot, || {
+        create_save_snapshot_impl(&db, game_id, save_dir, note)
+    })
+}
+
+fn create_save_snapshot_impl(
+    db: &Database,
     game_id: String,
     save_dir: Option<String>,
     note: Option<String>,
@@ -238,6 +268,19 @@ pub fn list_save_snapshots(game_id: String) -> Result<Vec<sync::SaveSnapshot>, S
 #[tauri::command]
 pub fn restore_save_snapshot(
     db: State<'_, Database>,
+    queue: State<'_, TaskQueue>,
+    game_id: String,
+    snapshot_path: String,
+    save_dir: Option<String>,
+    create_safety: Option<bool>,
+) -> Result<(), String> {
+    observe_result_task(&queue, ObservedSaveOperation::RestoreSnapshot, || {
+        restore_save_snapshot_impl(&db, game_id, snapshot_path, save_dir, create_safety)
+    })
+}
+
+fn restore_save_snapshot_impl(
+    db: &Database,
     game_id: String,
     snapshot_path: String,
     save_dir: Option<String>,
@@ -284,15 +327,41 @@ pub fn detect_save_conflicts(
 
 #[tauri::command]
 pub async fn sync_save_snapshots_to_cloud(
+    queue: State<'_, TaskQueue>,
     game_id: String,
     config: sync::CloudSyncConfig,
 ) -> Result<u32, String> {
-    sync::sync_snapshots_to_cloud(&game_id, &config).await
+    let task_id = begin_task(&queue, ObservedSaveOperation::CloudSnapshotSync);
+    mark_running(
+        &queue,
+        task_id.as_deref(),
+        ObservedSaveOperation::CloudSnapshotSync,
+    );
+    let result = sync::sync_snapshots_to_cloud(&game_id, &config).await;
+    finish_task(
+        &queue,
+        task_id.as_deref(),
+        ObservedSaveOperation::CloudSnapshotSync,
+        result.is_ok(),
+    );
+    result
 }
 
 #[tauri::command]
 pub fn restore_latest_save_snapshot_from_cloud(
     db: State<'_, Database>,
+    queue: State<'_, TaskQueue>,
+    game_id: String,
+    cloud_dir: String,
+    save_dir: Option<String>,
+) -> Result<Option<sync::SaveSnapshot>, String> {
+    observe_result_task(&queue, ObservedSaveOperation::RestoreCloudSnapshot, || {
+        restore_latest_save_snapshot_from_cloud_impl(&db, game_id, cloud_dir, save_dir)
+    })
+}
+
+fn restore_latest_save_snapshot_from_cloud_impl(
+    db: &Database,
     game_id: String,
     cloud_dir: String,
     save_dir: Option<String>,
@@ -300,6 +369,218 @@ pub fn restore_latest_save_snapshot_from_cloud(
     let game = db.get_game(&game_id)?;
     let save_dir = resolve_game_save_dir(&game, save_dir)?;
     sync::restore_latest_snapshot_from_local_cloud(&game_id, &PathBuf::from(cloud_dir), &save_dir)
+}
+
+/// Fixed backend-owned save operations. Only stable scope/snapshot tokens are
+/// serialized; filesystem paths, cloud configuration, snapshot notes, and
+/// command arguments never enter the durable job envelope.
+#[derive(Clone, Copy)]
+enum ObservedSaveOperation {
+    BackupFile,
+    RestoreFile,
+    CreateSnapshot,
+    RestoreSnapshot,
+    CloudSnapshotSync,
+    RestoreCloudSnapshot,
+}
+
+impl ObservedSaveOperation {
+    fn operation(self) -> JobOperation {
+        match self {
+            Self::BackupFile => JobOperation::Backup {
+                scope: "save_file".to_string(),
+            },
+            Self::CreateSnapshot => JobOperation::Backup {
+                scope: "snapshot".to_string(),
+            },
+            Self::CloudSnapshotSync => JobOperation::Backup {
+                scope: "cloud_snapshot_sync".to_string(),
+            },
+            Self::RestoreFile => JobOperation::Restore {
+                snapshot_id: "save_file".to_string(),
+            },
+            Self::RestoreSnapshot => JobOperation::Restore {
+                snapshot_id: "snapshot".to_string(),
+            },
+            Self::RestoreCloudSnapshot => JobOperation::Restore {
+                snapshot_id: "cloud_snapshot".to_string(),
+            },
+        }
+    }
+
+    fn code(self) -> &'static str {
+        match self {
+            Self::BackupFile => "backup_save",
+            Self::RestoreFile => "restore_save",
+            Self::CreateSnapshot => "create_save_snapshot",
+            Self::RestoreSnapshot => "restore_save_snapshot",
+            Self::CloudSnapshotSync => "sync_save_snapshots_to_cloud",
+            Self::RestoreCloudSnapshot => "restore_latest_save_snapshot_from_cloud",
+        }
+    }
+
+    fn title(self) -> &'static str {
+        match self {
+            Self::BackupFile => "Back up save file",
+            Self::RestoreFile => "Restore save file",
+            Self::CreateSnapshot => "Create save snapshot",
+            Self::RestoreSnapshot => "Restore save snapshot",
+            Self::CloudSnapshotSync => "Sync save snapshots to cloud",
+            Self::RestoreCloudSnapshot => "Restore latest cloud save snapshot",
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum TaskPhase {
+    Running,
+    Succeeded,
+    Failed,
+}
+
+impl TaskPhase {
+    fn code(self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Succeeded => "succeeded",
+            Self::Failed => "failed",
+        }
+    }
+    fn message(self) -> &'static str {
+        match self {
+            Self::Running => "Task running",
+            Self::Succeeded => "Task completed",
+            Self::Failed => "Task failed",
+        }
+    }
+    fn progress(self) -> Option<f64> {
+        match self {
+            Self::Running => Some(0.05),
+            Self::Succeeded => Some(1.0),
+            Self::Failed => None,
+        }
+    }
+}
+
+fn begin_task(queue: &TaskQueue, operation: ObservedSaveOperation) -> Option<String> {
+    match queue.enqueue_operation(operation.title().to_string(), operation.operation(), None) {
+        Ok(task) => {
+            append_phase_event(
+                queue,
+                &task.id,
+                operation,
+                "queued",
+                "Task queued",
+                Some(0.0),
+            );
+            Some(task.id)
+        }
+        Err(error) => {
+            tracing::warn!(operation = operation.code(), error = %error, "failed to create save task");
+            None
+        }
+    }
+}
+
+fn mark_running(queue: &TaskQueue, task_id: Option<&str>, operation: ObservedSaveOperation) {
+    record_phase(queue, task_id, operation, TaskPhase::Running);
+}
+
+fn finish_task(
+    queue: &TaskQueue,
+    task_id: Option<&str>,
+    operation: ObservedSaveOperation,
+    succeeded: bool,
+) {
+    record_phase(
+        queue,
+        task_id,
+        operation,
+        if succeeded {
+            TaskPhase::Succeeded
+        } else {
+            TaskPhase::Failed
+        },
+    );
+}
+
+fn record_phase(
+    queue: &TaskQueue,
+    task_id: Option<&str>,
+    operation: ObservedSaveOperation,
+    phase: TaskPhase,
+) {
+    let Some(task_id) = task_id else {
+        return;
+    };
+    let result = match phase {
+        TaskPhase::Running => {
+            queue.mark_running(task_id, Some(phase.message().to_string()), phase.progress())
+        }
+        TaskPhase::Succeeded => queue.mark_succeeded(task_id, Some(phase.message().to_string())),
+        // Deliberately never copy the command error: it can contain a local
+        // path, remote endpoint, or provider-supplied detail.
+        TaskPhase::Failed => queue.mark_failed(
+            task_id,
+            ProviderError {
+                kind: ProviderErrorKind::Unknown,
+                message: phase.message().to_string(),
+                retryable: false,
+                retry_after_ms: None,
+                provider_id: None,
+                operation: Some(operation.code().to_string()),
+            },
+        ),
+    };
+    if let Err(error) = result {
+        // A cancellation race is expected to reject a late completion. It must
+        // not change the result returned by the legacy command.
+        tracing::debug!(task_id, operation = operation.code(), error = %error, "save task lifecycle update skipped");
+        return;
+    }
+    append_phase_event(
+        queue,
+        task_id,
+        operation,
+        phase.code(),
+        phase.message(),
+        phase.progress(),
+    );
+}
+
+fn append_phase_event(
+    queue: &TaskQueue,
+    task_id: &str,
+    operation: ObservedSaveOperation,
+    phase: &'static str,
+    message: &'static str,
+    progress: Option<f64>,
+) {
+    if let Err(error) = queue.append_event(
+        task_id,
+        if phase == "failed" {
+            TaskEventLevel::Error
+        } else {
+            TaskEventLevel::Info
+        },
+        format!("{}.{}", operation.code(), phase),
+        message.to_string(),
+        progress,
+    ) {
+        tracing::debug!(task_id, operation = operation.code(), error = %error, "save task phase event skipped");
+    }
+}
+
+fn observe_result_task<T>(
+    queue: &TaskQueue,
+    operation: ObservedSaveOperation,
+    work: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    let task_id = begin_task(queue, operation);
+    mark_running(queue, task_id.as_deref(), operation);
+    let result = work();
+    finish_task(queue, task_id.as_deref(), operation, result.is_ok());
+    result
 }
 
 pub(crate) fn resolve_game_dir(game: &Game) -> Result<PathBuf, String> {
@@ -345,4 +626,80 @@ fn resolve_game_save_dir(game: &Game, custom_save_dir: Option<String>) -> Result
     .next()
     .map(|candidate| PathBuf::from(candidate.path))
     .ok_or_else(|| "未检测到存档目录".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db_sqlite::SqliteDb;
+    use crate::task_queue::{TaskKind, TaskStatus};
+    use std::sync::Arc;
+
+    fn queue() -> TaskQueue {
+        TaskQueue::from_database(Arc::new(SqliteDb::open_in_memory().unwrap()))
+    }
+
+    #[test]
+    fn save_backup_task_records_a_typed_redacted_lifecycle() {
+        let queue = queue();
+        observe_result_task(&queue, ObservedSaveOperation::BackupFile, || {
+            Ok::<_, String>(())
+        })
+        .unwrap();
+        let task = queue
+            .list_task_center(None, Some(TaskKind::Backup), Some(1))
+            .unwrap()
+            .pop()
+            .unwrap();
+        assert_eq!(task.kind, TaskKind::Backup);
+        assert_eq!(task.status, TaskStatus::Succeeded);
+        assert_eq!(task.message.as_deref(), Some("Task completed"));
+        let detail = queue.get_task_detail(&task.id).unwrap();
+        assert_eq!(
+            detail.operation.unwrap().operation,
+            JobOperation::Backup {
+                scope: "save_file".to_string()
+            }
+        );
+        let codes = queue
+            .list_events(&task.id, None, 20)
+            .unwrap()
+            .into_iter()
+            .map(|event| event.code)
+            .collect::<Vec<_>>();
+        assert!(codes.contains(&"backup_save.queued".to_string()));
+        assert!(codes.contains(&"backup_save.running".to_string()));
+        assert!(codes.contains(&"backup_save.succeeded".to_string()));
+    }
+
+    #[test]
+    fn save_task_failure_does_not_persist_raw_command_error() {
+        let queue = queue();
+        let error = "sync failed at https://user:secret@example.test?token=private";
+        assert_eq!(
+            observe_result_task(&queue, ObservedSaveOperation::CloudSnapshotSync, || Err::<
+                (),
+                _,
+            >(
+                error.to_string()
+            )),
+            Err(error.to_string())
+        );
+        let task = queue
+            .list_task_center(None, Some(TaskKind::Backup), Some(1))
+            .unwrap()
+            .pop()
+            .unwrap();
+        assert_eq!(task.status, TaskStatus::Failed);
+        let persisted_events = queue
+            .list_events(&task.id, None, 20)
+            .unwrap()
+            .into_iter()
+            .map(|event| format!("{}:{}", event.code, event.message))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(persisted_events.contains("sync_save_snapshots_to_cloud.failed"));
+        assert!(!persisted_events.contains("user:secret"));
+        assert!(!persisted_events.contains("token=private"));
+    }
 }

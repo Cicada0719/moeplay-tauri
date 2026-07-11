@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-task-events"
+description = "Enables the get_task_events command without any pre-configured scope."
+commands.allow = ["get_task_events"]
+
+[[permission]]
+identifier = "deny-get-task-events"
+description = "Denies the get_task_events command without any pre-configured scope."
+commands.deny = ["get_task_events"]

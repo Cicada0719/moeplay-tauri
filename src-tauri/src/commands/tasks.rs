@@ -1,10 +1,13 @@
 use crate::downloader::Downloader;
 use crate::task_queue::{
-    AppTask, TaskAction, TaskCenterJob, TaskControlError, TaskKind, TaskQueue, TaskStatus,
+    AppTask, TaskAction, TaskCenterJob, TaskCenterJobDetail, TaskControlError, TaskEvent, TaskKind,
+    TaskQueue, TaskStatus,
 };
 use tauri::State;
 
-/// Legacy command name backed by the persistent BackgroundJob control plane.
+/// Legacy compatibility command. It persists only queue-sanitized display
+/// fields and an opaque idempotency fingerprint; product flows should call a
+/// concrete backend producer instead.
 #[tauri::command]
 pub fn enqueue_task(
     queue: State<'_, TaskQueue>,
@@ -12,7 +15,7 @@ pub fn enqueue_task(
     kind: String,
     idempotency_key: Option<String>,
 ) -> Result<AppTask, String> {
-    queue.enqueue_with_key(title, kind, idempotency_key)
+    queue.enqueue_legacy(title, kind, idempotency_key)
 }
 
 /// Backward-compatible command name with additive optional Task Center filters.
@@ -27,9 +30,33 @@ pub fn get_tasks(
     queue.list_task_center(status, kind, limit)
 }
 
-/// `progress` accepts both the new fraction (`0..=1`) and the legacy
-/// percentage (`0..=100`) at the command boundary. It is persisted as a
-/// fraction by TaskQueue.
+/// Returns a recognized, redacted operation envelope for Task Center details.
+#[tauri::command]
+pub fn get_task_detail(
+    queue: State<'_, TaskQueue>,
+    id: String,
+) -> Result<TaskCenterJobDetail, TaskControlError> {
+    queue
+        .get_task_detail(&id)
+        .map_err(|message| task_query_error(message, &id))
+}
+
+/// Returns event timeline entries strictly after the optional keyset cursor.
+#[tauri::command]
+pub fn get_task_events(
+    queue: State<'_, TaskQueue>,
+    id: String,
+    after_sequence: Option<i64>,
+    limit: Option<usize>,
+) -> Result<Vec<TaskEvent>, TaskControlError> {
+    queue
+        .get_task_events(&id, after_sequence, limit.unwrap_or(50).clamp(1, 200))
+        .map_err(|message| task_query_error(message, &id))
+}
+
+/// Legacy compatibility command. `progress` accepts both the new fraction
+/// (`0..=1`) and legacy percentage (`0..=100`); the queue redacts and bounds
+/// the optional message before persistence and frontend projection.
 #[tauri::command]
 pub fn update_task(
     queue: State<'_, TaskQueue>,
@@ -38,7 +65,7 @@ pub fn update_task(
     progress: Option<f64>,
     message: Option<String>,
 ) -> Result<AppTask, String> {
-    queue.update(&id, status, progress, message)
+    queue.update_legacy(&id, status, progress, message)
 }
 
 /// Cancels through the queue's atomic operation handle. Keeping this command
@@ -193,4 +220,19 @@ fn require_download_action(
 
 fn control_error(message: String, action: TaskAction, task: &TaskCenterJob) -> TaskControlError {
     TaskControlError::internal(message).with_context(action, task)
+}
+
+fn task_query_error(message: String, id: &str) -> TaskControlError {
+    TaskControlError {
+        code: if message.contains("不存在") {
+            "task_not_found".to_string()
+        } else {
+            "task_query_failed".to_string()
+        },
+        message,
+        action: None,
+        task_id: Some(id.to_string()),
+        kind: None,
+        status: None,
+    }
 }

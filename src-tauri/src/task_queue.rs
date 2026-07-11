@@ -4,7 +4,13 @@
 //! and state machine are backed by `BackgroundJobRepository` and `BackgroundJob`.
 //! Progress is always persisted as a fraction in the inclusive range `0..=1`.
 
-use crate::db_sqlite::{repositories::BackgroundJobRepository, SqliteDb};
+pub use crate::db_sqlite::repositories::jobs::{
+    BackgroundJobEvent as TaskEvent, BackgroundJobEventLevel as TaskEventLevel,
+};
+use crate::db_sqlite::{
+    repositories::{jobs::redact_event_message, BackgroundJobRepository},
+    SqliteDb,
+};
 use crate::domain::{BackgroundJob, BackgroundJobStatus, ProviderError, ProviderErrorKind};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -55,6 +61,180 @@ impl From<TaskStatus> for BackgroundJobStatus {
             TaskStatus::Cancelled => Self::Cancelled,
         }
     }
+}
+
+/// The current on-disk envelope version for backend-owned job operations.
+/// New operation variants must use a new envelope version rather than changing
+/// the meaning of an existing serialized payload.
+pub const JOB_OPERATION_VERSION: u16 = 1;
+
+/// Backend-owned, fixed-dispatch operations that may be queued by Stage 3
+/// producers. There is intentionally no "custom command" or arbitrary payload
+/// variant: frontend callers cannot smuggle request bodies, headers, URLs with
+/// credentials, or command-line arguments into durable job metadata.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum JobOperation {
+    Import {
+        source: String,
+        reference_id: String,
+    },
+    Scrape {
+        game_id: String,
+        provider_id: Option<String>,
+    },
+    ProviderVerify {
+        media_type: String,
+        provider_id: String,
+    },
+    Backup {
+        scope: String,
+    },
+    Restore {
+        snapshot_id: String,
+    },
+    DiagnosticsExport,
+    UpdateCheck,
+}
+
+/// The durable representation stored under `background_jobs.metadata_json`.
+/// The flattening keeps the payload easy to inspect while making the version an
+/// explicit compatibility boundary for future workers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VersionedJobOperation {
+    pub version: u16,
+    #[serde(flatten)]
+    pub operation: JobOperation,
+}
+
+impl JobOperation {
+    pub const VERSION: u16 = JOB_OPERATION_VERSION;
+
+    pub fn version(&self) -> u16 {
+        Self::VERSION
+    }
+
+    pub fn storage_kind(&self) -> &'static str {
+        match self {
+            Self::Import { .. } => "import",
+            Self::Scrape { .. } => "scrape",
+            Self::ProviderVerify { .. } => "provider_verify",
+            Self::Backup { .. } => "backup",
+            Self::Restore { .. } => "restore",
+            Self::DiagnosticsExport => "diagnostics.export",
+            Self::UpdateCheck => "update.check",
+        }
+    }
+
+    pub fn versioned(self) -> Result<VersionedJobOperation, String> {
+        VersionedJobOperation::new(self)
+    }
+
+    fn source_metadata(&self) -> Value {
+        match self {
+            Self::Import {
+                source,
+                reference_id,
+            } => json!({
+                "area": "import",
+                "entityId": reference_id,
+                "label": source,
+            }),
+            Self::Scrape {
+                game_id,
+                provider_id,
+            } => json!({
+                "area": "game",
+                "entityId": game_id,
+                "label": provider_id,
+            }),
+            Self::ProviderVerify {
+                media_type,
+                provider_id,
+            } => json!({
+                "area": "provider",
+                "entityId": provider_id,
+                "label": media_type,
+            }),
+            Self::Backup { scope } => json!({
+                "area": "backup",
+                "entityId": scope,
+                "label": scope,
+            }),
+            Self::Restore { snapshot_id } => json!({
+                "area": "restore",
+                "entityId": snapshot_id,
+                "label": "snapshot",
+            }),
+            Self::DiagnosticsExport => json!({
+                "area": "diagnostics",
+                "entityId": Value::Null,
+                "label": "export",
+            }),
+            Self::UpdateCheck => json!({
+                "area": "update",
+                "entityId": Value::Null,
+                "label": "check",
+            }),
+        }
+    }
+
+    fn sanitize_for_persistence(self) -> Result<Self, String> {
+        Ok(match self {
+            Self::Import {
+                source,
+                reference_id,
+            } => Self::Import {
+                source: sanitize_operation_text("source", source, 512)?,
+                reference_id: sanitize_operation_token("reference_id", reference_id)?,
+            },
+            Self::Scrape {
+                game_id,
+                provider_id,
+            } => Self::Scrape {
+                game_id: sanitize_operation_token("game_id", game_id)?,
+                provider_id: provider_id
+                    .map(|value| sanitize_operation_token("provider_id", value))
+                    .transpose()?,
+            },
+            Self::ProviderVerify {
+                media_type,
+                provider_id,
+            } => Self::ProviderVerify {
+                media_type: sanitize_operation_token("media_type", media_type)?,
+                provider_id: sanitize_operation_token("provider_id", provider_id)?,
+            },
+            Self::Backup { scope } => Self::Backup {
+                scope: sanitize_operation_token("scope", scope)?,
+            },
+            Self::Restore { snapshot_id } => Self::Restore {
+                snapshot_id: sanitize_operation_token("snapshot_id", snapshot_id)?,
+            },
+            Self::DiagnosticsExport => Self::DiagnosticsExport,
+            Self::UpdateCheck => Self::UpdateCheck,
+        })
+    }
+}
+
+impl VersionedJobOperation {
+    pub fn new(operation: JobOperation) -> Result<Self, String> {
+        Ok(Self {
+            version: JOB_OPERATION_VERSION,
+            operation: operation.sanitize_for_persistence()?,
+        })
+    }
+
+    pub fn is_supported(&self) -> bool {
+        self.version == JOB_OPERATION_VERSION
+    }
+}
+
+/// Details safe for a Task Center drawer. Unlike raw metadata, this only
+/// exposes a recognized, versioned operation envelope.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TaskCenterJobDetail {
+    pub job: TaskCenterJob,
+    pub operation: Option<VersionedJobOperation>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -335,6 +515,17 @@ impl TaskQueue {
             .unwrap_or_else(|error| panic!("enqueue task failed: {error}"))
     }
 
+    /// Compatibility entry point for legacy callers. Inputs are sanitized at
+    /// the persistence boundary before they can reach SQLite or a frontend DTO.
+    pub fn enqueue_legacy(
+        &self,
+        title: String,
+        kind: String,
+        idempotency_key: Option<String>,
+    ) -> Result<AppTask, String> {
+        self.enqueue_with_key(title, kind, idempotency_key)
+    }
+
     pub fn enqueue_with_key(
         &self,
         title: String,
@@ -344,6 +535,26 @@ impl TaskQueue {
         self.enqueue_with_metadata(title, kind, idempotency_key, json!({}))
     }
 
+    /// Enqueues a fixed, versioned backend operation and returns the Task
+    /// Center projection. The persisted envelope is sanitized before it is
+    /// written, so callers cannot persist credentials or prompt/response data.
+    pub fn enqueue_operation(
+        &self,
+        title: String,
+        operation: JobOperation,
+        idempotency_key: Option<String>,
+    ) -> Result<TaskCenterJob, String> {
+        let operation = operation.versioned()?;
+        let kind = operation.operation.storage_kind().to_string();
+        let source = operation.operation.source_metadata();
+        let metadata = json!({
+            "operation": operation,
+            "source": source,
+        });
+        let task = self.enqueue_with_metadata(title, kind, idempotency_key, metadata)?;
+        self.get_task_center(&task.id)
+    }
+
     pub fn enqueue_with_metadata(
         &self,
         title: String,
@@ -351,16 +562,20 @@ impl TaskQueue {
         idempotency_key: Option<String>,
         mut metadata: Value,
     ) -> Result<AppTask, String> {
+        // This method is intentionally the shared persistence boundary for
+        // typed producers, legacy compatibility commands, and durable downloads.
+        // Do not move these checks into only the Tauri command: internal callers
+        // can also create jobs and their values must receive the same treatment.
+        let title = sanitize_legacy_text("title", title, 256)?;
+        let kind = sanitize_storage_kind(kind)?;
+        let idempotency_key = sanitize_idempotency_key(idempotency_key)?;
         let _guard = self
             .inner
             .transition_lock
             .lock()
             .map_err(|e| e.to_string())?;
         let repository = self.repository();
-        let normalized_key = idempotency_key
-            .as_deref()
-            .map(str::trim)
-            .filter(|key| !key.is_empty());
+        let normalized_key = idempotency_key.as_deref();
         let stable_id = normalized_key.map(idempotent_job_id);
         if let Some(key) = normalized_key {
             if let Some(id) = stable_id.as_deref() {
@@ -369,11 +584,10 @@ impl TaskQueue {
                 }
             }
             // Compatibility for jobs persisted before stable IDs were introduced.
-            if let Some(existing) = repository
-                .list(&[], 500)?
-                .into_iter()
-                .find(|job| metadata_idempotency_key(&job.metadata).as_deref() == Some(key))
-            {
+            if let Some(existing) = repository.list(&[], 500)?.into_iter().find(|job| {
+                metadata_idempotency_key(&job.metadata).as_deref()
+                    == Some(idempotency_fingerprint(key).as_str())
+            }) {
                 return Ok(to_app_task(&existing));
             }
         }
@@ -382,8 +596,10 @@ impl TaskQueue {
         if !metadata.is_object() {
             metadata = json!({});
         }
-        if let Some(key) = idempotency_key.filter(|key| !key.trim().is_empty()) {
-            metadata["idempotencyKey"] = Value::String(key);
+        if let Some(key) = idempotency_key.as_deref() {
+            // The raw key is used only in-memory to derive the deterministic job
+            // identifier. SQLite and all public DTOs receive an opaque digest.
+            metadata["idempotencyKey"] = Value::String(idempotency_fingerprint(key));
         }
         let job = BackgroundJob {
             id: stable_id.unwrap_or_else(|| Uuid::new_v4().to_string()),
@@ -441,8 +657,140 @@ impl TaskQueue {
         self.get_job(id).map(|job| to_task_center_job(&job))
     }
 
+    pub fn get_task_detail(&self, id: &str) -> Result<TaskCenterJobDetail, String> {
+        let job = self.get_job(id)?;
+        let operation = job
+            .metadata
+            .get("operation")
+            .cloned()
+            .and_then(|value| serde_json::from_value::<VersionedJobOperation>(value).ok())
+            .filter(VersionedJobOperation::is_supported);
+        Ok(TaskCenterJobDetail {
+            job: to_task_center_job(&job),
+            operation,
+        })
+    }
+
+    /// Appends a redacted event to the persistent job timeline. Progress is a
+    /// fraction and is intentionally independent from the job's lifecycle
+    /// progress update, allowing workers to emit informational milestones.
+    pub fn append_event(
+        &self,
+        job_id: &str,
+        level: TaskEventLevel,
+        code: String,
+        message: String,
+        progress: Option<f64>,
+    ) -> Result<TaskEvent, String> {
+        let code = sanitize_event_code(code)?;
+        let message = sanitize_legacy_text("event_message", message, 2048)?;
+        let progress = progress.map(normalize_progress).transpose()?.map(f64::from);
+        self.repository()
+            .append_event(job_id, level, &code, &message, progress)
+    }
+
+    /// Lists events after an exclusive sequence cursor in ascending order.
+    pub fn list_events(
+        &self,
+        job_id: &str,
+        after_sequence: Option<i64>,
+        limit: usize,
+    ) -> Result<Vec<TaskEvent>, String> {
+        self.repository().list_events(job_id, after_sequence, limit)
+    }
+
+    /// Command-facing alias with a name matching the Task Center details API.
+    pub fn get_task_events(
+        &self,
+        job_id: &str,
+        after_sequence: Option<i64>,
+        limit: usize,
+    ) -> Result<Vec<TaskEvent>, String> {
+        self.list_events(job_id, after_sequence, limit)
+    }
+
     pub fn metadata(&self, id: &str) -> Result<Value, String> {
         self.get_job(id).map(|job| job.metadata)
+    }
+
+    /// Marks a typed operation running and records a safe lifecycle event.
+    pub fn mark_running(
+        &self,
+        id: &str,
+        message: Option<String>,
+        progress: Option<f64>,
+    ) -> Result<TaskCenterJob, String> {
+        let message = message.map(|value| redact_event_message(&value));
+        let task = self.update(id, Some(TaskStatus::Running), progress, message.clone())?;
+        self.append_event(
+            id,
+            TaskEventLevel::Info,
+            "job_running".to_string(),
+            message.unwrap_or_else(|| "任务开始运行".to_string()),
+            Some(task.progress),
+        )?;
+        self.get_task_center(id)
+    }
+
+    /// Marks a typed operation successfully complete, always persisting full
+    /// progress and a terminal timeline event. A cancelled job rejects this
+    /// late completion through the existing monotonic transition guard.
+    pub fn mark_succeeded(
+        &self,
+        id: &str,
+        message: Option<String>,
+    ) -> Result<TaskCenterJob, String> {
+        let message = message.map(|value| redact_event_message(&value));
+        let task = self.update(id, Some(TaskStatus::Succeeded), Some(1.0), message.clone())?;
+        self.append_event(
+            id,
+            TaskEventLevel::Info,
+            "job_succeeded".to_string(),
+            message.unwrap_or_else(|| "任务已完成".to_string()),
+            Some(task.progress),
+        )?;
+        self.get_task_center(id)
+    }
+
+    /// Marks a typed operation failed, persists a redacted provider error, and
+    /// appends a stable error-code event. Error details cannot overwrite a
+    /// cancellation because the status transition executes first.
+    pub fn mark_failed(&self, id: &str, mut error: ProviderError) -> Result<TaskCenterJob, String> {
+        error.message = redact_event_message(&error.message);
+        error.provider_id = error
+            .provider_id
+            .take()
+            .map(|value| sanitize_operation_token("provider_id", value))
+            .transpose()?;
+        error.operation = error
+            .operation
+            .take()
+            .map(|value| sanitize_operation_token("operation", value))
+            .transpose()?;
+        let message = error.message.clone();
+        self.update(id, Some(TaskStatus::Failed), None, Some(message.clone()))?;
+        self.persist_failed_error(id, error.clone())?;
+        let kind = serialized_enum_name(&error.kind).unwrap_or_else(|| "unknown".to_string());
+        self.append_event(
+            id,
+            TaskEventLevel::Error,
+            format!("job_failed.{kind}"),
+            message,
+            None,
+        )?;
+        self.get_task_center(id)
+    }
+
+    /// Compatibility update entry point. Message sanitization remains enforced
+    /// by `update_with_metadata`, which is also used by backend workers.
+    pub fn update_legacy(
+        &self,
+        id: &str,
+        status: Option<TaskStatus>,
+        progress: Option<f64>,
+        message: Option<String>,
+    ) -> Result<AppTask, String> {
+        self.update(id, status, progress, message)
     }
 
     pub fn update(
@@ -463,6 +811,9 @@ impl TaskQueue {
         message: Option<String>,
         metadata_patch: Option<Value>,
     ) -> Result<AppTask, String> {
+        let message = message
+            .map(|value| sanitize_legacy_text("message", value, 1024))
+            .transpose()?;
         let _guard = self
             .inner
             .transition_lock
@@ -735,6 +1086,22 @@ impl TaskQueue {
             .clone())
     }
 
+    fn persist_failed_error(&self, id: &str, error: ProviderError) -> Result<(), String> {
+        let _guard = self
+            .inner
+            .transition_lock
+            .lock()
+            .map_err(|e| e.to_string())?;
+        let repository = self.repository();
+        let mut job = self.get_job_locked(&repository, id)?;
+        if job.status != BackgroundJobStatus::Failed {
+            return Err("任务失败状态已被其他操作改变".to_string());
+        }
+        job.error = Some(error);
+        job.updated_at = timestamp();
+        repository.upsert(&job)
+    }
+
     fn recover_running_jobs(&self) {
         let _guard = self
             .inner
@@ -796,8 +1163,8 @@ impl Default for TaskQueue {
 fn to_app_task(job: &BackgroundJob) -> AppTask {
     AppTask {
         id: job.id.clone(),
-        title: job.title.clone(),
-        kind: job.kind.clone(),
+        title: redacted_display_text(&job.title, "后台任务"),
+        kind: public_storage_kind(&job.kind),
         status: job.status.into(),
         progress: f64::from(job.progress).clamp(0.0, 1.0),
         created_at: job.created_at.clone(),
@@ -830,11 +1197,14 @@ fn to_task_center_job(job: &BackgroundJob) -> TaskCenterJob {
     TaskCenterJob {
         id: job.id.clone(),
         kind,
-        title: job.title.clone(),
+        title: redacted_display_text(&job.title, "后台任务"),
         status,
         progress: f64::from(job.progress).clamp(0.0, 1.0),
-        message: message_from_metadata(&job.metadata)
-            .or_else(|| job.error.as_ref().map(|error| error.message.clone())),
+        message: message_from_metadata(&job.metadata).or_else(|| {
+            job.error
+                .as_ref()
+                .map(|error| redacted_display_text(&error.message, "任务失败"))
+        }),
         error_kind: job
             .error
             .as_ref()
@@ -887,18 +1257,35 @@ fn idempotent_job_id(key: &str) -> String {
     format!("job-{}", hex::encode(digest.finalize()))
 }
 
+/// Public, deterministic representation of an idempotency key. This is never
+/// reversible and keeps the raw caller-provided key out of SQLite and DTOs.
+fn idempotency_fingerprint(key: &str) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"background-job:idempotency-public:v1\0");
+    digest.update(key.as_bytes());
+    format!("sha256:{}", hex::encode(digest.finalize()))
+}
+
 fn metadata_idempotency_key(metadata: &Value) -> Option<String> {
     metadata
         .get("idempotencyKey")
         .and_then(Value::as_str)
-        .map(ToOwned::to_owned)
+        .map(|value| {
+            if is_idempotency_fingerprint(value) {
+                value.to_string()
+            } else {
+                // Jobs written before Stage 3 stored the legacy key directly.
+                // Continue to expose a stable correlation value without leaking it.
+                idempotency_fingerprint(value)
+            }
+        })
 }
 
 fn message_from_metadata(metadata: &Value) -> Option<String> {
     metadata
         .get("message")
         .and_then(Value::as_str)
-        .map(ToOwned::to_owned)
+        .map(|value| redacted_display_text(value, "任务状态已更新"))
 }
 
 fn set_message(metadata: &mut Value, message: String) {
@@ -942,6 +1329,119 @@ fn apply_status_metadata(metadata: &mut Value, status: BackgroundJobStatus) {
         BackgroundJobStatus::Cancelled => json!({ "resumable": false, "retryable": false }),
     };
     merge_metadata(metadata, patch);
+}
+
+const LEGACY_KIND_PREFIXES: &[&str] = &[
+    "download",
+    "import",
+    "library_import",
+    "scrape",
+    "provider_verify",
+    "ai",
+    "backup",
+    "restore",
+    "diagnostics",
+    "update",
+    "generic",
+];
+
+fn sanitize_legacy_text(field: &str, value: String, max_chars: usize) -> Result<String, String> {
+    let value = redact_event_message(&value);
+    let value = value.trim();
+    if value.is_empty() || value.chars().count() > max_chars || value.contains(['\r', '\n', '\0']) {
+        return Err(format!("任务字段 {field} 无效"));
+    }
+    Ok(value.to_string())
+}
+
+fn sanitize_idempotency_key(value: Option<String>) -> Result<Option<String>, String> {
+    value
+        .map(|value| {
+            let value = value.trim();
+            if value.is_empty() {
+                return Ok(None);
+            }
+            if value.chars().count() > 256 || value.contains(['\r', '\n', '\0']) {
+                return Err("任务幂等键无效".to_string());
+            }
+            Ok(Some(value.to_string()))
+        })
+        .unwrap_or(Ok(None))
+}
+
+fn sanitize_event_code(value: String) -> Result<String, String> {
+    let value = sanitize_legacy_text("event_code", value, 128)?;
+    if !value
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+    {
+        return Err("任务事件代码无效".to_string());
+    }
+    Ok(value)
+}
+
+fn sanitize_storage_kind(value: String) -> Result<String, String> {
+    let value = sanitize_legacy_text("kind", value, 96)?;
+    let normalized = value.to_ascii_lowercase();
+    if !normalized
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+    {
+        return Ok("generic".to_string());
+    }
+    let accepted = LEGACY_KIND_PREFIXES.iter().any(|prefix| {
+        normalized == *prefix
+            || normalized.strip_prefix(prefix).is_some_and(|suffix| {
+                suffix.starts_with('.') || suffix.starts_with('_') || suffix.starts_with('-')
+            })
+    });
+    Ok(if accepted {
+        normalized
+    } else {
+        "generic".to_string()
+    })
+}
+
+fn public_storage_kind(value: &str) -> String {
+    sanitize_storage_kind(value.to_string()).unwrap_or_else(|_| "generic".to_string())
+}
+
+fn is_idempotency_fingerprint(value: &str) -> bool {
+    value.len() == "sha256:".len() + 64
+        && value.starts_with("sha256:")
+        && value["sha256:".len()..]
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn redacted_display_text(value: &str, fallback: &str) -> String {
+    let value = redact_event_message(value);
+    let value = value.trim();
+    if value.is_empty() || value.contains(['\r', '\n', '\0']) {
+        fallback.to_string()
+    } else {
+        value.to_string()
+    }
+}
+
+fn sanitize_operation_text(field: &str, value: String, max_chars: usize) -> Result<String, String> {
+    let value = redact_event_message(&value);
+    let value = value.trim();
+    if value.is_empty() || value.chars().count() > max_chars || value.contains(['\r', '\n', '\0']) {
+        return Err(format!("任务操作字段 {field} 无效"));
+    }
+    Ok(value.to_string())
+}
+
+fn sanitize_operation_token(field: &str, value: String) -> Result<String, String> {
+    let value = sanitize_operation_text(field, value, 128)?;
+    if !value
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b':'))
+    {
+        return Err(format!("任务操作字段 {field} 只能包含标识符字符"));
+    }
+    Ok(value)
 }
 
 fn normalize_progress(progress: f64) -> Result<f32, String> {
@@ -1046,6 +1546,57 @@ mod tests {
         assert_eq!(queue.list()[0].progress, 1.0);
         assert!(queue
             .update(&task.id, Some(TaskStatus::Cancelled), None, None)
+            .is_err());
+    }
+
+    #[test]
+    fn legacy_persistence_boundary_redacts_and_hides_public_fields() {
+        let queue = queue();
+        let raw_key = "Authorization=Bearer compatibility-secret";
+        let task = queue
+            .enqueue_legacy(
+                "token=title-secret".to_string(),
+                "token=kind-secret".to_string(),
+                Some(raw_key.to_string()),
+            )
+            .unwrap();
+        let updated = queue
+            .update_legacy(
+                &task.id,
+                None,
+                Some(0.5),
+                Some("request headers: Authorization: Bearer message-secret".to_string()),
+            )
+            .unwrap();
+
+        let persisted = queue.get_job(&task.id).unwrap();
+        let serialized = serde_json::to_string(&persisted).unwrap();
+        assert!(!serialized.contains("title-secret"));
+        assert!(!serialized.contains("kind-secret"));
+        assert!(!serialized.contains("compatibility-secret"));
+        assert!(!serialized.contains("message-secret"));
+        assert_eq!(persisted.kind, "generic");
+        assert_eq!(
+            persisted.metadata["idempotencyKey"].as_str(),
+            Some(idempotency_fingerprint(raw_key).as_str())
+        );
+        assert!(!updated
+            .message
+            .unwrap_or_default()
+            .contains("message-secret"));
+
+        let projected = queue.get_task_center(&task.id).unwrap();
+        assert!(!projected.title.contains("title-secret"));
+        assert_eq!(projected.kind, TaskKind::Generic);
+        assert_eq!(
+            projected.idempotency_key.as_deref(),
+            Some(idempotency_fingerprint(raw_key).as_str())
+        );
+        assert!(queue
+            .enqueue_legacy("bad\nname".to_string(), "download".to_string(), None)
+            .is_err());
+        assert!(queue
+            .update_legacy(&task.id, None, None, Some("bad\nmessage".to_string()))
             .is_err());
     }
 
@@ -1157,7 +1708,10 @@ mod tests {
         assert!(!projected.pausable);
         assert!(!projected.resumable);
         assert!(!projected.retryable);
-        assert_eq!(projected.idempotency_key.as_deref(), Some("ai-key"));
+        assert_eq!(
+            projected.idempotency_key.as_deref(),
+            Some(idempotency_fingerprint("ai-key").as_str())
+        );
         assert_eq!(
             projected.source.unwrap().entity_id.as_deref(),
             Some("game-1")
@@ -1254,6 +1808,152 @@ mod tests {
         assert_eq!(value["action"], "pause");
         assert_eq!(value["kind"], "ai");
         assert_eq!(value["status"], "queued");
+    }
+
+    #[test]
+    fn versioned_operations_are_sanitized_and_exposed_through_typed_detail() {
+        let queue = queue();
+        let task = queue
+            .enqueue_operation(
+                "Import library".to_string(),
+                JobOperation::Import {
+                    source: "https://alice:super-secret@example.test/library".to_string(),
+                    reference_id: "library-42".to_string(),
+                },
+                Some("typed-import-42".to_string()),
+            )
+            .unwrap();
+        assert_eq!(task.kind, TaskKind::Import);
+        assert!(!task.source.unwrap().label.unwrap().contains("super-secret"));
+
+        let detail = queue.get_task_detail(&task.id).unwrap();
+        let operation = detail.operation.unwrap();
+        assert_eq!(operation.version, JOB_OPERATION_VERSION);
+        assert!(operation.is_supported());
+        let serialized = serde_json::to_value(&operation).unwrap();
+        assert_eq!(serialized["version"], JOB_OPERATION_VERSION);
+        assert_eq!(serialized["kind"], "import");
+        assert!(!serialized.to_string().contains("super-secret"));
+
+        let duplicate = queue
+            .enqueue_operation(
+                "A different title is ignored by idempotency".to_string(),
+                JobOperation::Import {
+                    source: "folder".to_string(),
+                    reference_id: "library-42".to_string(),
+                },
+                Some("typed-import-42".to_string()),
+            )
+            .unwrap();
+        assert_eq!(duplicate.id, task.id);
+        assert!(queue
+            .enqueue_operation(
+                "Bad operation".to_string(),
+                JobOperation::Backup {
+                    scope: "all --unsafe-argument".to_string(),
+                },
+                None,
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn lifecycle_events_are_redacted_and_keyset_safe() {
+        let queue = queue();
+        let task = queue
+            .enqueue_operation(
+                "Verify provider".to_string(),
+                JobOperation::ProviderVerify {
+                    media_type: "game".to_string(),
+                    provider_id: "provider-a".to_string(),
+                },
+                None,
+            )
+            .unwrap();
+        queue
+            .mark_running(
+                &task.id,
+                Some("Authorization: Bearer worker-secret".to_string()),
+                Some(0.25),
+            )
+            .unwrap();
+        queue
+            .append_event(
+                &task.id,
+                TaskEventLevel::Warn,
+                "remote_retry".to_string(),
+                "https://alice:password@example.test/retry?token=query-secret".to_string(),
+                Some(0.5),
+            )
+            .unwrap();
+        queue
+            .mark_failed(
+                &task.id,
+                ProviderError {
+                    kind: ProviderErrorKind::Timeout,
+                    message: "prompt={\"messages\":[\"do not persist\"]}".to_string(),
+                    retryable: true,
+                    retry_after_ms: None,
+                    provider_id: Some("provider-a".to_string()),
+                    operation: Some("verify".to_string()),
+                },
+            )
+            .unwrap();
+
+        let all = queue.get_task_events(&task.id, None, 20).unwrap();
+        assert_eq!(all.len(), 3);
+        assert_eq!(all[0].code, "job_running");
+        assert_eq!(all[1].code, "remote_retry");
+        assert_eq!(all[2].code, "job_failed.timeout");
+        assert!(all
+            .windows(2)
+            .all(|window| window[0].sequence < window[1].sequence));
+        assert!(!all.iter().any(|event| event.message.contains("secret")));
+        assert_eq!(all[2].message, "[REDACTED AI PAYLOAD]");
+        assert_eq!(
+            queue
+                .get_task_events(&task.id, Some(all[0].sequence), 20)
+                .unwrap()
+                .iter()
+                .map(|event| event.sequence)
+                .collect::<Vec<_>>(),
+            vec![all[1].sequence, all[2].sequence]
+        );
+        let failed = queue.get(&task.id).unwrap();
+        assert_eq!(failed.status, TaskStatus::Failed);
+        assert!(!failed.message.unwrap().contains("persist"));
+    }
+
+    #[test]
+    fn late_worker_completion_cannot_overwrite_cancelled_lifecycle_state() {
+        use std::sync::mpsc;
+
+        let queue = Arc::new(queue());
+        let task = queue
+            .enqueue_operation("Update check".to_string(), JobOperation::UpdateCheck, None)
+            .unwrap();
+        queue.mark_running(&task.id, None, None).unwrap();
+
+        let (worker_ready_tx, worker_ready_rx) = mpsc::channel();
+        let (complete_tx, complete_rx) = mpsc::channel();
+        let worker_queue = Arc::clone(&queue);
+        let job_id = task.id.clone();
+        let worker = thread::spawn(move || {
+            worker_ready_tx.send(()).unwrap();
+            complete_rx.recv().unwrap();
+            worker_queue.mark_succeeded(&job_id, Some("late completion".to_string()))
+        });
+
+        worker_ready_rx.recv().unwrap();
+        queue.cancel(&task.id).unwrap();
+        complete_tx.send(()).unwrap();
+        assert!(worker.join().unwrap().is_err());
+        assert_eq!(queue.get(&task.id).unwrap().status, TaskStatus::Cancelled);
+        assert!(queue
+            .get_task_events(&task.id, None, 20)
+            .unwrap()
+            .iter()
+            .all(|event| event.code != "job_succeeded"));
     }
 
     #[test]

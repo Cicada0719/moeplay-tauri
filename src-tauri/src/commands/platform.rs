@@ -1,6 +1,8 @@
 use crate::db::Database;
+use crate::domain::{ProviderError, ProviderErrorKind};
 use crate::models::{Game, StoreLink};
 use crate::secret_store::{SecretKind, SecretStore};
+use crate::task_queue::{JobOperation, TaskQueue};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -1321,31 +1323,142 @@ pub async fn steam_fetch_owned_games(
     crate::steam_openid::fetch_owned_games(&steam_id, &api_key).await
 }
 
+/// Enqueues one user-initiated Steam import run.
+///
+/// Steam library syncs are deliberately not keyed by a stable idempotency key:
+/// after a task reaches a terminal state, the next explicit sync must have a
+/// new job ID so it can transition through its own lifecycle. This preserves
+/// reliable repeat operations instead of attaching them to a completed task.
+fn enqueue_steam_import_run(
+    queue: &TaskQueue,
+    title: String,
+    source: &str,
+    reference_id: String,
+) -> Result<crate::task_queue::TaskCenterJob, String> {
+    queue.enqueue_operation(
+        title,
+        JobOperation::Import {
+            source: source.to_string(),
+            reference_id,
+        },
+        None,
+    )
+}
+
 /// 一步完成：获取+导入 Steam 全库游戏
 #[tauri::command]
 pub async fn steam_fetch_and_import(
     db: State<'_, Database>,
     secret_store: State<'_, SecretStore>,
+    queue: State<'_, TaskQueue>,
     steam_id: String,
     app: tauri::AppHandle,
 ) -> Result<crate::steam_openid::SteamOwnedGamesResponse, String> {
-    super::settings::load_settings_with_secret_migration(db.inner(), secret_store.inner())?;
-    let api_key = read_steam_api_key(secret_store.inner())?;
-    let resp = crate::steam_openid::fetch_owned_games(&steam_id, &api_key).await?;
-    if resp.games.is_empty() {
-        return Err("未获取到任何游戏。请检查: 1) Steam 个人资料→隐私设置→游戏详情→公开 2) API Key 是否正确".to_string());
+    let job = enqueue_steam_import_run(
+        queue.inner(),
+        "同步并导入 Steam 游戏库".to_string(),
+        "steam_account",
+        "owned_games".to_string(),
+    )?;
+    queue.mark_running(
+        &job.id,
+        Some("正在获取 Steam 已拥有游戏".to_string()),
+        Some(0.05),
+    )?;
+
+    let outcome = async {
+        super::settings::load_settings_with_secret_migration(db.inner(), secret_store.inner())?;
+        let api_key = read_steam_api_key(secret_store.inner())?;
+        let resp = crate::steam_openid::fetch_owned_games(&steam_id, &api_key).await?;
+        if resp.games.is_empty() {
+            return Err("未获取到任何游戏。请检查 Steam 游戏详情公开状态和 API Key".to_string());
+        }
+        queue.append_event(
+            &job.id,
+            crate::task_queue::TaskEventLevel::Info,
+            "steam_library_loaded".to_string(),
+            format!("已读取 {} 个 Steam 游戏", resp.games.len()),
+            Some(0.35),
+        )?;
+        let imported = import_steam_games(&db, &resp.games, &app)?;
+        Ok::<_, String>(imported)
     }
-    import_steam_games(&db, &resp.games, &app)
+    .await;
+
+    match outcome {
+        Ok(response) => {
+            queue.mark_succeeded(
+                &job.id,
+                Some(format!(
+                    "Steam 导入完成：新增 {}，更新 {}",
+                    response.imported_count, response.updated_count
+                )),
+            )?;
+            Ok(response)
+        }
+        Err(message) => {
+            let _ = queue.mark_failed(
+                &job.id,
+                ProviderError {
+                    kind: ProviderErrorKind::Unknown,
+                    message: message.clone(),
+                    retryable: true,
+                    retry_after_ms: None,
+                    provider_id: Some("steam".to_string()),
+                    operation: Some("import".to_string()),
+                },
+            );
+            Err(message)
+        }
+    }
 }
 
 /// 批量导入 Steam 全库游戏（按 app_id 去重）
 #[tauri::command]
 pub async fn steam_import_owned_games(
     db: State<'_, Database>,
+    queue: State<'_, TaskQueue>,
     games: Vec<crate::steam_openid::SteamOwnedGame>,
     app: tauri::AppHandle,
 ) -> Result<crate::steam_openid::SteamOwnedGamesResponse, String> {
-    import_steam_games(&db, &games, &app)
+    let total = games.len();
+    let job = enqueue_steam_import_run(
+        queue.inner(),
+        format!("导入 {total} 个 Steam 游戏"),
+        "steam_owned_games",
+        total.to_string(),
+    )?;
+    queue.mark_running(
+        &job.id,
+        Some("正在写入 Steam 游戏库".to_string()),
+        Some(0.1),
+    )?;
+    match import_steam_games(&db, &games, &app) {
+        Ok(response) => {
+            queue.mark_succeeded(
+                &job.id,
+                Some(format!(
+                    "Steam 导入完成：新增 {}，更新 {}",
+                    response.imported_count, response.updated_count
+                )),
+            )?;
+            Ok(response)
+        }
+        Err(message) => {
+            let _ = queue.mark_failed(
+                &job.id,
+                ProviderError {
+                    kind: ProviderErrorKind::Unknown,
+                    message: message.clone(),
+                    retryable: true,
+                    retry_after_ms: None,
+                    provider_id: Some("steam".to_string()),
+                    operation: Some("import".to_string()),
+                },
+            );
+            Err(message)
+        }
+    }
 }
 
 fn import_steam_games(
@@ -1808,6 +1921,44 @@ fn replace_cached_game(games: &mut Vec<Game>, updated: Game) {
 #[cfg(test)]
 mod platform_import_tests {
     use super::*;
+    use crate::db_sqlite::SqliteDb;
+    use crate::task_queue::TaskStatus;
+    use std::sync::Arc;
+
+    #[test]
+    fn repeated_steam_import_runs_get_fresh_job_ids_after_terminal_completion() {
+        let queue = TaskQueue::from_database(Arc::new(SqliteDb::open_in_memory().unwrap()));
+        let first = enqueue_steam_import_run(
+            &queue,
+            "同步并导入 Steam 游戏库".to_string(),
+            "steam_account",
+            "owned_games".to_string(),
+        )
+        .unwrap();
+        queue
+            .mark_running(&first.id, Some("running".to_string()), Some(0.1))
+            .unwrap();
+        queue
+            .mark_succeeded(&first.id, Some("done".to_string()))
+            .unwrap();
+
+        let second = enqueue_steam_import_run(
+            &queue,
+            "同步并导入 Steam 游戏库".to_string(),
+            "steam_account",
+            "owned_games".to_string(),
+        )
+        .unwrap();
+
+        assert_ne!(first.id, second.id);
+        queue
+            .mark_running(&second.id, Some("running again".to_string()), Some(0.1))
+            .unwrap();
+        assert_eq!(
+            queue.get_task_center(&second.id).unwrap().status,
+            TaskStatus::Running
+        );
+    }
 
     #[test]
     fn steam_localconfig_parser_reads_apps_playtime_and_last_played() {

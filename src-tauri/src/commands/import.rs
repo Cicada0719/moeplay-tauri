@@ -1,4 +1,5 @@
 use crate::db::Database;
+use crate::task_queue::{JobOperation, TaskQueue};
 use std::path::PathBuf;
 use tauri::{Emitter, State};
 
@@ -126,23 +127,49 @@ pub fn preview_directory_for_games(
 #[tauri::command]
 pub fn import_selected_candidates(
     app_handle: tauri::AppHandle,
+    queue: State<'_, TaskQueue>,
     paths: Vec<String>,
 ) -> Result<(usize, usize), String> {
     use std::path::PathBuf;
 
+    let total = paths.len();
+    let job = queue.enqueue_operation(
+        format!("导入 {total} 个候选游戏"),
+        JobOperation::Import {
+            source: "selected_candidates".to_string(),
+            reference_id: total.to_string(),
+        },
+        Some(format!("import:selected-candidates:{total}")),
+    )?;
+    let cancellation = queue.register_operation(&job.id)?;
+    queue.mark_running(
+        &job.id,
+        Some("正在导入已选择的候选游戏".to_string()),
+        Some(0.0),
+    )?;
+
     let mut imported = 0;
     let mut skipped = 0;
-    for path_str in paths {
+    for (index, path_str) in paths.into_iter().enumerate() {
+        if cancellation.is_cancelled() {
+            return Err("任务已取消".to_string());
+        }
         let path = PathBuf::from(&path_str);
         if !crate::import::is_executable(&path) {
             skipped += 1;
-            continue;
+        } else {
+            let install_dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+            match crate::import::import_game_smart(&app_handle, &path, install_dir) {
+                Ok(_) => imported += 1,
+                Err(_) => skipped += 1,
+            }
         }
-        let install_dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
-        match crate::import::import_game_smart(&app_handle, &path, install_dir) {
-            Ok(_) => imported += 1,
-            Err(_) => skipped += 1,
-        }
+        let progress = (index + 1) as f64 / total.max(1) as f64;
+        queue.update(&job.id, None, Some(progress), None)?;
     }
+    queue.mark_succeeded(
+        &job.id,
+        Some(format!("导入完成：{imported} 个新增，{skipped} 个跳过")),
+    )?;
     Ok((imported, skipped))
 }

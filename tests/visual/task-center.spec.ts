@@ -58,7 +58,7 @@ test("task center is globally navigable, filtered and redacts URLs", async ({ ap
   await expect(page.getByText("[已隐藏链接]", { exact: false })).toBeVisible();
   await expect(page.getByText("example.invalid", { exact: false })).toHaveCount(0);
 
-  await page.getByRole("button", { name: /失败 1/ }).click();
+  await page.getByTestId("task-center-list").getByRole("button", { name: /失败 1/ }).click();
   await expect(page.getByText("验证番剧来源")).toBeVisible();
   await expect(page.getByText("下载演示资源")).toHaveCount(0);
   await expect(page.getByText("从上次会话恢复")).toBeVisible();
