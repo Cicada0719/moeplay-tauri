@@ -1,7 +1,9 @@
 use crate::db::Database;
+use crate::domain::{ProviderError, ProviderErrorKind};
 use crate::models::{Game, ScrapeResponse, ScrapeResult};
 use crate::scraper;
 use crate::secret_store::{SecretKind, SecretStore};
+use crate::task_queue::{JobOperation, TaskEventLevel, TaskQueue};
 use tauri::State;
 
 // ===== 刮削命令 =====
@@ -19,6 +21,7 @@ pub async fn scrape_games(
     steam: Option<bool>,
     pcgw: Option<bool>,
     db: State<'_, Database>,
+    queue: State<'_, TaskQueue>,
 ) -> Result<ScrapeResponse, String> {
     let dlsite = dlsite.unwrap_or(false);
     let touchgal = touchgal.unwrap_or(false);
@@ -41,6 +44,21 @@ pub async fn scrape_games(
         return Err("请至少启用一个数据源".to_string());
     }
 
+    let job = queue.enqueue_operation(
+        "多源元数据搜索".to_string(),
+        JobOperation::Scrape {
+            game_id: "search".to_string(),
+            provider_id: None,
+        },
+        None,
+    )?;
+    let cancellation = queue.register_operation(&job.id)?;
+    queue.mark_running(
+        &job.id,
+        Some("正在并行查询已启用的数据源".to_string()),
+        Some(0.05),
+    )?;
+
     let settings = db.get_settings();
     let proxy = if settings.scraper_proxy.trim().is_empty() {
         None
@@ -49,6 +67,9 @@ pub async fn scrape_games(
     };
     scraper::utils::set_proxy(proxy);
 
+    if cancellation.is_cancelled() {
+        return Err("任务已取消".to_string());
+    }
     let (results, source_status) = scraper::search_all(
         &query,
         vndb,
@@ -62,6 +83,17 @@ pub async fn scrape_games(
         pcgw,
     )
     .await;
+    if cancellation.is_cancelled() {
+        return Err("任务已取消".to_string());
+    }
+    queue.append_event(
+        &job.id,
+        TaskEventLevel::Info,
+        "scrape_sources_completed".to_string(),
+        format!("完成 {} 个来源的查询", source_status.len()),
+        Some(0.9),
+    )?;
+    queue.mark_succeeded(&job.id, Some(format!("找到 {} 条候选结果", results.len())))?;
     Ok(ScrapeResponse {
         results,
         source_status,
@@ -373,107 +405,244 @@ pub async fn fetch_full_detail(source: String, source_id: String) -> Result<Scra
 pub async fn scrape_game_merged(
     db: State<'_, Database>,
     secret_store: State<'_, SecretStore>,
+    queue: State<'_, TaskQueue>,
     query: String,
     source_hint: Option<String>,
     strategy: Option<String>,
 ) -> Result<Vec<crate::scraper::merge::MergedResult>, String> {
-    let settings =
-        super::settings::load_settings_with_secret_migration(db.inner(), secret_store.inner())?;
-    let strat = match strategy.as_deref() {
-        Some("incremental") => scraper::strategy::ScrapeStrategy::Incremental,
-        Some("patch_missing") => scraper::strategy::ScrapeStrategy::PatchMissing,
-        Some("retry_failed") => scraper::strategy::ScrapeStrategy::RetryFailed,
-        _ => scraper::strategy::ScrapeStrategy::Full,
-    };
+    // Search text can contain personal notes or arbitrary titles, so it never
+    // enters the durable job envelope. The provider is route input only; it is
+    // likewise not stored unless a future producer supplies a validated ID.
+    let job = queue
+        .enqueue_operation(
+            "合并元数据刮削".to_string(),
+            JobOperation::Scrape {
+                game_id: "merged_search".to_string(),
+                provider_id: None,
+            },
+            None,
+        )
+        .map_err(|_| MERGED_SCRAPE_FAILURE.to_string())?;
+    let cancellation = queue
+        .register_operation(&job.id)
+        .map_err(|_| merged_scrape_failed(queue.inner(), &job.id))?;
+    queue
+        .mark_running(
+            &job.id,
+            Some("正在查询、合并并增强元数据".to_string()),
+            Some(0.05),
+        )
+        .map_err(|_| merged_scrape_failed(queue.inner(), &job.id))?;
 
-    let proxy = if settings.scraper_proxy.trim().is_empty() {
-        None
-    } else {
-        Some(settings.scraper_proxy.clone())
-    };
-    scraper::utils::set_proxy(proxy);
+    let outcome = async {
+        let settings =
+            super::settings::load_settings_with_secret_migration(db.inner(), secret_store.inner())
+                .map_err(|_| MERGED_SCRAPE_FAILURE.to_string())?;
+        cancellation.check_cancelled()?;
 
-    let route = scraper::strategy::ScrapeRouter::plan(source_hint.as_deref(), false, false);
+        let strat = match strategy.as_deref() {
+            Some("incremental") => scraper::strategy::ScrapeStrategy::Incremental,
+            Some("patch_missing") => scraper::strategy::ScrapeStrategy::PatchMissing,
+            Some("retry_failed") => scraper::strategy::ScrapeStrategy::RetryFailed,
+            _ => scraper::strategy::ScrapeStrategy::Full,
+        };
 
-    let (raw, _statuses) = scraper::search_all(
-        &query,
-        settings.vndb_enabled,
-        settings.bangumi_enabled,
-        settings.dlsite_enabled,
-        settings.touchgal_enabled,
-        settings.erogamescape_enabled,
-        settings.ymgal_enabled,
-        settings.kungal_enabled,
-        settings.steam_enabled,
-        settings.pcgw_enabled,
-    )
-    .await;
+        let proxy = if settings.scraper_proxy.trim().is_empty() {
+            None
+        } else {
+            Some(settings.scraper_proxy.clone())
+        };
+        scraper::utils::set_proxy(proxy);
 
-    let merge_config = scraper::merge::MergeConfig {
-        max_results: 10,
-        ..Default::default()
-    };
-    let merged = scraper::merge::merge_results(raw, &merge_config);
+        let route = scraper::strategy::ScrapeRouter::plan(source_hint.as_deref(), false, false);
+        queue
+            .append_event(
+                &job.id,
+                TaskEventLevel::Info,
+                "merged_scrape_sources_started".to_string(),
+                "正在查询已启用的数据源".to_string(),
+                Some(0.15),
+            )
+            .map_err(|_| MERGED_SCRAPE_FAILURE.to_string())?;
 
-    let mut result = merged;
-    if settings.ai_enabled && route.with_ai {
-        let ai_api_key = ai_api_key_for_settings(secret_store.inner(), &settings)?;
-        match scraper::AiScrapeConfig::from_legacy_settings(
-            &settings.ai_api_url,
-            &ai_api_key,
-            &settings.ai_model,
-        ) {
-            Ok(config) => {
-                for mr in &mut result {
-                    if let Ok(enhanced) = crate::scraper::ai::enhance(
-                        &config,
-                        &mr.result.title,
-                        mr.result.description.as_deref(),
-                        &mr.result.tags,
-                    )
-                    .await
-                    {
-                        if enhanced.description.is_some() {
-                            mr.result.description = enhanced.description;
-                        }
-                        for tag in enhanced.tags {
-                            if !mr.result.tags.contains(&tag) {
-                                mr.result.tags.push(tag);
+        let (raw, statuses) = scraper::search_all(
+            &query,
+            settings.vndb_enabled,
+            settings.bangumi_enabled,
+            settings.dlsite_enabled,
+            settings.touchgal_enabled,
+            settings.erogamescape_enabled,
+            settings.ymgal_enabled,
+            settings.kungal_enabled,
+            settings.steam_enabled,
+            settings.pcgw_enabled,
+        )
+        .await;
+        cancellation.check_cancelled()?;
+        queue
+            .append_event(
+                &job.id,
+                TaskEventLevel::Info,
+                "merged_scrape_sources_completed".to_string(),
+                format!("完成 {} 个来源的查询", statuses.len()),
+                Some(0.4),
+            )
+            .map_err(|_| MERGED_SCRAPE_FAILURE.to_string())?;
+
+        let merge_config = scraper::merge::MergeConfig {
+            max_results: 10,
+            ..Default::default()
+        };
+        let mut result = scraper::merge::merge_results(raw, &merge_config);
+        queue
+            .append_event(
+                &job.id,
+                TaskEventLevel::Info,
+                "merged_scrape_results_merged".to_string(),
+                format!("已合并为 {} 条候选结果", result.len()),
+                Some(0.6),
+            )
+            .map_err(|_| MERGED_SCRAPE_FAILURE.to_string())?;
+
+        if settings.ai_enabled && route.with_ai {
+            cancellation.check_cancelled()?;
+            queue
+                .append_event(
+                    &job.id,
+                    TaskEventLevel::Info,
+                    "merged_scrape_ai_started".to_string(),
+                    "正在补全候选元数据".to_string(),
+                    Some(0.65),
+                )
+                .map_err(|_| MERGED_SCRAPE_FAILURE.to_string())?;
+
+            let ai_api_key = ai_api_key_for_settings(secret_store.inner(), &settings)
+                .map_err(|_| MERGED_SCRAPE_FAILURE.to_string())?;
+            match scraper::AiScrapeConfig::from_legacy_settings(
+                &settings.ai_api_url,
+                &ai_api_key,
+                &settings.ai_model,
+            ) {
+                Ok(config) => {
+                    let result_count = result.len().max(1);
+                    for (index, mr) in result.iter_mut().enumerate() {
+                        cancellation.check_cancelled()?;
+                        if let Ok(enhanced) = crate::scraper::ai::enhance(
+                            &config,
+                            &mr.result.title,
+                            mr.result.description.as_deref(),
+                            &mr.result.tags,
+                        )
+                        .await
+                        {
+                            if enhanced.description.is_some() {
+                                mr.result.description = enhanced.description;
+                            }
+                            for tag in enhanced.tags {
+                                if !mr.result.tags.contains(&tag) {
+                                    mr.result.tags.push(tag);
+                                }
                             }
                         }
+                        cancellation.check_cancelled()?;
+                        let progress = 0.65 + ((index + 1) as f64 / result_count as f64) * 0.15;
+                        queue
+                            .append_event(
+                                &job.id,
+                                TaskEventLevel::Info,
+                                "merged_scrape_ai_progress".to_string(),
+                                "正在补全候选元数据".to_string(),
+                                Some(progress),
+                            )
+                            .map_err(|_| MERGED_SCRAPE_FAILURE.to_string())?;
                     }
                 }
-            }
-            Err(error) => {
-                tracing::warn!(
-                    error = %error,
-                    "AI merged scrape config rejected; continuing without AI"
-                );
+                Err(_) => {
+                    // Never persist configuration details: endpoint strings can
+                    // contain credentials. AI enhancement is optional.
+                    queue
+                        .append_event(
+                            &job.id,
+                            TaskEventLevel::Warn,
+                            "merged_scrape_ai_skipped".to_string(),
+                            "AI 补全配置不可用，已继续使用来源结果".to_string(),
+                            Some(0.8),
+                        )
+                        .map_err(|_| MERGED_SCRAPE_FAILURE.to_string())?;
+                }
             }
         }
-    }
 
-    for mr in &mut result {
-        if let Some(ref url) = mr.result.cover {
-            if url.starts_with("http") {
-                let local = crate::commands::fetch_cover_to_local(url, &mr.result.source_id).await;
-                mr.result.cover = Some(local);
+        let asset_count = result.len().max(1);
+        for (index, mr) in result.iter_mut().enumerate() {
+            cancellation.check_cancelled()?;
+            if let Some(ref url) = mr.result.cover {
+                if url.starts_with("http") {
+                    let local =
+                        crate::commands::fetch_cover_to_local(url, &mr.result.source_id).await;
+                    mr.result.cover = Some(local);
+                }
             }
-        }
-        if let Some(ref url) = mr.result.background {
-            if url.starts_with("http") {
-                let local = crate::commands::fetch_cover_to_local(
-                    url,
-                    &format!("{}_bg", mr.result.source_id),
+            cancellation.check_cancelled()?;
+            if let Some(ref url) = mr.result.background {
+                if url.starts_with("http") {
+                    let local = crate::commands::fetch_cover_to_local(
+                        url,
+                        &format!("{}_bg", mr.result.source_id),
+                    )
+                    .await;
+                    mr.result.background = Some(local);
+                }
+            }
+            cancellation.check_cancelled()?;
+            let progress = 0.8 + ((index + 1) as f64 / asset_count as f64) * 0.15;
+            queue
+                .append_event(
+                    &job.id,
+                    TaskEventLevel::Info,
+                    "merged_scrape_assets_progress".to_string(),
+                    "正在缓存候选图片".to_string(),
+                    Some(progress),
                 )
-                .await;
-                mr.result.background = Some(local);
-            }
+                .map_err(|_| MERGED_SCRAPE_FAILURE.to_string())?;
         }
-    }
 
-    tracing::info!(query, results = result.len(), strategy = %strat, "M3 scrape completed");
-    Ok(result)
+        cancellation.check_cancelled()?;
+        tracing::info!(results = result.len(), strategy = %strat, "M3 merged scrape completed");
+        Ok::<_, String>(result)
+    }
+    .await;
+
+    match outcome {
+        Ok(_result) if cancellation.is_cancelled() => Err("任务已取消".to_string()),
+        Ok(result) => match queue.mark_succeeded(
+            &job.id,
+            Some(format!("完成合并刮削，得到 {} 条候选结果", result.len())),
+        ) {
+            Ok(_) => Ok(result),
+            Err(_) if cancellation.is_cancelled() => Err("任务已取消".to_string()),
+            Err(_) => Err(merged_scrape_failed(queue.inner(), &job.id)),
+        },
+        Err(_) if cancellation.is_cancelled() => Err("任务已取消".to_string()),
+        Err(_) => Err(merged_scrape_failed(queue.inner(), &job.id)),
+    }
+}
+
+const MERGED_SCRAPE_FAILURE: &str = "合并刮削未完成，请检查来源和设置后重试";
+
+fn merged_scrape_failed(queue: &TaskQueue, job_id: &str) -> String {
+    let _ = queue.mark_failed(
+        job_id,
+        ProviderError {
+            kind: ProviderErrorKind::Unknown,
+            message: MERGED_SCRAPE_FAILURE.to_string(),
+            retryable: true,
+            retry_after_ms: None,
+            provider_id: None,
+            operation: Some("scrape".to_string()),
+        },
+    );
+    MERGED_SCRAPE_FAILURE.to_string()
 }
 
 fn ai_api_key_for_settings(

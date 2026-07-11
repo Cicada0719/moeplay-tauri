@@ -9,7 +9,10 @@ use crate::providers::comic::{
     SeriesDetailDto, SeriesDto,
 };
 use crate::secret_store::{SecretKind, SecretStore};
+use crate::task_queue::{JobOperation, TaskKind, TaskQueue, TaskStatus};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 use tauri::State;
 
 const CONFIG_ERROR: &str = "漫画源配置无效";
@@ -19,6 +22,108 @@ const NETWORK_ERROR: &str = "漫画源网络请求失败";
 const PROVIDER_ERROR: &str = "漫画源请求失败";
 const SECRET_STORE_ERROR: &str = "安全凭据存储操作失败";
 const CONFIG_STORAGE_ERROR: &str = "漫画源配置存储操作失败";
+
+/// One process can own a provider verification lifecycle at a time. A later
+/// request observes the in-flight Task Center record; a terminal record never
+/// prevents the next explicit verification from getting a fresh run.
+static PROVIDER_VERIFY_RUNS: LazyLock<Mutex<HashMap<String, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+#[derive(Debug, Clone)]
+struct ProviderVerifyJobLease {
+    id: String,
+    owns_lifecycle: bool,
+}
+
+fn acquire_provider_verify_job(
+    queue: &TaskQueue,
+    media_type: &str,
+    provider_id: &str,
+    title: &str,
+) -> Result<ProviderVerifyJobLease, String> {
+    let run_key = format!("{media_type}:{provider_id}");
+    let mut active_runs = PROVIDER_VERIFY_RUNS
+        .lock()
+        .map_err(|error| error.to_string())?;
+
+    if let Some(job_id) = active_runs.get(&run_key).cloned() {
+        match queue.get_task_center(&job_id) {
+            Ok(job) if provider_verify_is_active(job.status) => {
+                return Ok(ProviderVerifyJobLease {
+                    id: job.id,
+                    owns_lifecycle: false,
+                });
+            }
+            _ => {
+                active_runs.remove(&run_key);
+            }
+        }
+    }
+
+    if let Some(job) = queue
+        .list_task_center(None, Some(TaskKind::ProviderVerify), Some(500))?
+        .into_iter()
+        .find(|job| {
+            provider_verify_matches(job, media_type, provider_id)
+                && provider_verify_is_active(job.status)
+        })
+    {
+        active_runs.insert(run_key, job.id.clone());
+        return Ok(ProviderVerifyJobLease {
+            id: job.id,
+            owns_lifecycle: true,
+        });
+    }
+
+    let job = queue.enqueue_operation(
+        title.to_string(),
+        JobOperation::ProviderVerify {
+            media_type: media_type.to_string(),
+            provider_id: provider_id.to_string(),
+        },
+        Some(format!(
+            "provider-verify:{media_type}:{provider_id}:run:{}",
+            uuid::Uuid::new_v4().simple()
+        )),
+    )?;
+    active_runs.insert(run_key, job.id.clone());
+    Ok(ProviderVerifyJobLease {
+        id: job.id,
+        owns_lifecycle: true,
+    })
+}
+
+fn release_provider_verify_job(media_type: &str, provider_id: &str, job_id: &str) {
+    let Ok(mut active_runs) = PROVIDER_VERIFY_RUNS.lock() else {
+        return;
+    };
+    let run_key = format!("{media_type}:{provider_id}");
+    if active_runs
+        .get(&run_key)
+        .is_some_and(|active_id| active_id == job_id)
+    {
+        active_runs.remove(&run_key);
+    }
+}
+
+fn provider_verify_matches(
+    job: &crate::task_queue::TaskCenterJob,
+    media_type: &str,
+    provider_id: &str,
+) -> bool {
+    job.source.as_ref().is_some_and(|source| {
+        source.area == "provider"
+            && source.entity_id.as_deref() == Some(provider_id)
+            && source.label.as_deref() == Some(media_type)
+    })
+}
+
+fn provider_verify_is_active(status: TaskStatus) -> bool {
+    matches!(
+        status,
+        TaskStatus::Queued | TaskStatus::Running | TaskStatus::Paused
+    )
+}
 
 /// Command input may carry a one-time credential. It is written directly to
 /// SecretStore and is never passed into registry metadata or command results.
@@ -144,12 +249,65 @@ pub async fn comic_provider_probe(
     registry: State<'_, ComicProviderRegistry>,
     database: State<'_, Database>,
     secrets: State<'_, SecretStore>,
+    queue: State<'_, TaskQueue>,
     provider_id: String,
 ) -> Result<ProbeDto, ComicProviderCommandError> {
     restore_persisted_configs(registry.inner(), database.inner(), secrets.inner()).await?;
+    let lease = acquire_provider_verify_job(queue.inner(), "comic", &provider_id, "验证漫画来源")
+        .map_err(|_| {
+        command_error(
+            ProviderErrorKind::Unknown,
+            PROVIDER_ERROR,
+            true,
+            Some(&provider_id),
+            Some("probe"),
+        )
+    })?;
+
+    if lease.owns_lifecycle {
+        queue
+            .mark_running(&lease.id, Some("正在连接漫画来源".to_string()), Some(0.1))
+            .map_err(|_| {
+                release_provider_verify_job("comic", &provider_id, &lease.id);
+                command_error(
+                    ProviderErrorKind::Unknown,
+                    PROVIDER_ERROR,
+                    true,
+                    Some(&provider_id),
+                    Some("probe"),
+                )
+            })?;
+    }
+
     let result = registry.probe(&provider_id).await;
     persist_health(&registry, &database, &provider_id, "probe").await;
-    result.map_err(redact_provider_error)
+    match result {
+        Ok(probe) => {
+            if lease.owns_lifecycle {
+                let _ = queue.mark_succeeded(&lease.id, Some("漫画来源验证通过".to_string()));
+                release_provider_verify_job("comic", &provider_id, &lease.id);
+            }
+            Ok(probe)
+        }
+        Err(error) => {
+            let redacted = redact_provider_error(error);
+            if lease.owns_lifecycle {
+                let _ = queue.mark_failed(
+                    &lease.id,
+                    ProviderError {
+                        kind: redacted.kind,
+                        message: redacted.message.clone(),
+                        retryable: redacted.retryable,
+                        retry_after_ms: None,
+                        provider_id: redacted.provider_id.clone(),
+                        operation: redacted.operation.clone(),
+                    },
+                );
+                release_provider_verify_job("comic", &provider_id, &lease.id);
+            }
+            Err(redacted)
+        }
+    }
 }
 
 #[tauri::command]

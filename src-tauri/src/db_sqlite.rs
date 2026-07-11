@@ -16,9 +16,8 @@ use rusqlite::{params, Connection};
 use std::path::Path;
 use std::sync::Mutex;
 
-/// Current schema version. v5 adds short-lived, validated AI task-result persistence
-/// without storing raw prompts, raw provider responses, headers, or credentials.
-pub const SCHEMA_VERSION: i64 = 5;
+/// Current schema version. v6 adds bounded, redacted background-job event timelines.
+pub const SCHEMA_VERSION: i64 = 6;
 
 /// Staged module registration keeps the repository layer compiled and testable while
 /// `lib.rs` remains untouched for the Batch integrator.
@@ -57,6 +56,11 @@ const SCHEMA_MIGRATIONS: &[SchemaMigration] = &[
         version: 5,
         name: "validated_ai_task_results",
         checksum: "sha256:d564e622ca8b5c86ab3d3e8fc5746e576099e36474579a97f685aa04b6b7b422",
+    },
+    SchemaMigration {
+        version: 6,
+        name: "background_job_event_timelines",
+        checksum: "sha256:fb584e57117039681ce5664ea411bc788cc8ce7c3b79821c7c7a20be007d1cc9",
     },
 ];
 
@@ -214,6 +218,29 @@ const V5_SCHEMA_SQL: &str = "CREATE TABLE IF NOT EXISTS ai_task_results (
 
 fn apply_v5_schema(conn: &Connection) -> Result<(), String> {
     conn.execute_batch(V5_SCHEMA_SQL).map_err(|e| e.to_string())
+}
+
+const V6_SCHEMA_SQL: &str = "CREATE TABLE IF NOT EXISTS background_job_events (
+    job_id     TEXT NOT NULL REFERENCES background_jobs(id) ON DELETE CASCADE,
+    sequence   INTEGER NOT NULL CHECK(sequence > 0),
+    level      TEXT NOT NULL CHECK(length(trim(level)) > 0),
+    code       TEXT NOT NULL CHECK(length(trim(code)) > 0),
+    message    TEXT NOT NULL,
+    progress   REAL CHECK(progress IS NULL OR (progress >= 0.0 AND progress <= 1.0)),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(job_id, sequence)
+ );
+ CREATE INDEX IF NOT EXISTS idx_background_job_events_job_sequence_desc
+    ON background_job_events(job_id, sequence DESC);
+ DELETE FROM background_job_events
+  WHERE job_id IN (
+    SELECT id FROM background_jobs
+     WHERE status IN ('succeeded', 'failed', 'cancelled')
+       AND julianday(updated_at) < julianday('now', '-30 days')
+  );";
+
+fn apply_v6_schema(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(V6_SCHEMA_SQL).map_err(|e| e.to_string())
 }
 
 /// 若 `table` 里不存在 `column`，则 ALTER TABLE 添加之。幂等。
@@ -500,6 +527,9 @@ impl SqliteDb {
 
         apply_v5_schema(&tx)?;
         record_migration(&tx, migration_by_version(5).expect("v5 migration exists"))?;
+
+        apply_v6_schema(&tx)?;
+        record_migration(&tx, migration_by_version(6).expect("v6 migration exists"))?;
 
         let have: i64 = tx
             .query_row("SELECT COUNT(*) FROM schema_version", [], |row| row.get(0))
@@ -1846,7 +1876,7 @@ mod tests {
     }
 
     #[test]
-    fn v5_schema_contains_ledger_domain_tables_and_indexes() {
+    fn v6_schema_contains_ledger_domain_tables_and_indexes() {
         let db = SqliteDb::open_in_memory().unwrap();
         db.with_connection(|conn| {
             let ledger = conn
@@ -1876,6 +1906,7 @@ mod tests {
                 "background_jobs",
                 "provider_configs",
                 "ai_task_results",
+                "background_job_events",
             ] {
                 let exists: bool = conn
                     .query_row(
@@ -1899,6 +1930,7 @@ mod tests {
                 "idx_provider_configs_resource_enabled",
                 "idx_provider_configs_kind",
                 "idx_ai_task_results_expires",
+                "idx_background_job_events_job_sequence_desc",
             ] {
                 let exists: bool = conn
                     .query_row(
@@ -1909,6 +1941,75 @@ mod tests {
                     .map_err(|e| e.to_string())?;
                 assert!(exists, "missing schema index {index}");
             }
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn v6_job_event_schema_enforces_constraints_cascade_and_retention() {
+        let db = SqliteDb::open_in_memory().unwrap();
+        db.with_connection(|conn| {
+            conn.execute(
+                "INSERT INTO background_jobs(id,kind,title,status,progress,created_at,updated_at,metadata_json)
+                 VALUES('active','import','Import','running',0.0,'2026-07-01T00:00:00Z','2026-07-01T00:00:00Z','{}')",
+                [],
+            )
+            .map_err(|e| e.to_string())?;
+            conn.execute(
+                "INSERT INTO background_job_events(job_id,sequence,level,code,message,progress,created_at)
+                 VALUES('active',1,'info','started','safe',0.0,'2026-07-01T00:00:00Z')",
+                [],
+            )
+            .map_err(|e| e.to_string())?;
+            assert!(conn
+                .execute(
+                    "INSERT INTO background_job_events(job_id,sequence,level,code,message,progress,created_at)
+                     VALUES('active',1,'info','duplicate','safe',0.0,'2026-07-01T00:00:00Z')",
+                    [],
+                )
+                .is_err());
+            assert!(conn
+                .execute(
+                    "INSERT INTO background_job_events(job_id,sequence,level,code,message,progress,created_at)
+                     VALUES('active',2,'info','bad_progress','safe',1.1,'2026-07-01T00:00:00Z')",
+                    [],
+                )
+                .is_err());
+            conn.execute("DELETE FROM background_jobs WHERE id='active'", [])
+                .map_err(|e| e.to_string())?;
+            let cascaded: i64 = conn
+                .query_row("SELECT COUNT(*) FROM background_job_events WHERE job_id='active'", [], |row| row.get(0))
+                .map_err(|e| e.to_string())?;
+            assert_eq!(cascaded, 0);
+
+            conn.execute(
+                "INSERT INTO background_jobs(id,kind,title,status,progress,created_at,updated_at,metadata_json)
+                 VALUES('old-terminal','import','Import','succeeded',1.0,'2020-01-01T00:00:00Z','2020-01-01T00:00:00Z','{}')",
+                [],
+            )
+            .map_err(|e| e.to_string())?;
+            conn.execute(
+                "INSERT INTO background_job_events(job_id,sequence,level,code,message,progress,created_at)
+                 VALUES('old-terminal',1,'info','complete','safe',1.0,'2020-01-01T00:00:00Z')",
+                [],
+            )
+            .map_err(|e| e.to_string())?;
+            Ok(())
+        })
+        .unwrap();
+        // Migrations run on every open and also execute the fixed 30-day
+        // terminal-event cleanup, so this exercises the migration path itself.
+        db.migrate().unwrap();
+        db.with_connection(|conn| {
+            let retained: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM background_job_events WHERE job_id='old-terminal'",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            assert_eq!(retained, 0);
             Ok(())
         })
         .unwrap();
@@ -2018,6 +2119,7 @@ mod tests {
                 "background_jobs",
                 "provider_configs",
                 "ai_task_results",
+                "background_job_events",
             ] {
                 let exists: bool = conn
                     .query_row(
@@ -2635,6 +2737,7 @@ mod tests {
                      DROP TABLE background_jobs;
                      DROP TABLE provider_configs;
                      DROP TABLE ai_task_results;
+                     DROP TABLE background_job_events;
                      DELETE FROM schema_migrations WHERE version>=3;
                      UPDATE schema_version SET version=2;",
                 )

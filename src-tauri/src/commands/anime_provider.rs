@@ -12,7 +12,10 @@ use crate::providers::anime::{
     AnimeSearchResponse,
 };
 use crate::secret_store::{SecretKind, SecretStore};
+use crate::task_queue::{JobOperation, TaskKind, TaskQueue, TaskStatus};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 use tauri::{State, WebviewUrl, WebviewWindowBuilder};
 
 const CONFIG_ERROR: &str = "anime provider configuration is invalid";
@@ -22,6 +25,114 @@ const NETWORK_ERROR: &str = "anime provider network request failed";
 const PROVIDER_ERROR: &str = "anime provider request failed";
 const SECRET_STORE_ERROR: &str = "secure credential storage operation failed";
 const CONFIG_STORAGE_ERROR: &str = "anime provider configuration storage operation failed";
+
+/// One process can own a provider verification lifecycle at a time. A later
+/// user request shares the active Task Center record instead of attempting a
+/// second transition; once the record is terminal the next request receives a
+/// fresh persisted run id.
+static PROVIDER_VERIFY_RUNS: LazyLock<Mutex<HashMap<String, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+#[derive(Debug, Clone)]
+struct ProviderVerifyJobLease {
+    id: String,
+    owns_lifecycle: bool,
+}
+
+fn acquire_provider_verify_job(
+    queue: &TaskQueue,
+    media_type: &str,
+    provider_id: &str,
+    title: &str,
+) -> Result<ProviderVerifyJobLease, String> {
+    let run_key = format!("{media_type}:{provider_id}");
+    let mut active_runs = PROVIDER_VERIFY_RUNS
+        .lock()
+        .map_err(|error| error.to_string())?;
+
+    if let Some(job_id) = active_runs.get(&run_key).cloned() {
+        match queue.get_task_center(&job_id) {
+            Ok(job) if provider_verify_is_active(job.status) => {
+                return Ok(ProviderVerifyJobLease {
+                    id: job.id,
+                    owns_lifecycle: false,
+                });
+            }
+            _ => {
+                active_runs.remove(&run_key);
+            }
+        }
+    }
+
+    // Re-adopt an active durable record after a command boundary is rebuilt.
+    // This avoids a duplicate task even if the in-memory lease map was reset.
+    if let Some(job) = queue
+        .list_task_center(None, Some(TaskKind::ProviderVerify), Some(500))?
+        .into_iter()
+        .find(|job| {
+            provider_verify_matches(job, media_type, provider_id)
+                && provider_verify_is_active(job.status)
+        })
+    {
+        active_runs.insert(run_key, job.id.clone());
+        return Ok(ProviderVerifyJobLease {
+            id: job.id,
+            owns_lifecycle: true,
+        });
+    }
+
+    // The run suffix is deliberately unique. Queue idempotency is useful only
+    // while an operation is active; retaining a terminal key would make every
+    // subsequent manual verification target the old terminal job.
+    let job = queue.enqueue_operation(
+        title.to_string(),
+        JobOperation::ProviderVerify {
+            media_type: media_type.to_string(),
+            provider_id: provider_id.to_string(),
+        },
+        Some(format!(
+            "provider-verify:{media_type}:{provider_id}:run:{}",
+            uuid::Uuid::new_v4().simple()
+        )),
+    )?;
+    active_runs.insert(run_key, job.id.clone());
+    Ok(ProviderVerifyJobLease {
+        id: job.id,
+        owns_lifecycle: true,
+    })
+}
+
+fn release_provider_verify_job(media_type: &str, provider_id: &str, job_id: &str) {
+    let Ok(mut active_runs) = PROVIDER_VERIFY_RUNS.lock() else {
+        return;
+    };
+    let run_key = format!("{media_type}:{provider_id}");
+    if active_runs
+        .get(&run_key)
+        .is_some_and(|active_id| active_id == job_id)
+    {
+        active_runs.remove(&run_key);
+    }
+}
+
+fn provider_verify_matches(
+    job: &crate::task_queue::TaskCenterJob,
+    media_type: &str,
+    provider_id: &str,
+) -> bool {
+    job.source.as_ref().is_some_and(|source| {
+        source.area == "provider"
+            && source.entity_id.as_deref() == Some(provider_id)
+            && source.label.as_deref() == Some(media_type)
+    })
+}
+
+fn provider_verify_is_active(status: TaskStatus) -> bool {
+    matches!(
+        status,
+        TaskStatus::Queued | TaskStatus::Running | TaskStatus::Paused
+    )
+}
 
 /// A one-time Jellyfin token may be supplied during configuration. It is stored
 /// under `RuntimeConnectorToken` by origin, immediately read back for adapter
@@ -307,11 +418,73 @@ pub async fn anime_provider_health(
     registry: State<'_, AnimeProviderRegistry>,
     database: State<'_, Database>,
     secrets: State<'_, SecretStore>,
+    queue: State<'_, TaskQueue>,
 ) -> Result<Vec<ProviderHealth>, AnimeProviderCommandError> {
     restore_persisted_configs(registry.inner(), database.inner(), secrets.inner()).await?;
-    let result = registry.health().map_err(redact_provider_error)?;
-    persist_health(registry.inner(), database.inner()).await;
-    Ok(result)
+    let lease =
+        acquire_provider_verify_job(queue.inner(), "anime", "configured", "检查番剧来源健康状态")
+            .map_err(|_| {
+            command_error(
+                ProviderErrorKind::Unknown,
+                PROVIDER_ERROR,
+                true,
+                None,
+                Some("health"),
+                None,
+            )
+        })?;
+
+    if lease.owns_lifecycle {
+        queue
+            .mark_running(
+                &lease.id,
+                Some("正在汇总番剧来源健康状态".to_string()),
+                Some(0.2),
+            )
+            .map_err(|_| {
+                release_provider_verify_job("anime", "configured", &lease.id);
+                command_error(
+                    ProviderErrorKind::Unknown,
+                    PROVIDER_ERROR,
+                    true,
+                    None,
+                    Some("health"),
+                    None,
+                )
+            })?;
+    }
+
+    match registry.health() {
+        Ok(result) => {
+            persist_health(registry.inner(), database.inner()).await;
+            if lease.owns_lifecycle {
+                let _ = queue.mark_succeeded(
+                    &lease.id,
+                    Some(format!("已更新 {} 条来源健康记录", result.len())),
+                );
+                release_provider_verify_job("anime", "configured", &lease.id);
+            }
+            Ok(result)
+        }
+        Err(error) => {
+            let redacted = redact_provider_error(error);
+            if lease.owns_lifecycle {
+                let _ = queue.mark_failed(
+                    &lease.id,
+                    ProviderError {
+                        kind: redacted.kind,
+                        message: redacted.message.clone(),
+                        retryable: redacted.retryable,
+                        retry_after_ms: redacted.retry_after_ms,
+                        provider_id: redacted.provider_id.clone(),
+                        operation: redacted.operation.clone(),
+                    },
+                );
+                release_provider_verify_job("anime", "configured", &lease.id);
+            }
+            Err(redacted)
+        }
+    }
 }
 
 fn persisted_config(config: &AnimeProviderConfig) -> (String, serde_json::Value) {

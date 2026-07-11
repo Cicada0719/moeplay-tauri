@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { check } from "@tauri-apps/plugin-updater";
   import { fade } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
   import { shortcut } from "@svelte-put/shortcut";
@@ -29,6 +28,8 @@
     openOverlay,
   } from "./lib/stores/router.svelte";
   import { motionStore } from "./lib/stores/motion.svelte";
+  import { createJobsStore, TaskActivityBadge } from "./lib/features/jobs";
+  import { invokeCmd } from "./lib/api/core";
 
   const TOOLS_DRAWER_ID = "tools-drawer";
   const SHORTCUT_HELP_OVERLAY_ID = "shortcut-help";
@@ -39,6 +40,13 @@
   const isBigPicture = $derived(uiStore.bigPictureActive);
   const toolsDrawerOpen = $derived(uiStore.drawerOpen && uiStore.drawerView === "tools");
   let isWindowFullscreen = $state(false);
+  const taskBadgeStore = createJobsStore();
+  let taskActiveCount = $state(0);
+  let taskFailedCount = $state(0);
+  const unsubscribeTaskBadge = taskBadgeStore.subscribe((snapshot) => {
+    taskActiveCount = snapshot.counts.active;
+    taskFailedCount = snapshot.counts.failed;
+  });
 
   const TOOL_VIEWS = new Set(TOOL_ITEMS.map(item => item.view));
   const isToolView = $derived(TOOL_VIEWS.has(uiStore.currentView));
@@ -227,11 +235,15 @@
     const releaseRouter = initRouter();
     appWindow()?.isFullscreen().then(value => { isWindowFullscreen = value; }).catch(() => {});
     window.addEventListener("keydown", onKeydown);
+    void taskBadgeStore.load();
+    const taskBadgeTimer = window.setInterval(() => void taskBadgeStore.refresh(), 5000);
     const updateTimer = setTimeout(async () => {
       try {
-        const update = await check();
-        if (update) showUpdateDialog = true;
-      } catch {}
+        const result = await invokeCmd<{ available: boolean }>("start_update_check_task");
+        if (result.available) showUpdateDialog = true;
+      } catch {
+        // The backend records a redacted failed task; startup remains quiet.
+      }
     }, 5000);
     _detachGamepad = attachGamepad({
       back: layeredBack,
@@ -243,6 +255,8 @@
       releaseMotion();
       releaseRouter();
       clearTimeout(updateTimer);
+      clearInterval(taskBadgeTimer);
+      unsubscribeTaskBadge();
       window.removeEventListener("keydown", onKeydown);
       _detachGamepad();
     };
@@ -406,6 +420,15 @@
       </div>
     </Drawer>
 
+    <button
+      class="global-task-badge"
+      type="button"
+      aria-label={`任务状态：进行中 ${taskActiveCount}，失败 ${taskFailedCount}；激活以查看详情`}
+      onclick={() => navigateTo("tasks")}
+    >
+      <TaskActivityBadge activeCount={taskActiveCount} failedCount={taskFailedCount} />
+    </button>
+
     <div class="global-dock">
       <SystemDock
         items={DOCK_ITEMS}
@@ -450,6 +473,8 @@
   }
 
   .bg-layers { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+  .global-task-badge { position: fixed; z-index: 12; right: max(16px, env(safe-area-inset-right)); bottom: calc(64px + env(safe-area-inset-bottom)); border: 0; padding: 0; background: transparent; cursor: pointer; }
+  .global-task-badge:focus-visible { outline: none; border-radius: 999px; box-shadow: 0 0 0 2px var(--accent-ring); }
   .bg-gradient {
     position: absolute; inset: 0;
     background: linear-gradient(135deg, var(--bg-deep) 0%, var(--bg) 50%, var(--bg-deep) 100%);

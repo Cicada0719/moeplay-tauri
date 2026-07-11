@@ -103,6 +103,7 @@ pub fn run() {
 
     let database = Database::new();
     let task_queue = TaskQueue::from_database(database.sqlite_arc());
+    let startup_task_queue = task_queue.clone();
     let ai_changes_service = services::ai_changes::AiChangesService::new(
         dirs::data_dir()
             .unwrap_or_else(|| PathBuf::from("."))
@@ -313,6 +314,8 @@ pub fn run() {
             commands::clear_thumbnail_cache,
             commands::enqueue_task,
             commands::get_tasks,
+            commands::get_task_detail,
+            commands::get_task_events,
             commands::update_task,
             commands::cancel_task,
             commands::pause_task,
@@ -362,6 +365,7 @@ pub fn run() {
             commands::scan_images_dir,
             commands::scan_game_images,
             commands::get_performance_snapshot,
+            commands::start_update_check_task,
             commands::run_diagnostics,
             // ---- 下载管理 ----
             commands::download_start,
@@ -518,7 +522,7 @@ pub fn run() {
             commands::ai_changes_apply,
             commands::ai_changes_undo,
         ])
-        .setup(|app| {
+        .setup(move |app| {
             crash_log("setup() ENTER");
             // 启动时按持久化的 startup_mode 原生设定窗口模式。
             // 直接 set_fullscreen(true) 在 Windows 上可能因窗口尚未完全初始化而静默失败。
@@ -529,6 +533,15 @@ pub fn run() {
             if app.get_webview_window("main").is_some() {
                 crash_log("setup() main window ready — fullscreen via config, mode via frontend");
             }
+
+            // Redispatch only payload-free, backend-owned queued operations.
+            // Other operations are marked safely failed by the dispatcher rather
+            // than being duplicated or replayed without runtime-only inputs.
+            let startup_app = app.handle().clone();
+            let startup_queue = startup_task_queue.clone();
+            tauri::async_runtime::spawn(async move {
+                commands::dispatch_queued_operations(startup_app, startup_queue).await;
+            });
 
             // 仅清理超过 30 天未更新的缩略图，而不是每次启动全清。
             // 之前调用 clear_thumbnail_cache() 会清空整盘缓存，导致 500+ 封面每次启动全部重生成、首屏变慢。

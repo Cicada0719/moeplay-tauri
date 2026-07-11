@@ -3,7 +3,8 @@
   import Button from "../../components/ui/Button.svelte";
   import Icon from "../../components/Icon.svelte";
   import Tag from "../../components/ui/Tag.svelte";
-  import { createJobsStore, jobPercent, type JobsStore, type Job } from ".";
+  import { createJobsStore, jobPercent, redactTaskText, type JobsStore, type Job } from ".";
+  import TaskDetailDrawer from "./TaskDetailDrawer.svelte";
 
   type Filter = "all" | "active" | "failed" | "completed";
   type JobCapabilities = Job & {
@@ -21,6 +22,7 @@
   let filter: Filter = "all";
   let actionId: string | null = null;
   let announcement = "";
+  let selectedJob: Job | null = null;
 
   const unsubscribe = store.subscribe((snapshot) => {
     jobs = snapshot.jobs;
@@ -32,6 +34,10 @@
   $: activeCount = jobs.filter((job) => ["queued", "running", "paused"].includes(job.status)).length;
   $: failedCount = jobs.filter((job) => job.status === "failed").length;
   $: completedCount = jobs.filter((job) => ["succeeded", "cancelled"].includes(job.status)).length;
+  $: if (selectedJob) {
+    const updated = jobs.find((job) => job.id === selectedJob?.id);
+    if (updated && updated !== selectedJob) selectedJob = updated;
+  }
   $: filteredJobs = jobs.filter((job) => {
     if (filter === "active") return ["queued", "running", "paused"].includes(job.status);
     if (filter === "failed") return job.status === "failed";
@@ -70,12 +76,12 @@
     generic: "后台",
   };
 
-  function safeMessage(message: string | null | undefined): string {
-    if (!message) return "";
-    return message
-      .replace(/https?:\/\/\S+/gi, "[已隐藏链接]")
-      .replace(/(token|api[_ -]?key|authorization)\s*[:=]\s*\S+/gi, "$1=[已隐藏]")
-      .slice(0, 240);
+  function safeText(value: unknown, maxLength = 512): string {
+    return redactTaskText(value, maxLength);
+  }
+
+  function openDetails(job: Job) {
+    selectedJob = job;
   }
 
   function canCancel(job: JobCapabilities): boolean {
@@ -88,10 +94,10 @@
 
   async function runAction(job: Job, label: string, action: () => Promise<void>) {
     actionId = job.id;
-    announcement = `${job.title}：正在${label}`;
+    announcement = `${safeText(job.title)}：正在${label}`;
     try {
       await action();
-      announcement = `${job.title}：${label}请求已完成`;
+      announcement = `${safeText(job.title)}：${label}请求已完成`;
     } finally {
       actionId = null;
     }
@@ -155,7 +161,7 @@
           <div class="job__main">
             <div class="job__title-row">
               <span class="job__kind">{kindLabel[job.kind] ?? "后台"}</span>
-              <strong>{job.title}</strong>
+              <strong>{safeText(job.title)}</strong>
               {#if job.recovered}<span class="job__recovered">从上次会话恢复</span>{/if}
             </div>
             <div class="job__meta">
@@ -165,13 +171,14 @@
                 <span>{jobPercent(job)}%</span>
               {/if}
             </div>
-            {#if safeMessage(job.message)}<p class="job__message">{safeMessage(job.message)}</p>{/if}
+            {#if safeText(job.message, 240)}<p class="job__message">{safeText(job.message, 240)}</p>{/if}
             {#if ["queued", "running", "paused"].includes(job.status)}
-              <progress max="1" value={job.progress} aria-label={`${job.title}进度`}>{jobPercent(job)}%</progress>
+              <progress max="1" value={job.progress} aria-label={`${safeText(job.title)}进度`}>{jobPercent(job)}%</progress>
             {/if}
           </div>
 
-          <div class="job__actions" aria-label={`${job.title}操作`}>
+          <div class="job__actions" aria-label={`${safeText(job.title)}操作`}>
+            <Button variant="quiet" size="sm" press={() => openDetails(job)} ariaLabel={`查看 ${safeText(job.title)} 详情`}>详情</Button>
             {#if canPause(job)}
               <Button variant="quiet" size="sm" disabled={actionId === job.id} press={() => runAction(job, "暂停", () => store.pause(job.id))}>暂停</Button>
             {/if}
@@ -190,6 +197,8 @@
     </ul>
   {/if}
 </section>
+
+<TaskDetailDrawer open={selectedJob !== null} job={selectedJob} {store} onClose={() => selectedJob = null} />
 
 <style>
   .jobs { min-width: 0; display: grid; gap: 14px; }

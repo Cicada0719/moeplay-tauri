@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-start-update-check-task"
+description = "Enables the start_update_check_task command without any pre-configured scope."
+commands.allow = ["start_update_check_task"]
+
+[[permission]]
+identifier = "deny-start-update-check-task"
+description = "Denies the start_update_check_task command without any pre-configured scope."
+commands.deny = ["start_update_check_task"]

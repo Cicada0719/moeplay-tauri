@@ -200,3 +200,140 @@ export function emptyBuckets(): Record<JobStatus, Job[]> {
     cancelled: [],
   };
 }
+/** A timeline level returned by the versioned Task Center event API. */
+export const TASK_EVENT_LEVELS = ["debug", "info", "warn", "error"] as const;
+export type TaskEventLevel = (typeof TASK_EVENT_LEVELS)[number];
+
+export interface TaskEvent {
+  jobId: string;
+  sequence: number;
+  level: TaskEventLevel;
+  code: string;
+  message: string;
+  progress?: number;
+  createdAt: string;
+}
+
+/**
+ * The safe, recognized subset of an operation payload. Unknown operation
+ * members deliberately do not cross the feature boundary into the UI.
+ */
+export interface TaskOperationSummary {
+  kind: "import" | "scrape" | "provider_verify" | "backup" | "restore" | "diagnostics_export" | "update_check";
+  fields: ReadonlyArray<{ label: string; value: string }>;
+}
+
+export interface TaskDetail {
+  job: Job;
+  operation?: TaskOperationSummary;
+}
+
+export interface TaskEventsPage {
+  events: TaskEvent[];
+  /** Exclusive sequence cursor used for the next keyset request. */
+  nextAfterSequence: number | null;
+  hasMore: boolean;
+}
+
+export interface TaskEventsQuery {
+  afterSequence?: number;
+  limit?: number;
+}
+
+/**
+ * Kept separate from JobsApi while backend command registration lands. This
+ * gives the drawer a local test seam and limits the later integration change
+ * to the adapter in api.ts.
+ */
+export interface TaskDetailApi {
+  getTaskDetail(id: string, signal?: AbortSignal): Promise<TaskDetail>;
+  getTaskEvents(id: string, query?: TaskEventsQuery, signal?: AbortSignal): Promise<TaskEventsPage>;
+}
+
+const EVENT_LEVEL_SET = new Set<string>(TASK_EVENT_LEVELS);
+
+function toTaskEventLevel(value: unknown): TaskEventLevel {
+  return typeof value === "string" && EVENT_LEVEL_SET.has(value.toLowerCase())
+    ? value.toLowerCase() as TaskEventLevel
+    : "info";
+}
+
+function finiteSequence(value: unknown): number {
+  const sequence = Number(value);
+  return Number.isFinite(sequence) && sequence > 0 ? Math.trunc(sequence) : 0;
+}
+
+function normalizeOperationKind(value: unknown): TaskOperationSummary["kind"] | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.replace(/([a-z])([A-Z])/g, "$1_$2").replace(/[. -]/g, "_").toLowerCase();
+  return ["import", "scrape", "provider_verify", "backup", "restore", "diagnostics_export", "update_check"].includes(normalized)
+    ? normalized as TaskOperationSummary["kind"]
+    : undefined;
+}
+
+function operationValue(value: unknown): string | undefined {
+  return optionalString(value)?.slice(0, 512);
+}
+
+/** Normalizes either serde enum or tagged-operation shapes without rendering arbitrary metadata. */
+export function normalizeTaskOperation(value: unknown): TaskOperationSummary | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const taggedKind = normalizeOperationKind(record.kind ?? record.type ?? record.operation);
+  const enumEntry = Object.entries(record).find(([key]) => normalizeOperationKind(key));
+  const kind = taggedKind ?? (enumEntry ? normalizeOperationKind(enumEntry[0]) : undefined);
+  if (!kind) return undefined;
+  const payload = (taggedKind ? record : enumEntry?.[1]) as Record<string, unknown> | undefined;
+  const fieldsByKind: Record<TaskOperationSummary["kind"], ReadonlyArray<[string, string]>> = {
+    import: [["来源", "source"], ["引用 ID", "referenceId"]],
+    scrape: [["游戏 ID", "gameId"], ["来源 ID", "providerId"]],
+    provider_verify: [["媒体类型", "mediaType"], ["来源 ID", "providerId"]],
+    backup: [["范围", "scope"]],
+    restore: [["快照 ID", "snapshotId"]],
+    diagnostics_export: [],
+    update_check: [],
+  };
+  const fields = fieldsByKind[kind]
+    .map(([label, key]) => {
+      const snakeKey = key.replace(/[A-Z]/g, (part) => `_${part.toLowerCase()}`);
+      const field = operationValue(payload?.[key] ?? payload?.[snakeKey]);
+      return field ? { label, value: field } : undefined;
+    })
+    .filter((field): field is { label: string; value: string } => Boolean(field));
+  return { kind, fields };
+}
+
+export function normalizeTaskDetail(value: unknown): TaskDetail {
+  const record = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const rawJob = record.job ?? value;
+  return {
+    job: normalizeJob(rawJob as AppTask),
+    operation: normalizeTaskOperation(
+      record.operation && typeof record.operation === "object" && "operation" in (record.operation as Record<string, unknown>)
+        ? (record.operation as Record<string, unknown>).operation
+        : record.operation,
+    ),
+  };
+}
+
+export function normalizeTaskEvent(value: unknown, fallbackJobId: string): TaskEvent {
+  const record = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const progress = Number(record.progress);
+  return {
+    jobId: optionalString(record.jobId ?? record.job_id) ?? fallbackJobId,
+    sequence: finiteSequence(record.sequence),
+    level: toTaskEventLevel(record.level),
+    code: optionalString(record.code) ?? "event",
+    message: optionalString(record.message) ?? "任务事件",
+    ...(Number.isFinite(progress) ? { progress: normalizeJobProgress(progress) } : {}),
+    createdAt: optionalString(record.createdAt ?? record.created_at) ?? "",
+  };
+}
+
+export function mergeTaskEvents(current: readonly TaskEvent[], incoming: readonly TaskEvent[]): TaskEvent[] {
+  const bySequence = new Map<number, TaskEvent>();
+  for (const event of [...current, ...incoming]) {
+    if (event.sequence > 0) bySequence.set(event.sequence, event);
+  }
+  return [...bySequence.values()].sort((left, right) => left.sequence - right.sequence);
+}
