@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-delete-wallpaper"
+description = "Enables the delete_wallpaper command without any pre-configured scope."
+commands.allow = ["delete_wallpaper"]
+
+[[permission]]
+identifier = "deny-delete-wallpaper"
+description = "Denies the delete_wallpaper command without any pre-configured scope."
+commands.deny = ["delete_wallpaper"]

@@ -11,6 +11,7 @@
   import SwitchHome from "./lib/components/switch/SwitchHome.svelte";
   import SystemDock from "./lib/components/switch/SystemDock.svelte";
   import Notifications from "./lib/components/Notifications.svelte";
+  import WallpaperStage from "./lib/components/WallpaperStage.svelte";
   import BigPicturePage from "./lib/components/BigPicturePage.svelte";
   import ShortcutHelp from "./lib/components/ShortcutHelp.svelte";
   import UpdateDialog from "./lib/components/UpdateDialog.svelte";
@@ -30,6 +31,7 @@
   import { motionStore } from "./lib/stores/motion.svelte";
   import { createJobsStore, TaskActivityBadge } from "./lib/features/jobs";
   import { invokeCmd } from "./lib/api/core";
+  import { wallpaperStore } from "./lib/stores/wallpapers.svelte";
 
   const TOOLS_DRAWER_ID = "tools-drawer";
   const SHORTCUT_HELP_OVERLAY_ID = "shortcut-help";
@@ -39,6 +41,8 @@
   continueStore.start();
   const isBigPicture = $derived(uiStore.bigPictureActive);
   const toolsDrawerOpen = $derived(uiStore.drawerOpen && uiStore.drawerView === "tools");
+  const managementViews = new Set(["scraper","tasks","sources","downloads","backup","stats","diagnostics","settings","steam-import","emulator"]);
+  const wallpaperSurface = $derived(managementViews.has(uiStore.currentView) ? "management" : uiStore.currentView === "game-detail" ? "immersive" : "browse");
   let isWindowFullscreen = $state(false);
   const taskBadgeStore = createJobsStore();
   let taskActiveCount = $state(0);
@@ -262,6 +266,13 @@
     };
   });
 
+  let _wallpaperSyncStarted = false;
+  $effect(() => {
+    if (_wallpaperSyncStarted || !settingsStore.loaded) return;
+    _wallpaperSyncStarted = true;
+    if (!(window as any).__MOEPLAY_TEST__) void wallpaperStore.initialize(settingsStore.appearance, settingsStore.settings.nsfw_display_mode ?? "blur");
+  });
+
   let _startupApplied = false;
   $effect(() => {
     if (_startupApplied) return;
@@ -308,10 +319,7 @@
   data-ui-ready={booted ? "true" : "false"}
 >
   {#if !isBigPicture}
-    <div class="bg-layers">
-      <div class="bg-gradient"></div>
-      <div class="bg-scrim"></div>
-    </div>
+    <WallpaperStage surface={wallpaperSurface} />
 
     <div class="main-content" data-testid="main-content">
       {#key uiStore.currentView}

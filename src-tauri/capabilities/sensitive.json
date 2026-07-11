@@ -49,6 +49,10 @@
     "allow-ai-v2-start-structured-task",
     "allow-ai-v2-cancel-task",
     "allow-ai-changes-apply",
-    "allow-ai-changes-undo"
+    "allow-ai-changes-undo",
+    "allow-refresh-wallpaper-manifest",
+    "allow-download-wallpaper",
+    "allow-import-wallpaper",
+    "allow-delete-wallpaper"
   ]
 }

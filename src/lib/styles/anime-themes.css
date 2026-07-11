@@ -1,0 +1,65 @@
+/* MoePlay anime theme packs. Components consume semantic roles; packs only calibrate tokens. */
+:root {
+  --color-canvas: var(--bg-base);
+  --color-surface-1: var(--bg-surface);
+  --color-surface-2: var(--bg-elev);
+  --color-surface-3: var(--bg-card);
+  --color-text-1: var(--text-primary);
+  --color-text-2: var(--text-secondary);
+  --color-text-3: var(--text-muted);
+  --color-action: var(--accent);
+  --color-focus: var(--accent-ring);
+  --wallpaper-scrim: linear-gradient(90deg, rgba(5,7,16,.84) 0%, rgba(5,7,16,.58) 47%, rgba(5,7,16,.2) 100%), linear-gradient(0deg, rgba(5,7,16,.82) 0%, transparent 48%);
+  --wallpaper-brightness: .72;
+  --wallpaper-saturation: .92;
+  --mascot-accent: var(--accent);
+  --theme-ambient: rgba(232,85,127,.18);
+}
+
+[data-theme-pack="yozakura"] {
+  --accent: #e8557f; --accent-hi: #f383a4; --accent-lo: rgba(232,85,127,.16); --accent-ring: rgba(232,85,127,.55);
+  --mascot-accent: #f5a6c8; --theme-ambient: rgba(232,85,127,.22);
+}
+[data-theme-pack="after-school"] {
+  --accent: #3f9dcc; --accent-hi: #67b9df; --accent-lo: rgba(63,157,204,.15); --accent-ring: rgba(63,157,204,.52);
+  --mascot-accent: #ff9bb9; --theme-ambient: rgba(92,184,221,.2);
+  --wallpaper-scrim: linear-gradient(90deg, rgba(15,51,72,.76) 0%, rgba(23,70,91,.42) 48%, rgba(23,70,91,.08) 100%), linear-gradient(0deg, rgba(14,42,58,.7), transparent 52%);
+  --wallpaper-brightness: .86; --wallpaper-saturation: .88;
+}
+[data-theme-pack="neon-isekai"] {
+  --accent: #ec3b99; --accent-hi: #ff69b4; --accent-lo: rgba(236,59,153,.17); --accent-ring: rgba(46,230,235,.58);
+  --mascot-accent: #2ee6eb; --theme-ambient: rgba(46,230,235,.17);
+  --wallpaper-scrim: linear-gradient(90deg, rgba(1,3,14,.9) 0%, rgba(4,5,22,.62) 49%, rgba(4,5,22,.18) 100%), linear-gradient(0deg, rgba(2,4,16,.88), transparent 50%);
+  --wallpaper-brightness: .7; --wallpaper-saturation: 1.08;
+}
+
+
+[data-wallpaper-rating="suggestive"] .wallpaper-stage__image,
+[data-wallpaper-rating="adult"] .wallpaper-stage__image { filter: brightness(var(--wallpaper-brightness)) saturate(var(--wallpaper-saturation)) blur(18px); transform: scale(1.035); }
+[data-color-mode="contrast"] .wallpaper-stage__decor { display:none; }
+
+[data-color-mode="contrast"] {
+  --wallpaper-brightness: .18; --wallpaper-saturation: 0;
+  --wallpaper-scrim: rgba(0,0,0,.88);
+  --theme-ambient: transparent;
+}
+
+.wallpaper-stage { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; background: var(--color-canvas); }
+.wallpaper-stage__placeholder,.wallpaper-stage__image,.wallpaper-stage__scrim,.wallpaper-stage__ambient,.wallpaper-stage__decor { position:absolute; inset:0; }
+.wallpaper-stage__placeholder,.wallpaper-stage__image { width:100%; height:100%; object-fit:cover; object-position:center; filter:brightness(var(--wallpaper-brightness)) saturate(var(--wallpaper-saturation)); }
+.wallpaper-stage__placeholder { transform:scale(1.04); }
+.wallpaper-stage__image { opacity:0; transition:opacity 520ms cubic-bezier(.16,1,.3,1); }
+.wallpaper-stage__image.is-ready { opacity:1; }
+.wallpaper-stage__scrim { background:var(--wallpaper-scrim); }
+.wallpaper-stage__ambient { background:radial-gradient(circle at 73% 17%, var(--theme-ambient), transparent 38%); }
+.wallpaper-stage[data-surface="management"] .wallpaper-stage__image { filter:brightness(calc(var(--wallpaper-brightness) * .58)) saturate(calc(var(--wallpaper-saturation) * .62)); }
+.wallpaper-stage[data-surface="management"] .wallpaper-stage__scrim { background:rgba(7,9,15,.78); }
+.wallpaper-stage__decor { overflow:hidden; opacity:.55; }
+.wallpaper-stage__decor span { position:absolute; display:block; }
+.wallpaper-stage__decor--petals span { width:9px;height:14px;border-radius:9px 9px 9px 2px;background:#ffb6cf;animation:anime-petal 10s linear infinite; }
+.wallpaper-stage__decor--light-particles span { width:5px;height:5px;border-radius:50%;background:#fff3c7;box-shadow:0 0 14px #fff;animation:anime-float 7s ease-in-out infinite; }
+.wallpaper-stage__decor--digital-rain span { width:1px;height:80px;background:linear-gradient(transparent,#2ee6eb,transparent);animation:anime-rain 2.8s linear infinite; }
+@keyframes anime-petal { from{transform:translate3d(0,-8vh,0) rotate(0);opacity:0} 12%{opacity:.75} to{transform:translate3d(70px,110vh,0) rotate(320deg);opacity:.05} }
+@keyframes anime-float { 0%,100%{transform:translateY(12px);opacity:.2} 50%{transform:translateY(-20px);opacity:.9} }
+@keyframes anime-rain { from{transform:translateY(-120px);opacity:0} 20%{opacity:.7} to{transform:translateY(110vh);opacity:0} }
+@media (prefers-reduced-motion:reduce) { .wallpaper-stage__image{transition:none}.wallpaper-stage__decor{display:none} }

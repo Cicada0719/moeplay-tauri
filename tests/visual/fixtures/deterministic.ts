@@ -36,13 +36,14 @@ export async function installDeterministicEnvironment(
         localStorage.setItem(key, value);
       }
 
+      let currentSettings = clone(state.settings);
       const invoke = async (command: string, args?: Record<string, unknown>) => {
         invocations.push({ command, args: clone(args) });
         if (Object.prototype.hasOwnProperty.call(commandResults, command)) {
           return clone(commandResults[command]);
         }
-        if (command === "get_settings") return clone(state.settings);
-        if (command === "update_settings") return clone(args?.settings ?? state.settings);
+        if (command === "get_settings") return clone(currentSettings);
+        if (command === "update_settings") { currentSettings = clone((args?.settings as typeof currentSettings) ?? currentSettings); return clone(currentSettings); }
         if (command === "get_games" || command === "search_games") return clone(state.games);
         if (command.startsWith("plugin:event|")) return 1;
         if (command.startsWith("plugin:window|is_fullscreen")) return false;

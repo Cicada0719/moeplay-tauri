@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-wallpaper-attribution"
+description = "Enables the get_wallpaper_attribution command without any pre-configured scope."
+commands.allow = ["get_wallpaper_attribution"]
+
+[[permission]]
+identifier = "deny-get-wallpaper-attribution"
+description = "Denies the get_wallpaper_attribution command without any pre-configured scope."
+commands.deny = ["get_wallpaper_attribution"]

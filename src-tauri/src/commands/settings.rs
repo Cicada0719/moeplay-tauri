@@ -67,6 +67,7 @@ fn update_settings_impl(
     // malicious client still submits the legacy fields.
     load_settings_with_secret_migration(db, store)?;
     settings.redact_secrets();
+    settings.normalize_appearance();
     db.update_settings(settings)
 }
 

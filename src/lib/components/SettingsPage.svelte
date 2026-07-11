@@ -4,10 +4,11 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { settingsStore } from "../stores/settings.svelte";
   import { uiStore } from "../stores/ui.svelte";
-  import { APP_THEMES } from "../utils/theme";
-  import { secretDelete, secretSet, secretStatus, updateNsfwDisplayMode, setAutostart, syncSteamAchievements, pickImageFile, type NsfwDisplayMode } from "../api";
+  import { THEME_PACKS, normalizeAppearance, type ColorMode, type ThemePackId } from "../theme-packs";
+  import { secretDelete, secretSet, secretStatus, updateNsfwDisplayMode, setAutostart, syncSteamAchievements, pickImageFile, importWallpaper, getWallpaperAttribution, type NsfwDisplayMode, type WallpaperAttribution } from "../api";
   import { gameStore } from "../stores/games.svelte";
   import { animeStore } from "../stores/anime.svelte";
+  import { wallpaperStore } from "../stores/wallpapers.svelte";
   import Button from "./ui/Button.svelte";
   import Card from "./ui/Card.svelte";
   import SegmentControl from "./ui/SegmentControl.svelte";
@@ -18,6 +19,8 @@
   import UpdateDialog from "./UpdateDialog.svelte";
 
   let showUpdateDialog = $state(false);
+  let wallpaperAttribution = $state<WallpaperAttribution | null>(null);
+  let showWallpaperAttribution = $state(false);
 
   const nsfwModes: { id: NsfwDisplayMode; label: string }[] = [
     { id: "blur", label: "模糊" },
@@ -25,7 +28,10 @@
     { id: "hide", label: "隐藏" },
   ];
 
-  const themes = APP_THEMES;
+  const colorModes: { id: ColorMode; label: string }[] = [
+    { id: "pack-default", label: "主题默认" }, { id: "system", label: "跟随系统" }, { id: "light", label: "浅色" },
+    { id: "dark", label: "深色" }, { id: "black", label: "纯黑" }, { id: "contrast", label: "高对比" },
+  ];
 
   const startupModes = [
     { id: "dashboard", label: "普通模式", desc: "最大化窗口，保留任务栏", icon: "monitor" },
@@ -210,9 +216,46 @@
     uiStore.notify(enabled ? "已启用全部数据源" : "已关闭全部数据源", "success");
   }
 
-  async function handleThemeChange(theme: string) {
-    await settingsStore.save({ ...settingsStore.settings, theme });
-    uiStore.notify("主题已切换", "success");
+  async function updateAppearance(patch: Record<string, unknown>) {
+    await settingsStore.setAppearance({ ...normalizeAppearance(settingsStore.settings.appearance), ...patch });
+  }
+
+  async function chooseThemePack(theme_pack: ThemePackId) {
+    await updateAppearance({ theme_pack, fixed_wallpaper_id: undefined });
+    uiStore.notify("主题包已切换", "success");
+  }
+
+  async function pickCustomImage(kind: "wallpaper" | "mascot") {
+    try {
+      if (kind === "wallpaper") {
+        const wallpaper = await importWallpaper();
+        if (!wallpaper?.local_path) return;
+        await updateAppearance({ custom_wallpaper_path: wallpaper.local_path, wallpaper_rotation: "fixed", fixed_wallpaper_id: wallpaper.asset.id });
+        await wallpaperStore.load();
+      } else {
+        const path = await pickImageFile();
+        await updateAppearance({ custom_mascot_path: path });
+      }
+    } catch (error) { uiStore.notify(`导入图片失败：${String(error)}`, "error"); }
+  }
+
+  async function openWallpaperAttribution() {
+    const appearance = normalizeAppearance(settingsStore.settings.appearance);
+    if (!appearance.fixed_wallpaper_id || appearance.fixed_wallpaper_id.startsWith("builtin:")) {
+      wallpaperAttribution = { id: appearance.fixed_wallpaper_id ?? "builtin", title: "内置主题壁纸", author: "MoePlay / 自用主题素材", source_url: "", license_id: "Bundled", license_url: "", attribution_required: false };
+    } else {
+      try { wallpaperAttribution = await getWallpaperAttribution(appearance.fixed_wallpaper_id); }
+      catch { wallpaperAttribution = null; }
+    }
+    showWallpaperAttribution = true;
+  }
+
+  async function rotateWallpaper() {
+    const appearance = normalizeAppearance(settingsStore.settings.appearance);
+    const pack = THEME_PACKS.find((item) => item.id === appearance.theme_pack) ?? THEME_PACKS[0];
+    const current = pack.wallpapers.findIndex((item) => item.id === appearance.fixed_wallpaper_id);
+    const next = pack.wallpapers[(current + 1 + pack.wallpapers.length) % pack.wallpapers.length];
+    await updateAppearance({ wallpaper_rotation: "fixed", fixed_wallpaper_id: next.id, custom_wallpaper_path: undefined });
   }
 
   async function handleBangumiConnect() {
@@ -269,66 +312,63 @@
         <h2 class="s-title"><Icon name="eye" size={17} className="s-title-ic" /> 常用</h2>
       </div>
 
-      <div class="s-row">
-        <div class="s-info">
-          <span class="s-label">主题</span>
-          <span class="s-desc">界面色彩方案</span>
-        </div>
-        <SegmentControl
-          options={themes.map(t => ({ value: t.id, label: t.label }))}
-          value={settingsStore.settings.theme ?? ""}
-          onChange={handleThemeChange}
-          size="sm"
-        />
+      <div class="theme-pack-grid" aria-label="二次元主题包">
+        {#each THEME_PACKS as pack}
+          <button
+            class="theme-pack-card"
+            class:active={normalizeAppearance(settingsStore.settings.appearance).theme_pack === pack.id}
+            type="button"
+            aria-pressed={normalizeAppearance(settingsStore.settings.appearance).theme_pack === pack.id}
+            onclick={() => chooseThemePack(pack.id)}
+          >
+            <img src={pack.preview} alt="" />
+            <span class="theme-pack-card__scrim"></span>
+            <span class="theme-pack-card__copy"><b>{pack.label}</b><small>{pack.description}</small></span>
+          </button>
+        {/each}
       </div>
 
       <div class="s-row">
-        <div class="s-info">
-          <span class="s-label">敏感内容</span>
-          <span class="s-desc">NSFW 封面显示方式</span>
-        </div>
-        <SegmentControl
-          options={nsfwModes.map(m => ({ value: m.id, label: m.label }))}
-          value={settingsStore.settings.nsfw_display_mode ?? ""}
-          onChange={(v) => setNsfw(v as NsfwDisplayMode)}
-          size="sm"
-        />
+        <div class="s-info"><span class="s-label">显示模式</span><span class="s-desc">覆盖主题包默认的明暗模式</span></div>
+        <SegmentControl options={colorModes.map(m => ({ value: m.id, label: m.label }))} value={normalizeAppearance(settingsStore.settings.appearance).color_mode} onChange={(v) => updateAppearance({ color_mode: v })} size="sm" />
       </div>
 
-      <div class="s-row" style="align-items: flex-start;">
-        <div class="s-info">
-          <span class="s-label">首页看板娘</span>
-          <span class="s-desc">在最近游戏右下角显示二次元角色立绘</span>
+      <div class="s-row wallpaper-setting">
+        <div class="s-info"><span class="s-label">主题壁纸</span><span class="s-desc">启动随机、固定内置壁纸，或导入本地图片</span></div>
+        <div class="wallpaper-actions">
+          <Button variant="ghost" size="sm" press={rotateWallpaper}>换一张</Button>
+          <Button variant="ghost" size="sm" press={() => updateAppearance({ wallpaper_rotation: "startup-random", fixed_wallpaper_id: undefined, custom_wallpaper_path: undefined })}>启动随机</Button>
+          <Button variant="ghost" size="sm" press={() => pickCustomImage("wallpaper")}>导入壁纸</Button>
+          <Button variant="ghost" size="sm" press={openWallpaperAttribution}>关于壁纸</Button>
         </div>
+      </div>
+
+      <div class="s-row">
+        <div class="s-info"><span class="s-label">动态装饰</span><span class="s-desc">樱花、光点或数字雨；减少动态时自动关闭</span></div>
+        <Switch checked={normalizeAppearance(settingsStore.settings.appearance).decorative_effects} onchange={() => updateAppearance({ decorative_effects: !normalizeAppearance(settingsStore.settings.appearance).decorative_effects })} />
+      </div>
+
+      <div class="s-row">
+        <div class="s-info"><span class="s-label">在线精选图库</span><span class="s-desc">后台同步经过许可审核的官方壁纸索引</span></div>
+        <Switch checked={normalizeAppearance(settingsStore.settings.appearance).online_gallery_enabled} onchange={() => updateAppearance({ online_gallery_enabled: !normalizeAppearance(settingsStore.settings.appearance).online_gallery_enabled })} />
+      </div>
+
+      <div class="s-row" style="align-items:flex-start">
+        <div class="s-info"><span class="s-label">精选看板娘</span><span class="s-desc">只在首页、空状态和主题预览出现</span></div>
         <div class="s-col">
-          <Switch
-            checked={settingsStore.settings.home_mascot_enabled ?? true}
-            onchange={async () => {
-              settingsStore.settings.home_mascot_enabled = !(settingsStore.settings.home_mascot_enabled ?? true);
-              await save();
-            }}
-          />
-          {#if settingsStore.settings.home_mascot_enabled !== false}
-            <div class="mascot-path-row">
-              <Input
-                value={settingsStore.settings.home_mascot_path ?? ""}
-                placeholder="使用默认立绘"
-                onblur={async (e: Event) => {
-                  settingsStore.settings.home_mascot_path = (e.target as HTMLInputElement).value;
-                  await save();
-                }}
-              />
-              <Button variant="ghost" size="sm" press={async () => {
-                try {
-                  const path = await pickImageFile();
-                  settingsStore.settings.home_mascot_path = path;
-                  await save();
-                } catch { /* 取消 */ }
-              }}>选择图片</Button>
-            </div>
+          <Switch checked={normalizeAppearance(settingsStore.settings.appearance).mascot_enabled} onchange={() => updateAppearance({ mascot_enabled: !normalizeAppearance(settingsStore.settings.appearance).mascot_enabled })} />
+          {#if normalizeAppearance(settingsStore.settings.appearance).mascot_enabled}
+            <div class="wallpaper-actions"><Button variant="ghost" size="sm" press={() => pickCustomImage("mascot")}>自定义立绘</Button><Button variant="ghost" size="sm" press={() => updateAppearance({ custom_mascot_path: undefined })}>恢复主题立绘</Button></div>
           {/if}
         </div>
       </div>
+
+      {#if showWallpaperAttribution}
+        <div class="wallpaper-attribution" role="status">
+          <div><b>{wallpaperAttribution?.title ?? "暂无归属信息"}</b>{#if wallpaperAttribution}<span>{wallpaperAttribution.author} · {wallpaperAttribution.license_id}</span>{/if}</div>
+          <button type="button" aria-label="关闭壁纸信息" onclick={() => (showWallpaperAttribution = false)}><Icon name="x" size={14} /></button>
+        </div>
+      {/if}
 
       <div class="s-divider"></div>
       <div class="s-info" style="padding-bottom: 12px;">
@@ -810,8 +850,6 @@
   .s-label { font-size: 13.5px; font-weight: 650; color: var(--text-primary); }
   .s-desc { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
   .s-col { display: flex; flex-direction: column; gap: 10px; align-items: flex-end; }
-  .mascot-path-row { display: flex; gap: 8px; align-items: center; width: 260px; }
-  .mascot-path-row :global(.ui-input) { flex: 1; font-size: 12px; padding: 8px 10px; }
   .s-note { margin: 0; padding: 8px 0 2px; font-size: 12.5px; color: var(--text-muted); line-height: 1.5; }
   .s-divider { height: 1px; background: var(--aura-line, rgba(255, 255, 255, 0.06)); margin: 14px 0; }
   .s-empty {
@@ -996,4 +1034,22 @@
     .stg-content { padding: 8px 16px 36px; }
     .stg-head { padding: 20px 16px 12px; }
   }
+
+  .theme-pack-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:4px 0 14px; }
+  .theme-pack-card { position:relative; min-height:148px; overflow:hidden; padding:0; border:1px solid var(--border); border-radius:16px; background:var(--bg-card); color:white; cursor:pointer; text-align:left; transition:transform .18s var(--ease-enter),border-color .18s,box-shadow .18s; }
+  .theme-pack-card:hover { transform:translateY(-3px); border-color:var(--border-hover); }
+  .theme-pack-card.active { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-lo),0 16px 34px rgba(0,0,0,.28); }
+  .theme-pack-card:focus-visible { outline:none; box-shadow:var(--focus-ring); }
+  .theme-pack-card img,.theme-pack-card__scrim { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  .theme-pack-card__scrim { background:linear-gradient(0deg,rgba(3,5,12,.9),rgba(3,5,12,.05) 75%); }
+  .theme-pack-card__copy { position:absolute; left:14px; right:14px; bottom:12px; display:flex; flex-direction:column; gap:3px; }
+  .theme-pack-card__copy b { font-size:14px; letter-spacing:.02em; }
+  .theme-pack-card__copy small { color:rgba(255,255,255,.7); font-size:10.5px; line-height:1.3; }
+  .wallpaper-actions { display:flex; gap:7px; flex-wrap:wrap; justify-content:flex-end; }
+  @media (max-width:760px) { .theme-pack-grid{grid-template-columns:1fr}.theme-pack-card{min-height:120px}.wallpaper-setting{align-items:flex-start}.wallpaper-actions{justify-content:flex-start} }
+  .wallpaper-attribution { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:8px 0 2px; padding:12px 14px; border:1px solid var(--border); border-radius:12px; background:var(--bg-hover); }
+  .wallpaper-attribution div { display:flex; flex-direction:column; gap:2px; }
+  .wallpaper-attribution b { font-size:13px; }
+  .wallpaper-attribution span { font-size:11px; color:var(--text-muted); }
+  .wallpaper-attribution button { border:0; background:transparent; color:var(--text-muted); cursor:pointer; }
 </style>

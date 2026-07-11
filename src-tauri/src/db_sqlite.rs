@@ -1851,7 +1851,11 @@ impl SqliteDb {
             |r| r.get(0),
         );
         match row {
-            Ok(j) => serde_json::from_str(&j).map_err(|e| e.to_string()),
+            Ok(j) => {
+                let mut settings: Settings = serde_json::from_str(&j).map_err(|e| e.to_string())?;
+                settings.normalize_appearance();
+                Ok(settings)
+            }
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(Settings::default()),
             Err(e) => Err(e.to_string()),
         }

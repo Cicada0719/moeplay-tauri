@@ -747,11 +747,97 @@ pub struct SaveInfo {
 // 应用设置
 // ============================================================================
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ThemePackId {
+    Yozakura,
+    AfterSchool,
+    NeonIsekai,
+}
+
+impl Default for ThemePackId {
+    fn default() -> Self {
+        Self::Yozakura
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ColorMode {
+    PackDefault,
+    System,
+    Light,
+    Dark,
+    Black,
+    Contrast,
+}
+
+impl Default for ColorMode {
+    fn default() -> Self {
+        Self::PackDefault
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum WallpaperRotation {
+    StartupRandom,
+    Fixed,
+}
+
+impl Default for WallpaperRotation {
+    fn default() -> Self {
+        Self::StartupRandom
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct AppearanceSettings {
+    #[serde(default)]
+    pub theme_pack: ThemePackId,
+    #[serde(default)]
+    pub color_mode: ColorMode,
+    #[serde(default)]
+    pub wallpaper_rotation: WallpaperRotation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixed_wallpaper_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_wallpaper_path: Option<String>,
+    #[serde(default = "Settings::default_true")]
+    pub mascot_enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_mascot_path: Option<String>,
+    #[serde(default = "Settings::default_true")]
+    pub decorative_effects: bool,
+    #[serde(default = "Settings::default_true")]
+    pub online_gallery_enabled: bool,
+}
+
+impl Default for AppearanceSettings {
+    fn default() -> Self {
+        Self {
+            theme_pack: ThemePackId::Yozakura,
+            color_mode: ColorMode::PackDefault,
+            wallpaper_rotation: WallpaperRotation::StartupRandom,
+            fixed_wallpaper_id: None,
+            custom_wallpaper_path: None,
+            mascot_enabled: true,
+            custom_mascot_path: None,
+            decorative_effects: true,
+            online_gallery_enabled: true,
+        }
+    }
+}
+
 /// 应用设置
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Settings {
-    /// 主题: "dark" | "light" | "sakura"
+    /// 旧主题字段，保留一版用于兼容迁移。
+    #[serde(default = "Settings::default_legacy_theme")]
     pub theme: String,
+    /// 二次元主题包与壁纸显示设置。旧数据缺失时由 `normalize_appearance` 迁移。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub appearance: Option<AppearanceSettings>,
     /// 自动监控的目录
     pub watch_dirs: Vec<String>,
     /// 添加游戏时自动刮削
@@ -824,6 +910,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             theme: "dark".to_string(),
+            appearance: Some(AppearanceSettings::default()),
             watch_dirs: vec![],
             auto_scrape: true,
             language: "zh".to_string(),
@@ -854,6 +941,58 @@ impl Default for Settings {
 }
 
 impl Settings {
+    pub fn normalize_appearance(&mut self) {
+        if self.appearance.is_none() {
+            self.appearance = Some(match self.theme.as_str() {
+                "light" => AppearanceSettings {
+                    theme_pack: ThemePackId::AfterSchool,
+                    color_mode: ColorMode::Light,
+                    ..AppearanceSettings::default()
+                },
+                "black" => AppearanceSettings {
+                    color_mode: ColorMode::Black,
+                    ..AppearanceSettings::default()
+                },
+                "contrast" => AppearanceSettings {
+                    color_mode: ColorMode::Contrast,
+                    decorative_effects: false,
+                    ..AppearanceSettings::default()
+                },
+                "system" => AppearanceSettings {
+                    color_mode: ColorMode::System,
+                    ..AppearanceSettings::default()
+                },
+                "sakura" => AppearanceSettings::default(),
+                _ => AppearanceSettings {
+                    color_mode: ColorMode::Dark,
+                    ..AppearanceSettings::default()
+                },
+            });
+        }
+
+        if let Some(appearance) = &mut self.appearance {
+            if appearance.color_mode == ColorMode::Contrast {
+                appearance.decorative_effects = false;
+            }
+            appearance.fixed_wallpaper_id = appearance
+                .fixed_wallpaper_id
+                .take()
+                .filter(|value| !value.trim().is_empty());
+            appearance.custom_wallpaper_path = appearance
+                .custom_wallpaper_path
+                .take()
+                .filter(|value| !value.trim().is_empty());
+            appearance.custom_mascot_path = appearance
+                .custom_mascot_path
+                .take()
+                .filter(|value| !value.trim().is_empty());
+        }
+    }
+
+    fn default_legacy_theme() -> String {
+        "dark".to_string()
+    }
+
     /// 清除所有仅为旧版兼容而保留的明文凭据字段。
     pub fn redact_secrets(&mut self) {
         self.ai_api_key.clear();

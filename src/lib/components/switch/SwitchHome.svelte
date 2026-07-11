@@ -19,7 +19,7 @@
   import { fileSrc } from "../../utils";
   import { heroImageOf as gameHeroImageOf, hasHeroBackground } from "../../utils/game";
   import defaultLibraryBackdrop from "../../assets/default-library-backdrop.png";
-  import defaultHomeMascot from "../../assets/home-mascot.svg";
+  import { getThemePack, normalizeAppearance } from "../../theme-packs";
   import GameGrid from "../GameGrid.svelte";
   import TileRail from "./TileRail.svelte";
   import { settingsStore } from "../../stores/settings.svelte";
@@ -114,11 +114,12 @@
   const clock = $derived(now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }));
   const bgArt = $derived(selected ? (fileSrc(gameHeroImageOf(selected)) ?? defaultLibraryBackdrop) : defaultLibraryBackdrop);
   const bgIsCover = $derived(!hasHeroBackground(selected));
-  const mascotEnabled = $derived(settingsStore.settings?.home_mascot_enabled ?? true);
+  const appearance = $derived(normalizeAppearance(settingsStore.settings.appearance));
+  const mascotEnabled = $derived(appearance.mascot_enabled);
   const mascotSrc = $derived(
-    settingsStore.settings?.home_mascot_path
-      ? (fileSrc(settingsStore.settings.home_mascot_path) ?? defaultHomeMascot)
-      : defaultHomeMascot,
+    appearance.custom_mascot_path
+      ? (fileSrc(appearance.custom_mascot_path) ?? getThemePack(appearance.theme_pack).mascot)
+      : getThemePack(appearance.theme_pack).mascot,
   );
 
   function metaLine(game: Game | null): string {

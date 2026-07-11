@@ -8,13 +8,16 @@ import {
 } from "../api";
 import { STARTUP_MIGRATED_KEY, shouldMigrateStartupMode } from "./startup-migration";
 import {
-  applyTheme,
+  applyAppearance,
+  loadStoredAppearance,
   loadStoredTheme,
   type AppTheme,
 } from "../utils/theme";
+import { normalizeAppearance, type AppearanceSettings } from "../theme-packs";
 
 const defaultSettings: Settings = {
   theme: loadStoredTheme(),
+  appearance: loadStoredAppearance(),
   watch_dirs: [],
   auto_scrape: true,
   language: "zh",
@@ -56,13 +59,14 @@ export const settingsStore = {
   get loading() { return _loading; },
   get loaded() { return _loaded; },
   get theme() { return _settings.theme as AppTheme; },
+  get appearance() { return normalizeAppearance(_settings.appearance); },
   get language() { return _settings.language; },
 
   async load() {
     _loading = true;
     try {
       _settings = sanitizeSettings(await getSettings());
-      applyTheme(_settings.theme as AppTheme);
+      applyAppearance(_settings.appearance ?? loadStoredAppearance(_settings.theme));
       // 一次性迁移：仅历史默认 dashboard 的老用户迁到 fullscreen 一次；
       // 之后无条件尊重用户选择（避免"普通模式存不住"）。
       const migrated = !!localStorage.getItem(STARTUP_MIGRATED_KEY);
@@ -75,7 +79,7 @@ export const settingsStore = {
     } catch (e) {
       console.error("Failed to load settings:", e);
       _settings = { ...defaultSettings };
-      applyTheme(_settings.theme as AppTheme);
+      applyAppearance(_settings.appearance ?? loadStoredAppearance(_settings.theme));
     } finally {
       _loading = false;
     }
@@ -83,13 +87,17 @@ export const settingsStore = {
 
   async save(settings: Settings) {
     _settings = sanitizeSettings(await updateSettings(sanitizeSettings(settings)));
-    applyTheme(_settings.theme as AppTheme);
+    applyAppearance(_settings.appearance ?? loadStoredAppearance(_settings.theme));
     return _settings;
   },
 
+  async setAppearance(appearance: AppearanceSettings) {
+    return this.save({ ..._settings, appearance: normalizeAppearance(appearance) });
+  },
+
   toggleTheme() {
-    const theme = _settings.theme === "dark" ? "light" : "dark";
-    void this.save({ ..._settings, theme });
+    const color_mode = this.appearance.color_mode === "dark" ? "light" : "dark";
+    void this.setAppearance({ ...this.appearance, color_mode });
   },
 
   setLanguage(lang: string) {

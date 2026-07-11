@@ -302,6 +302,7 @@ export interface CloudSyncConfig {
 
 export interface Settings {
   theme: string;
+  appearance?: AppearanceSettings;
   watch_dirs: string[];
   auto_scrape: boolean;
   language: string;
@@ -511,3 +512,21 @@ export interface DownloadTask {
   headers: Record<string, string>;
 }
 
+
+
+export interface AppearanceSettings {
+  theme_pack: "yozakura" | "after-school" | "neon-isekai";
+  color_mode: "pack-default" | "system" | "light" | "dark" | "black" | "contrast";
+  wallpaper_rotation: "startup-random" | "fixed";
+  fixed_wallpaper_id?: string;
+  custom_wallpaper_path?: string;
+  mascot_enabled: boolean;
+  custom_mascot_path?: string;
+  decorative_effects: boolean;
+  online_gallery_enabled: boolean;
+}
+export interface ThemePackSummary { id: string; label: string; description: string; default_color_mode: string; }
+export interface WallpaperAsset { id: string; theme_pack: string; title: string; download_url: string; preview_url: string; sha256: string; byte_size: number; width: number; height: number; rating: "general"|"suggestive"|"adult"; author: string; source_url: string; license_id: string; license_url: string; attribution_required: boolean; }
+export interface WallpaperRecord { asset: WallpaperAsset; installed: boolean; local_path?: string; source: string; }
+export interface WallpaperSyncResult { revision: string; available: number; downloaded: number; }
+export interface WallpaperAttribution { id: string; title: string; author: string; source_url: string; license_id: string; license_url: string; attribution_required: boolean; }

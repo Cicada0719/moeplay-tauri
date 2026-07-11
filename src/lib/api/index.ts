@@ -1380,3 +1380,14 @@ export async function setAutostart(enabled: boolean, startupMode: string): Promi
 export async function getAutostartStatus(): Promise<AutostartStatus> {
   return invokeCmd("get_autostart_status");
 }
+
+
+// ===== 二次元主题与壁纸 =====
+export async function listThemePacks(): Promise<import("./types").ThemePackSummary[]> { return invokeCmd("list_theme_packs"); }
+export async function listWallpapers(themePack?: string): Promise<import("./types").WallpaperRecord[]> { return invokeCmd("list_wallpapers", { themePack }); }
+export async function refreshWallpaperManifest(nsfwMode = "blur"): Promise<import("./types").WallpaperSyncResult> { return invokeCmd("refresh_wallpaper_manifest", { nsfwMode }); }
+export async function downloadWallpaper(id: string, nsfwMode = "blur"): Promise<import("./types").WallpaperRecord> { return invokeCmd("download_wallpaper", { id, nsfwMode }); }
+export async function importWallpaper(): Promise<import("./types").WallpaperRecord | null> { return invokeCmd("import_wallpaper"); }
+export async function deleteWallpaper(id: string): Promise<void> { return invokeCmd("delete_wallpaper", { id }); }
+export async function setActiveAppearance(settings: import("./types").AppearanceSettings): Promise<import("./types").AppearanceSettings> { return invokeCmd("set_active_appearance", { settings }); }
+export async function getWallpaperAttribution(id: string): Promise<import("./types").WallpaperAttribution> { return invokeCmd("get_wallpaper_attribution", { id }); }

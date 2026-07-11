@@ -10,6 +10,8 @@ mod import;
 pub use import::*;
 mod settings;
 pub use settings::*;
+mod wallpaper;
+pub use wallpaper::*;
 mod secrets;
 pub use secrets::*;
 mod tasks;
