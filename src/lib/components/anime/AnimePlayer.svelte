@@ -11,6 +11,7 @@
   import { AsyncState } from "../ui-v2";
   import { focusTrap } from "../../actions/a11y/focusTrap";
   import { focusWhenAvailable } from "./a11y";
+  import { AnimePlaybackShell } from "./playback";
 
   const status = $derived(animeStore.playerExtractStatus); // extracting | found | timeout | error
   const videoSrc = $derived(animeStore.playerVideoSrc);
@@ -26,6 +27,9 @@
   const road = $derived(roads[roadIdx]);
   const hasPrev = $derived(epIdx > 0 && status !== 'extracting');
   const hasNext = $derived(road ? epIdx < road.episodes.length - 1 && status !== 'extracting' : false);
+  const playbackSourceLabel = $derived(animeStore.playerRuleName || animeStore.detailRuleName || '规则源');
+  const episodePosition = $derived(road ? `${road.name} · ${epIdx + 1} / ${road.episodes.length}` : '');
+  const nextEpisodeTitle = $derived(hasNext ? (road?.episodes[epIdx + 1]?.name ?? '') : '');
 
   // 换源自愈状态
   const failoverStatus = $derived(animeStore.failoverStatus);
@@ -65,6 +69,7 @@
   let webFrameKey = $state(0);
   let isFullscreen = $state(false);
   let currentTime = $state(0);
+  let mediaAspectRatio = $state(16 / 9);
   let showCommentsPanel = $state(false);
   let commentsPanelTab = $state<'comments' | 'danmaku'>('comments');
   let downloading = $state(false);
@@ -389,6 +394,7 @@
     // 续播 + 倍速 + 跳片头：元数据就绪后执行
     const onLoadedMetadata = () => {
       debugLog("[播放器] loadedmetadata, duration:", v.duration);
+      if (v.videoWidth > 0 && v.videoHeight > 0) mediaAspectRatio = v.videoWidth / v.videoHeight;
       succeed();
       v.playbackRate = playbackRate;
       if (pendingSeekMs > 0) {
@@ -833,15 +839,25 @@
 >
   <h2 class="sr-only" id="anime-player-title">{animeStore.detailName} · {epName || "播放器"}</h2>
   <p class="sr-only" id="anime-player-status" aria-live="polite">{playerStatusTitle}。{playerStatusDescription}</p>
+
+  <AnimePlaybackShell
+    title={animeStore.detailName}
+    episodeTitle={epName || "未知集数"}
+    artworkUrl={animeStore.detailImage}
+    sourceLabel={playbackSourceLabel}
+    {episodePosition}
+    {nextEpisodeTitle}
+    aspectRatio={mediaAspectRatio}
+    fullscreen={isFullscreen}
+    panelOpen={showCommentsPanel || showEpisodePanel}
+    variant="classic"
+    stageLabel={`${animeStore.detailName} ${epName || "播放器"} 播放区域`}
+  >
+    {#snippet toolbar()}
   <div class="player-toolbar" role="toolbar" aria-label="播放器工具栏" tabindex="-1" onclick={handleToolbarClickOutside} onkeydown={(e) => { if (e.key === "Escape") { showSpeedMenu = false; showDanmakuSettings = false; showEpisodePanel = false; showCommentsPanel = false; } }}>
     <button class="tool-btn" type="button" data-player-close aria-label="关闭播放器并返回当前剧集" onclick={() => void closePlayer()}>
       <Icon name="x" size={16} /> 关闭
     </button>
-    <div class="toolbar-sep"></div>
-    <div class="ep-info">
-      <span class="ep-name">{epName || "未知集数"}</span>
-      <span class="ep-pos">{road ? `${epIdx + 1} / ${road.episodes.length}` : ""}</span>
-    </div>
     <div class="toolbar-sep"></div>
     <div class="ep-nav">
       <button class="nav-btn" type="button" aria-label="播放上一集" onclick={goPrev} disabled={!hasPrev}>
@@ -993,8 +1009,9 @@
       {/if}
     </div>
   </div>
+    {/snippet}
 
-  <div class="player-body-wrap">
+    {#snippet media()}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="player-body"
@@ -1112,7 +1129,9 @@
         </div>
       {/if}
     </div>
+    {/snippet}
 
+    {#snippet panel()}
     {#if showCommentsPanel}
       <section class="comments-panel" aria-labelledby="anime-comments-title">
         <div class="comments-header">
@@ -1191,8 +1210,9 @@
         </div>
       </section>
     {/if}
-  </div>
+    {/snippet}
 
+    {#snippet footer()}
   {#if !isFullscreen}
     <div class="player-bottom">
       <button class="bottom-btn" type="button" aria-label="播放上一集" onclick={goPrev} disabled={!hasPrev}>
@@ -1204,6 +1224,8 @@
       </button>
     </div>
   {/if}
+    {/snippet}
+  </AnimePlaybackShell>
 </div>
 
 <style>
@@ -1227,17 +1249,8 @@
     background: #000;
   }
   .player-overlay.fullscreen .player-toolbar {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 40;
-    background: linear-gradient(180deg, rgba(0,0,0,0.86), rgba(0,0,0,0.28));
+    background: linear-gradient(180deg, rgba(0,0,0,0.72), rgba(0,0,0,0.2));
     border-bottom: 0;
-  }
-  .player-overlay.fullscreen .player-body-wrap {
-    position: absolute;
-    inset: 0;
   }
   .player-overlay.fullscreen .player-body {
     width: 100%;
@@ -1433,12 +1446,6 @@
     font-size: 12.5px; cursor: pointer; transition: all 0.15s; flex-shrink: 0;
   }
   .tool-btn:hover { background: rgba(255, 255, 255, 0.1); color: var(--text-primary); }
-  .ep-info { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 1px; }
-  .ep-name {
-    font-size: 13px; font-weight: 650; color: var(--text-primary);
-    max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .ep-pos { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
   .ep-nav { display: flex; gap: 6px; flex-shrink: 0; }
   .nav-btn {
     display: inline-flex; align-items: center; gap: 4px;
@@ -1448,11 +1455,6 @@
   .nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
   .nav-btn:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
 
-  .player-body-wrap {
-    flex: 1; min-height: 0;
-    display: flex;
-    overflow: hidden;
-  }
   .player-body {
     flex: 1; min-height: 0;
     display: flex; align-items: center; justify-content: center;

@@ -96,10 +96,30 @@ test("v0.12 anime search, episode selection, extraction and automatic failover",
   await sourceSheet.getByRole("button", { name: "第1集" }).click();
 
   await expect(page.locator("video.player-video")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("anime-playback-shell")).toBeVisible();
+  for (const viewport of [{ width: 900, height: 600 }, { width: 1920, height: 1080 }]) {
+    await page.setViewportSize(viewport);
+    const bodyBox = await page.locator(".anime-playback-shell__body").boundingBox();
+    const videoBox = await page.locator("video.player-video").boundingBox();
+    expect(bodyBox?.width).toBeGreaterThan(0);
+    expect(videoBox?.width).toBeGreaterThan(0);
+    expect(videoBox?.width).toBeLessThanOrEqual(bodyBox?.width || 0);
+    expect(videoBox?.height).toBeLessThanOrEqual(bodyBox?.height || 0);
+  }
   const extractionCalls = await page.evaluate(() =>
     (window as any).__animeAcceptanceCalls
       .filter((entry: any) => entry.command === "anime_extract_video_url")
       .map((entry: any) => String(entry.args?.episodeUrl || "")),
   );
   expect(extractionCalls).toEqual(expect.arrayContaining(["/source-one/ep1", "/source-two/ep1"]));
+});
+
+test.describe("v0.13.4 anime player adaptive shell", () => {
+  test("reduced-motion keeps player keyboard escape and close controls available", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/?skip_wizard#anime");
+    await expect(page.getByTestId("anime-page")).toBeVisible();
+    await expect(page.locator(".anime-page")).toBeVisible();
+    await expect(page.locator(".anime-page")).toHaveCSS("scroll-behavior", "auto");
+  });
 });

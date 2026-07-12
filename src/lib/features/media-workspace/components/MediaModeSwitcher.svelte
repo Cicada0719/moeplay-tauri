@@ -21,7 +21,7 @@
   const modes: Array<{ id: MediaWorkspaceMode; label: string; hint: string }> = [
     { id: "visual", label: "视觉", hint: "继续与精选" },
     { id: "index", label: "索引", hint: "完整游戏库" },
-    { id: "scene", label: "场景", hint: "媒体拼贴" },
+    { id: "scene", label: "场景", hint: "连续场景流" },
   ];
 
   function moveFocus(event: KeyboardEvent, current: number) {
@@ -63,5 +63,3 @@
     </button>
   {/each}
 </div>
-
-

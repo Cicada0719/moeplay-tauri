@@ -118,6 +118,7 @@
     if (isBigPicture) return;
     const view = uiStore.currentView;
     uiStore.requestFocusSearch(view);
+    const originActive = document.activeElement;
     let attempt = 0;
     const focus = () => {
       if (uiStore.currentView !== view) {
@@ -133,7 +134,7 @@
       }
       const userMovedFocus = active instanceof HTMLElement
         && /^(BUTTON|A|INPUT|TEXTAREA|SELECT)$/.test(active.tagName);
-      if (attempt > 0 && userMovedFocus) {
+      if (attempt > 0 && userMovedFocus && active !== originActive) {
         uiStore.consumeFocusSearchSignal();
         return;
       }

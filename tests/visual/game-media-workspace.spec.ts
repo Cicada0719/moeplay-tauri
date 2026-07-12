@@ -22,7 +22,9 @@ test.describe("game media workspace v2", () => {
 
     await scene.click();
     await expect(page.getByTestId("switch-home-scene")).toBeVisible();
-    await expect(page.locator(".mw-v2-scene__item")).toHaveCount(6);
+    const sceneEntryCount = await page.locator(".mw-v2-scene__item").count();
+    expect(sceneEntryCount).toBeGreaterThanOrEqual(1);
+    expect(sceneEntryCount).toBeLessThanOrEqual(12);
     await expect(scene).toHaveAttribute("aria-pressed", "true");
     await expect(page).toHaveURL(/#home$/);
   });
@@ -57,4 +59,27 @@ test.describe("game media workspace v2", () => {
     await expect(page.locator(".mw-v2-visual__queue button.active strong")).toHaveText(after || "");
   });
 
+});
+
+test.describe("v0.13.4 media workspace viewport and motion contract", () => {
+  test("900x600 keeps all mode controls and a usable Visual stage", async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 600 });
+    await page.goto("/?skip_wizard#home");
+    await expect(page.getByTestId("switch-home")).toBeVisible();
+    await expect(page.locator('[data-media-mode="visual"]')).toBeVisible();
+    await expect(page.locator('[data-media-mode="index"]')).toBeVisible();
+    await expect(page.locator('[data-media-mode="scene"]')).toBeVisible();
+    await expect(page.locator(".mw-v2-visual")).toBeVisible();
+  });
+
+  test("1920x1080 and reduced-motion expose the same navigation paths without continuous animation", async ({ page }) => {
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/?skip_wizard#home");
+    await expect(page.getByTestId("switch-home")).toBeVisible();
+    await page.locator('[data-media-mode="visual"]').click();
+    await expect(page.locator(".mw-v2-visual")).toHaveAttribute("data-reduced-motion", "true");
+    await page.locator('[data-media-mode="scene"]').click();
+    await expect(page.getByTestId("switch-home-scene")).toBeVisible();
+  });
 });

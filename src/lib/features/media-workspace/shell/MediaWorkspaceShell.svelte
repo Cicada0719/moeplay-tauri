@@ -58,14 +58,14 @@
       <span>01 / CINEMATIC</span><strong>电影档案</strong><small>游戏模块固定导演语言</small>
     </div>
     <MediaModeSwitcher {mode} onModeChange={onModeChange} label="游戏库显示模式" />
-    <div class="mw-shell__hint"><span>CINEMATIC / {mode.toUpperCase()}</span><strong>{mode === "index" ? "原生浏览" : "滚轮切换作品"}</strong></div>
+    <div class="mw-shell__hint"><span>CINEMATIC / {mode.toUpperCase()}</span><strong>{mode === "index" ? "原生浏览" : mode === "scene" ? "滚轮浏览媒体流" : "滚轮切换作品"}</strong></div>
   </footer>
 </div>
 
 <style>
-  .mw-shell { position: relative; width: 100%; height: 100%; min-height: 0; display: grid; grid-template-rows: 58px minmax(0, 1fr) 78px; overflow: hidden; isolation: isolate; background: rgb(5 5 5 / .68); color: var(--text-primary); }
-  .mw-shell::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: linear-gradient(115deg, rgb(var(--media-primary-rgb, 70 76 88) / .12), transparent 46%), radial-gradient(circle at 72% 34%, rgb(var(--media-secondary-rgb, 70 76 88) / .1), transparent 44%); }
-  .mw-shell__topline { display: grid; grid-template-columns: minmax(210px, .45fr) minmax(260px, 1fr) auto; align-items: stretch; border-top: 1px solid rgb(255 255 255 / .12); border-bottom: 1px solid rgb(255 255 255 / .13); background: rgb(5 5 5 / .88); backdrop-filter: blur(18px); }
+  .mw-shell { position: relative; width: 100%; height: 100%; min-height: 0; display: grid; grid-template-rows: 56px minmax(0, 1fr) 68px; overflow: hidden; isolation: isolate; background: rgb(var(--media-surface-rgb, 13 16 20) / .74); color: var(--text-primary); }
+  .mw-shell::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: linear-gradient(115deg, rgb(var(--media-primary-rgb, 70 76 88) / .22), transparent 50%), radial-gradient(circle at 72% 34%, rgb(var(--media-secondary-rgb, 70 76 88) / .18), transparent 48%), linear-gradient(180deg, rgb(8 10 13 / .14), rgb(8 10 13 / .58)); }
+  .mw-shell__topline { display: grid; grid-template-columns: minmax(210px, .45fr) minmax(260px, 1fr) auto; align-items: stretch; border-top: 1px solid rgb(255 255 255 / .12); border-bottom: 1px solid rgb(255 255 255 / .13); background: rgb(var(--media-surface-rgb, 10 12 16) / .78); backdrop-filter: blur(18px) saturate(1.18); }
   .mw-shell__module { display: flex; align-items: center; gap: 11px; padding: 0 16px; border-right: 1px solid rgb(255 255 255 / .12); }
   .mw-shell__module { min-width: 0; }
   .mw-shell__module span, .mw-shell__module small { display: block; font-family: "JetBrains Mono", monospace; }
@@ -81,7 +81,7 @@
   .mw-shell__utilities button:hover { color: var(--text-primary); background: rgb(255 255 255 / .04); }
   .mw-shell__utilities button.legacy { color: var(--text-muted); }
   .mw-shell__stage { min-height: 0; overflow: hidden; }
-  .mw-shell__director { z-index: 8; display: grid; grid-template-columns: minmax(250px, 1fr) minmax(420px, 580px) minmax(170px, 1fr); align-items: stretch; border-top: 1px solid rgb(255 255 255 / .14); background: rgb(5 5 5 / .93); backdrop-filter: blur(20px); }
+  .mw-shell__director { z-index: 8; display: grid; grid-template-columns: minmax(250px, 1fr) minmax(420px, 580px) minmax(170px, 1fr); align-items: stretch; border-top: 1px solid rgb(255 255 255 / .14); background: rgb(var(--media-surface-rgb, 10 12 16) / .84); backdrop-filter: blur(20px) saturate(1.14); }
   .mw-shell__style-id { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; align-content: center; gap: 4px 11px; padding: 0 20px; border-right: 1px solid rgb(255 255 255 / .12); }
   .mw-shell__style-id span { grid-row: 1 / 3; align-self: center; color: var(--c-accent, #c7472f); font: 600 9px/1 var(--font-mono); letter-spacing: .1em; }
   .mw-shell__style-id strong { font-size: 11px; letter-spacing: .08em; }

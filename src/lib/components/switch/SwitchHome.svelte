@@ -12,9 +12,9 @@
   import { AdaptiveChromaStage } from "../../features/media-workspace/chroma";
   import { GameSceneV2, GameVisualV2 } from "../../features/media-workspace/v2";
   import { MediaWorkspaceShell } from "../../features/media-workspace/shell";
-  import { fileSrc } from "../../utils";
   import { adaptGamesToPresentation, type ContentMode, type MediaPresentationAction, type MediaPresentationItem } from "../../features/media-workspace/model";
   import { mediaWorkspaceState } from "../../features/media-workspace/state";
+  import { composeGameVisual } from "../../features/media-workspace/composition";
   import LibraryHealthPanel from "../library/LibraryHealthPanel.svelte";
   import { readLibraryV2Flag } from "../library/feature-flag";
 
@@ -101,7 +101,6 @@
   });
 
   const selected = $derived(gameStore.selectedGame ?? recent[0] ?? null);
-  const adaptiveChromaSource = $derived(selected ? fileSrc((selected.background || selected.metadata?.background || selected.cover || selected.metadata?.cover) ?? null) : null);
   const clock = $derived(now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }));
   const presentationItems = $derived.by(() => adaptGamesToPresentation(allGames, {
     open: (game) => onactivate(game.id),
@@ -109,7 +108,8 @@
     launch: onlaunch,
     toggleFavorite: (id) => gameStore.toggleFavorite(id),
   }));
-
+  const visualComposition = $derived.by(() => composeGameVisual(presentationItems, selected?.id ?? null));
+  const adaptiveChromaSource = $derived(visualComposition.chromaAsset?.src ?? null);
 
   $effect(() => {
     if (!gameStore.selectedGame && recent[0]) gameStore.selectGame(recent[0].id);

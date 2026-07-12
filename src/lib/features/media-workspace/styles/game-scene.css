@@ -1,0 +1,340 @@
+/* v0.13.4 Game Scene — continuous media flow. Kept separate from the shared workspace sheet. */
+.mw-v2-scene--flow {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+  background:
+    linear-gradient(90deg, rgb(3 4 6 / .92), transparent 23% 72%, rgb(3 4 6 / .82)),
+    radial-gradient(circle at 68% 42%, rgb(var(--media-primary-rgb, 42 48 58) / .2), transparent 48%),
+    #05070a;
+  isolation: isolate;
+  outline: none;
+}
+
+.mw-v2-scene--flow::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgb(2 3 5 / .7), transparent 18% 72%, rgb(2 3 5 / .84)),
+    repeating-linear-gradient(90deg, rgb(255 255 255 / .025) 0 1px, transparent 1px 12.5vw);
+}
+
+.mw-v2-scene--flow:focus-within {
+  box-shadow: inset 0 0 0 2px var(--v2-accent);
+}
+
+.mw-v2-scene__header--overlay {
+  position: absolute;
+  z-index: 12;
+  inset: 0 0 auto;
+  align-items: start;
+  padding: clamp(18px, 2.4vw, 34px) clamp(18px, 3vw, 46px);
+  border: 0;
+  pointer-events: none;
+}
+
+.mw-v2-scene__header--overlay h1 {
+  margin-top: 8px;
+  font-size: clamp(38px, 5.2vw, 78px);
+}
+
+.mw-v2-scene__focus-readout {
+  max-width: min(32vw, 390px);
+  padding-top: 9px;
+  border-top: 1px solid rgb(255 255 255 / .32);
+}
+
+.mw-v2-scene__focus-readout strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: clamp(14px, 1.5vw, 21px);
+}
+
+.mw-v2-scene__viewport {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+
+.mw-v2-scene--flow[data-dragging="true"] .mw-v2-scene__viewport { cursor: grabbing; }
+
+.mw-v2-scene__track {
+  position: absolute;
+  inset: clamp(94px, 14vh, 150px) auto clamp(106px, 16vh, 170px) 0;
+  display: flex;
+  align-items: center;
+  gap: clamp(20px, 3vw, 52px);
+  width: max-content;
+  will-change: transform;
+}
+
+.mw-v2-scene--flow .mw-v2-scene__flow-item,
+.mw-v2-scene--flow .mw-v2-scene__item--1,
+.mw-v2-scene--flow .mw-v2-scene__item--2,
+.mw-v2-scene--flow .mw-v2-scene__item--3,
+.mw-v2-scene--flow .mw-v2-scene__item--4,
+.mw-v2-scene--flow .mw-v2-scene__item--5,
+.mw-v2-scene--flow .mw-v2-scene__item--6 {
+  position: relative;
+  flex: 0 0 clamp(320px, 62vw, 1080px);
+  width: clamp(320px, 62vw, 1080px);
+  height: 100%;
+  min-height: 240px;
+  margin: 0;
+  opacity: .22;
+  transform: scale(.82);
+  transform-origin: center;
+  transition: opacity 360ms ease, transform 620ms cubic-bezier(.22, 1, .36, 1), filter 360ms ease;
+  filter: saturate(.55) brightness(.62);
+}
+
+.mw-v2-scene--flow .mw-v2-scene__flow-item[data-role="portrait"] {
+  flex-basis: clamp(240px, 32vw, 520px);
+  width: clamp(240px, 32vw, 520px);
+}
+
+.mw-v2-scene--flow .mw-v2-scene__flow-item.near {
+  opacity: .48;
+  transform: scale(.9);
+  filter: saturate(.72) brightness(.78);
+}
+
+.mw-v2-scene--flow .mw-v2-scene__flow-item.active {
+  z-index: 2;
+  opacity: 1;
+  transform: scale(1);
+  filter: none;
+}
+
+.mw-v2-scene--flow .mw-v2-scene__flow-item button {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border: 0;
+  background: #0a0b0d;
+  color: #fff;
+  box-shadow: none;
+  cursor: inherit;
+}
+
+.mw-v2-scene--flow .mw-v2-scene__flow-item button::after {
+  border-color: rgb(255 255 255 / .16);
+  background:
+    linear-gradient(180deg, rgb(0 0 0 / .08) 45%, rgb(0 0 0 / .82)),
+    linear-gradient(90deg, rgb(0 0 0 / .32), transparent 40% 78%, rgb(0 0 0 / .22));
+}
+
+.mw-v2-scene--flow .mw-v2-scene__flow-item.active button {
+  box-shadow: 0 0 0 1px rgb(255 255 255 / .26), 0 26px 80px rgb(0 0 0 / .46);
+}
+
+.mw-v2-scene__flow-item .mw-artwork,
+.mw-v2-scene__flow-item .mw-artwork img {
+  width: 100%;
+  height: 100%;
+}
+
+.mw-v2-scene__flow-item .mw-artwork img {
+  object-fit: cover;
+  transition: transform 900ms cubic-bezier(.22, 1, .36, 1), filter 360ms ease;
+}
+
+.mw-v2-scene__flow-item.active .mw-artwork img { transform: scale(1.025); }
+.mw-v2-scene--flow[data-dragging="true"] .mw-v2-scene__flow-item.active .mw-artwork img { transform: scale(1.045); }
+
+.mw-v2-scene__shade {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent 52%, rgb(0 0 0 / .68));
+}
+
+.mw-v2-scene--flow .mw-v2-scene__index {
+  top: 14px;
+  left: 16px;
+  padding: 5px 7px;
+  border: 1px solid rgb(255 255 255 / .28);
+  background: rgb(0 0 0 / .28);
+  backdrop-filter: blur(8px);
+  letter-spacing: .12em;
+}
+
+.mw-v2-scene--flow .mw-v2-scene__caption {
+  left: clamp(16px, 2.4vw, 34px);
+  right: clamp(16px, 2.4vw, 34px);
+  bottom: clamp(15px, 2.5vw, 32px);
+}
+
+.mw-v2-scene--flow .mw-v2-scene__caption strong {
+  max-width: 70%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: clamp(20px, 3vw, 48px);
+  letter-spacing: -.035em;
+}
+
+.mw-v2-scene--flow .mw-v2-scene__caption small {
+  color: rgb(255 255 255 / .66);
+  letter-spacing: .14em;
+}
+
+.mw-v2-scene__focus-frame {
+  position: absolute;
+  z-index: 7;
+  left: 50%;
+  top: 50%;
+  width: min(65vw, 1110px);
+  height: calc(100% - clamp(205px, 30vh, 320px));
+  min-height: 250px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.mw-v2-scene__focus-frame i {
+  position: absolute;
+  width: clamp(22px, 2.8vw, 42px);
+  height: clamp(22px, 2.8vw, 42px);
+  border-color: rgb(255 255 255 / .72);
+  border-style: solid;
+}
+
+.mw-v2-scene__focus-frame i:nth-child(1) { left: -10px; top: -10px; border-width: 1px 0 0 1px; }
+.mw-v2-scene__focus-frame i:nth-child(2) { right: -10px; top: -10px; border-width: 1px 1px 0 0; }
+.mw-v2-scene__focus-frame i:nth-child(3) { right: -10px; bottom: -10px; border-width: 0 1px 1px 0; }
+.mw-v2-scene__focus-frame i:nth-child(4) { left: -10px; bottom: -10px; border-width: 0 0 1px 1px; }
+
+.mw-v2-scene__map {
+  position: absolute;
+  z-index: 14;
+  top: 50%;
+  right: clamp(10px, 1.7vw, 28px);
+  width: clamp(54px, 5.3vw, 78px);
+  transform: translateY(-50%);
+  color: #fff;
+}
+
+.mw-v2-scene__map > span {
+  display: block;
+  margin-bottom: 8px;
+  color: rgb(255 255 255 / .52);
+  font: 600 8px/1 "JetBrains Mono", monospace;
+  letter-spacing: .14em;
+  text-align: right;
+}
+
+.mw-v2-scene__map > div {
+  display: grid;
+  gap: 5px;
+  max-height: min(62vh, 590px);
+  overflow: hidden;
+}
+
+.mw-v2-scene__map button {
+  position: relative;
+  width: 100%;
+  height: clamp(28px, 4.2vh, 45px);
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid rgb(255 255 255 / .14);
+  background: rgb(5 7 10 / .62);
+  color: #fff;
+  opacity: .34;
+  cursor: pointer;
+  transition: opacity 180ms ease, border-color 180ms ease, transform 240ms cubic-bezier(.22, 1, .36, 1);
+}
+
+.mw-v2-scene__map button:hover,
+.mw-v2-scene__map button.active {
+  opacity: 1;
+  border-color: rgb(255 255 255 / .72);
+  transform: translateX(-5px);
+}
+
+.mw-v2-scene__map button img { width: 100%; height: 100%; object-fit: cover; filter: saturate(.65); }
+.mw-v2-scene__map button span { display: grid; place-items: center; height: 100%; font: 600 9px/1 "JetBrains Mono", monospace; }
+.mw-v2-scene__map button i { position: absolute; inset: auto 0 0; height: 2px; background: var(--v2-accent); transform: scaleX(0); transform-origin: left; transition: transform 240ms ease; }
+.mw-v2-scene__map button.active i { transform: scaleX(1); }
+
+.mw-v2-scene__footer--overlay {
+  position: absolute;
+  z-index: 12;
+  inset: auto clamp(18px, 3vw, 46px) 0;
+  min-height: clamp(82px, 13vh, 126px);
+  padding: 22px 0 clamp(16px, 2vw, 28px);
+  background: none;
+  pointer-events: none;
+}
+
+.mw-v2-scene__footer--overlay > * { pointer-events: auto; }
+.mw-v2-scene__footer--overlay p { max-width: min(47vw, 680px); }
+
+.mw-v2-scene__instructions {
+  position: absolute;
+  z-index: 13;
+  right: clamp(94px, 9vw, 140px);
+  bottom: 16px;
+  max-width: 42ch;
+  margin: 0;
+  color: rgb(255 255 255 / .48);
+  font: 500 8px/1.45 "JetBrains Mono", monospace;
+  letter-spacing: .08em;
+  text-align: right;
+}
+
+@media (max-width: 900px) {
+  .mw-v2-scene__header--overlay { padding: 16px; }
+  .mw-v2-scene__header--overlay h1 { font-size: clamp(34px, 9vw, 58px); }
+  .mw-v2-scene__focus-readout { display: none !important; }
+  .mw-v2-scene__track { inset-block: 92px 126px; gap: 18px; }
+  .mw-v2-scene--flow .mw-v2-scene__flow-item,
+  .mw-v2-scene--flow .mw-v2-scene__flow-item[data-role="portrait"] {
+    flex-basis: calc(100vw - 70px);
+    width: calc(100vw - 70px);
+    min-height: 220px;
+  }
+  .mw-v2-scene__focus-frame { width: calc(100vw - 50px); height: calc(100% - 218px); }
+  .mw-v2-scene__map { right: 7px; width: 38px; }
+  .mw-v2-scene__map > span { display: none; }
+  .mw-v2-scene__map > div { gap: 3px; max-height: 50vh; }
+  .mw-v2-scene__map button { height: 24px; }
+  .mw-v2-scene__footer--overlay { inset-inline: 16px 54px; padding-bottom: 14px; }
+  .mw-v2-scene__footer--overlay p { display: none; }
+  .mw-v2-scene__instructions { display: none; }
+}
+
+@media (max-width: 560px), (max-height: 620px) {
+  .mw-v2-scene__header--overlay h1 { font-size: 34px; }
+  .mw-v2-scene__header--overlay .mw-v2-kicker { font-size: 8px; }
+  .mw-v2-scene__track { inset-block: 76px 92px; }
+  .mw-v2-scene__focus-frame { height: calc(100% - 172px); min-height: 180px; }
+  .mw-v2-scene--flow .mw-v2-scene__caption strong { font-size: 20px; }
+  .mw-v2-scene--flow .mw-v2-scene__caption small { display: none; }
+  .mw-v2-scene__footer--overlay { min-height: 76px; }
+  .mw-v2-scene__footer--overlay .mw-v2-action { min-height: 38px; padding-inline: 12px; }
+  .mw-v2-scene__footer--overlay .mw-v2-action--accent { min-width: 112px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mw-v2-scene--flow .mw-v2-scene__flow-item,
+  .mw-v2-scene__flow-item .mw-artwork img,
+  .mw-v2-scene__map button,
+  .mw-v2-scene__map button i {
+    transition: none !important;
+  }
+  .mw-v2-scene__flow-item.active .mw-artwork img,
+  .mw-v2-scene--flow[data-dragging="true"] .mw-v2-scene__flow-item.active .mw-artwork img {
+    transform: none;
+  }
+}

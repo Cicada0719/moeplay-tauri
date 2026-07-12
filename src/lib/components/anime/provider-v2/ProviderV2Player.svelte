@@ -6,6 +6,7 @@
   import Icon from "../../Icon.svelte";
   import { AsyncState } from "../../ui-v2";
   import { focusTrap } from "../../../actions/a11y/focusTrap";
+  import { AnimePlaybackShell } from "../playback";
 
   let {
     resolution,
@@ -25,10 +26,13 @@
 
   let videoElement = $state<HTMLVideoElement | null>(null);
   let playbackError = $state("");
+  let mediaAspectRatio = $state(16 / 9);
   let hls: Hls | null = null;
 
   const target = $derived(resolution.target);
   const canPlayInternally = $derived(target.mode === "native_hls" || target.mode === "native_file");
+  const sourceLabel = $derived(`Provider v2 · ${episode.identity.providerId}`);
+  const episodePosition = $derived(episode.number === null ? "" : `EP ${String(episode.number).padStart(2, "0")}`);
   const statusTitle = $derived.by(() => {
     if (target.mode === "webview") return "需要安全网页窗口";
     if (target.mode === "external") return "需要交给外部浏览器";
@@ -52,9 +56,15 @@
     }
   }
 
+  function updateMediaRatio() {
+    if (!videoElement?.videoWidth || !videoElement.videoHeight) return;
+    mediaAspectRatio = videoElement.videoWidth / videoElement.videoHeight;
+  }
+
   async function attachPlayback() {
     destroyPlayback();
     playbackError = "";
+    mediaAspectRatio = 16 / 9;
     if (!videoElement) return;
     if (target.mode === "native_file") {
       videoElement.src = convertFileSrc(target.path);
@@ -106,61 +116,72 @@
   tabindex="-1"
   use:focusTrap={{ initialFocus: '[data-provider-player-close]', returnFocus: true, closeOnEscape: true, onEscape: onClose }}
 >
-  <div class="player-shell">
-    <header class="player-header">
-      <div class="player-heading">
-        <span class="eyebrow">Provider v2</span>
-        <h2 id="provider-player-title">{seriesTitle}</h2>
-        <p id="provider-player-description">{episode.title}</p>
-      </div>
+  <span class="sr-only" id="provider-player-title">{seriesTitle}</span>
+  <span class="sr-only" id="provider-player-description">{episode.title}</span>
+
+  <AnimePlaybackShell
+    title={seriesTitle}
+    episodeTitle={episode.title}
+    artworkUrl={episode.artworkUrl}
+    {sourceLabel}
+    {episodePosition}
+    aspectRatio={mediaAspectRatio}
+    variant="provider"
+    stageLabel={`${seriesTitle} ${episode.title} 播放区域`}
+  >
+    {#snippet headerActions()}
       <button class="icon-button" data-provider-player-close type="button" aria-label="关闭播放器并返回剧集" onclick={onClose}>
         <Icon name="x" size={18} />
       </button>
-    </header>
+    {/snippet}
 
-    <div class="player-stage" class:handoff={!canPlayInternally}>
-      {#if canPlayInternally}
-        <video
-          bind:this={videoElement}
-          controls
-          autoplay
-          playsinline
-          preload="metadata"
-          onerror={handleVideoError}
-          aria-label={`${seriesTitle} ${episode.title}`}
-        ></video>
-        {#if playbackError}
-          <div class="playback-notice" role="alert">
-            <Icon name="info" size={18} />
-            <span>{playbackError}</span>
-            {#if target.mode === "native_file"}
-              <button type="button" onclick={onFallback} disabled={openingFallback}>
-                {openingFallback ? "正在打开" : "使用系统播放器"}
-              </button>
-            {/if}
+    {#snippet media()}
+      <div class="player-stage" class:handoff={!canPlayInternally}>
+        {#if canPlayInternally}
+          <video
+            bind:this={videoElement}
+            controls
+            autoplay
+            playsinline
+            preload="metadata"
+            onloadedmetadata={updateMediaRatio}
+            onerror={handleVideoError}
+            aria-label={`${seriesTitle} ${episode.title}`}
+          ></video>
+          {#if playbackError}
+            <div class="playback-notice" role="alert">
+              <Icon name="info" size={18} />
+              <span>{playbackError}</span>
+              {#if target.mode === "native_file"}
+                <button type="button" onclick={onFallback} disabled={openingFallback}>
+                  {openingFallback ? "正在打开" : "使用系统播放器"}
+                </button>
+              {/if}
+            </div>
+          {/if}
+        {:else}
+          <div class="handoff-card">
+            <AsyncState
+              state={target.mode === "unsupported" ? "error" : openingFallback ? "loading" : "partial"}
+              title={statusTitle}
+              description={statusMessage}
+              loadingDelayMs={0}
+              primaryAction={target.mode === "webview" || target.mode === "external" ? {
+                label: openingFallback ? "正在确认" : target.mode === "webview" ? "打开安全窗口" : "在浏览器中打开",
+                onSelect: () => void onFallback(),
+                disabled: openingFallback,
+                loading: openingFallback,
+              } : undefined}
+            />
           </div>
         {/if}
-      {:else}
-        <div class="handoff-card">
-          <AsyncState
-            state={target.mode === "unsupported" ? "error" : openingFallback ? "loading" : "partial"}
-            title={statusTitle}
-            description={statusMessage}
-            loadingDelayMs={0}
-            primaryAction={target.mode === "webview" || target.mode === "external" ? {
-              label: openingFallback ? "正在确认" : target.mode === "webview" ? "打开安全窗口" : "在浏览器中打开",
-              onSelect: () => void onFallback(),
-              disabled: openingFallback,
-              loading: openingFallback,
-            } : undefined}
-          />
-        </div>
-      {/if}
-    </div>
-  </div>
+      </div>
+    {/snippet}
+  </AnimePlaybackShell>
 </div>
 
 <style>
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
   .player-backdrop {
     position: absolute;
     inset: 0;
@@ -171,39 +192,6 @@
     background: rgba(4, 6, 12, 0.88);
     backdrop-filter: blur(16px);
   }
-  .player-shell {
-    width: min(1180px, 100%);
-    max-height: calc(100% - 12px);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 18px;
-    background: #090b10;
-    box-shadow: 0 28px 80px rgba(0,0,0,0.5);
-  }
-  .player-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 20px;
-    padding: 15px 18px;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
-  }
-  .player-heading { min-width: 0; }
-  .eyebrow {
-    display: block;
-    margin-bottom: 4px;
-    color: #77c7b3;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 750;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-  }
-  h2, p { margin: 0; }
-  h2 { overflow: hidden; color: #f7f8fb; font-size: 17px; text-overflow: ellipsis; white-space: nowrap; }
-  .player-heading p { margin-top: 3px; color: #9299a8; font-size: 12px; }
   .icon-button {
     width: 36px;
     height: 36px;
@@ -219,14 +207,16 @@
   .icon-button:hover { background: rgba(255,255,255,0.09); color: white; }
   .player-stage {
     position: relative;
-    min-height: 360px;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
     display: grid;
     place-items: center;
-    background: #030406;
-    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    background: #000;
   }
-  .player-stage.handoff { aspect-ratio: auto; min-height: 470px; padding: 48px; }
-  video { width: 100%; height: 100%; object-fit: contain; background: black; }
+  .player-stage.handoff { padding: clamp(20px, 5vw, 48px); }
+  video { width: 100%; height: 100%; object-fit: contain; background: transparent; }
   .playback-notice {
     position: absolute;
     left: 18px;
@@ -248,20 +238,20 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
+    padding: 7px 10px;
     border: 0;
     border-radius: 9px;
     background: #58ad98;
     color: #06110e;
     font: inherit;
+    font-size: 11px;
     font-weight: 750;
     cursor: pointer;
   }
-  .playback-notice button { padding: 7px 10px; font-size: 11px; }
   button:disabled { opacity: 0.55; cursor: wait; }
   .handoff-card {
     width: min(620px, 100%);
     display: grid;
-    grid-template-columns: 1fr;
     gap: 18px;
     padding: 28px;
     border: 1px solid rgba(255,255,255,0.1);
@@ -269,11 +259,9 @@
     background: rgba(255,255,255,0.035);
   }
   @media (max-width: 700px) {
-    .player-backdrop { padding: 10px; }
-    .player-stage.handoff { min-height: 380px; padding: 20px; }
-    .handoff-card { grid-template-columns: 1fr; }
+    .player-backdrop { padding: 0; }
+    .handoff-card { padding: 20px; }
   }
-
   @media (prefers-reduced-motion: reduce) {
     .player-backdrop, .player-backdrop * { animation: none !important; transition: none !important; }
   }

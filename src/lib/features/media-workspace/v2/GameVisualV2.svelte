@@ -1,5 +1,7 @@
 <script lang="ts">
   import "../styles/media-workspace.css";
+  import "../styles/game-visual.css";
+  import { composeGameVisual, compareContinueCandidates, type VisualMediaSlot } from "../composition";
   import MediaArtwork from "../components/MediaArtwork.svelte";
   import { findAction, formatPlaytime, runAction, statusLabel } from "../components/viewHelpers";
   import type { MediaPresentationItem, MediaWorkspaceViewActions } from "../components/types";
@@ -24,23 +26,11 @@
     return () => query.removeEventListener("change", update);
   });
 
-  const navigationOrder = $derived([...items].sort((a, b) =>
-    (Date.parse(b.metadata.lastPlayed || "") || b.metadata.totalSeconds || 0)
-      - (Date.parse(a.metadata.lastPlayed || "") || a.metadata.totalSeconds || 0),
-  ));
-  const ordered = $derived([...navigationOrder].sort((a, b) => {
-    if (a.id === selectedId) return -1;
-    if (b.id === selectedId) return 1;
-    return 0;
-  }));
-  const featured = $derived(ordered[0] ?? null);
-  const selectableItems = $derived(navigationOrder.filter((item) => Boolean(findAction(item, "select"))));
-  const fragments = $derived.by(() => {
-    if (!featured) return [];
-    const assets = [featured.hero, ...featured.screenshots, featured.cover].filter(Boolean);
-    const crossTitle = ordered.slice(1, 4).flatMap((item) => [item.hero, item.cover]).filter(Boolean);
-    return [...assets, ...crossTitle].slice(0, 5);
-  });
+  const composition = $derived(composeGameVisual(items, selectedId));
+  const featured = $derived(composition.selectedItem);
+  const navigationOrder = $derived([...items]
+    .filter((item) => Boolean(findAction(item, "select")))
+    .sort(compareContinueCandidates));
   const launch = $derived(featured ? findAction(featured, "launch") : undefined);
   const open = $derived(featured ? findAction(featured, "open") : undefined);
   const favorite = $derived(featured ? findAction(featured, "toggle-favorite") : undefined);
@@ -64,8 +54,8 @@
   }
 
   function selectAdjacent(direction: StepDirection): void {
-    if (!featured || selectableItems.length < 2) return;
-    const item = adjacentItem(selectableItems, featured.id, direction);
+    if (!featured || navigationOrder.length < 2) return;
+    const item = adjacentItem(navigationOrder, featured.id, direction);
     if (item && item.id !== featured.id) runAction(item, "select", onAction);
   }
 
@@ -97,12 +87,28 @@
     event.preventDefault();
     selectAdjacent(event.key === "ArrowDown" ? 1 : -1);
   }
+
+  function activateSlot(slot: VisualMediaSlot): void {
+    const action = slot.action;
+    if (action.type === "none") return;
+    const item = items.find((candidate) => candidate.id === action.itemId);
+    if (!item || slot.ownerItemId !== item.id) return;
+    if (action.type === "select-item") runAction(item, "select", onAction);
+    else runAction(item, "open", onAction);
+  }
+
+  function slotDescription(slot: VisualMediaSlot): string {
+    if (!slot.item) return `${slot.label}，暂无内容`;
+    if (slot.action.type === "select-item") return `${slot.label}：切换到 ${slot.item.title}`;
+    if (slot.action.type === "open-media") return `${slot.label}：查看 ${slot.item.title} 的媒体与详情`;
+    return `${slot.label}：打开 ${slot.item.title}`;
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <section
-  class="mw-v2-visual"
+  class="mw-v2-visual gv-stage"
   aria-labelledby="mw-v2-visual-title"
   aria-describedby="mw-v2-visual-navigation-hint"
   tabindex="0"
@@ -110,51 +116,72 @@
   onwheel={handleWheel}
   onkeydown={handleKeydown}
 >
-  <span id="mw-v2-visual-navigation-hint" class="mw-v2-visual__sr-only">在舞台空白处滚动或按上下方向键可逐项切换游戏</span>
+  <span id="mw-v2-visual-navigation-hint" class="gv-sr-only">在舞台空白处滚动或按上下方向键可逐项切换游戏</span>
+
   {#if featured}
-    <div class="mw-v2-visual__ambient" aria-hidden="true">
-      <MediaArtwork src={(featured.hero || featured.cover)?.src} alt="" title={featured.title} eager />
-    </div>
-    <div class="mw-v2-visual__grid" aria-hidden="true"></div>
+    {#if composition.backgroundAsset}
+      <div class="gv-background" aria-hidden="true">
+        <MediaArtwork src={composition.backgroundAsset.src} alt="" title={featured.title} eager />
+      </div>
+    {/if}
+    <div class="gv-background-tint" aria-hidden="true"></div>
+    <div class="gv-grid" aria-hidden="true"></div>
 
-    <div class="mw-v2-visual__folio">
-      <span>MOEPLAY / PERSONAL MEDIA HOST</span>
-      <strong>{String(items.length).padStart(3, "0")}</strong>
-    </div>
+    <header class="gv-folio">
+      <span>MOEPLAY / VISUAL ARCHIVE</span>
+      <strong>{String(items.length).padStart(3, "0")} TITLES</strong>
+    </header>
 
-    <article class="mw-v2-visual__story">
+    <article class="gv-story">
       <p class="mw-v2-kicker">CURRENT ARCHIVE — {featured.metadata.releaseYear || "UNDATED"}</p>
       <h1 id="mw-v2-visual-title">{featured.title}</h1>
-      <p class="mw-v2-visual__original">{featured.originalTitle || featured.metadata.developer || "PRIVATE GAME ARCHIVE"}</p>
-      <p class="mw-v2-visual__summary">{featured.description || `重新进入 ${featured.title}。游玩记录、媒体、存档与收藏将在同一个作品档案中继续。`}</p>
-      <dl class="mw-v2-visual__facts">
+      <p class="gv-original">{featured.originalTitle || featured.metadata.developer || "PRIVATE GAME ARCHIVE"}</p>
+      <p class="gv-summary">{featured.description || `重新进入 ${featured.title}。游玩记录、媒体、存档与收藏将在同一个作品档案中继续。`}</p>
+      <dl class="gv-facts">
         <div><dt>状态</dt><dd>{statusLabel(featured.metadata.completionStatus)}</dd></div>
         <div><dt>时长</dt><dd>{formatPlaytime(featured.metadata.totalSeconds)}</dd></div>
         <div><dt>平台</dt><dd>{featured.metadata.platform || "PC"}</dd></div>
       </dl>
-      <div class="mw-v2-visual__actions">
+      <div class="gv-actions">
         {#if launch}<button class="mw-v2-action mw-v2-action--accent" onclick={() => runAction(featured, "launch", onAction)}><span>{launch.label}</span><i aria-hidden="true"></i></button>{/if}
         {#if open}<button class="mw-v2-action" onclick={() => runAction(featured, "open", onAction)}>打开作品档案</button>{/if}
         {#if favorite}<button class="mw-v2-action mw-v2-action--quiet" aria-pressed={favorite.active ?? featured.favorite} onclick={() => runAction(featured, "toggle-favorite", onAction)}>{favorite.active ?? featured.favorite ? "已收藏" : "收藏"}</button>{/if}
       </div>
     </article>
 
-    <div class="mw-v2-visual__media" data-count={fragments.length}>
-      {#each fragments as asset, index (asset?.id)}
+    <div class="gv-media" aria-label="作品媒体编排">
+      {#each composition.slots as slot (slot.id)}
         <button
-          class={`mw-v2-fragment mw-v2-fragment--${index + 1}`}
+          class={`gv-slot gv-slot--${slot.role}`}
+          class:gv-slot--empty={!slot.asset}
           type="button"
-          onclick={() => index === 0 ? runAction(featured, "open", onAction) : runAction(ordered[Math.min(index, ordered.length - 1)] || featured, "select", onAction)}
-          aria-label={index === 0 ? `打开 ${featured.title}` : `切换媒体 ${index + 1}`}
+          disabled={slot.action.type === "none"}
+          data-visual-slot={slot.role}
+          data-owner-item-id={slot.ownerItemId ?? ""}
+          data-action-type={slot.action.type}
+          onclick={() => activateSlot(slot)}
+          aria-label={slotDescription(slot)}
         >
-          <MediaArtwork src={asset?.src} alt={asset?.alt || ""} title={featured.title} eager={index < 2} />
-          <span>{String(index + 1).padStart(2, "0")}</span>
+          {#if slot.asset}
+            <MediaArtwork src={slot.asset.src} alt={slot.asset.alt} title={slot.item?.title || featured.title} eager={slot.role === "lead"} />
+          {:else}
+            <span class="gv-placeholder" aria-hidden="true">
+              <small>{slot.label.toUpperCase()}</small>
+              <strong>{slot.role === "scene-a" || slot.role === "scene-b" ? "NO SCENE" : "AWAITING MEDIA"}</strong>
+              <i></i>
+            </span>
+          {/if}
+          <span class="gv-slot-shade" aria-hidden="true"></span>
+          <span class="gv-slot-caption">
+            <small>{slot.label}</small>
+            <strong>{slot.item?.title || "媒体待补全"}</strong>
+          </span>
         </button>
       {/each}
     </div>
 
-    <nav class="mw-v2-visual__queue" aria-label="最近游戏">
-      {#each ordered.slice(0, 6) as item, index (item.id)}
+    <nav class="mw-v2-visual__queue gv-queue" aria-label="最近游戏">
+      {#each navigationOrder.slice(0, 6) as item, index (item.id)}
         <button class:active={item.id === featured.id} onclick={() => runAction(item, "select", onAction)} aria-current={item.id === featured.id ? "true" : undefined}>
           <span>{String(index + 1).padStart(2, "0")}</span>
           <strong>{item.title}</strong>
@@ -163,40 +190,9 @@
       {/each}
     </nav>
   {:else}
-    <div class="mw-v2-empty">
+    <div class="mw-v2-empty gv-empty">
       <span>ARCHIVE 000</span><h1 id="mw-v2-visual-title">建立你的第一份游戏档案</h1><p>导入游戏后，MoePlay 会以封面、场景、记录与存档重组你的私人媒体主页。</p>
       {#if onImport}<button class="mw-v2-action mw-v2-action--accent" onclick={() => void onImport?.()}><span>导入游戏</span><i aria-hidden="true"></i></button>{/if}
     </div>
   {/if}
 </section>
-
-
-<style>
-  .mw-v2-visual__sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
-  }
-
-  .mw-v2-visual:focus-visible {
-    outline: 2px solid var(--v2-accent);
-    outline-offset: -4px;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .mw-v2-visual,
-    .mw-v2-visual * {
-      scroll-behavior: auto !important;
-      transition-duration: 0.001ms !important;
-      animation-duration: 0.001ms !important;
-      animation-iteration-count: 1 !important;
-    }
-  }
-</style>
-
