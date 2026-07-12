@@ -19,7 +19,7 @@ const metadata = {
   generatedAt: new Date().toISOString(),
   commit: process.env.GITHUB_SHA ?? command("git", ["rev-parse", "HEAD"]),
   ref: process.env.GITHUB_REF_NAME ?? command("git", ["branch", "--show-current"]),
-  dirty: Boolean(command("git", ["status", "--porcelain"])),
+  dirty: Boolean(command("git", ["status", "--porcelain", "--untracked-files=no"])),
   runner: { os: os.platform(), release: os.release(), arch: os.arch(), githubRunner: process.env.RUNNER_OS ?? null },
   toolchain: {
     node: process.version,

@@ -31,4 +31,6 @@ test("release evidence contains versioned SBOM and toolchain metadata", () => {
   assert.match(metadata.toolchain.rustc, /^rustc /);
   assert.match(metadata.toolchain.node, /^v\d+/);
   assert.equal(typeof metadata.dirty, "boolean");
+  const metadataSource = fs.readFileSync(path.join(root, "scripts", "generate-build-metadata.mjs"), "utf8");
+  assert.match(metadataSource, /status", "--porcelain", "--untracked-files=no"/);
 });
