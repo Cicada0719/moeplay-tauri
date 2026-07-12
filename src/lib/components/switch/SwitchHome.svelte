@@ -49,12 +49,14 @@
   const pendingMediaActions = new Set<string>();
 
   const allGames = $derived(gameStore.allGames);
+  const availabilityGames = $derived(gameStore.availabilityGames);
+  const localOnly = $derived(gameStore.availabilityScope === "local");
   const searching = $derived(!!gameStore.searchQuery.trim());
   const workspaceMode = $derived(mediaWorkspaceState.memoryFor("games").mode);
   const effectiveMode = $derived<ContentMode>(searching ? "index" : workspaceMode);
   const showGrid = $derived(effectiveMode === "index");
   const allGamesTitle = $derived(
-    searching ? `搜索：${gameStore.searchQuery}` : uiStore.viewMode === "list" ? "列表视图" : uiStore.viewMode === "compact" ? "封面墙" : "全部游戏",
+    searching ? `搜索：${gameStore.searchQuery}` : localOnly ? "本地已安装" : uiStore.viewMode === "list" ? "列表视图" : uiStore.viewMode === "compact" ? "封面墙" : "全部游戏",
   );
   const activeFilterLabel = $derived(quickFilters.find((item) => item.id === (gameStore.quickFilter ?? ""))?.label ?? "全部");
   const activeFilterCount = $derived([
@@ -62,18 +64,19 @@
     Boolean(gameStore.quickFilter),
     Boolean(gameStore.filterTag),
     gameStore.sortBy !== "recent",
+    localOnly,
   ].filter(Boolean).length);
   const libraryState = $derived.by<ViewState>(() => {
-    if (gameStore.loadError && allGames.length > 0) return "partial";
+    if (gameStore.loadError && availabilityGames.length > 0) return "partial";
     if (gameStore.loadError) return "error";
-    if (gameStore.loading && allGames.length > 0) return "refreshing";
+    if (gameStore.loading && availabilityGames.length > 0) return "refreshing";
     if (gameStore.loading) return "loading";
-    if (allGames.length === 0) return "empty";
+    if (availabilityGames.length === 0) return "empty";
     return "ready";
   });
   const tagOptions = $derived.by(() => {
     const counts = new Map<string, number>();
-    for (const game of allGames) {
+    for (const game of availabilityGames) {
       for (const tag of tagsOf(game)) {
         const clean = tag.trim();
         if (!clean) continue;
@@ -91,10 +94,10 @@
   }
 
   const recent = $derived.by(() => {
-    const played = allGames
+    const played = availabilityGames
       .filter((game) => gameLastPlayed(game))
       .sort((a, b) => dateOf(gameLastPlayed(b)) - dateOf(gameLastPlayed(a)));
-    const fresh = allGames
+    const fresh = availabilityGames
       .filter((game) => !gameLastPlayed(game))
       .sort((a, b) => dateOf(b.created_at || b.add_date) - dateOf(a.created_at || a.add_date));
     return [...played, ...fresh].slice(0, 16);
@@ -102,7 +105,7 @@
 
   const selected = $derived(gameStore.selectedGame ?? recent[0] ?? null);
   const clock = $derived(now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }));
-  const presentationItems = $derived.by(() => adaptGamesToPresentation(allGames, {
+  const presentationItems = $derived.by(() => adaptGamesToPresentation(availabilityGames, {
     open: (game) => onactivate(game.id),
     select: onselect,
     launch: onlaunch,
@@ -112,7 +115,9 @@
   const adaptiveChromaSource = $derived(visualComposition.chromaAsset?.src ?? null);
 
   $effect(() => {
-    if (!gameStore.selectedGame && recent[0]) gameStore.selectGame(recent[0].id);
+    if (recent[0] && (!gameStore.selectedGame || !availabilityGames.some((game) => game.id === gameStore.selectedGame?.id))) {
+      gameStore.selectGame(recent[0].id);
+    }
   });
 
   onMount(() => {
@@ -180,7 +185,10 @@
   <MediaWorkspaceShell
     mode={workspaceMode}
     {searching}
-    count={gameStore.games.length}
+    count={availabilityGames.length}
+    {localOnly}
+    localCount={gameStore.installedGames.length}
+    onToggleLocal={() => (gameStore.availabilityScope = localOnly ? "all" : "local")}
     searchValue={gameStore.searchQuery}
     bind:searchInput
     healthLegacy={!libraryV2Enabled}
@@ -198,7 +206,7 @@
         preserveContent={libraryState === "refreshing" || libraryState === "partial"}
         title={libraryState === "empty" ? "还没有游戏" : libraryState === "error" ? "游戏库加载失败" : undefined}
         description={libraryState === "empty"
-          ? "同步 Steam / Epic、添加本地游戏，开始建立你的游戏库。"
+          ? (localOnly ? "没有检测到本地已安装游戏；切换到“全部”可查看已同步的云端库。" : "同步 Steam / Epic、添加本地游戏，开始建立你的游戏库。")
           : libraryState === "error"
             ? (gameStore.loadError ?? undefined)
             : libraryState === "partial"

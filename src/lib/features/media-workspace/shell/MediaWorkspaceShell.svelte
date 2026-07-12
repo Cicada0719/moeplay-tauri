@@ -12,12 +12,15 @@
     searchInput?: HTMLInputElement;
     healthLegacy?: boolean;
     healthOpen?: boolean;
+    localOnly?: boolean;
+    localCount?: number;
     content?: Snippet;
     onModeChange?: (mode: ContentMode) => void;
     onSearchInput?: (value: string) => void;
     onClearSearch?: () => void;
     onOpenHealth?: () => void;
     onImport?: () => void;
+    onToggleLocal?: () => void;
   }
 
   let {
@@ -28,12 +31,15 @@
     searchInput = $bindable<HTMLInputElement>(),
     healthLegacy = false,
     healthOpen = false,
+    localOnly = false,
+    localCount = 0,
     content,
     onModeChange,
     onSearchInput,
     onClearSearch,
     onOpenHealth,
     onImport,
+    onToggleLocal,
   }: Props = $props();
 </script>
 
@@ -46,6 +52,7 @@
       {#if searching}<button type="button" onclick={onClearSearch} aria-label="清空搜索"><Icon name="x" size={13} /></button>{/if}
     </label>
     <div class="mw-shell__utilities">
+      <button type="button" class="scope-toggle" class:active={localOnly} aria-pressed={localOnly} onclick={onToggleLocal} title={localOnly ? "正在只显示本地已安装游戏" : "切换为只显示本地已安装游戏"}><Icon name="monitor" size={15}/><span>{localOnly ? `本地 ${localCount}` : "全部"}</span></button>
       <button type="button" class:legacy={healthLegacy} aria-haspopup="dialog" aria-expanded={healthOpen} onclick={onOpenHealth}><Icon name="database" size={15}/><span>库健康</span></button>
       <button type="button" onclick={onImport} aria-label="添加游戏"><Icon name="plus" size={16}/><span>导入</span></button>
     </div>
@@ -80,6 +87,7 @@
   .mw-shell__utilities button { min-width: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 13px; border: 0; border-left: 1px solid rgb(255 255 255 / .1); background: transparent; color: var(--text-secondary); font: 600 10px/1 var(--font-ui); cursor: pointer; }
   .mw-shell__utilities button:hover { color: var(--text-primary); background: rgb(255 255 255 / .04); }
   .mw-shell__utilities button.legacy { color: var(--text-muted); }
+  .mw-shell__utilities button.scope-toggle.active { color: rgb(var(--media-accent-rgb, 199 71 47)); background: rgb(var(--media-accent-rgb, 199 71 47) / .1); box-shadow: inset 0 -2px rgb(var(--media-accent-rgb, 199 71 47)); }
   .mw-shell__stage { min-height: 0; overflow: hidden; }
   .mw-shell__director { z-index: 8; display: grid; grid-template-columns: minmax(250px, 1fr) minmax(420px, 580px) minmax(170px, 1fr); align-items: stretch; border-top: 1px solid rgb(255 255 255 / .14); background: rgb(var(--media-surface-rgb, 10 12 16) / .84); backdrop-filter: blur(20px) saturate(1.14); }
   .mw-shell__style-id { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; align-content: center; gap: 4px 11px; padding: 0 20px; border-right: 1px solid rgb(255 255 255 / .12); }

@@ -51,6 +51,7 @@ function resetStore() {
   libraryStore.filterTag = null;
   libraryStore.quickFilter = null;
   libraryStore.sortBy = "recent";
+  libraryStore.availabilityScope = "all";
   libraryStore.activateCollection(null);
 }
 
@@ -66,6 +67,20 @@ describe("libraryStore", () => {
     expect(libraryStore.allGames.length).toBe(1);
     expect(libraryStore.games.length).toBe(1);
     expect(libraryStore.loading).toBe(false);
+  });
+
+  it("switches between the full library and locally installed games", async () => {
+    await setGames([
+      makeGame({ name: "Local Steam", exe_path: "C:/Games/local.exe", library_source: "steam" }),
+      makeGame({ name: "Cloud Steam", exe_path: "steam://rungameid/42", library_source: "steam" }),
+    ]);
+
+    libraryStore.availabilityScope = "local";
+    expect(libraryStore.availabilityGames.map((game) => game.name)).toEqual(["Local Steam"]);
+    expect(libraryStore.games.map((game) => game.name)).toEqual(["Local Steam"]);
+
+    libraryStore.availabilityScope = "all";
+    expect(libraryStore.games).toHaveLength(2);
   });
 
   it("filters by quick filter favorite", async () => {

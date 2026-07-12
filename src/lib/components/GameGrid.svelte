@@ -16,7 +16,7 @@
   let scrollTop = $state(initialRouteOffset);
   let viewportHeight = $state(initialHeight);
   let containerWidth = $state(initialWidth);
-  let filterSignature = $state(`${gameStore.quickFilter ?? ""}|${gameStore.filterTag ?? ""}|${gameStore.sortBy}|${gameStore.searchQuery}`);
+  let filterSignature = $state(`${gameStore.availabilityScope}|${gameStore.quickFilter ?? ""}|${gameStore.filterTag ?? ""}|${gameStore.sortBy}|${gameStore.searchQuery}`);
 
   const isListMode = $derived(uiStore.viewMode === "list");
   const isCompactMode = $derived(uiStore.viewMode === "compact");
@@ -59,7 +59,7 @@
   );
 
   $effect(() => {
-    const nextSignature = `${gameStore.quickFilter ?? ""}|${gameStore.filterTag ?? ""}|${gameStore.sortBy}|${gameStore.searchQuery}`;
+    const nextSignature = `${gameStore.availabilityScope}|${gameStore.quickFilter ?? ""}|${gameStore.filterTag ?? ""}|${gameStore.sortBy}|${gameStore.searchQuery}`;
     if (nextSignature === filterSignature) return;
     filterSignature = nextSignature;
     if (gridEl) gridEl.scrollTop = 0;

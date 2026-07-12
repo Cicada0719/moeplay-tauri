@@ -98,7 +98,7 @@ jobs:
         run: npx playwright install chromium
 
       - name: Frontend visual smoke
-        run: npm run test:visual -- --ignore-snapshots
+        run: npm run test:visual -- --ignore-snapshots --workers=1
 
       - name: Require updater signing secret
         shell: pwsh

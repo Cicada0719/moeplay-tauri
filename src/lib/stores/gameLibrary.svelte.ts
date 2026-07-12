@@ -55,6 +55,8 @@ export interface SmartCollection {
 }
 
 const COLLECTIONS_KEY = "moeplay-smart-collections";
+const AVAILABILITY_SCOPE_KEY = "moeplay:game-availability-scope";
+export type GameAvailabilityScope = "all" | "local";
 
 function loadCollections(): SmartCollection[] {
   try {
@@ -73,6 +75,7 @@ let _searchQuery = $state("");
 let _filterTag = $state<string | null>(null);
 let _quickFilter = $state<string | null>(null);
 let _sortBy = $state("recent");
+let _availabilityScope = $state<GameAvailabilityScope>(typeof localStorage !== "undefined" && localStorage.getItem(AVAILABILITY_SCOPE_KEY) === "local" ? "local" : "all");
 let _smartCollections = $state<SmartCollection[]>(loadCollections());
 let _activeCollectionId = $state<string | null>(null);
 
@@ -147,7 +150,7 @@ function applyLocalFilter() {
     }
   }
 
-  if (!ef && !et && !eq && !eDeveloper && !ePlatform && !eStatus && !eMinRating) {
+  if (_availabilityScope === "all" && !ef && !et && !eq && !eDeveloper && !ePlatform && !eStatus && !eMinRating) {
     _games = sortGames(_allGames, eSort);
     return;
   }
@@ -155,6 +158,7 @@ function applyLocalFilter() {
   const tag = (et || "").toLowerCase();
   const f = ef;
   _games = _allGames.filter(g => {
+    if (_availabilityScope === "local" && !isInstalled(g)) return false;
     if (f === "favorite" && !g.favorite) return false;
     if (f === "playing" && gameCompletionStatus(g) !== "playing") return false;
     if (f === "completed" && gameCompletionStatus(g) !== "completed") return false;
@@ -207,6 +211,13 @@ export const libraryStore = {
   get games() { return _games; },
   get allGames() { return _allGames; },
   get installedGames() { return _allGames.filter(isInstalled); },
+  get availabilityGames() { return _availabilityScope === "local" ? _allGames.filter(isInstalled) : _allGames; },
+  get availabilityScope() { return _availabilityScope; },
+  set availabilityScope(scope: GameAvailabilityScope) {
+    _availabilityScope = scope;
+    if (typeof localStorage !== "undefined") localStorage.setItem(AVAILABILITY_SCOPE_KEY, scope);
+    applyLocalFilter();
+  },
   get loading() { return _loading; },
   get loadError() { return _loadError; },
   get searchQuery() { return _searchQuery; },

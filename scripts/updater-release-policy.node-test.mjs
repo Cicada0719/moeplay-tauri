@@ -12,6 +12,7 @@ test("official releases require signed automatic-update artifacts", () => {
   assert.match(workflow, /createUpdaterArtifacts\":true/);
   assert.match(workflow, /includeUpdaterJson: true/);
   assert.match(workflow, /UPDATER_RELEASE_MODE: Required/);
+  assert.match(workflow, /test:visual -- --ignore-snapshots --workers=1/);
   assert.match(workflow, /npm run generate:updater-manifest/);
   assert.match(workflow, /Remove-Item -LiteralPath \.tauri-updater\.conf\.json -Force/);
   assert.ok(
