@@ -4,6 +4,7 @@ import {
   pickDirectory,
   removeWatchDir,
   updateSettings,
+  restoreDefaultSettings,
   type Settings,
 } from "../api";
 import { STARTUP_MIGRATED_KEY, shouldMigrateStartupMode } from "./startup-migration";
@@ -97,6 +98,13 @@ export const settingsStore = {
   async setAppearance(appearance: AppearanceSettings) {
     return this.save({ ..._settings, appearance: normalizeAppearance(appearance) });
   },
+
+  async restoreDefaults() {
+    _settings = sanitizeSettings(await restoreDefaultSettings());
+    applyAppearance(_settings.appearance ?? loadStoredAppearance(_settings.theme));
+    return _settings;
+  },
+
 
   toggleTheme() {
     const color_mode = this.appearance.color_mode === "dark" ? "light" : "dark";

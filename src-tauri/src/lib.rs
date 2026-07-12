@@ -317,6 +317,9 @@ pub fn run() {
             // ---- 设置 ----
             commands::get_settings,
             commands::update_settings,
+            commands::get_app_cache_stats,
+            commands::clear_app_cache,
+            commands::restore_default_settings,
             commands::list_theme_packs,
             commands::list_wallpapers,
             commands::refresh_wallpaper_manifest,

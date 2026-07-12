@@ -399,6 +399,16 @@ export interface DashboardData {
   collections: Collection[];
 }
 
+export interface AppCacheStats {
+  bytes: number;
+  files: number;
+}
+
+export interface CacheClearResult {
+  bytes_freed: number;
+  files_removed: number;
+}
+
 export interface ThumbnailInfo {
   key: string;
   source: string;

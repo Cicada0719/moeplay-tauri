@@ -13,6 +13,11 @@ test("official releases require signed automatic-update artifacts", () => {
   assert.match(workflow, /includeUpdaterJson: true/);
   assert.match(workflow, /UPDATER_RELEASE_MODE: Required/);
   assert.match(workflow, /npm run generate:updater-manifest/);
+  assert.match(workflow, /Remove-Item -LiteralPath \.tauri-updater\.conf\.json -Force/);
+  assert.ok(
+    workflow.indexOf("Generate build metadata") < workflow.indexOf("Generate signed latest.json"),
+    "build metadata must be captured before latest.json makes the checkout dirty",
+  );
   assert.match(workflow, /gh release upload .*latest\.json/);
   assert.match(workflow, /verify-updater-artifacts\.mjs --require/);
   assert.match(workflow, /gh release edit .*--draft=false/);

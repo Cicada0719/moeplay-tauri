@@ -775,6 +775,18 @@ export async function updateSettings(settings: Settings): Promise<Settings> {
   return invokeCmd("update_settings", { settings });
 }
 
+export async function getAppCacheStats(): Promise<import("./types").AppCacheStats> {
+  return invokeCmd("get_app_cache_stats");
+}
+
+export async function clearAppCache(): Promise<import("./types").CacheClearResult> {
+  return invokeCmd("clear_app_cache");
+}
+
+export async function restoreDefaultSettings(): Promise<Settings> {
+  return invokeCmd("restore_default_settings");
+}
+
 export async function addWatchDir(dir: string): Promise<Settings> {
   return invokeCmd("add_watch_dir", { dir });
 }

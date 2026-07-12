@@ -140,8 +140,9 @@ jobs:
           updaterJsonPreferNsis: true
           args: --config .tauri-updater.conf.json --ci
 
-      - name: Generate signed latest.json
-        run: npm run generate:updater-manifest
+      - name: Remove release-only Tauri overlay
+        shell: pwsh
+        run: Remove-Item -LiteralPath .tauri-updater.conf.json -Force
 
       - name: Build portable package
         run: npm run package:portable
@@ -151,6 +152,9 @@ jobs:
 
       - name: Generate build metadata
         run: npm run generate:build-metadata
+
+      - name: Generate signed latest.json
+        run: npm run generate:updater-manifest
 
       - name: Verify release artifacts require updater
         env:

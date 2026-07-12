@@ -4,7 +4,8 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 export const DEFAULT_BUDGET = Object.freeze({
-  totalJavaScriptBytes: 2_100_000,
+  // v0.13.8 maintenance and signed-update settings add a small, bounded surface.
+  totalJavaScriptBytes: 2_110_000,
   largestChunkBytes: 950_000,
   animeChunkBytes: 700_000,
   comicChunkBytes: 100_000,
@@ -41,4 +42,3 @@ if (invoked) {
     process.exit(1);
   }
 }
-

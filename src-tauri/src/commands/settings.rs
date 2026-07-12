@@ -1,9 +1,121 @@
 use crate::db::Database;
 use crate::models::Settings;
 use crate::secret_store::{SecretKind, SecretStore};
+use serde::Serialize;
+use std::path::{Path, PathBuf};
 use tauri::State;
 
 const SECRET_MIGRATION_FAILED: &str = "failed to migrate legacy settings credentials";
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct AppCacheStats {
+    pub bytes: u64,
+    pub files: u64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct CacheClearResult {
+    pub bytes_freed: u64,
+    pub files_removed: u64,
+}
+
+fn cache_roots() -> Vec<PathBuf> {
+    let cache_base = dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("moeplay");
+    let data_base = dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("moeplay");
+
+    vec![
+        cache_base.join("thumbnails"),
+        data_base.join("bgm_covers"),
+        data_base.join("wallpapers").join("files"),
+    ]
+}
+
+fn directory_stats(path: &Path) -> Result<AppCacheStats, String> {
+    if !path.exists() {
+        return Ok(AppCacheStats { bytes: 0, files: 0 });
+    }
+
+    let mut total = AppCacheStats { bytes: 0, files: 0 };
+    for entry in std::fs::read_dir(path).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let metadata = entry.metadata().map_err(|error| error.to_string())?;
+        if metadata.is_dir() {
+            let nested = directory_stats(&entry.path())?;
+            total.bytes = total.bytes.saturating_add(nested.bytes);
+            total.files = total.files.saturating_add(nested.files);
+        } else if metadata.is_file() {
+            total.bytes = total.bytes.saturating_add(metadata.len());
+            total.files = total.files.saturating_add(1);
+        }
+    }
+    Ok(total)
+}
+
+fn collect_cache_stats() -> Result<AppCacheStats, String> {
+    let mut total = AppCacheStats { bytes: 0, files: 0 };
+    for root in cache_roots() {
+        let stats = directory_stats(&root)?;
+        total.bytes = total.bytes.saturating_add(stats.bytes);
+        total.files = total.files.saturating_add(stats.files);
+    }
+    Ok(total)
+}
+
+#[tauri::command]
+pub fn get_app_cache_stats() -> Result<AppCacheStats, String> {
+    collect_cache_stats()
+}
+
+#[tauri::command]
+pub fn clear_app_cache() -> Result<CacheClearResult, String> {
+    let before = collect_cache_stats()?;
+
+    // This also clears the process-local thumbnail LRU.
+    crate::thumbnail::clear_thumbnail_cache()?;
+    crate::scraper::global_cache().clear();
+
+    for root in cache_roots().into_iter().skip(1) {
+        if root.exists() {
+            std::fs::remove_dir_all(&root).map_err(|error| {
+                format!(
+                    "failed to clear cache directory {}: {error}",
+                    root.display()
+                )
+            })?;
+        }
+    }
+
+    // The online wallpaper manifest is cache metadata. Custom wallpapers live
+    // in a sibling directory and are intentionally preserved.
+    let manifest = dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("moeplay")
+        .join("wallpapers")
+        .join("manifest.json");
+    if manifest.exists() {
+        std::fs::remove_file(&manifest).map_err(|error| error.to_string())?;
+    }
+
+    Ok(CacheClearResult {
+        bytes_freed: before.bytes,
+        files_removed: before.files,
+    })
+}
+
+#[tauri::command]
+pub fn restore_default_settings(
+    db: State<'_, Database>,
+    store: State<'_, SecretStore>,
+) -> Result<Settings, String> {
+    // Restore preferences only. The library database, downloads, saves and
+    // keyring-backed account secrets are intentionally preserved.
+    crate::autostart::set_autostart(false, "fullscreen")?;
+    update_settings_impl(db.inner(), store.inner(), Settings::default())
+}
 
 #[tauri::command]
 pub fn get_settings(db: State<'_, Database>, store: State<'_, SecretStore>) -> Settings {
@@ -236,6 +348,20 @@ mod tests {
         db.sqlite()
             .set_setting("app_settings", &serde_json::to_string(&value).unwrap())
             .unwrap();
+    }
+
+    #[test]
+    fn directory_stats_counts_nested_cache_files() {
+        let dir = TestDir::new();
+        let nested = dir.path().join("nested");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(dir.path().join("one.bin"), [1_u8, 2, 3]).unwrap();
+        std::fs::write(nested.join("two.bin"), [4_u8, 5]).unwrap();
+
+        assert_eq!(
+            directory_stats(dir.path()).unwrap(),
+            AppCacheStats { bytes: 5, files: 2 }
+        );
     }
 
     #[test]

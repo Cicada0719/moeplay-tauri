@@ -142,6 +142,7 @@
     "allow-parse-scrape-marker",
     "allow-embed-scrape-marker",
     "allow-get-settings",
+    "allow-get-app-cache-stats",
     "allow-update-settings",
     "allow-list-theme-packs",
     "allow-list-wallpapers",

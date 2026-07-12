@@ -25,6 +25,8 @@ const lock = readJson("package-lock.json");
 const tauri = readJson("src-tauri/tauri.conf.json");
 const cargoToml = read("src-tauri/Cargo.toml");
 const cargoLock = read("src-tauri/Cargo.lock");
+const appVersionSource = read("src/lib/app-version.ts");
+const settingsPageSource = read("src/lib/components/SettingsPage.svelte");
 
 const versions = new Map([
   ["package.json", pkg.version],
@@ -68,6 +70,13 @@ if (explicitExpected && expected !== explicitExpected) {
 
 if (staleRuntimeUserAgents.length) {
   for (const value of staleRuntimeUserAgents) mismatches.push(["hard-coded runtime User-Agent", value]);
+}
+
+if (!appVersionSource.includes('from "../../package.json"') || !appVersionSource.includes("export const APP_VERSION")) {
+  mismatches.push(["settings version source", "src/lib/app-version.ts must derive APP_VERSION from package.json"]);
+}
+if (!settingsPageSource.includes("v{appVersion}") || /v\d+\.\d+\.\d+/.test(settingsPageSource)) {
+  mismatches.push(["settings version display", "SettingsPage must render the synchronized appVersion value without a hard-coded release"]);
 }
 
 if (mismatches.length) {

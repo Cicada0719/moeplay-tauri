@@ -1,9 +1,10 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { settingsStore } from "../stores/settings.svelte";
   import { uiStore } from "../stores/ui.svelte";
   import { THEME_PACKS, normalizeAppearance, type ColorMode, type ThemePackId } from "../theme-packs";
-  import { secretDelete, secretSet, secretStatus, updateNsfwDisplayMode, setAutostart, syncSteamAchievements, importWallpaper, type NsfwDisplayMode } from "../api";
+  import { clearAppCache, getAppCacheStats, secretDelete, secretSet, secretStatus, updateNsfwDisplayMode, setAutostart, syncSteamAchievements, importWallpaper, type NsfwDisplayMode } from "../api";
   import { gameStore } from "../stores/games.svelte";
   import { animeStore } from "../stores/anime.svelte";
   import { wallpaperStore } from "../stores/wallpapers.svelte";
@@ -14,8 +15,15 @@
   import Input from "./ui/Input.svelte";
   import Icon from "./Icon.svelte";
   import UpdateDialog from "./UpdateDialog.svelte";
+  import { APP_VERSION } from "../app-version";
 
   let showUpdateDialog = $state(false);
+  const appVersion = APP_VERSION;
+  let cacheBytes = $state(0);
+  let cacheFiles = $state(0);
+  let cacheBusy = $state(false);
+  let resetBusy = $state(false);
+  let resetArmed = $state(false);
 
   const nsfwModes: { id: NsfwDisplayMode; label: string }[] = [
     { id: "blur", label: "模糊" },
@@ -73,6 +81,65 @@
   function scrollToSettings(id: string) {
     document.getElementById(id)?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   }
+
+  function formatBytes(bytes: number) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+  }
+
+  async function refreshCacheStats() {
+    try {
+      const stats = await getAppCacheStats();
+      cacheBytes = stats.bytes;
+      cacheFiles = stats.files;
+    } catch {
+      cacheBytes = 0;
+      cacheFiles = 0;
+    }
+  }
+
+  async function handleClearCache() {
+    cacheBusy = true;
+    try {
+      const result = await clearAppCache();
+      cacheBytes = 0;
+      cacheFiles = 0;
+      await wallpaperStore.load().catch(() => {});
+      uiStore.notify(`已释放 ${formatBytes(result.bytes_freed)}，删除 ${result.files_removed} 个缓存文件`, "success");
+    } catch (error) {
+      uiStore.notify(`清理缓存失败：${String(error)}`, "error");
+    } finally {
+      cacheBusy = false;
+    }
+  }
+
+  async function handleRestoreDefaults() {
+    if (!resetArmed) {
+      resetArmed = true;
+      window.setTimeout(() => { resetArmed = false; }, 8000);
+      return;
+    }
+
+    resetBusy = true;
+    try {
+      localStorage.clear();
+      await settingsStore.restoreDefaults();
+      resetArmed = false;
+      uiStore.notify("已恢复默认设置；游戏库、下载、存档与账号密钥均已保留", "success");
+      window.setTimeout(() => window.location.reload(), 700);
+    } catch (error) {
+      uiStore.notify(`恢复默认设置失败：${String(error)}`, "error");
+    } finally {
+      resetBusy = false;
+    }
+  }
+
+  onMount(() => {
+    void refreshCacheStats();
+    void refreshAiSecretStatus();
+  });
 
   async function setBooleanSetting(key: "ai_enabled", value: boolean) {
     await settingsStore.save({ ...settingsStore.settings, [key]: value });
@@ -288,6 +355,7 @@
       <button type="button" onclick={() => scrollToSettings("settings-bangumi")}><b>04</b><em>番剧账号</em></button>
       <button type="button" onclick={() => scrollToSettings("settings-player")}><b>05</b><em>播放体验</em></button>
       <button type="button" onclick={() => scrollToSettings("settings-advanced")}><b>06</b><em>系统与实验</em></button>
+      <button type="button" onclick={() => scrollToSettings("settings-maintenance")}><b>07</b><em>维护与更新</em></button>
       <small>只滚动设置内容，不改变当前页面路由。</small>
     </aside>
     <main class="stg-content">
@@ -711,14 +779,50 @@
         />
       </div>
 
+    </Card>
+
+    <!-- 维护与更新 -->
+    <span class="section-anchor" id="settings-maintenance" aria-hidden="true"></span>
+    <Card class="s-section" padding="lg" ariaLabel="settings-maintenance">
+      <div class="s-head">
+        <h2 class="s-title"><Icon name="refresh" size={17} className="s-title-ic" /> 维护与更新</h2>
+      </div>
+      <p class="s-note">清理可重建文件或恢复界面偏好，不会删除游戏库、下载内容、存档和安全存储的账号密钥。</p>
+
+      <div class="maintenance-grid">
+        <article class="maintenance-card">
+          <div class="maintenance-copy">
+            <span class="maintenance-kicker">CACHE / 可安全重建</span>
+            <strong>{formatBytes(cacheBytes)}</strong>
+            <small>{cacheFiles} 个缩略图、番剧封面代理及在线壁纸缓存文件</small>
+          </div>
+          <Button variant="secondary" size="sm" press={handleClearCache} loading={cacheBusy}>
+            <Icon name="trash" size={14} /> 清除缓存
+          </Button>
+        </article>
+
+        <article class="maintenance-card maintenance-card--danger">
+          <div class="maintenance-copy">
+            <span class="maintenance-kicker">RESET / 仅恢复偏好</span>
+            <strong>恢复初始化设置</strong>
+            <small>重置主题、窗口、来源、播放器与实验设置；再次点击确认，8 秒后自动取消。</small>
+          </div>
+          <Button class={resetArmed ? "danger-action is-armed" : "danger-action"} variant="ghost" size="sm" press={handleRestoreDefaults} loading={resetBusy}>
+            <Icon name={resetArmed ? "info" : "refresh"} size={14} /> {resetArmed ? "确认恢复默认" : "恢复默认设置"}
+          </Button>
+        </article>
+      </div>
+
       <div class="s-divider"></div>
       <div class="about-block">
         <div class="about-name">
           <span class="about-brand">萌游</span>
-          <span class="about-ver">v0.13.8</span>
+          <span class="about-ver">v{appVersion}</span>
+          <span class="update-badge"><i></i> 已启用签名自动更新</span>
         </div>
+        <div class="about-update-copy">官方正式版启动后自动检查更新；下载包与签名校验通过后才会安装。</div>
         <Button variant="ghost" size="sm" press={() => showUpdateDialog = true}>
-          <Icon name="download" size={14} /> 检查更新
+          <Icon name="download" size={14} /> 立即检查更新
         </Button>
       </div>
     </Card>
@@ -967,6 +1071,20 @@
   :global(.ops-icon) { color: var(--text-muted); }
   .ops-msg { padding: 6px 12px; font-size: 0.82rem; color: var(--text-muted); border-left: 2px solid var(--accent, #e8557f); margin: -4px 0 4px 30px; }
 
+
+  /* ── Maintenance ── */
+  .maintenance-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:12px; }
+  .maintenance-card { min-height:150px; padding:16px; border:1px solid var(--border); border-radius:var(--radius-lg); background:linear-gradient(145deg,var(--bg-elev),color-mix(in srgb,var(--bg-elev) 72%,transparent)); display:flex; flex-direction:column; align-items:flex-start; justify-content:space-between; gap:18px; }
+  .maintenance-card--danger { border-color:color-mix(in srgb,#ff647c 28%,var(--border)); }
+  .maintenance-copy { display:flex; flex-direction:column; align-items:flex-start; gap:5px; }
+  .maintenance-copy strong { font-size:18px; color:var(--text-primary); letter-spacing:-.02em; }
+  .maintenance-copy small { color:var(--text-muted); font-size:11px; line-height:1.55; max-width:38ch; }
+  .maintenance-kicker { color:var(--accent); font:600 9px/1.2 var(--font-mono); letter-spacing:.13em; }
+  :global(.danger-action.is-armed) { border-color:#ff647c !important; color:#ff8a9d !important; background:rgba(255,100,124,.09) !important; }
+  .update-badge { display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border:1px solid color-mix(in srgb,#67d6a7 34%,var(--border)); border-radius:999px; color:#82dfb7; font-size:10px; font-weight:650; }
+  .update-badge i { width:6px; height:6px; border-radius:50%; background:#67d6a7; box-shadow:0 0 12px rgba(103,214,167,.75); }
+  .about-update-copy { color:var(--text-muted); font-size:11px; line-height:1.55; max-width:58ch; }
+
   /* ── About ── */
   .about-block { display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
   .about-name { display: flex; align-items: baseline; gap: 10px; }
@@ -984,6 +1102,7 @@
 
   /* ── Responsive ── */
   @media (max-width: 720px) {
+    .maintenance-grid { grid-template-columns: 1fr; }
     .src-grid { grid-template-columns: 1fr; }
     .mode-grid { grid-template-columns: 1fr; }
     .ai-field { grid-template-columns: 1fr; }

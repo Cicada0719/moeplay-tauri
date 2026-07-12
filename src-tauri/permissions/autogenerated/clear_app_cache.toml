@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-clear-app-cache"
+description = "Enables the clear_app_cache command without any pre-configured scope."
+commands.allow = ["clear_app_cache"]
+
+[[permission]]
+identifier = "deny-clear-app-cache"
+description = "Denies the clear_app_cache command without any pre-configured scope."
+commands.deny = ["clear_app_cache"]

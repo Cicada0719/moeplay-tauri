@@ -12,6 +12,8 @@
     "allow-import-database",
     "allow-export-database",
     "allow-set-autostart",
+    "allow-clear-app-cache",
+    "allow-restore-default-settings",
     "allow-pick-directory",
     "allow-pick-image-file",
     "allow-add-game-by-path",

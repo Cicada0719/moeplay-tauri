@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-app-cache-stats"
+description = "Enables the get_app_cache_stats command without any pre-configured scope."
+commands.allow = ["get_app_cache_stats"]
+
+[[permission]]
+identifier = "deny-get-app-cache-stats"
+description = "Denies the get_app_cache_stats command without any pre-configured scope."
+commands.deny = ["get_app_cache_stats"]
