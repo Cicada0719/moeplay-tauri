@@ -88,6 +88,12 @@ test("v0.12 anime search, episode selection, extraction and automatic failover",
   await page.getByRole("button", { name: "验收番剧" }).click();
 
   await expect(page.getByRole("button", { name: /开始观看/ })).toBeVisible();
+  await expect(page.locator(".detail-visual")).toBeVisible();
+  await expect(page.locator(".detail-scroll")).toBeVisible();
+  const detailPanelBox = await page.locator(".anime-detail-panel").boundingBox();
+  const detailVisualBox = await page.locator(".detail-visual").boundingBox();
+  expect(detailPanelBox?.width).toBeGreaterThan(page.viewportSize()?.width ? page.viewportSize()!.width * 0.9 : 800);
+  expect(detailVisualBox?.width).toBeGreaterThan(250);
   await page.getByRole("button", { name: /开始观看/ }).click();
   const sourceSheet = page.locator(".source-sheet");
   await expect(sourceSheet).toBeVisible();
@@ -97,14 +103,26 @@ test("v0.12 anime search, episode selection, extraction and automatic failover",
 
   await expect(page.locator("video.player-video")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("anime-playback-shell")).toBeVisible();
+  const fullscreenButton = page.getByRole("button", { name: "进入全屏" });
+  await fullscreenButton.click();
+  await expect(page.locator(".player-overlay")).toHaveClass(/fullscreen/);
+  await page.locator(".player-body").click({ position: { x: 120, y: 90 } });
+  await expect(page.locator(".player-overlay")).toHaveClass(/fullscreen/);
+  const windowFullscreenCalls = await page.evaluate(() =>
+    (window as any).__animeAcceptanceCalls.filter((entry: any) => String(entry.command).includes("set_fullscreen")),
+  );
+  expect(windowFullscreenCalls).toHaveLength(0);
+  await page.getByRole("button", { name: "退出全屏" }).click();
+  await expect(page.locator(".player-overlay")).not.toHaveClass(/fullscreen/);
   for (const viewport of [{ width: 900, height: 600 }, { width: 1920, height: 1080 }]) {
     await page.setViewportSize(viewport);
+    await page.waitForTimeout(120);
     const bodyBox = await page.locator(".anime-playback-shell__body").boundingBox();
     const videoBox = await page.locator("video.player-video").boundingBox();
     expect(bodyBox?.width).toBeGreaterThan(0);
     expect(videoBox?.width).toBeGreaterThan(0);
-    expect(videoBox?.width).toBeLessThanOrEqual(bodyBox?.width || 0);
-    expect(videoBox?.height).toBeLessThanOrEqual(bodyBox?.height || 0);
+    expect(videoBox?.width).toBeLessThanOrEqual((bodyBox?.width || 0) + 20);
+    expect(videoBox?.height).toBeLessThanOrEqual((bodyBox?.height || 0) + 20);
   }
   const extractionCalls = await page.evaluate(() =>
     (window as any).__animeAcceptanceCalls

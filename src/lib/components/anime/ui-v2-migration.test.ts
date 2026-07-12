@@ -37,6 +37,16 @@ describe("anime UI-v2 migration contract", () => {
     }
   });
 
+  it("keeps player fullscreen scoped to the player and gives anime detail a full media split", () => {
+    const player = source("src/lib/components/anime/AnimePlayer.svelte");
+    const detail = source("src/lib/components/anime/AnimeDetail.svelte");
+    expect(player).not.toContain("getCurrentWindow");
+    expect(player).not.toContain("setFullscreen(");
+    expect(player).toContain("Player fullscreen is intentionally CSS/DOM scoped");
+    expect(detail).toContain('class="detail-visual"');
+    expect(detail).toContain("width: 100vw");
+  });
+
   it("uses modal focus management and reduced-motion fallbacks for details, drawers and players", () => {
     const detail = source("src/lib/components/anime/AnimeDetail.svelte");
     const search = source("src/lib/components/anime/SearchDrawer.svelte");

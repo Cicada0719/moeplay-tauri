@@ -1,7 +1,6 @@
 <script lang="ts">
   import Hls from "hls.js";
   import { invokeCmd } from "../../api/core";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onDestroy, onMount } from "svelte";
   import { animeStore } from "../../stores/anime.svelte";
   import Icon from "../Icon.svelte";
@@ -129,11 +128,8 @@
   // ── PiP (画中画) ────────────────────────────────────────────────────────
   let isPipSupported = $state(false);
   let isPipActive = $state(false);
-  let windowFullscreenBeforePlayer = false;
-  let playerOwnsWindowFullscreen = false;
 
-  onMount(async () => {
-    try { windowFullscreenBeforePlayer = await getCurrentWindow().isFullscreen(); } catch {}
+  onMount(() => {
     document.addEventListener('fullscreenchange', onFullscreenChange);
     document.addEventListener('keydown', onKeyDown);
     isPipSupported = !!document.pictureInPictureEnabled;
@@ -142,9 +138,6 @@
     document.removeEventListener('fullscreenchange', onFullscreenChange);
     document.removeEventListener('keydown', onKeyDown);
     if (extractTimer) clearInterval(extractTimer);
-    if (playerOwnsWindowFullscreen) {
-      getCurrentWindow().setFullscreen(windowFullscreenBeforePlayer).catch(() => {});
-    }
   });
 
   // 离开 found 状态时关闭视频相关弹出面板
@@ -253,21 +246,13 @@
     showEpisodePanel = false;
     showCommentsPanel = false;
 
-    const win = getCurrentWindow();
-    if (next) {
-      try { windowFullscreenBeforePlayer = await win.isFullscreen(); } catch { windowFullscreenBeforePlayer = false; }
-      playerOwnsWindowFullscreen = !windowFullscreenBeforePlayer;
-      isFullscreen = true;
-      try { await win.setFullscreen(true); } catch (e) { console.warn('进入窗口全屏失败:', e); }
-      return;
+    // Player fullscreen is intentionally CSS/DOM scoped. Never mutate the Tauri
+    // application window here: a click inside the player must not restore or resize
+    // the entire MoePlay window.
+    isFullscreen = next;
+    if (!next && document.fullscreenElement && overlayEl?.contains(document.fullscreenElement)) {
+      try { await document.exitFullscreen(); } catch {}
     }
-
-    isFullscreen = false;
-    try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-    } catch {}
-    try { await win.setFullscreen(windowFullscreenBeforePlayer); } catch (e) { console.warn('退出窗口全屏失败:', e); }
-    playerOwnsWindowFullscreen = false;
   }
 
   function toggleFullscreen() {

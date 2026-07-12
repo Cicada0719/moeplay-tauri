@@ -117,6 +117,29 @@
     <BackgroundLayer src={bgPosterUrl} overlay={false} class="bg-blur" />
   {/if}
 
+  <aside class="detail-visual" aria-label="番剧视觉摘要">
+    <div class="detail-visual-media" class:no-poster={!posterUrl}>
+      {#if posterUrl}<img src={posterUrl} alt="" />{:else}<span>{(subject?.name_cn || subject?.name || name).slice(0, 1)}</span>{/if}
+    </div>
+    <div class="detail-visual-scrim" aria-hidden="true"></div>
+    <div class="detail-visual-register">
+      <span>MOEPLAY / ANIME ARCHIVE</span>
+      <strong>{ruleName || "BANGUMI METADATA"}</strong>
+    </div>
+    <div class="detail-visual-copy">
+      <span>{historyEntry ? "CONTINUE WATCHING" : "READY TO WATCH"}</span>
+      <h2>{subject?.name_cn || subject?.name || name}</h2>
+      <p>{subject?.summary || "从封面、放送资料、评分与剧集线路进入这部作品。"}</p>
+      <dl>
+        {#if subject?.date}<div><dt>放送</dt><dd>{subject.date}</dd></div>{/if}
+        {#if rating}<div><dt>评分</dt><dd>{rating.score.toFixed(1)}</dd></div>{/if}
+        <div><dt>线路</dt><dd>{roads.length}</dd></div>
+        <div><dt>进度</dt><dd>{historyEntry?.lastEpisodeName || (historyEntry ? `第 ${historyEntry.lastEpisode + 1} 集` : "未开始")}</dd></div>
+      </dl>
+    </div>
+    <i aria-hidden="true"></i><i aria-hidden="true"></i><i aria-hidden="true"></i><i aria-hidden="true"></i>
+  </aside>
+
   <!-- Main scrollable content -->
   <div class="detail-scroll">
     {#if loading && !subject}
@@ -393,7 +416,9 @@
 
 <style>
   :global(.v2-detail-panel.anime-detail-panel) {
-    width: min(74rem, calc(100vw - 1.5rem));
+    right: 0;
+    left: 0;
+    width: 100vw;
     max-width: none;
     background: #0d1117;
   }
@@ -409,8 +434,8 @@
     inset: 0;
     background: #0d1117;
     z-index: 20;
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: minmax(300px, 42vw) minmax(0, 1fr);
     overflow: hidden;
     animation: slide-in 0.25s ease-out;
   }
@@ -455,13 +480,48 @@
   }
 
 
+
+
+  .detail-visual {
+    position: relative;
+    z-index: 2;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    border-right: 1px solid rgba(255,255,255,.13);
+    background: linear-gradient(145deg, #171c24, #090b0f);
+    isolation: isolate;
+  }
+  .detail-visual-media { position:absolute; inset:0; overflow:hidden; }
+  .detail-visual-media img { width:100%; height:100%; object-fit:cover; object-position:center 28%; filter:saturate(.84) contrast(1.04); transform:scale(1.015); }
+  .detail-visual-media.no-poster { display:grid; place-items:center; background:radial-gradient(circle at 35% 28%,rgba(232,85,127,.24),transparent 34%),linear-gradient(145deg,#202733,#090b0f); }
+  .detail-visual-media.no-poster span { color:rgba(255,255,255,.09); font:700 clamp(14rem,32vw,34rem)/1 var(--font-display); }
+  .detail-visual-scrim { position:absolute; inset:0; background:linear-gradient(180deg,rgba(3,5,8,.08) 15%,rgba(3,5,8,.28) 48%,rgba(3,5,8,.94) 100%),linear-gradient(90deg,transparent 58%,rgba(3,5,8,.42)); pointer-events:none; }
+  .detail-visual-register { position:absolute; z-index:3; top:0; right:0; left:0; display:flex; justify-content:space-between; gap:12px; padding:16px 18px; border-bottom:1px solid rgba(255,255,255,.22); color:rgba(255,255,255,.72); font:650 8px/1 var(--font-mono); letter-spacing:.12em; }
+  .detail-visual-register strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .detail-visual-copy { position:absolute; z-index:3; right:clamp(24px,4vw,60px); bottom:clamp(26px,5vh,68px); left:clamp(24px,4vw,60px); }
+  .detail-visual-copy>span { color:#e8557f; font:700 8px/1 var(--font-mono); letter-spacing:.14em; }
+  .detail-visual-copy h2 { max-width:11ch; margin:14px 0 12px; color:#fff; font:680 clamp(2.5rem,5.3vw,6.8rem)/.8 var(--font-display); letter-spacing:-.07em; text-wrap:balance; }
+  .detail-visual-copy>p { display:-webkit-box; max-width:50ch; margin:0 0 20px; overflow:hidden; color:rgba(255,255,255,.66); font:500 12px/1.55 var(--font-ui); line-clamp:3; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
+  .detail-visual-copy dl { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); margin:0; border-top:1px solid rgba(255,255,255,.24); }
+  .detail-visual-copy dl div { min-width:0; padding:10px 10px 9px 0; border-bottom:1px solid rgba(255,255,255,.16); }
+  .detail-visual-copy dt { color:rgba(255,255,255,.42); font:650 7px/1 var(--font-mono); letter-spacing:.12em; }
+  .detail-visual-copy dd { margin:6px 0 0; overflow:hidden; color:#fff; font:650 10px/1 var(--font-ui); text-overflow:ellipsis; white-space:nowrap; }
+  .detail-visual>i { position:absolute; z-index:4; width:16px; height:16px; pointer-events:none; }
+  .detail-visual>i:nth-of-type(1) { top:58px; left:14px; border-top:1px solid #e8557f; border-left:1px solid #e8557f; }
+  .detail-visual>i:nth-of-type(2) { top:58px; right:14px; border-top:1px solid #e8557f; border-right:1px solid #e8557f; }
+  .detail-visual>i:nth-of-type(3) { bottom:14px; left:14px; border-bottom:1px solid #e8557f; border-left:1px solid #e8557f; }
+  .detail-visual>i:nth-of-type(4) { right:14px; bottom:14px; border-right:1px solid #e8557f; border-bottom:1px solid #e8557f; }
+
+
   /* ── Scrollable content ─────────────────────────────────────────────── */
   .detail-scroll {
     position: relative;
     z-index: 2;
     flex: 1;
     overflow-y: auto;
-    padding: 0 20px 120px;
+    padding: 24px clamp(24px, 3.2vw, 54px) 120px;
+    background: linear-gradient(180deg, rgba(13,17,23,.94), rgba(10,13,18,.98));
     scrollbar-width: thin;
     scrollbar-color: rgba(232,85,127,0.3) transparent;
   }
@@ -1039,6 +1099,25 @@
     margin: 0;
     text-align: center;
     max-width: 300px;
+  }
+
+
+  @media (max-width: 900px) {
+    :global(.v2-detail-panel.anime-detail-panel .v2-detail-panel__header) { padding-inline: 16px; }
+    .detail-overlay { grid-template-columns: minmax(220px, 34vw) minmax(0,1fr); }
+    .detail-visual-copy { right:22px; bottom:28px; left:22px; }
+    .detail-visual-copy h2 { font-size:clamp(2rem,5vw,3.8rem); }
+    .detail-visual-copy>p { -webkit-line-clamp:2; line-clamp:2; }
+  }
+  @media (max-width: 680px) {
+    .detail-overlay { grid-template-columns:1fr; grid-template-rows:220px minmax(0,1fr); }
+    .detail-visual { border-right:0; border-bottom:1px solid rgba(255,255,255,.13); }
+    .detail-visual-media img { object-position:center 24%; }
+    .detail-visual-copy { bottom:18px; }
+    .detail-visual-copy h2 { max-width:16ch; margin:8px 0 0; font-size:clamp(1.7rem,8vw,2.7rem); }
+    .detail-visual-copy>p,.detail-visual-copy dl { display:none; }
+    .detail-visual-register { padding:10px 12px; }
+    .detail-scroll { padding:18px 16px 110px; }
   }
 
   @media (prefers-reduced-motion: reduce) {
