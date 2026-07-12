@@ -61,6 +61,9 @@ jobs:
       - name: Test updater artifact verifier
         run: node --test scripts/verify-updater-artifacts.node-test.mjs
 
+      - name: Test mandatory automatic-update release policy
+        run: npm run test:updater-policy
+
       - name: Test installed-upgrade report verifier
         run: npm run test:upgrade-report
 
@@ -94,22 +97,16 @@ jobs:
       - name: Frontend visual smoke
         run: npm run test:visual
 
-      - name: Detect updater signing availability
-        id: signing-gate
+      - name: Require updater signing secret
         shell: pwsh
         env:
           SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
-          $Available = -not [string]::IsNullOrWhiteSpace($env:SIGNING_PRIVATE_KEY)
-          "available=$($Available.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
-          if ($Available) {
-            "## Updater mode: signed" >> $env:GITHUB_STEP_SUMMARY
-            "Updater artifacts and latest.json are required and will be verified before the draft can be approved." >> $env:GITHUB_STEP_SUMMARY
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_PRIVATE_KEY)) {
+            throw "TAURI_SIGNING_PRIVATE_KEY is required. Unsigned releases are forbidden."
           }
-          else {
-            "## Updater mode: degraded / blocked" >> $env:GITHUB_STEP_SUMMARY
-            "TAURI_SIGNING_PRIVATE_KEY is unavailable. The workflow will create an unsigned installer-only draft, omit updater metadata, and finish blocked." >> $env:GITHUB_STEP_SUMMARY
-          }
+          "## Updater mode: signed and mandatory" >> $env:GITHUB_STEP_SUMMARY
+          "This release will not be published unless updater archives, detached signatures and latest.json all pass verification." >> $env:GITHUB_STEP_SUMMARY
 
       - name: Clean release target and updater metadata
         shell: pwsh
@@ -118,15 +115,12 @@ jobs:
           Remove-Item -LiteralPath latest.json -Force -ErrorAction SilentlyContinue
           Remove-Item -LiteralPath .tauri-updater.conf.json -Force -ErrorAction SilentlyContinue
 
-      - name: Enable updater artifacts for signed build
-        if: steps.signing-gate.outputs.available == 'true'
+      - name: Enable signed updater artifacts
         shell: pwsh
         run: |
           '{"bundle":{"createUpdaterArtifacts":true}}' | Set-Content -LiteralPath .tauri-updater.conf.json -Encoding utf8
 
       - name: Build signed draft release with updater
-        id: signed-release
-        if: steps.signing-gate.outputs.available == 'true'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -136,44 +130,12 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: '萌游 MoeGame ${{ github.ref_name }}'
           releaseBody: |
-            Signed updater candidate. Artifacts remain draft-only until installed upgrade and rollback evidence is approved.
+            Signed MoePlay release. Automatic-update metadata and signatures are verified before publication.
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
           args: --config .tauri-updater.conf.json --ci
-
-      - name: Build degraded installer-only draft release
-        id: unsigned-release
-        if: steps.signing-gate.outputs.available != 'true'
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: '萌游 MoeGame ${{ github.ref_name }} (UPDATER BLOCKED)'
-          releaseBody: |
-            DEGRADED RELEASE CANDIDATE: updater artifacts and latest.json were not generated because TAURI_SIGNING_PRIVATE_KEY was unavailable. Keep this release as a draft. Configure signing secrets and rerun before updater promotion; installed upgrade and rollback approval is still required.
-          releaseDraft: true
-          prerelease: false
-          includeUpdaterJson: false
-          args: --config src-tauri/tauri.ci.conf.json --ci
-
-      - name: Mark signed candidate as draft-only
-        if: steps.signing-gate.outputs.available == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: pwsh
-        run: |
-          gh release edit "${{ github.ref_name }}" --draft --title "萌游 MoeGame ${{ github.ref_name }}" --notes "Signed updater candidate. Keep draft until installed upgrade and rollback evidence is attached and approved."
-
-      - name: Mark degraded candidate as updater-blocked draft
-        if: steps.signing-gate.outputs.available != 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: pwsh
-        run: |
-          gh release edit "${{ github.ref_name }}" --draft --title "萌游 MoeGame ${{ github.ref_name }} (UPDATER BLOCKED)" --notes "DEGRADED RELEASE CANDIDATE: updater artifacts and latest.json are absent because TAURI_SIGNING_PRIVATE_KEY was unavailable. Keep draft; configure signing secrets and rerun. Installed upgrade and rollback approval remains required."
 
       - name: Build portable package
         run: npm run package:portable
@@ -184,18 +146,13 @@ jobs:
       - name: Generate build metadata
         run: npm run generate:build-metadata
 
-      - name: Verify release artifacts and updater policy
+      - name: Verify release artifacts require updater
         env:
-          UPDATER_RELEASE_MODE: ${{ steps.signing-gate.outputs.available == 'true' && 'Required' || 'Disabled' }}
+          UPDATER_RELEASE_MODE: Required
         run: npm run verify:artifacts
 
-      - name: Verify signed updater metadata and detached signatures
-        if: steps.signing-gate.outputs.available == 'true'
+      - name: Verify updater metadata and detached signatures
         run: node scripts/verify-updater-artifacts.mjs --require --artifacts-dir src-tauri/target/release latest.json
-
-      - name: Verify degraded build omitted updater metadata
-        if: steps.signing-gate.outputs.available != 'true'
-        run: node scripts/verify-updater-artifacts.mjs --expect-absent
 
       - name: Upload portable package and release evidence
         env:
@@ -205,17 +162,11 @@ jobs:
           $portable = Get-ChildItem src-tauri/target/release/bundle/portable/*.zip | Select-Object -First 1
           gh release upload "${{ github.ref_name }}" $portable.FullName src-tauri/target/release/bundle/release-manifest.json src-tauri/target/release/bundle/sbom.cdx.json src-tauri/target/release/bundle/build-metadata.json --clobber
 
-      - name: Keep signed release draft pending installed upgrade approval
-        if: steps.signing-gate.outputs.available == 'true'
+      - name: Publish updater-ready release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
-          Write-Host "Signed updater artifacts are verified and remain in a draft release."
-          Write-Host "Promotion is intentionally blocked until the installed upgrade/rollback report is attached and approved."
-
-      - name: Block degraded release promotion
-        if: steps.signing-gate.outputs.available != 'true' && steps.unsigned-release.outcome == 'success'
-        shell: pwsh
-        run: |
-          "## Release blocked" >> $env:GITHUB_STEP_SUMMARY
-          "The installer-only assets remain in a draft release. Do not publish until signing secrets are configured, the signed updater gate passes, and installed upgrade/rollback evidence is approved." >> $env:GITHUB_STEP_SUMMARY
-          throw "Updater signing secret is unavailable; degraded draft was retained but release promotion is blocked."
+          gh release edit "${{ github.ref_name }}" --draft=false --prerelease=false --title "萌游 MoeGame ${{ github.ref_name }}"
+          "## Release published" >> $env:GITHUB_STEP_SUMMARY
+          "latest.json, updater archive and detached signature were verified before publication." >> $env:GITHUB_STEP_SUMMARY
