@@ -12,6 +12,8 @@ test("official releases require signed automatic-update artifacts", () => {
   assert.match(workflow, /createUpdaterArtifacts\":true/);
   assert.match(workflow, /includeUpdaterJson: true/);
   assert.match(workflow, /UPDATER_RELEASE_MODE: Required/);
+  assert.match(workflow, /npm run generate:updater-manifest/);
+  assert.match(workflow, /gh release upload .*latest\.json/);
   assert.match(workflow, /verify-updater-artifacts\.mjs --require/);
   assert.match(workflow, /gh release edit .*--draft=false/);
   assert.doesNotMatch(workflow, /degraded|installer-only|includeUpdaterJson: false/i);

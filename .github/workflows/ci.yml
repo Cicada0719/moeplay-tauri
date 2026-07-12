@@ -62,6 +62,9 @@ jobs:
       - name: Test mandatory automatic-update release policy
         run: npm run test:updater-policy
 
+      - name: Test updater manifest generator
+        run: npm run test:updater-manifest
+
       - name: Verify ordinary workspace updater state
         run: node scripts/verify-updater-artifacts.mjs --expect-absent
 

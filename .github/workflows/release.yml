@@ -64,6 +64,9 @@ jobs:
       - name: Test mandatory automatic-update release policy
         run: npm run test:updater-policy
 
+      - name: Test updater manifest generator
+        run: npm run test:updater-manifest
+
       - name: Test installed-upgrade report verifier
         run: npm run test:upgrade-report
 
@@ -137,6 +140,9 @@ jobs:
           updaterJsonPreferNsis: true
           args: --config .tauri-updater.conf.json --ci
 
+      - name: Generate signed latest.json
+        run: npm run generate:updater-manifest
+
       - name: Build portable package
         run: npm run package:portable
 
@@ -160,7 +166,7 @@ jobs:
         shell: pwsh
         run: |
           $portable = Get-ChildItem src-tauri/target/release/bundle/portable/*.zip | Select-Object -First 1
-          gh release upload "${{ github.ref_name }}" $portable.FullName src-tauri/target/release/bundle/release-manifest.json src-tauri/target/release/bundle/sbom.cdx.json src-tauri/target/release/bundle/build-metadata.json --clobber
+          gh release upload "${{ github.ref_name }}" latest.json $portable.FullName src-tauri/target/release/bundle/release-manifest.json src-tauri/target/release/bundle/sbom.cdx.json src-tauri/target/release/bundle/build-metadata.json --clobber
 
       - name: Publish updater-ready release
         env:
