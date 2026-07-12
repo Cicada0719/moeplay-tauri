@@ -164,7 +164,15 @@
     </nav>
 
     <footer class="fs-footer">
-      <div><span>CURRENT FRAME</span><h2>{active.title}</h2><p>{active.description || "每款游戏只占据一个镜头，滚轮推动整条影像序列。"}</p></div>
+      <div class="fs-current-copy">
+        <div class="fs-current-register"><span>CURRENT FRAME</span>{#if active.metadata.rating}<strong>{active.metadata.rating.toFixed(1)} / 10</strong>{/if}</div>
+        <h2>{active.title}</h2>
+        <p>{active.description || "每款游戏只占据一个镜头，滚轮推动整条影像序列。"}</p>
+        <div class="fs-current-meta" aria-label="游戏档案摘要">
+          <span>{active.metadata.releaseYear || "----"}</span><span>{active.metadata.developer || active.metadata.publisher || "PRIVATE ARCHIVE"}</span><span>{statusLabel(active.metadata.completionStatus)}</span>
+          {#each active.metadata.tags.slice(0, 2) as tag}<span>{tag}</span>{/each}
+        </div>
+      </div>
       <div class="fs-actions">
         {#if launch}<button class="primary" type="button" onclick={() => runAction(active, "launch", onAction)}>{launch.label}</button>{/if}
         {#if open}<button type="button" onclick={() => runAction(active, "open", onAction)}>打开档案</button>{/if}

@@ -1,0 +1,76 @@
+/* MoePlay v0.14 formal visual consolidation
+   SHIFTBRAIN-like registration skeleton + editorial media materials. */
+:root {
+  --ui-paper: color-mix(in srgb, var(--bg-card) 94%, #d8d4ca 6%);
+  --ui-paper-strong: color-mix(in srgb, var(--bg-elev) 88%, #ece7dc 12%);
+  --ui-ink: var(--text-primary);
+  --ui-ink-muted: var(--text-secondary);
+  --ui-hairline: color-mix(in srgb, var(--border) 82%, currentColor 18%);
+  --ui-control-radius: 2px;
+  --ui-panel-radius: 4px;
+  --ui-ease-out: cubic-bezier(.16,1,.3,1);
+  --ui-ease-editorial: cubic-bezier(.22,.75,.18,1);
+  --ui-duration-fast: 160ms;
+  --ui-duration-base: 320ms;
+  --ui-duration-slow: 620ms;
+}
+
+/* Shared controls: rectangular, registered, tactile. */
+:root .ui-button {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--ui-control-radius);
+  letter-spacing: .015em;
+  transition: transform var(--ui-duration-fast) var(--ui-ease-out), background-color var(--ui-duration-base) var(--ui-ease-out), border-color var(--ui-duration-base) var(--ui-ease-out), color var(--ui-duration-base) var(--ui-ease-out);
+}
+:root .ui-button::after {
+  content: ""; position: absolute; right: 0; bottom: 0; width: 12px; height: 1px; background: currentColor; opacity: .42; transform-origin: right; transition: width var(--ui-duration-base) var(--ui-ease-out), opacity var(--ui-duration-base) ease;
+}
+:root .ui-button:hover::after { width: 42%; opacity: .8; }
+:root .ui-button:active:not(:disabled) { transform: translateY(1px) scale(.992); }
+:root .ui-input, :root textarea, :root select { border-radius: var(--ui-control-radius); }
+:root .ui-input:focus-visible, :root textarea:focus-visible, :root select:focus-visible { box-shadow: inset 0 -2px var(--accent), 0 0 0 1px color-mix(in srgb, var(--accent) 38%, transparent); }
+:root .ui-tag { border-radius: 1px; font-family: var(--font-mono); letter-spacing: .055em; text-transform: uppercase; }
+:root .ui-card { border-radius: var(--ui-panel-radius); box-shadow: none; background: color-mix(in srgb, var(--bg-card) 91%, transparent); }
+:root .ui-card--hoverable:hover { transform: translateY(-2px); box-shadow: 0 18px 42px -34px rgb(0 0 0 / .9); }
+:root .ui-segment { border-radius: 2px; padding: 2px; }
+:root .ui-segment__option { border-radius: 1px; font-family: var(--font-mono); letter-spacing: .055em; }
+
+/* V2 surfaces share one geometry and one motion family. */
+:root [data-ui-v2="page-shell"] { background: linear-gradient(115deg, rgb(var(--media-primary-rgb, 20 22 28) / .08), transparent 45%); }
+:root [data-ui-v2="page-header"] { padding-bottom: 18px; border-bottom: 1px solid var(--v2-color-border); }
+:root [data-ui-v2="page-header"] .v2-page-header__title { font-size: clamp(1.8rem, 3vw, 3.6rem); letter-spacing: -.055em; }
+:root [data-ui-v2="page-header"] .v2-page-header__eyebrow { font-family: var(--font-mono); letter-spacing: .16em; }
+:root [data-ui-v2="detail-panel"], :root [data-ui-v2="drawer"] { border-radius: 0; background: color-mix(in srgb, var(--v2-color-surface-raised) 94%, transparent); backdrop-filter: blur(22px) saturate(1.08); }
+:root .v2-detail-panel__header, :root .v2-drawer__header { min-height: 72px; }
+:root .v2-detail-panel__close, :root .v2-drawer__close { border-radius: 1px; }
+:root .ui-dialog-panel { border-radius: var(--ui-panel-radius); }
+
+/* Empty states should behave like a useful editorial register, not a lonely icon. */
+:root .ui-empty { position: relative; min-height: 260px; border: 1px solid var(--border); border-radius: var(--ui-panel-radius); overflow: hidden; background: linear-gradient(135deg, color-mix(in srgb, var(--bg-card) 90%, transparent), color-mix(in srgb, var(--accent) 5%, transparent)); }
+:root .ui-empty::before { content: "MOEPLAY / READY"; position: absolute; top: 14px; left: 16px; color: var(--text-dim); font: 600 8px/1 var(--font-mono); letter-spacing: .16em; }
+:root .ui-empty::after { content: ""; position: absolute; right: 16px; bottom: 16px; width: min(22vw,180px); height: 1px; background: var(--border-hover); }
+
+/* Scrollbars: thin editorial marker. */
+* { scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; }
+*::-webkit-scrollbar { width: 7px; height: 7px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 0; background: var(--scrollbar-thumb); background-clip: padding-box; }
+
+@media (prefers-reduced-motion: reduce) {
+  :root *, :root *::before, :root *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; }
+}
+/* Formal motion choreography: opacity/transform only. */
+@keyframes ui-register-reveal { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes ui-line-draw { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+:root [data-ui-v2="detail-panel"] .v2-detail-panel__header,
+:root [data-ui-v2="drawer"] .v2-drawer__header { animation: ui-register-reveal 440ms var(--ui-ease-out) both; }
+:root [data-ui-v2="detail-panel"] .v2-detail-panel__body > *,
+:root [data-ui-v2="drawer"] .v2-drawer__body > * { animation: ui-register-reveal 560ms var(--ui-ease-out) both; }
+:root [data-ui-v2="detail-panel"] .v2-detail-panel__body > *:nth-child(2),
+:root [data-ui-v2="drawer"] .v2-drawer__body > *:nth-child(2) { animation-delay: 55ms; }
+:root [data-ui-v2="detail-panel"] .v2-detail-panel__body > *:nth-child(3),
+:root [data-ui-v2="drawer"] .v2-drawer__body > *:nth-child(3) { animation-delay: 105ms; }
+:root [data-ui-v2="page-header"]::after { content:""; position:absolute; right:0; bottom:-1px; width:min(18vw,220px); height:1px; background:var(--v2-color-accent); transform-origin:right; animation:ui-line-draw 720ms var(--ui-ease-editorial) both; }
+:root [data-ui-v2="page-header"] { position:relative; }
+

@@ -304,10 +304,22 @@
     <p class="stg-subtitle">外观、数据源、库管理与高级选项</p>
   </header>
 
-  <main class="stg-content" bind:this={contentEl}>
+  <div class="stg-workspace">
+    <aside class="stg-index" aria-label="设置分类">
+      <span>SETTINGS / INDEX</span>
+      <a href="#settings-appearance"><b>01</b><em>常用与外观</em></a>
+      <a href="#settings-scrape"><b>02</b><em>数据刮削</em></a>
+      <a href="#settings-library"><b>03</b><em>库与导入</em></a>
+      <a href="#settings-bangumi"><b>04</b><em>Bangumi</em></a>
+      <a href="#settings-player"><b>05</b><em>番剧播放器</em></a>
+      <a href="#settings-advanced"><b>06</b><em>高级</em></a>
+      <small>宽屏目录会跟随内容滚动；所有设置仍保留原有保存逻辑。</small>
+    </aside>
+    <main class="stg-content" bind:this={contentEl}>
 
     <!-- 常用 -->
-    <Card class="s-section" padding="lg">
+    <span class="section-anchor" id="settings-appearance" aria-hidden="true"></span>
+    <Card class="s-section" padding="lg" ariaLabel="settings-appearance">
       <div class="s-head">
         <h2 class="s-title"><Icon name="eye" size={17} className="s-title-ic" /> 常用</h2>
       </div>
@@ -395,7 +407,7 @@
     </Card>
 
     <!-- 数据源 -->
-    <Card class="s-section" padding="lg">
+    <Card class="s-section" padding="lg" ariaLabel="settings-scrape">
       <div class="s-head">
         <h2 class="s-title"><Icon name="layers" size={17} className="s-title-ic" /> 数据刮削</h2>
         <div class="s-head-actions">
@@ -438,7 +450,8 @@
     </Card>
 
     <!-- 库与导入 -->
-    <Card class="s-section" padding="lg">
+    <span class="section-anchor" id="settings-library" aria-hidden="true"></span>
+    <Card class="s-section" padding="lg" ariaLabel="settings-library">
       <div class="s-head">
         <h2 class="s-title"><Icon name="folder" size={17} className="s-title-ic" /> 库与导入</h2>
       </div>
@@ -499,7 +512,8 @@
     </Card>
 
     <!-- Bangumi 收藏同步 -->
-    <Card class="s-section" padding="lg">
+    <span class="section-anchor" id="settings-bangumi" aria-hidden="true"></span>
+    <Card class="s-section" padding="lg" ariaLabel="settings-bangumi">
       <div class="s-head">
         <h2 class="s-title"><Icon name="heart" size={17} className="s-title-ic" /> Bangumi 收藏同步</h2>
       </div>
@@ -582,7 +596,8 @@
     </Card>
 
     <!-- 番剧播放器 -->
-    <Card class="s-section" padding="lg">
+    <span class="section-anchor" id="settings-player" aria-hidden="true"></span>
+    <Card class="s-section" padding="lg" ariaLabel="settings-player">
       <div class="s-head">
         <h2 class="s-title"><Icon name="film" size={17} className="s-title-ic" /> 番剧播放器</h2>
       </div>
@@ -667,7 +682,8 @@
     </Card>
 
     <!-- 高级 -->
-    <Card class="s-section" padding="lg">
+    <span class="section-anchor" id="settings-advanced" aria-hidden="true"></span>
+    <Card class="s-section" padding="lg" ariaLabel="settings-advanced">
       <div class="s-head">
         <h2 class="s-title"><Icon name="toolbox" size={17} className="s-title-ic" /> 高级</h2>
       </div>
@@ -735,7 +751,7 @@
       <div class="about-block">
         <div class="about-name">
           <span class="about-brand">萌游</span>
-          <Tag variant="accent" size="sm" class="about-ver">v0.11.3</Tag>
+          <Tag variant="accent" size="sm" class="about-ver">v0.13.6</Tag>
         </div>
         <p class="about-tagline">可爱的游戏管理器</p>
         <div class="about-stack">
@@ -749,7 +765,8 @@
       </div>
     </Card>
 
-  </main>
+    </main>
+  </div>
 </section>
 
 <UpdateDialog bind:open={showUpdateDialog} />
@@ -767,9 +784,9 @@
   .stg-head {
     position: relative;
     width: 100%;
-    max-width: 880px;
+    max-width: 1280px;
     margin: 0 auto;
-    padding: 26px 24px 14px;
+    padding: 26px 28px 14px;
     display: flex;
     flex-direction: column;
     gap: 5px;
@@ -797,19 +814,18 @@
     font-size: 13px;
   }
 
-  /* ── Content (single column, centered) ── */
-  .stg-content {
-    flex: 1;
-    overflow-y: auto;
-    width: 100%;
-    max-width: 880px;
-    margin: 0 auto;
-    padding: 8px 24px 40px;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    scroll-behavior: smooth;
-  }
+  /* ── Wide settings workspace ── */
+  .stg-workspace { flex:1; min-height:0; width:100%; max-width:1280px; margin:0 auto; padding:0 28px 36px; display:grid; grid-template-columns:220px minmax(0,1fr); gap:28px; overflow:hidden; }
+  .stg-index { align-self:start; position:sticky; top:0; display:grid; padding-top:10px; border-top:1px solid var(--border-hover); }
+  .stg-index>span { padding:0 0 14px; color:var(--accent); font:700 8px/1 var(--font-mono); letter-spacing:.16em; }
+  .stg-index a { display:grid; grid-template-columns:32px 1fr; align-items:center; min-height:42px; border-top:1px solid var(--border); color:var(--text-secondary); text-decoration:none; transition:padding-left .28s var(--ui-ease-out),color .2s ease,background .2s ease; }
+  .stg-index a:last-of-type { border-bottom:1px solid var(--border); }
+  .stg-index a:hover,.stg-index a:focus-visible { padding-left:7px; color:var(--text-primary); background:color-mix(in srgb,var(--accent) 6%,transparent); outline:0; }
+  .stg-index b { color:var(--text-dim); font:700 8px/1 var(--font-mono); }
+  .stg-index em { font:650 12px/1 var(--font-ui); font-style:normal; }
+  .stg-index small { margin-top:16px; color:var(--text-dim); font-size:10px; line-height:1.6; }
+  .stg-content { min-height:0; overflow-y:auto; width:100%; padding:8px 2px 40px; display:flex; flex-direction:column; gap:14px; scroll-behavior:smooth; }
+  .section-anchor { display:block; height:1px; margin-top:-1px; scroll-margin-top:8px; }
 
   /* ── Section panel ── */
   :global(.s-section) { transition: border-color 0.3s ease; }
@@ -1052,4 +1068,7 @@
   .wallpaper-attribution b { font-size:13px; }
   .wallpaper-attribution span { font-size:11px; color:var(--text-muted); }
   .wallpaper-attribution button { border:0; background:transparent; color:var(--text-muted); cursor:pointer; }
+
+  @media (max-width: 980px) { .stg-workspace { grid-template-columns:1fr; padding-inline:18px; } .stg-index { position:static; grid-template-columns:repeat(3,minmax(0,1fr)); gap:0; padding:0; } .stg-index>span,.stg-index small{grid-column:1/-1}.stg-index a{padding-inline:8px}.stg-head{padding-inline:18px} }
+  @media (max-width: 620px) { .stg-index{grid-template-columns:repeat(2,minmax(0,1fr))}.stg-workspace{padding-inline:12px}.stg-head{padding-inline:12px} }
 </style>

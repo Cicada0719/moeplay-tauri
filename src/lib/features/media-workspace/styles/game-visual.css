@@ -100,3 +100,13 @@
   .nd-cube,.nd-face,.nd-lead .mw-artwork img,.nd-cube-wrap { transition:none!important; }
   .nd-stage--shifting .nd-cube { transform:none; }
 }
+
+.nd-title-register { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; }
+.nd-score { flex:0 0 auto; display:flex; align-items:baseline; gap:3px; padding-left:14px; border-left:1px solid var(--nd-line); color:var(--nd-ink); }
+.nd-score strong { font:720 clamp(1.6rem,2.8vw,3.1rem)/.8 var(--font-display); letter-spacing:-.07em; }
+.nd-score small { color:rgb(10 11 13 / .46); font:700 7px/1 var(--font-mono); }
+.nd-tags { display:flex; flex-wrap:wrap; gap:5px; margin-top:14px; }
+.nd-tags span { padding:4px 7px; border:1px solid var(--nd-line); color:rgb(10 11 13 / .62); font:700 7px/1 var(--font-mono); letter-spacing:.08em; text-transform:uppercase; }
+.nd-facts { grid-template-columns:repeat(4,minmax(0,1fr)); }
+.nd-facts div:last-child { min-width:0; }
+@media(max-width:980px){ .nd-score{display:none}.nd-tags{display:none}.nd-facts{grid-template-columns:repeat(3,minmax(0,1fr))}.nd-facts div:nth-child(4){display:none} }

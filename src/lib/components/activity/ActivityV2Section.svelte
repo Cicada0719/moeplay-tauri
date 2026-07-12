@@ -26,7 +26,31 @@
   function eventLabel(type: ActivityEventType): string {
     return ({ started: "开始", progressed: "推进", completed: "完成", rated: "评分", favorited: "收藏", imported: "导入", failed: "失败" })[type];
   }
-</script>
+  function eventPayload(event: ActivityEventView): Record<string, unknown> {
+    return event.payload && typeof event.payload === "object" && !Array.isArray(event.payload) ? event.payload as Record<string, unknown> : {};
+  }
+  function payloadText(payload: Record<string, unknown>, ...keys: string[]): string {
+    for (const key of keys) { const value = payload[key]; if (typeof value === "string" && value.trim()) return value.trim(); }
+    return "";
+  }
+  function activityTitle(event: ActivityEventView): string {
+    const payload = eventPayload(event);
+    return payloadText(payload, "title", "name", "resource_title", "game_name", "anime_name", "comic_title") || event.resourceId;
+  }
+  function activityDescription(event: ActivityEventView): string | undefined {
+    const payload = eventPayload(event);
+    const rating = Number(payload.rating ?? payload.score ?? payload.user_rating);
+    if (event.eventType === "rated" && Number.isFinite(rating)) return `我的评分 ${rating.toFixed(1)} / 10`;
+    const episode = payloadText(payload, "episode_name", "episode", "position_label");
+    if (event.resourceKind === "anime" && episode) return `观看至 ${episode}`;
+    const chapter = payloadText(payload, "chapter_title", "chapter", "position_label");
+    if (event.resourceKind === "comic" && chapter) return `阅读至 ${chapter}`;
+    const note = payloadText(payload, "description", "summary", "note", "message");
+    if (note) return note;
+    if (event.eventType === "completed") return "这部作品已进入完成档案。";
+    if (event.eventType === "favorited") return "已加入私人收藏。";
+    return event.sourceLegacyId ? `由旧版记录迁移：${event.sourceLegacyId}` : undefined;
+  }</script>
 
 <AsyncSection
   title="Activity v2 活动记录"
@@ -90,7 +114,7 @@
           {#snippet eventMeta()}<span>{dateTime(event.startedAt)} · {event.durationQuality === "exact" ? "精确" : event.durationQuality === "estimated" ? "估算" : "仅进度"}{#if event.durationSeconds !== null} · {formatSeconds(event.durationSeconds)}{/if}</span>{/snippet}
           {#snippet eventBadge()}<span class="activity-badge">{kindLabel(event.resourceKind)}</span>{/snippet}
           {#snippet eventActions()}<button type="button" aria-label={`编辑 ${event.resourceId} 活动`} onclick={() => onEdit(event)}>编辑</button><button type="button" class="danger" aria-label={`删除 ${event.resourceId} 活动`} onclick={() => onDelete(event)}>删除</button>{/snippet}
-          <MediaRow title={`${eventLabel(event.eventType)} · ${event.resourceId}`} subtitle={event.providerId ?? "本地记录"} description={event.sourceLegacyId ? `由旧版记录迁移：${event.sourceLegacyId}` : undefined} meta={eventMeta} badge={eventBadge} actions={eventActions} focusKey={`activity-event-${event.id}`} />
+          <MediaRow title={`${eventLabel(event.eventType)} · ${activityTitle(event)}`} subtitle={`${kindLabel(event.resourceKind)}档案 · ${event.providerId ?? "本地记录"}`} description={activityDescription(event)} meta={eventMeta} badge={eventBadge} actions={eventActions} focusKey={`activity-event-${event.id}`} />
         {/each}
       </div>
       {#if activityState.nextCursor}<button class="load-more" type="button" onclick={onLoadMore} disabled={activityState.isLoadingMore}>{activityState.isLoadingMore ? "加载中…" : "加载更多"}</button>{/if}
@@ -106,5 +130,3 @@
   .activity-filters { padding: var(--v2-space-3); border: 1px solid var(--v2-color-border); border-radius: var(--v2-radius-lg); background: var(--v2-color-surface-subtle); } .activity-timeline { display: grid; gap: var(--v2-space-2); } .activity-timeline :global(.v2-media-row__actions button) { min-height: 2.25rem; } .activity-timeline :global(.v2-media-row__actions .danger) { border-color: color-mix(in srgb, #ef6a7d 55%, var(--v2-color-border)); color: #ffb5c0; } .activity-badge { display: inline-flex; padding: .2rem .45rem; border-radius: 999px; background: color-mix(in srgb, var(--v2-color-accent) 18%, transparent); color: var(--v2-color-accent); font-size: .68rem; font-weight: 800; } .activity-message, .activity-empty { margin: 0; padding: var(--v2-space-3); border: 1px solid var(--v2-color-border); border-radius: var(--v2-radius-md); color: var(--v2-color-text-secondary); background: var(--v2-color-surface-subtle); } .activity-message--error { border-color: color-mix(in srgb, #ef6a7d 55%, var(--v2-color-border)); color: #ffb5c0; } .load-more { justify-self: center; margin-top: var(--v2-space-3); }
   @media (max-width: 42rem) { .activity-export { width: 100%; } .activity-export label, .activity-export input { width: 100%; } .activity-subsection > header { flex-direction: column; } }
 </style>
-
-

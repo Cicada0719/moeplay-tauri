@@ -49,6 +49,8 @@
   // Facet data
   let topDevs = $state<{ name: string; count: number }[]>([]);
   let topTags = $state<{ name: string; count: number }[]>([]);
+  const maxDeveloperCount = $derived(Math.max(1, ...topDevs.map((item) => item.count)));
+  const maxTagCount = $derived(Math.max(1, ...topTags.map((item) => item.count)));
 
   async function search() {
     if (!query.trim()) return;
@@ -221,43 +223,23 @@
     <AiExperienceWorkbench client={aiClient} onApplyFilter={applyCompiledFilter} />
 
   {:else if active === "开发商"}
-    <div class="grid compact">
-      {#each topDevs.slice(0, 20) as d}
-        <Card class="facet-card" padding="md" hoverable>
-          <strong>{d.name}</strong>
-          <Tag variant="muted" size="sm">{d.count} 款</Tag>
-        </Card>
-      {:else}
-        <EmptyState title="暂无数据" />
-      {/each}
+    <div class="facet-editorial">
+      <header><span>STUDIO INDEX</span><h2>你的游戏库由哪些工作室构成</h2><p>数量作为索引，条形长度用于快速比较，避免低密度数据变成孤立的大卡片。</p></header>
+      <div class="facet-lines">
+        {#each topDevs.slice(0, 20) as d, index}<article><span>{String(index + 1).padStart(2,"0")}</span><strong>{d.name}</strong><i style={`--facet:${d.count / maxDeveloperCount * 100}%`}></i><small>{d.count} 款</small></article>{:else}<EmptyState title="暂无数据" />{/each}
+      </div>
     </div>
-
   {:else if active === "标签"}
-    <div class="grid compact">
-      {#each topTags.slice(0, 30) as t}
-        <Card class="facet-card" padding="md" hoverable>
-          <strong>{t.name}</strong>
-          <Tag variant="muted" size="sm">{t.count} 次</Tag>
-        </Card>
-      {:else}
-        <EmptyState title="暂无数据" />
-      {/each}
+    <div class="facet-editorial tag-editorial">
+      <header><span>TAG LANDSCAPE</span><h2>作品偏好与标签地貌</h2><p>高频标签更突出，同时保持可扫描的编辑索引。</p></header>
+      <div class="tag-field">{#each topTags.slice(0, 30) as t}<button type="button" style={`--weight:${Math.max(.45,t.count / maxTagCount)}`}><strong>{t.name}</strong><small>{t.count}</small></button>{:else}<EmptyState title="暂无数据" />{/each}</div>
     </div>
-
   {:else if active === "年份" || active === "评分"}
-    <div class="grid compact">
-      {#each collections.filter(c => c.id?.includes(active === "年份" ? "year" : "rating") || c.id?.includes(active === "年份" ? "month" : "score")).slice(0, 12) as c}
-        <Card class="coll-card" padding="md" hoverable>
-          <strong>{c.name}</strong>
-          <Tag variant="muted" size="sm">{c.game_count} 款</Tag>
-          <p>{c.description}</p>
-        </Card>
-      {:else}
-        <EmptyState title="暂无数据" description="导入更多游戏后会自动生成合集" />
-      {/each}
+    <div class="collection-editorial">
+      <header><span>{active === "年份" ? "TIME INDEX" : "SCORE INDEX"}</span><h2>{active === "年份" ? "收藏跨越的时间切片" : "评分区间形成的私人选片"}</h2></header>
+      <div>{#each collections.filter(c => c.id?.includes(active === "年份" ? "year" : "rating") || c.id?.includes(active === "年份" ? "month" : "score")).slice(0, 12) as c, index}<Card class="coll-card" padding="md" hoverable><span class="coll-no">{String(index + 1).padStart(2,"0")}</span><strong>{c.name}</strong><Tag variant="muted" size="sm">{c.game_count} 款</Tag><p>{c.description}</p></Card>{:else}<EmptyState title="暂无数据" description="导入更多游戏后会自动生成合集" />{/each}</div>
     </div>
-  {/if}
-</section>
+  {/if}</section>
 
 <style>
   .page { padding: 24px; overflow-y: auto; height: 100%; display: flex; flex-direction: column; gap: 18px; }
@@ -320,4 +302,21 @@
   }
   .page > header { padding: 18px 20px; }
   .tabs, .toolbar { padding: 10px; }
+  .facet-editorial,.collection-editorial { display:grid; grid-template-columns:minmax(220px,.36fr) minmax(0,1fr); gap:clamp(24px,5vw,72px); padding:clamp(22px,4vw,56px); border:1px solid var(--border); background:linear-gradient(125deg,color-mix(in srgb,var(--bg-card) 92%,transparent),transparent); }
+  .facet-editorial>header>span,.collection-editorial>header>span { color:var(--accent); font:700 8px/1 var(--font-mono); letter-spacing:.16em; }
+  .facet-editorial h2,.collection-editorial h2 { margin:14px 0 8px; font:720 clamp(1.8rem,3vw,3.8rem)/.92 var(--font-display); letter-spacing:-.055em; }
+  .facet-editorial header p { max-width:42ch; color:var(--text-muted); font-size:11px; line-height:1.65; }
+  .facet-lines { border-top:1px solid var(--border); }
+  .facet-lines article { min-height:46px; display:grid; grid-template-columns:34px minmax(120px,.55fr) minmax(100px,1fr) 52px; align-items:center; gap:12px; border-bottom:1px solid var(--border); }
+  .facet-lines article>span,.facet-lines small,.coll-no { color:var(--text-dim); font:700 8px/1 var(--font-mono); }
+  .facet-lines article>strong { overflow:hidden; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
+  .facet-lines i { width:var(--facet); height:3px; background:var(--accent); }
+  .facet-lines small { text-align:right; }
+  .tag-field { align-content:start; display:flex; flex-wrap:wrap; gap:6px; }
+  .tag-field button { display:flex; align-items:baseline; gap:7px; padding:8px 10px; border:1px solid var(--border); border-radius:1px; background:transparent; color:var(--text-primary); cursor:pointer; opacity:calc(.45 + var(--weight)*.55); }
+  .tag-field button:hover { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 8%,transparent); }
+  .tag-field strong { font-size:calc(.72rem + var(--weight)*.36rem); }.tag-field small{color:var(--text-muted);font:700 8px/1 var(--font-mono)}
+  .collection-editorial>div { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+  :global(.collection-editorial .coll-card) { position:relative; min-height:150px; border-radius:2px; }.coll-no{position:absolute;right:12px;top:12px}
+  @media(max-width:760px){.facet-editorial,.collection-editorial{grid-template-columns:1fr}.collection-editorial>div{grid-template-columns:1fr}.facet-lines article{grid-template-columns:28px minmax(0,1fr) 48px}.facet-lines i{display:none}}
 </style>

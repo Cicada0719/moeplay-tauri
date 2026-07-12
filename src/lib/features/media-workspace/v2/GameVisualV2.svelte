@@ -190,16 +190,29 @@
 
         <article class="nd-face nd-face--archive" aria-label="游戏档案与目录">
           <div class="nd-title-block">
-            <span id="nd-stage-title">GAME ARCHIVE / {statusLabel(featured.metadata.completionStatus)}</span>
+            <div class="nd-title-register">
+              <span id="nd-stage-title">GAME ARCHIVE / {statusLabel(featured.metadata.completionStatus)}</span>
+              {#if featured.metadata.rating}
+                <div class="nd-score" aria-label={`评分 ${featured.metadata.rating} 分`}>
+                  <strong>{featured.metadata.rating.toFixed(1)}</strong><small>/ 10</small>
+                </div>
+              {/if}
+            </div>
             <h1>{featured.title}</h1>
             {#if featured.originalTitle}<p class="nd-original">{featured.originalTitle}</p>{/if}
             <p class="nd-summary">{featured.description || "以封面、截图、游玩状态和本地资料构成这份私人游戏档案。"}</p>
+            {#if featured.metadata.tags.length}
+              <div class="nd-tags" aria-label="游戏标签">
+                {#each featured.metadata.tags.slice(0, 4) as tag}<span>{tag}</span>{/each}
+              </div>
+            {/if}
           </div>
 
           <dl class="nd-facts">
             <div><dt>PLAYTIME</dt><dd>{formatPlaytime(featured.metadata.totalSeconds)}</dd></div>
             <div><dt>STATUS</dt><dd>{statusLabel(featured.metadata.completionStatus)}</dd></div>
-            <div><dt>PLATFORM</dt><dd>{featured.metadata.platform || "PC"}</dd></div>
+            <div><dt>YEAR</dt><dd>{featured.metadata.releaseYear || "----"}</dd></div>
+            <div><dt>STUDIO</dt><dd>{featured.metadata.developer || featured.metadata.publisher || featured.metadata.platform || "PC"}</dd></div>
           </dl>
 
           <nav class="nd-directory" aria-label="游戏目录">

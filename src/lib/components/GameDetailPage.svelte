@@ -70,6 +70,22 @@
   const achievementUnlocked = $derived(game?.play_tracker?.achievements_unlocked ?? 0);
   const achievementPercent = $derived(achievementTotal > 0 ? Math.round((achievementUnlocked / achievementTotal) * 100) : 0);
   const latestSnapshot = $derived(saveSnapshots[0] ?? null);
+  const privateReview = $derived(game?.play_tracker?.review?.trim() ?? "");
+  const archiveFacts = $derived.by(() => {
+    if (!game) return [] as Array<{ label: string; value: string }>;
+    const facts = [
+      { label: "开发", value: developer || "" },
+      { label: "发行", value: publisher || "" },
+      { label: "引擎", value: game.metadata?.engine || game.engine || "" },
+      { label: "系列", value: game.metadata?.series || "" },
+      { label: "发售", value: game.metadata?.release_date || releaseYear },
+      { label: "分级", value: game.metadata?.age_rating || "" },
+      { label: "语言", value: (game.metadata?.languages || []).slice(0, 3).join(" / ") },
+      { label: "首次游玩", value: game.play_tracker?.first_played ? sessionDate(game.play_tracker.first_played) : "" },
+      { label: "完成次数", value: game.play_tracker?.completion_count ? `${game.play_tracker.completion_count} 次` : "" },
+    ];
+    return facts.filter((fact) => fact.value);
+  });
   const recentSessions = $derived.by(() =>
     [...(game?.play_tracker?.sessions ?? [])]
       .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
@@ -266,7 +282,22 @@
       </div>
 
       <div class="body">
-        <p class="desc">{game.description || "暂无简介。可使用刮削补全剧情简介、标签与截图。"}</p>
+        <section class="editorial-dossier" aria-label="作品档案">
+          <div class="dossier-index"><span>01 / SYNOPSIS</span><strong>作品简介</strong></div>
+          <p class="desc">{game.description || "暂无简介。可使用刮削补全剧情简介、标签与截图。"}</p>
+          {#if archiveFacts.length}
+            <dl class="archive-facts">
+              {#each archiveFacts as fact}<div><dt>{fact.label}</dt><dd>{fact.value}</dd></div>{/each}
+            </dl>
+          {/if}
+          {#if privateReview}
+            <blockquote class="private-review">
+              <span>02 / MY REVIEW</span>
+              <p>{privateReview}</p>
+              {#if rating > 0}<footer>PRIVATE SCORE · {rating.toFixed(1)} / 10</footer>{/if}
+            </blockquote>
+          {/if}
+        </section>
 
         {#if screenshots.length}
           <section class="gallery" bind:this={galleryEl} aria-label="截图画廊">
@@ -838,4 +869,18 @@
     padding: 14px 24px;
     border-top: 1px solid rgba(255,255,255,0.06);
   }
+
+  .editorial-dossier { display:grid; grid-template-columns:clamp(7rem,16vw,11rem) minmax(0,1fr); gap:18px 28px; padding:clamp(22px,4vw,44px); border-block:1px solid var(--border); background:linear-gradient(120deg,color-mix(in srgb,var(--bg-card) 84%,transparent),transparent); }
+  .dossier-index { display:grid; align-content:start; gap:8px; padding-top:4px; border-top:2px solid var(--accent); }
+  .dossier-index span,.private-review>span { color:var(--accent); font:700 8px/1 var(--font-mono); letter-spacing:.14em; }
+  .dossier-index strong { font:700 13px/1.2 var(--font-ui); }
+  .editorial-dossier>.desc { max-width:70ch; margin:0; color:var(--text-secondary); font-size:14px; line-height:1.78; text-wrap:pretty; }
+  .archive-facts { grid-column:2; display:grid; grid-template-columns:repeat(auto-fit,minmax(9rem,1fr)); margin:0; border-top:1px solid var(--border); }
+  .archive-facts div { min-width:0; padding:12px 12px 12px 0; border-bottom:1px solid var(--border); }
+  .archive-facts dt { color:var(--text-muted); font:700 8px/1 var(--font-mono); letter-spacing:.1em; }
+  .archive-facts dd { margin:7px 0 0; overflow:hidden; color:var(--text-primary); font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
+  .private-review { grid-column:1/-1; margin:6px 0 0; padding:18px 20px; border-left:3px solid var(--accent); background:color-mix(in srgb,var(--accent) 7%,var(--bg-card)); }
+  .private-review p { max-width:74ch; margin:10px 0; color:var(--text-primary); font:500 clamp(1rem,1.5vw,1.25rem)/1.65 var(--font-ui); }
+  .private-review footer { color:var(--text-muted); font:700 8px/1 var(--font-mono); letter-spacing:.12em; }
+  @media(max-width:42rem){.editorial-dossier{grid-template-columns:1fr}.archive-facts{grid-column:1}.private-review{grid-column:1}}
 </style>

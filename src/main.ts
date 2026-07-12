@@ -9,6 +9,7 @@ import "./app.css";
 import "./lib/styles/tokens-v2.css";
 import "./lib/styles/anime-themes.css";
 import "./lib/styles/scheme-c.css";
+import "./lib/styles/visual-system.css";
 import { mount } from "svelte";
 import App from "./App.svelte";
 

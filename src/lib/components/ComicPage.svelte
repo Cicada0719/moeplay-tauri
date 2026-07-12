@@ -324,14 +324,33 @@
               {/each}
             </div>
           {:else if ordinaryState === "ready"}
-            <div class="ordinary-intro">
-              <Icon name="search" size={32} />
-              <div><h2>搜索漫画，直接阅读</h2><p>支持 MangaDex、包子漫画、DM5 与 1kkk，多源结果互不覆盖。</p></div>
-              <div class="quick-searches" aria-label="热门搜索">
-                {#each ["海贼王", "葬送的芙莉莲", "迷宫饭", "电锯人"] as keyword}
-                  <Button variant="ghost" size="sm" press={() => void searchOrdinary(keyword)}>{keyword}</Button>
-                {/each}
-              </div>
+            <div class="ordinary-home">
+              <section class="ordinary-lead">
+                <span>01 / SEARCH ARCHIVE</span>
+                <Icon name="search" size={30} />
+                <div><h2>搜索漫画，直接阅读</h2><p>支持 MangaDex、包子漫画、DM5 与 1kkk，多源结果互不覆盖。搜索结果按来源分段，不再让单个来源错误清空整个页面。</p></div>
+                <div class="quick-searches" aria-label="热门搜索">
+                  {#each ["海贼王", "葬送的芙莉莲", "迷宫饭", "电锯人"] as keyword}
+                    <Button variant="ghost" size="sm" press={() => void searchOrdinary(keyword)}>{keyword}</Button>
+                  {/each}
+                </div>
+              </section>
+              <section class="ordinary-side" aria-label="漫画阅读摘要">
+                <div class="source-register"><span>02 / SOURCES</span><strong>4 个公开来源</strong><small>自动模式并行检索并保留部分成功结果</small></div>
+                {#if comicStore.readHistory.length}
+                  <div class="recent-reading">
+                    <span>03 / CONTINUE</span>
+                    {#each comicStore.readHistory.slice(0, 3) as record}
+                      <button type="button" onclick={(event) => void resumeHistory(record, event)}>
+                        {#if record.thumb_url}<img src={record.thumb_url} alt="" />{/if}
+                        <span><strong>{record.title}</strong><small>{record.last_title || `第 ${record.last_order} 话`} · {fmtDate(record.ts)}</small></span>
+                      </button>
+                    {/each}
+                  </div>
+                {:else}
+                  <div class="reading-ready"><span>03 / READING LOG</span><strong>阅读记录尚未建立</strong><small>打开章节后，继续阅读会自动出现在这里。</small></div>
+                {/if}
+              </section>
             </div>
           {/if}
         </AsyncSection>
@@ -551,9 +570,6 @@
   .source-tabs button:focus-visible, .picacg-tabs button:focus-visible, .ranking-periods button:focus-visible { outline: none; box-shadow: var(--v2-focus-ring); }
 
   .ordinary-source-results { display: grid; gap: var(--v2-space-6); }
-  .ordinary-intro { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--v2-space-4); padding: var(--v2-space-6); border: 1px dashed var(--v2-color-border); border-radius: var(--v2-radius-lg); background: var(--v2-color-surface-subtle); }
-  .ordinary-intro h2, .ordinary-intro p { margin: 0; }
-  .ordinary-intro p { margin-top: var(--v2-space-1); color: var(--v2-color-text-secondary); }
   .quick-searches { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: var(--v2-space-2); }
 
   .adult-form, .login-form { display: flex; flex-direction: column; gap: var(--v2-space-4); }
@@ -581,8 +597,26 @@
   @media (max-width: 36rem) {
     .comic-search { align-items: stretch; flex-direction: column; }
     .search-field { width: 100%; }
-    .ordinary-intro { grid-template-columns: 1fr; }
     .quick-searches { grid-column: 1; }
     .login-actions { flex-direction: column; }
   }
+  .ordinary-home { min-height:clamp(330px,48vh,560px); display:grid; grid-template-columns:minmax(0,1.2fr) minmax(260px,.8fr); border:1px solid var(--v2-color-border); background:linear-gradient(135deg,color-mix(in srgb,var(--v2-color-surface) 92%,transparent),color-mix(in srgb,var(--v2-color-accent) 5%,transparent)); }
+  .ordinary-lead { display:grid; align-content:center; justify-items:start; gap:16px; padding:clamp(28px,5vw,72px); border-right:1px solid var(--v2-color-border); }
+  .ordinary-lead>span,.source-register>span,.recent-reading>span,.reading-ready>span { color:var(--v2-color-accent); font:700 8px/1 var(--font-mono); letter-spacing:.15em; }
+  .ordinary-lead h2 { margin:0; font:720 clamp(2rem,4vw,4.8rem)/.9 var(--font-display); letter-spacing:-.065em; }
+  .ordinary-lead p { max-width:58ch; margin:8px 0 0; color:var(--v2-color-text-secondary); font-size:12px; line-height:1.7; }
+  .ordinary-side { display:grid; grid-template-rows:auto 1fr; min-width:0; }
+  .source-register,.reading-ready { display:grid; align-content:start; gap:8px; padding:22px; border-bottom:1px solid var(--v2-color-border); }
+  .source-register strong,.reading-ready strong { font-size:14px; }
+  .source-register small,.reading-ready small { color:var(--v2-color-text-secondary); font-size:10px; line-height:1.5; }
+  .recent-reading { display:grid; align-content:start; padding:22px; }
+  .recent-reading>span { margin-bottom:12px; }
+  .recent-reading button { min-width:0; display:grid; grid-template-columns:46px minmax(0,1fr); align-items:center; gap:11px; padding:9px 0; border:0; border-top:1px solid var(--v2-color-border); background:transparent; color:var(--v2-color-text); text-align:left; cursor:pointer; transition:padding-left .25s var(--ui-ease-out),color .2s ease; }
+  .recent-reading button:last-child { border-bottom:1px solid var(--v2-color-border); }
+  .recent-reading button:hover { padding-left:6px; color:var(--v2-color-accent); }
+  .recent-reading img { width:46px; aspect-ratio:3/4; object-fit:cover; }
+  .recent-reading button>span { min-width:0; }
+  .recent-reading strong,.recent-reading small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .recent-reading strong { font-size:11px; } .recent-reading small{margin-top:5px;color:var(--v2-color-text-secondary);font-size:9px}
+  @media(max-width:760px){.ordinary-home{grid-template-columns:1fr}.ordinary-lead{border-right:0;border-bottom:1px solid var(--v2-color-border)} }
 </style>

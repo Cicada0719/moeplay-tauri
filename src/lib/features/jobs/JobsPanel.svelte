@@ -150,9 +150,14 @@
     </div>
   {:else if filteredJobs.length === 0}
     <div class="jobs__empty">
-      <Icon name="list" size={28} />
-      <strong>{jobs.length === 0 ? "暂无后台任务" : "当前筛选下没有任务"}</strong>
-      <p>{jobs.length === 0 ? "下载、导入、刮削、来源验证和 AI 操作会显示在这里。" : "切换筛选条件查看其他状态。"}</p>
+      <div class="empty-copy"><Icon name="list" size={28} /><strong>{jobs.length === 0 ? "队列处于待命状态" : "当前筛选下没有任务"}</strong><p>{jobs.length === 0 ? "新的下载、导入、刮削、来源验证和备份操作会按发生顺序进入这里。" : "切换筛选条件查看其他状态。"}</p></div>
+      {#if jobs.length === 0}
+        <div class="empty-capabilities" aria-label="支持的任务类型">
+          {#each [["DOWNLOAD","资源下载"],["IMPORT","库导入"],["SCRAPE","元数据刮削"],["VERIFY","来源验证"],["BACKUP","存档备份"],["UPDATE","应用更新"]] as capability, index}
+            <div><span>{String(index + 1).padStart(2,"0")}</span><strong>{capability[0]}</strong><small>{capability[1]}</small></div>
+          {/each}
+        </div>
+      {/if}
     </div>
   {:else}
     <ul class="jobs__list" aria-label="任务列表">
@@ -221,7 +226,7 @@
   progress::-webkit-progress-bar { background: var(--bg-elevated); }
   progress::-webkit-progress-value { background: var(--accent); border-radius: inherit; }
   .job__actions { flex: 0 0 auto; justify-content: flex-end; }
-  .jobs__empty { min-height: 210px; padding: 28px; border: 1px dashed var(--border); border-radius: 8px; display: grid; place-items: center; align-content: center; gap: 8px; text-align: center; color: var(--text-muted); background: color-mix(in srgb, var(--bg-card) 72%, transparent); }
+  .jobs__empty { min-height: 360px; padding: 28px; border: 1px solid var(--border); border-radius: 2px; display: grid; grid-template-columns:minmax(180px,.7fr) minmax(260px,1.3fr); align-items:center; gap:28px; text-align:left; color: var(--text-muted); background: linear-gradient(135deg,color-mix(in srgb,var(--bg-card) 78%,transparent),color-mix(in srgb,var(--accent) 4%,transparent)); }
   .jobs__empty strong { color: var(--text-primary); }
   .jobs__empty p { max-width: 460px; margin: 0; font-size: 12px; line-height: 1.6; }
   .spinner { width: 24px; height: 24px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
@@ -233,4 +238,14 @@
     .jobs__toolbar-actions, .job__actions { justify-content: flex-start; }
   }
   @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+
+  .empty-copy { display:grid; justify-items:start; gap:9px; }
+  .empty-capabilities { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); border-top:1px solid var(--border); }
+  .empty-capabilities div { display:grid; grid-template-columns:28px 1fr; gap:4px 8px; padding:12px 8px 12px 0; border-bottom:1px solid var(--border); }
+  .empty-capabilities div:nth-child(odd){border-right:1px solid var(--border)}
+  .empty-capabilities div:nth-child(even){padding-left:12px}
+  .empty-capabilities span { grid-row:1/3; color:var(--text-dim); font:700 8px/1 var(--font-mono); }
+  .empty-capabilities strong { color:var(--text-primary); font:700 9px/1 var(--font-mono); letter-spacing:.08em; }
+  .empty-capabilities small { color:var(--text-muted); font-size:10px; }
+  @media(max-width:700px){.jobs__empty{grid-template-columns:1fr;min-height:320px}.empty-capabilities{width:100%}}
 </style>

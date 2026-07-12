@@ -75,3 +75,10 @@
 @media(prefers-reduced-motion:reduce){
   .fs-frame,.fs-progress button span,.fs-image .mw-artwork img { transition:none!important; }
 }
+
+.fs-current-register { display:flex; align-items:center; gap:12px; }
+.fs-current-register strong { color:#f0efe9; font:700 8px/1 var(--font-mono); letter-spacing:.12em; }
+.fs-current-meta { display:flex; flex-wrap:wrap; gap:0; margin-top:8px; }
+.fs-current-meta span { padding:4px 8px; border:1px solid rgb(240 239 233 / .22); color:rgb(240 239 233 / .58); font:650 7px/1 var(--font-mono); letter-spacing:.08em; text-transform:uppercase; }
+.fs-current-meta span+span { border-left:0; }
+@media(max-height:650px){.fs-current-meta{display:none}}
