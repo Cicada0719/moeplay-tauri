@@ -150,7 +150,7 @@
     </div>
   {:else if filteredJobs.length === 0}
     <div class="jobs__empty">
-      <div class="empty-copy"><Icon name="list" size={28} /><strong>{jobs.length === 0 ? "队列处于待命状态" : "当前筛选下没有任务"}</strong><p>{jobs.length === 0 ? "新的下载、导入、刮削、来源验证和备份操作会按发生顺序进入这里。" : "切换筛选条件查看其他状态。"}</p></div>
+      <div class="empty-copy"><Icon name="list" size={28} /><strong>{jobs.length === 0 ? "队列处于待命状态" : "当前筛选下没有任务"}</strong><p>{jobs.length === 0 ? "后台操作会按发生顺序进入队列。" : "切换筛选条件查看其他状态。"}</p></div>
       {#if jobs.length === 0}
         <div class="empty-capabilities" aria-label="支持的任务类型">
           {#each [["DOWNLOAD","资源下载"],["IMPORT","库导入"],["SCRAPE","元数据刮削"],["VERIFY","来源验证"],["BACKUP","存档备份"],["UPDATE","应用更新"]] as capability, index}
@@ -249,3 +249,4 @@
   .empty-capabilities small { color:var(--text-muted); font-size:10px; }
   @media(max-width:700px){.jobs__empty{grid-template-columns:1fr;min-height:320px}.empty-capabilities{width:100%}}
 </style>
+

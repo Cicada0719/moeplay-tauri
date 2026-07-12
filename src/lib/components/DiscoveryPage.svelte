@@ -140,7 +140,7 @@
     <div>
       <p class="aura-kicker">Discovery</p>
       <h1 class="aura-title">资源发现</h1>
-      <p>搜索外部元数据、查看推荐和智能合集线索</p>
+      <p>搜索元数据、推荐与智能合集</p>
     </div>
     <div class="head-stats" aria-label="发现页概览">
       <span><strong class="aura-num">{recommendations.length}</strong> 推荐</span>
@@ -224,14 +224,14 @@
 
   {:else if active === "开发商"}
     <div class="facet-editorial">
-      <header><span>STUDIO INDEX</span><h2>你的游戏库由哪些工作室构成</h2><p>数量作为索引，条形长度用于快速比较，避免低密度数据变成孤立的大卡片。</p></header>
+      <header><span>STUDIO INDEX</span><h2>你的游戏库由哪些工作室构成</h2><p>通过索引与条形快速比较数量。</p></header>
       <div class="facet-lines">
         {#each topDevs.slice(0, 20) as d, index}<article><span>{String(index + 1).padStart(2,"0")}</span><strong>{d.name}</strong><i style={`--facet:${d.count / maxDeveloperCount * 100}%`}></i><small>{d.count} 款</small></article>{:else}<EmptyState title="暂无数据" />{/each}
       </div>
     </div>
   {:else if active === "标签"}
     <div class="facet-editorial tag-editorial">
-      <header><span>TAG LANDSCAPE</span><h2>作品偏好与标签地貌</h2><p>高频标签更突出，同时保持可扫描的编辑索引。</p></header>
+      <header><span>TAG LANDSCAPE</span><h2>作品偏好与标签地貌</h2><p>高频标签更突出。</p></header>
       <div class="tag-field">{#each topTags.slice(0, 30) as t}<button type="button" style={`--weight:${Math.max(.45,t.count / maxTagCount)}`}><strong>{t.name}</strong><small>{t.count}</small></button>{:else}<EmptyState title="暂无数据" />{/each}</div>
     </div>
   {:else if active === "年份" || active === "评分"}
@@ -320,3 +320,5 @@
   :global(.collection-editorial .coll-card) { position:relative; min-height:150px; border-radius:2px; }.coll-no{position:absolute;right:12px;top:12px}
   @media(max-width:760px){.facet-editorial,.collection-editorial{grid-template-columns:1fr}.collection-editorial>div{grid-template-columns:1fr}.facet-lines article{grid-template-columns:28px minmax(0,1fr) 48px}.facet-lines i{display:none}}
 </style>
+
+

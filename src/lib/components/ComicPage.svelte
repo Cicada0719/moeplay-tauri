@@ -245,7 +245,7 @@
         id="comic-page-title"
         eyebrow="Manga"
         title="漫画"
-        description="聚合公开漫画源，并可切换到 PicACG、Komga、Kavita 或本地漫画。"
+        description="聚合公开源，并支持 PicACG 与本地漫画。"
         actions={normalActions}
       />
 
@@ -328,7 +328,7 @@
               <section class="ordinary-lead">
                 <span>01 / SEARCH ARCHIVE</span>
                 <Icon name="search" size={30} />
-                <div><h2>搜索漫画，直接阅读</h2><p>支持 MangaDex、包子漫画、DM5 与 1kkk，多源结果互不覆盖。搜索结果按来源分段，不再让单个来源错误清空整个页面。</p></div>
+                <div><h2>搜索漫画，直接阅读</h2><p>支持 MangaDex、包子漫画、DM5 与 1kkk，多源结果分段显示。</p></div>
                 <div class="quick-searches" aria-label="热门搜索">
                   {#each ["海贼王", "葬送的芙莉莲", "迷宫饭", "电锯人"] as keyword}
                     <Button variant="ghost" size="sm" press={() => void searchOrdinary(keyword)}>{keyword}</Button>
@@ -336,7 +336,7 @@
                 </div>
               </section>
               <section class="ordinary-side" aria-label="漫画阅读摘要">
-                <div class="source-register"><span>02 / SOURCES</span><strong>4 个公开来源</strong><small>自动模式并行检索并保留部分成功结果</small></div>
+                <div class="source-register"><span>02 / SOURCES</span><strong>4 个公开来源</strong><small>自动并行检索，保留可用结果</small></div>
                 {#if comicStore.readHistory.length}
                   <div class="recent-reading">
                     <span>03 / CONTINUE</span>
@@ -348,7 +348,7 @@
                     {/each}
                   </div>
                 {:else}
-                  <div class="reading-ready"><span>03 / READING LOG</span><strong>阅读记录尚未建立</strong><small>打开章节后，继续阅读会自动出现在这里。</small></div>
+                  <div class="reading-ready"><span>03 / READING LOG</span><strong>阅读记录尚未建立</strong><small>打开章节后自动记录。</small></div>
                 {/if}
               </section>
             </div>
@@ -620,3 +620,5 @@
   .recent-reading strong { font-size:11px; } .recent-reading small{margin-top:5px;color:var(--v2-color-text-secondary);font-size:9px}
   @media(max-width:760px){.ordinary-home{grid-template-columns:1fr}.ordinary-lead{border-right:0;border-bottom:1px solid var(--v2-color-border)} }
 </style>
+
+

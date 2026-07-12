@@ -7,13 +7,13 @@
 <section class="task-center-page" data-testid="task-center-page">
   <Card class="task-center-head" padding="md">
     <div class="head-copy">
-      <span class="eyebrow">Background Control Plane</span>
+      <span class="eyebrow">QUEUE</span>
       <h1>任务中心</h1>
-      <p>统一查看下载、导入、刮削、来源验证、AI、备份与更新任务。</p>
+      <p>查看下载、导入、刮削、验证、备份与更新。</p>
     </div>
-    <div class="privacy-note" aria-label="任务中心隐私说明">
+    <div class="privacy-note" aria-label="隐私说明">
       <Icon name="check" size={16} />
-      <span>仅展示脱敏摘要，不显示凭据、请求头或 AI 原文。</span>
+      <span>仅展示脱敏摘要，不显示凭据。</span>
     </div>
   </Card>
 
@@ -21,14 +21,14 @@
     <Card class="task-center-body" padding="md"><JobsPanel /></Card>
     <aside class="task-brief" aria-label="任务运行说明">
       <span class="brief-register">QUEUE / ORIGINS</span>
-      <h2>任务从哪里产生</h2>
+      <h2>任务来源</h2>
       <div class="brief-list">
-        <div><b>01</b><strong>下载与更新</strong><small>安装包、资源和应用更新</small></div>
-        <div><b>02</b><strong>导入与刮削</strong><small>游戏库扫描、封面和元数据</small></div>
-        <div><b>03</b><strong>来源验证</strong><small>番剧、漫画与插件连通性</small></div>
-        <div><b>04</b><strong>备份与恢复</strong><small>存档快照及配置迁移</small></div>
+        <div><b>01</b><strong>下载与更新</strong><small>资源与应用更新</small></div>
+        <div><b>02</b><strong>导入与刮削</strong><small>库扫描与元数据</small></div>
+        <div><b>03</b><strong>来源验证</strong><small>媒体来源连通性</small></div>
+        <div><b>04</b><strong>备份与恢复</strong><small>存档与配置迁移</small></div>
       </div>
-      <p>任务支持恢复时会在下一次启动后重新进入队列。失败任务保留脱敏摘要，便于定位而不暴露凭据。</p>
+      <p>可恢复任务会在下次启动重新入队；错误信息保持脱敏。</p>
     </aside>
   </div>
 </section>
@@ -58,4 +58,7 @@
   @media(max-width:900px){.task-center-grid{grid-template-columns:1fr}.task-brief{position:static}.brief-list{grid-template-columns:repeat(2,minmax(0,1fr))}.brief-list div:nth-child(odd){border-right:1px solid var(--border);padding-right:12px}.brief-list div:nth-child(even){padding-left:12px}}
   @media(max-width:560px){.brief-list{grid-template-columns:1fr}.brief-list div:nth-child(odd){border-right:0;padding-right:0}.brief-list div:nth-child(even){padding-left:0}}
 </style>
+
+
+
 

@@ -313,7 +313,7 @@
       <a href="#settings-bangumi"><b>04</b><em>Bangumi</em></a>
       <a href="#settings-player"><b>05</b><em>番剧播放器</em></a>
       <a href="#settings-advanced"><b>06</b><em>高级</em></a>
-      <small>宽屏目录会跟随内容滚动；所有设置仍保留原有保存逻辑。</small>
+      <small>宽屏目录支持快速跳转。</small>
     </aside>
     <main class="stg-content" bind:this={contentEl}>
 
@@ -1072,3 +1072,4 @@
   @media (max-width: 980px) { .stg-workspace { grid-template-columns:1fr; padding-inline:18px; } .stg-index { position:static; grid-template-columns:repeat(3,minmax(0,1fr)); gap:0; padding:0; } .stg-index>span,.stg-index small{grid-column:1/-1}.stg-index a{padding-inline:8px}.stg-head{padding-inline:18px} }
   @media (max-width: 620px) { .stg-index{grid-template-columns:repeat(2,minmax(0,1fr))}.stg-workspace{padding-inline:12px}.stg-head{padding-inline:12px} }
 </style>
+
