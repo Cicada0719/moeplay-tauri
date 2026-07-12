@@ -140,9 +140,11 @@ jobs:
           updaterJsonPreferNsis: true
           args: --config .tauri-updater.conf.json --ci
 
-      - name: Remove release-only Tauri overlay
+      - name: Remove release-only Tauri metadata
         shell: pwsh
-        run: Remove-Item -LiteralPath .tauri-updater.conf.json -Force
+        run: |
+          Remove-Item -LiteralPath .tauri-updater.conf.json -Force
+          Remove-Item -LiteralPath latest.json -Force -ErrorAction SilentlyContinue
 
       - name: Build portable package
         run: npm run package:portable

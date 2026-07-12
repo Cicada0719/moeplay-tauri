@@ -15,6 +15,11 @@ test("official releases require signed automatic-update artifacts", () => {
   assert.match(workflow, /test:visual -- --ignore-snapshots --workers=1/);
   assert.match(workflow, /npm run generate:updater-manifest/);
   assert.match(workflow, /Remove-Item -LiteralPath \.tauri-updater\.conf\.json -Force/);
+  assert.match(
+    workflow,
+    /Remove release-only Tauri metadata[\s\S]*Remove-Item -LiteralPath latest\.json -Force -ErrorAction SilentlyContinue/,
+    "tauri-action's generated latest.json must be removed before clean build metadata is captured",
+  );
   assert.ok(
     workflow.indexOf("Generate build metadata") < workflow.indexOf("Generate signed latest.json"),
     "build metadata must be captured before latest.json makes the checkout dirty",
