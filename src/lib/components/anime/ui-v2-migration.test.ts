@@ -45,7 +45,11 @@ describe("anime UI-v2 migration contract", () => {
     expect(player).toContain("restoreHostWindowFullscreen");
     expect(player).toContain("fullscreenGuardTimer");
     expect(player).toContain("settingsStore.settings.startup_mode");
-    expect(player).toContain("if (!(await win.isFullscreen())) await win.setFullscreen(true)");
+    expect(player).toContain("reassertNativeFullscreen");
+    expect(player).toContain("restoreHostWindowFullscreen(true)");
+    expect(player).toContain('controlslist="nofullscreen noremoteplayback"');
+    expect(player).toContain("::-webkit-media-controls-fullscreen-button");
+    expect(player).not.toContain("allowfullscreen");
     expect(detail).toContain('class="detail-visual"');
     expect(detail).toContain("width: 100vw");
   });

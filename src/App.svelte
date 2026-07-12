@@ -32,6 +32,7 @@
   import { createJobsStore } from "./lib/features/jobs";
   import { invokeCmd } from "./lib/api/core";
   import { wallpaperStore } from "./lib/stores/wallpapers.svelte";
+  import { nativeFullscreenHealthy, reassertNativeFullscreen } from "./lib/utils/window-fullscreen";
 
   const TOOLS_DRAWER_ID = "tools-drawer";
   const SHORTCUT_HELP_OVERLAY_ID = "shortcut-help";
@@ -194,13 +195,18 @@
     try {
       const win = appWindow();
       if (!win) return;
-      if (isWindowFullscreen) {
+      const reportedFullscreen = await win.isFullscreen();
+      if (reportedFullscreen && !(await nativeFullscreenHealthy(win))) {
+        await reassertNativeFullscreen(win, true);
+        isWindowFullscreen = true;
+      } else if (reportedFullscreen) {
         await win.setFullscreen(false);
         await win.maximize();
+        isWindowFullscreen = false;
       } else {
-        await win.setFullscreen(true);
+        await reassertNativeFullscreen(win, true);
+        isWindowFullscreen = true;
       }
-      isWindowFullscreen = !isWindowFullscreen;
     } catch {}
   }
 

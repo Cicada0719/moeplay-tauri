@@ -11,7 +11,7 @@ describe("desktop window lifecycle contract", () => {
     const settings = source("src/lib/components/SettingsPage.svelte");
     expect(app).toContain("getCurrentWindow");
     expect(backend).toContain("WindowEvent::CloseRequested");
-    expect(backend).toContain("get_settings().minimize_to_tray");
+    expect(backend).toContain(".minimize_to_tray;");
     expect(backend).toContain("window.app_handle().exit(0)");
     expect(backend).toContain('TrayIconBuilder::with_id("moeplay-main")');
     expect(backend).toContain('"tray-quit" => app.exit(0)');

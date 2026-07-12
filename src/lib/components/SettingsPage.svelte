@@ -29,22 +29,22 @@
   ];
 
   const startupModes = [
-    { id: "dashboard", label: "普通模式", desc: "最大化窗口，保留任务栏", icon: "monitor" },
-    { id: "windowed", label: "窗口模式", desc: "可自由调整大小的窗口", icon: "square" },
-    { id: "fullscreen", label: "全屏模式", desc: "全屏显示，隐藏任务栏", icon: "maximize" },
-    { id: "big-picture", label: "大屏模式", desc: "全屏 + 大屏游戏中心", icon: "tv" },
+    { id: "dashboard", label: "普通模式", icon: "monitor" },
+    { id: "windowed", label: "窗口模式", icon: "square" },
+    { id: "fullscreen", label: "全屏模式", icon: "maximize" },
+    { id: "big-picture", label: "大屏模式", icon: "tv" },
   ];
 
   const scrapeSources = [
-    { key: "vndb_enabled" as const, label: "VNDB", desc: "视觉小说数据库" },
-    { key: "bangumi_enabled" as const, label: "Bangumi", desc: "番组计划" },
-    { key: "dlsite_enabled" as const, label: "DLsite", desc: "同人 / 商业游戏" },
-    { key: "kungal_enabled" as const, label: "Kungal", desc: "中文 Galgame 聚合" },
-    { key: "steam_enabled" as const, label: "Steam", desc: "Steam 商店元数据" },
-    { key: "pcgw_enabled" as const, label: "PCGW", desc: "PC 游戏技术资料" },
-    { key: "erogamescape_enabled" as const, label: "批评空间", desc: "EGS 日本评分" },
-    { key: "ymgal_enabled" as const, label: "月幕 Ymgal", desc: "Galgame 中文社区" },
-    { key: "touchgal_enabled" as const, label: "TouchGAL", desc: "中文 Galgame 资讯" },
+    { key: "vndb_enabled" as const, label: "VNDB" },
+    { key: "bangumi_enabled" as const, label: "Bangumi" },
+    { key: "dlsite_enabled" as const, label: "DLsite" },
+    { key: "kungal_enabled" as const, label: "Kungal" },
+    { key: "steam_enabled" as const, label: "Steam" },
+    { key: "pcgw_enabled" as const, label: "PCGW" },
+    { key: "erogamescape_enabled" as const, label: "批评空间" },
+    { key: "ymgal_enabled" as const, label: "月幕 Ymgal" },
+    { key: "touchgal_enabled" as const, label: "TouchGAL" },
   ];
 
   let savingAutostart = $state(false);
@@ -277,7 +277,6 @@
   <header class="stg-head">
     <div class="stg-head-accent"></div>
     <h1>设置</h1>
-    <p class="stg-subtitle">外观、数据源、库管理与高级选项</p>
   </header>
 
   <div class="stg-workspace">
@@ -311,7 +310,7 @@
           >
             <img src={pack.preview} alt="" />
             <span class="theme-pack-card__scrim"></span>
-            <span class="theme-pack-card__copy"><b>{pack.label}</b><small>{pack.description}</small></span>
+            <span class="theme-pack-card__copy"><b>{pack.label}</b></span>
           </button>
         {/each}
       </div>
@@ -354,7 +353,6 @@
               <Icon name={mode.icon} size={22} />
             </div>
             <span class="mode-label">{mode.label}</span>
-            <span class="mode-desc">{mode.desc}</span>
           </Card>
         {/each}
       </div>
@@ -383,13 +381,11 @@
           <Button variant="ghost" size="sm" press={() => setAllSources(false)}>全关</Button>
         </div>
       </div>
-      <p class="s-note">选择从哪些数据库获取游戏元数据（封面、简介、标签等）</p>
       <div class="src-grid">
         {#each scrapeSources as src}
           <div class="src-item">
             <div class="src-info">
               <span class="src-name">{src.label}</span>
-              <span class="src-desc">{src.desc}</span>
             </div>
             <Switch checked={isSourceEnabled(src.key)} onchange={() => toggleScrapeSetting(src.key)} />
           </div>
@@ -719,7 +715,7 @@
       <div class="about-block">
         <div class="about-name">
           <span class="about-brand">萌游</span>
-          <span class="about-ver">v0.13.7</span>
+          <span class="about-ver">v0.13.8</span>
         </div>
         <Button variant="ghost" size="sm" press={() => showUpdateDialog = true}>
           <Icon name="download" size={14} /> 检查更新
@@ -768,12 +764,6 @@
     font-weight: 750;
     line-height: 1.15;
     padding-left: 14px;
-  }
-  .stg-subtitle {
-    margin: 0;
-    padding-left: 14px;
-    color: var(--text-muted);
-    font-size: 13px;
   }
 
   /* ── Wide settings workspace ── */
@@ -897,13 +887,6 @@
     color: #fff;
   }
   .mode-label { font-size: 13px; font-weight: 700; }
-  .mode-desc {
-    font-size: 11px;
-    color: var(--text-dim);
-    text-align: center;
-    line-height: 1.35;
-  }
-  :global(.mode-card.active) .mode-desc { color: var(--text-muted); }
 
   /* ── AI form ── */
   .ai-form {
@@ -1019,7 +1002,6 @@
   .theme-pack-card__scrim { background:linear-gradient(0deg,rgba(3,5,12,.9),rgba(3,5,12,.05) 75%); }
   .theme-pack-card__copy { position:absolute; left:14px; right:14px; bottom:12px; display:flex; flex-direction:column; gap:3px; }
   .theme-pack-card__copy b { font-size:14px; letter-spacing:.02em; }
-  .theme-pack-card__copy small { color:rgba(255,255,255,.7); font-size:10.5px; line-height:1.3; }
   .wallpaper-actions { display:flex; gap:7px; flex-wrap:wrap; justify-content:flex-end; }
   @media (max-width:760px) { .theme-pack-grid{grid-template-columns:1fr}.theme-pack-card{min-height:120px}.wallpaper-setting{align-items:flex-start}.wallpaper-actions{justify-content:flex-start} }
 
