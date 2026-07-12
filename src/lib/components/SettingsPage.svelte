@@ -1,11 +1,9 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
-  import gsap from "gsap";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { settingsStore } from "../stores/settings.svelte";
   import { uiStore } from "../stores/ui.svelte";
   import { THEME_PACKS, normalizeAppearance, type ColorMode, type ThemePackId } from "../theme-packs";
-  import { secretDelete, secretSet, secretStatus, updateNsfwDisplayMode, setAutostart, syncSteamAchievements, pickImageFile, importWallpaper, getWallpaperAttribution, type NsfwDisplayMode, type WallpaperAttribution } from "../api";
+  import { secretDelete, secretSet, secretStatus, updateNsfwDisplayMode, setAutostart, syncSteamAchievements, importWallpaper, type NsfwDisplayMode } from "../api";
   import { gameStore } from "../stores/games.svelte";
   import { animeStore } from "../stores/anime.svelte";
   import { wallpaperStore } from "../stores/wallpapers.svelte";
@@ -14,13 +12,10 @@
   import SegmentControl from "./ui/SegmentControl.svelte";
   import Switch from "./ui/Switch.svelte";
   import Input from "./ui/Input.svelte";
-  import Tag from "./ui/Tag.svelte";
   import Icon from "./Icon.svelte";
   import UpdateDialog from "./UpdateDialog.svelte";
 
   let showUpdateDialog = $state(false);
-  let wallpaperAttribution = $state<WallpaperAttribution | null>(null);
-  let showWallpaperAttribution = $state(false);
 
   const nsfwModes: { id: NsfwDisplayMode; label: string }[] = [
     { id: "blur", label: "模糊" },
@@ -55,7 +50,6 @@
   let savingAutostart = $state(false);
   let syncingAchievements = $state(false);
   let achievementMsg = $state("");
-  let contentEl: HTMLElement | undefined = $state();
   let aiKeyInput = $state("");
   let aiSecretConfigured = $state(false);
   let aiSecretBusy = $state(false);
@@ -67,22 +61,6 @@
   let bangumiConnectMsg = $state("");
   let bangumiSyncing = $state(false);
 
-  onMount(async () => {
-    await refreshAiSecretStatus();
-    await tick();
-    if (!contentEl) return;
-    const panels = contentEl.querySelectorAll(".s-section");
-    if (panels.length) {
-      gsap.from(panels, {
-        y: 24,
-        opacity: 0,
-        duration: 0.5,
-        stagger: 0.06,
-        ease: "power3.out",
-        clearProps: "all",
-      });
-    }
-  });
 
   function isSourceEnabled(key: string): boolean {
     return !!(settingsStore.settings as any)[key];
@@ -90,6 +68,14 @@
 
   async function save() {
     await settingsStore.save(settingsStore.settings);
+  }
+
+  function scrollToSettings(id: string) {
+    document.getElementById(id)?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+  }
+
+  async function setBooleanSetting(key: "ai_enabled", value: boolean) {
+    await settingsStore.save({ ...settingsStore.settings, [key]: value });
   }
 
   async function refreshAiSecretStatus() {
@@ -166,6 +152,12 @@
     }
   }
 
+  async function setCloseBehavior(value: string) {
+    const minimize_to_tray = value === "tray";
+    await settingsStore.save({ ...settingsStore.settings, minimize_to_tray });
+    uiStore.notify(minimize_to_tray ? "关闭窗口后将驻留系统托盘" : "关闭窗口后将彻底退出进程", "success");
+  }
+
   async function setStartupMode(mode: string) {
     await settingsStore.save({ ...settingsStore.settings, startup_mode: mode });
     if (settingsStore.settings.autostart_enabled) {
@@ -225,29 +217,13 @@
     uiStore.notify("主题包已切换", "success");
   }
 
-  async function pickCustomImage(kind: "wallpaper" | "mascot") {
+  async function pickCustomWallpaper() {
     try {
-      if (kind === "wallpaper") {
-        const wallpaper = await importWallpaper();
-        if (!wallpaper?.local_path) return;
-        await updateAppearance({ custom_wallpaper_path: wallpaper.local_path, wallpaper_rotation: "fixed", fixed_wallpaper_id: wallpaper.asset.id });
-        await wallpaperStore.load();
-      } else {
-        const path = await pickImageFile();
-        await updateAppearance({ custom_mascot_path: path });
-      }
+      const wallpaper = await importWallpaper();
+      if (!wallpaper?.local_path) return;
+      await updateAppearance({ custom_wallpaper_path: wallpaper.local_path, wallpaper_rotation: "fixed", fixed_wallpaper_id: wallpaper.asset.id });
+      await wallpaperStore.load();
     } catch (error) { uiStore.notify(`导入图片失败：${String(error)}`, "error"); }
-  }
-
-  async function openWallpaperAttribution() {
-    const appearance = normalizeAppearance(settingsStore.settings.appearance);
-    if (!appearance.fixed_wallpaper_id || appearance.fixed_wallpaper_id.startsWith("builtin:")) {
-      wallpaperAttribution = { id: appearance.fixed_wallpaper_id ?? "builtin", title: "内置主题壁纸", author: "MoePlay / 自用主题素材", source_url: "", license_id: "Bundled", license_url: "", attribution_required: false };
-    } else {
-      try { wallpaperAttribution = await getWallpaperAttribution(appearance.fixed_wallpaper_id); }
-      catch { wallpaperAttribution = null; }
-    }
-    showWallpaperAttribution = true;
   }
 
   async function rotateWallpaper() {
@@ -307,21 +283,21 @@
   <div class="stg-workspace">
     <aside class="stg-index" aria-label="设置分类">
       <span>SETTINGS / INDEX</span>
-      <a href="#settings-appearance"><b>01</b><em>常用与外观</em></a>
-      <a href="#settings-scrape"><b>02</b><em>数据刮削</em></a>
-      <a href="#settings-library"><b>03</b><em>库与导入</em></a>
-      <a href="#settings-bangumi"><b>04</b><em>Bangumi</em></a>
-      <a href="#settings-player"><b>05</b><em>番剧播放器</em></a>
-      <a href="#settings-advanced"><b>06</b><em>高级</em></a>
-      <small>宽屏目录支持快速跳转。</small>
+      <button type="button" onclick={() => scrollToSettings("settings-appearance")}><b>01</b><em>外观与窗口</em></button>
+      <button type="button" onclick={() => scrollToSettings("settings-scrape")}><b>02</b><em>游戏资料</em></button>
+      <button type="button" onclick={() => scrollToSettings("settings-library")}><b>03</b><em>库与导入</em></button>
+      <button type="button" onclick={() => scrollToSettings("settings-bangumi")}><b>04</b><em>番剧账号</em></button>
+      <button type="button" onclick={() => scrollToSettings("settings-player")}><b>05</b><em>播放体验</em></button>
+      <button type="button" onclick={() => scrollToSettings("settings-advanced")}><b>06</b><em>系统与实验</em></button>
+      <small>只滚动设置内容，不改变当前页面路由。</small>
     </aside>
-    <main class="stg-content" bind:this={contentEl}>
+    <main class="stg-content">
 
     <!-- 常用 -->
     <span class="section-anchor" id="settings-appearance" aria-hidden="true"></span>
     <Card class="s-section" padding="lg" ariaLabel="settings-appearance">
       <div class="s-head">
-        <h2 class="s-title"><Icon name="eye" size={17} className="s-title-ic" /> 常用</h2>
+        <h2 class="s-title"><Icon name="eye" size={17} className="s-title-ic" /> 外观与窗口</h2>
       </div>
 
       <div class="theme-pack-grid" aria-label="二次元主题包">
@@ -350,8 +326,7 @@
         <div class="wallpaper-actions">
           <Button variant="ghost" size="sm" press={rotateWallpaper}>换一张</Button>
           <Button variant="ghost" size="sm" press={() => updateAppearance({ wallpaper_rotation: "startup-random", fixed_wallpaper_id: undefined, custom_wallpaper_path: undefined })}>启动随机</Button>
-          <Button variant="ghost" size="sm" press={() => pickCustomImage("wallpaper")}>导入壁纸</Button>
-          <Button variant="ghost" size="sm" press={openWallpaperAttribution}>关于壁纸</Button>
+          <Button variant="ghost" size="sm" press={pickCustomWallpaper}>导入壁纸</Button>
         </div>
       </div>
 
@@ -360,27 +335,7 @@
         <Switch checked={normalizeAppearance(settingsStore.settings.appearance).decorative_effects} onchange={() => updateAppearance({ decorative_effects: !normalizeAppearance(settingsStore.settings.appearance).decorative_effects })} />
       </div>
 
-      <div class="s-row">
-        <div class="s-info"><span class="s-label">在线精选图库</span><span class="s-desc">后台同步经过许可审核的官方壁纸索引</span></div>
-        <Switch checked={normalizeAppearance(settingsStore.settings.appearance).online_gallery_enabled} onchange={() => updateAppearance({ online_gallery_enabled: !normalizeAppearance(settingsStore.settings.appearance).online_gallery_enabled })} />
-      </div>
 
-      <div class="s-row" style="align-items:flex-start">
-        <div class="s-info"><span class="s-label">精选看板娘</span><span class="s-desc">只在首页、空状态和主题预览出现</span></div>
-        <div class="s-col">
-          <Switch checked={normalizeAppearance(settingsStore.settings.appearance).mascot_enabled} onchange={() => updateAppearance({ mascot_enabled: !normalizeAppearance(settingsStore.settings.appearance).mascot_enabled })} />
-          {#if normalizeAppearance(settingsStore.settings.appearance).mascot_enabled}
-            <div class="wallpaper-actions"><Button variant="ghost" size="sm" press={() => pickCustomImage("mascot")}>自定义立绘</Button><Button variant="ghost" size="sm" press={() => updateAppearance({ custom_mascot_path: undefined })}>恢复主题立绘</Button></div>
-          {/if}
-        </div>
-      </div>
-
-      {#if showWallpaperAttribution}
-        <div class="wallpaper-attribution" role="status">
-          <div><b>{wallpaperAttribution?.title ?? "暂无归属信息"}</b>{#if wallpaperAttribution}<span>{wallpaperAttribution.author} · {wallpaperAttribution.license_id}</span>{/if}</div>
-          <button type="button" aria-label="关闭壁纸信息" onclick={() => (showWallpaperAttribution = false)}><Icon name="x" size={14} /></button>
-        </div>
-      {/if}
 
       <div class="s-divider"></div>
       <div class="s-info" style="padding-bottom: 12px;">
@@ -403,7 +358,20 @@
           </Card>
         {/each}
       </div>
-      <p class="s-note">普通 / 全屏：选择后立即生效；大屏：下次启动进入大屏中心。</p>
+
+      <div class="s-divider"></div>
+      <div class="s-row close-behavior-row">
+        <div class="s-info">
+          <span class="s-label">点击右上角关闭</span>
+          <span class="s-desc">彻底退出，或隐藏到系统托盘</span>
+        </div>
+        <SegmentControl
+          options={[{ value: "exit", label: "退出进程" }, { value: "tray", label: "驻留托盘" }]}
+          value={settingsStore.settings.minimize_to_tray ? "tray" : "exit"}
+          onChange={setCloseBehavior}
+          size="sm"
+        />
+      </div>
     </Card>
 
     <!-- 数据源 -->
@@ -685,7 +653,7 @@
     <span class="section-anchor" id="settings-advanced" aria-hidden="true"></span>
     <Card class="s-section" padding="lg" ariaLabel="settings-advanced">
       <div class="s-head">
-        <h2 class="s-title"><Icon name="toolbox" size={17} className="s-title-ic" /> 高级</h2>
+        <h2 class="s-title"><Icon name="toolbox" size={17} className="s-title-ic" /> 系统与实验功能</h2>
       </div>
 
       <div class="src-item">
@@ -693,7 +661,7 @@
           <span class="src-name">启用 AI 增强</span>
           <span class="src-desc">使用大语言模型辅助刮削和补全</span>
         </div>
-        <Switch checked={settingsStore.settings.ai_enabled} onchange={save} />
+        <Switch checked={settingsStore.settings.ai_enabled} onchange={(e) => setBooleanSetting("ai_enabled", (e.target as HTMLInputElement).checked)} />
       </div>
       {#if settingsStore.settings.ai_enabled}
         <div class="ai-form">
@@ -751,13 +719,7 @@
       <div class="about-block">
         <div class="about-name">
           <span class="about-brand">萌游</span>
-          <Tag variant="accent" size="sm" class="about-ver">v0.13.6</Tag>
-        </div>
-        <p class="about-tagline">可爱的游戏管理器</p>
-        <div class="about-stack">
-          <Tag variant="muted" size="sm">Tauri v2</Tag>
-          <Tag variant="muted" size="sm">Svelte 5</Tag>
-          <Tag variant="muted" size="sm">Rust</Tag>
+          <span class="about-ver">v0.13.7</span>
         </div>
         <Button variant="ghost" size="sm" press={() => showUpdateDialog = true}>
           <Icon name="download" size={14} /> 检查更新
@@ -818,9 +780,9 @@
   .stg-workspace { flex:1; min-height:0; width:100%; max-width:1280px; margin:0 auto; padding:0 28px 36px; display:grid; grid-template-columns:220px minmax(0,1fr); gap:28px; overflow:hidden; }
   .stg-index { align-self:start; position:sticky; top:0; display:grid; padding-top:10px; border-top:1px solid var(--border-hover); }
   .stg-index>span { padding:0 0 14px; color:var(--accent); font:700 8px/1 var(--font-mono); letter-spacing:.16em; }
-  .stg-index a { display:grid; grid-template-columns:32px 1fr; align-items:center; min-height:42px; border-top:1px solid var(--border); color:var(--text-secondary); text-decoration:none; transition:padding-left .28s var(--ui-ease-out),color .2s ease,background .2s ease; }
-  .stg-index a:last-of-type { border-bottom:1px solid var(--border); }
-  .stg-index a:hover,.stg-index a:focus-visible { padding-left:7px; color:var(--text-primary); background:color-mix(in srgb,var(--accent) 6%,transparent); outline:0; }
+  .stg-index button { width:100%; display:grid; padding:0; border-right:0; border-bottom:0; border-left:0; border-radius:0; background:transparent; text-align:left; cursor:pointer; grid-template-columns:32px 1fr; align-items:center; min-height:42px; border-top:1px solid var(--border); color:var(--text-secondary); text-decoration:none; transition:padding-left .28s var(--ui-ease-out),color .2s ease,background .2s ease; }
+  .stg-index button:last-of-type { border-bottom:1px solid var(--border); }
+  .stg-index button:hover,.stg-index button:focus-visible { padding-left:7px; color:var(--text-primary); background:color-mix(in srgb,var(--accent) 6%,transparent); outline:0; }
   .stg-index b { color:var(--text-dim); font:700 8px/1 var(--font-mono); }
   .stg-index em { font:650 12px/1 var(--font-ui); font-style:normal; }
   .stg-index small { margin-top:16px; color:var(--text-dim); font-size:10px; line-height:1.6; }
@@ -865,7 +827,6 @@
   .s-info { display: flex; flex-direction: column; gap: 2px; }
   .s-label { font-size: 13.5px; font-weight: 650; color: var(--text-primary); }
   .s-desc { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
-  .s-col { display: flex; flex-direction: column; gap: 10px; align-items: flex-end; }
   .s-note { margin: 0; padding: 8px 0 2px; font-size: 12.5px; color: var(--text-muted); line-height: 1.5; }
   .s-divider { height: 1px; background: var(--aura-line, rgba(255, 255, 255, 0.06)); margin: 14px 0; }
   .s-empty {
@@ -1037,8 +998,6 @@
     font-size: 12px;
     font-weight: 600;
   }
-  .about-tagline { margin: 0; font-size: 13px; color: var(--text-muted); }
-  .about-stack { display: flex; gap: 6px; padding-top: 4px; }
 
   /* ── Responsive ── */
   @media (max-width: 720px) {
@@ -1063,13 +1022,7 @@
   .theme-pack-card__copy small { color:rgba(255,255,255,.7); font-size:10.5px; line-height:1.3; }
   .wallpaper-actions { display:flex; gap:7px; flex-wrap:wrap; justify-content:flex-end; }
   @media (max-width:760px) { .theme-pack-grid{grid-template-columns:1fr}.theme-pack-card{min-height:120px}.wallpaper-setting{align-items:flex-start}.wallpaper-actions{justify-content:flex-start} }
-  .wallpaper-attribution { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:8px 0 2px; padding:12px 14px; border:1px solid var(--border); border-radius:12px; background:var(--bg-hover); }
-  .wallpaper-attribution div { display:flex; flex-direction:column; gap:2px; }
-  .wallpaper-attribution b { font-size:13px; }
-  .wallpaper-attribution span { font-size:11px; color:var(--text-muted); }
-  .wallpaper-attribution button { border:0; background:transparent; color:var(--text-muted); cursor:pointer; }
 
-  @media (max-width: 980px) { .stg-workspace { grid-template-columns:1fr; padding-inline:18px; } .stg-index { position:static; grid-template-columns:repeat(3,minmax(0,1fr)); gap:0; padding:0; } .stg-index>span,.stg-index small{grid-column:1/-1}.stg-index a{padding-inline:8px}.stg-head{padding-inline:18px} }
+  @media (max-width: 980px) { .stg-workspace { grid-template-columns:1fr; padding-inline:18px; } .stg-index { position:static; grid-template-columns:repeat(3,minmax(0,1fr)); gap:0; padding:0; } .stg-index>span,.stg-index small{grid-column:1/-1}.stg-index button{padding-inline:8px}.stg-head{padding-inline:18px} }
   @media (max-width: 620px) { .stg-index{grid-template-columns:repeat(2,minmax(0,1fr))}.stg-workspace{padding-inline:12px}.stg-head{padding-inline:12px} }
 </style>
-

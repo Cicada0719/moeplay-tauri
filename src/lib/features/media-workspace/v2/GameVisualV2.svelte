@@ -189,6 +189,7 @@
         </article>
 
         <article class="nd-face nd-face--archive" aria-label="游戏档案与目录">
+          <div class="nd-archive-head">
           <div class="nd-title-block">
             <div class="nd-title-register">
               <span id="nd-stage-title">GAME ARCHIVE / {statusLabel(featured.metadata.completionStatus)}</span>
@@ -206,6 +207,13 @@
                 {#each featured.metadata.tags.slice(0, 4) as tag}<span>{tag}</span>{/each}
               </div>
             {/if}
+          </div>
+          {#if featured.cover}
+            <button class="nd-cover-window" type="button" onclick={() => runAction(featured, "open", onAction)} aria-label={`打开 ${featured.title} 详情`}>
+              <MediaArtwork src={featured.cover.src} alt={featured.cover.alt} title={featured.title} eager />
+              <span>COVER / {String(activeGameIndex + 1).padStart(3, "0")}</span>
+            </button>
+          {/if}
           </div>
 
           <dl class="nd-facts">

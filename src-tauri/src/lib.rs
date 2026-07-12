@@ -57,7 +57,11 @@ use locale::LocaleEmulatorManager;
 use process_monitor::ProcessMonitor;
 use std::path::PathBuf;
 use task_queue::TaskQueue;
-use tauri::Manager;
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Manager,
+};
 
 /// 启动 Tauri 应用（桌面入口）
 pub fn crash_log(msg: &str) {
@@ -129,6 +133,21 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let keep_in_tray = window
+                    .app_handle()
+                    .state::<Database>()
+                    .get_settings()
+                    .minimize_to_tray;
+                if keep_in_tray {
+                    let _ = window.hide();
+                } else {
+                    window.app_handle().exit(0);
+                }
+            }
+        })
         .manage(database)
         .manage(secret_store::SecretStore::new())
         .manage(providers::anime::AnimeProviderRegistry::default())
@@ -552,6 +571,45 @@ pub fn run() {
             if app.get_webview_window("main").is_some() {
                 crash_log("setup() main window ready — fullscreen via config, mode via frontend");
             }
+
+            // 系统托盘始终可用：关闭行为由前端设置决定；驻留托盘时可从这里恢复或彻底退出。
+            let show_item = MenuItem::with_id(app, "tray-show", "打开萌游", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "tray-quit", "退出萌游", true, None::<&str>)?;
+            let tray_menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+            let mut tray_builder = TrayIconBuilder::with_id("moeplay-main")
+                .menu(&tray_menu)
+                .tooltip("萌游 MoeGame")
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "tray-show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.unminimize();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "tray-quit" => app.exit(0),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.unminimize();
+                            let _ = window.set_focus();
+                        }
+                    }
+                });
+            if let Some(icon) = app.default_window_icon().cloned() {
+                tray_builder = tray_builder.icon(icon);
+            }
+            tray_builder.build(app)?;
 
             // Redispatch only payload-free, backend-owned queued operations.
             // Other operations are marked safely failed by the dispatcher rather

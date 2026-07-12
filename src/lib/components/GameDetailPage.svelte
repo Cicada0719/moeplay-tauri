@@ -155,8 +155,8 @@
         detectSaveCandidates(gameId),
         listSaveSnapshots(gameId),
       ]);
-      saveCandidates = candidates;
-      saveSnapshots = snapshots;
+      saveCandidates = candidates ?? [];
+      saveSnapshots = snapshots ?? [];
     } catch (e) {
       savesError = String(e);
     } finally {
@@ -239,6 +239,18 @@
       <div class="hero">
         {#if currentArt}<div class="bg-layer" style={`background-image: url("${currentArt}")`}></div>{/if}
         <div class="hero-scrim"></div>
+
+        <aside class="hero-contact-sheet" aria-label="游戏视觉档案">
+          <span class="contact-label">VISUAL CONTACT / {String(game.id).padStart(3, "0")}</span>
+          <div class="contact-grid">
+            {#each screenshots.slice(0, 3) as shot, index}
+              <figure class:contact-wide={index === 0}><img src={shot} alt={`${game.name} 视觉档案 ${index + 1}`} loading={index === 0 ? "eager" : "lazy"} /></figure>
+            {/each}
+            {#if screenshots.length === 0 && coverSource}
+              <figure class="contact-wide"><CachedImage source={coverSource} cacheKey={`detail-contact-${game.id}`} alt={`${game.name} 视觉档案`} loading="eager" /></figure>
+            {/if}
+          </div>
+        </aside>
 
         <div class="hero-floor">
           <div class="poster">
@@ -373,7 +385,10 @@
 
 <style>
   :global(.game-detail-panel .v2-detail-panel__body) { padding: 0; background: var(--bg-deep); }
-  :global(.game-detail-panel.v2-detail-panel) { width: min(100vw, 56rem); }
+  :global(.game-detail-panel.v2-detail-panel) { width: 100vw; min-width: 100vw; border-left: 0; }
+  :global(.game-detail-panel .v2-detail-panel__header) { min-height: 52px; padding: 10px 22px; background: rgba(7,9,13,.94); backdrop-filter: blur(18px); }
+  :global(.game-detail-panel .v2-detail-panel__title) { font: 700 11px/1 var(--font-mono); letter-spacing: .1em; text-transform: uppercase; }
+  :global(.game-detail-panel .v2-detail-panel__description) { font-size: 10px; }
   :global(.game-detail-missing) { min-height: 60vh; }
 
   /* ── Page scaffold ── */
@@ -446,6 +461,22 @@
     border-color: rgba(255,255,255,0.22);
     background: rgba(10,12,18,0.7);
   }
+
+  .hero-contact-sheet {
+    position: absolute;
+    z-index: 2;
+    top: clamp(20px, 4vh, 48px);
+    left: clamp(24px, 4vw, 72px);
+    width: min(32vw, 520px);
+    display: grid;
+    gap: 8px;
+  }
+  .contact-label { color: rgba(255,255,255,.72); font: 700 8px/1 var(--font-mono); letter-spacing: .14em; }
+  .contact-grid { display: grid; grid-template-columns: 1.45fr .75fr; grid-template-rows: repeat(2, minmax(58px, 1fr)); gap: 6px; height: clamp(130px, 23vh, 240px); padding: 6px; border: 1px solid rgba(255,255,255,.22); background: rgba(7,9,13,.24); backdrop-filter: blur(10px); }
+  .contact-grid figure { min-width: 0; min-height: 0; margin: 0; overflow: hidden; background: rgba(255,255,255,.05); }
+  .contact-grid .contact-wide { grid-row: 1 / span 2; }
+  .contact-grid img, .contact-grid :global(.cached-image) { width: 100%; height: 100%; display: block; object-fit: cover; filter: saturate(.88) contrast(1.03); transition: transform .5s cubic-bezier(.22,.75,.18,1), filter .3s ease; }
+  .contact-grid figure:hover img, .contact-grid figure:hover :global(.cached-image) { transform: scale(1.035); filter: saturate(1) contrast(1.05); }
 
   .hero-floor {
     position: relative;
@@ -763,6 +794,7 @@
 
   /* ── Responsive ── */
   @media (max-width: 960px) {
+    .hero-contact-sheet { width: min(42vw, 420px); }
     .hero-floor {
       flex-direction: column;
       align-items: flex-start;
@@ -774,6 +806,9 @@
     .body { padding: 0 24px 36px; }
     .panels { grid-template-columns: 1fr; }
     .shot { width: min(72vw, 380px); }
+  }
+  @media (max-width: 720px) {
+    .hero-contact-sheet { display: none; }
   }
 
   /* ── Edit dialog ── */

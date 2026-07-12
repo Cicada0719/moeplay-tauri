@@ -48,8 +48,8 @@
         detectSaveCandidates(gameId),
         listSaveSnapshots(gameId),
       ]);
-      candidates = c;
-      snapshots = s;
+      candidates = c ?? [];
+      snapshots = s ?? [];
     } catch (e) {
       error = String(e);
     } finally {

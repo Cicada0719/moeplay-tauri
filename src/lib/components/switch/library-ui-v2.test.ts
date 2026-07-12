@@ -34,6 +34,8 @@ describe("library UI-v2 migration contract", () => {
     expect(files.GameCard).toContain("<MediaCard");
     expect(files.TileCard).toContain("<MediaCard");
     expect(files.GameDetail).toContain("<DetailPanel");
+    expect(files.GameDetail).toContain('class="hero-contact-sheet"');
+    expect(files.GameDetail).toContain("width: 100vw");
     expect(files.GameCard).not.toContain("window.confirm");
   });
 

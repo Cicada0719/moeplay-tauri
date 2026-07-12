@@ -121,7 +121,7 @@ body { background: var(--c-black); color: var(--c-paper); }
 .records-v2-shell :where(.records-grid, .stats-grid) > * { background: var(--c-surface-1); }
 
 /* Detail becomes a broad cinematic document rather than a small rounded side card. */
-.v2-detail-panel.game-detail-panel { width: min(calc(100vw - var(--c-dock-width)), 1120px) !important; }
+.v2-detail-panel.game-detail-panel { width: 100vw !important; }
 .v2-detail-panel.game-detail-panel .v2-detail-panel__body { padding: 0 !important; }
 .v2-detail-panel.game-detail-panel .v2-detail-panel__header { min-height: 58px; align-items: center; background: rgba(5,5,5,.9); }
 

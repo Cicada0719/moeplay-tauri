@@ -238,7 +238,8 @@
       settingsStore.load();
     }
     const releaseRouter = initRouter();
-    appWindow()?.isFullscreen().then(value => { isWindowFullscreen = value; }).catch(() => {});
+    const win = appWindow();
+    win?.isFullscreen().then(value => { isWindowFullscreen = value; }).catch(() => {});
     window.addEventListener("keydown", onKeydown);
     void taskBadgeStore.load();
     const taskBadgeTimer = window.setInterval(() => void taskBadgeStore.refresh(), 5000);

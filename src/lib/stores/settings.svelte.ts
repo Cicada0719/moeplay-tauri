@@ -31,6 +31,7 @@ const defaultSettings: Settings = {
   kungal_enabled: true,
   steam_enabled: true,
   pcgw_enabled: true,
+  scraper_proxy: "",
   ai_enabled: false,
   ai_api_url: "https://api.openai.com/v1/chat/completions",
   ai_model: "gpt-4o-mini",
@@ -38,6 +39,8 @@ const defaultSettings: Settings = {
   autostart_enabled: false,
   startup_mode: "fullscreen",
   steam_id: undefined,
+  home_mascot_enabled: true,
+  home_mascot_path: "",
 };
 
 type LegacySettingsPayload = Settings & {

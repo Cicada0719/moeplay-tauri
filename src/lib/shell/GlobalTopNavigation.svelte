@@ -169,9 +169,9 @@
       <span class="utility-code">TOOLS</span>
     </button>
 
-    <button type="button" class="utility-button mode-button" aria-label={windowFullscreen ? "退出窗口全屏" : "进入窗口全屏"} onclick={onToggleFullscreen}>
+    <button type="button" class="utility-button mode-button fullscreen-button" class:active={windowFullscreen} aria-pressed={windowFullscreen} aria-label={windowFullscreen ? "退出应用全屏" : "进入应用全屏"} title={windowFullscreen ? "退出应用全屏" : "进入应用全屏"} onclick={onToggleFullscreen}>
       <Icon name={windowFullscreen ? "shrink" : "maximize"} size={18} stroke={1.6} />
-      <span class="utility-label">{windowFullscreen ? "窗口" : "全屏"}</span>
+      <span class="utility-label">全屏</span>
       <span class="utility-code">FULL</span>
     </button>
 
@@ -336,6 +336,7 @@
   }
 
   .utility-button:hover { color: var(--nav-paper); background: rgba(238, 234, 224, 0.045); }
+  .fullscreen-button.active { color: var(--nav-paper); box-shadow: inset 0 -2px var(--nav-accent); }
   .utility-button :global(svg), .status-glyph { align-self: end; }
   .utility-label { align-self: end; font-size: 10px; font-weight: 600; letter-spacing: 0.08em; }
   .utility-code,

@@ -111,7 +111,8 @@ test("v0.12 anime search, episode selection, extraction and automatic failover",
   const windowFullscreenCalls = await page.evaluate(() =>
     (window as any).__animeAcceptanceCalls.filter((entry: any) => String(entry.command).includes("set_fullscreen")),
   );
-  expect(windowFullscreenCalls).toHaveLength(0);
+  expect(windowFullscreenCalls.length).toBeGreaterThan(0);
+  expect(windowFullscreenCalls.every((entry: any) => entry.args?.value === true)).toBe(true);
   await page.getByRole("button", { name: "退出全屏" }).click();
   await expect(page.locator(".player-overlay")).not.toHaveClass(/fullscreen/);
   for (const viewport of [{ width: 900, height: 600 }, { width: 1920, height: 1080 }]) {

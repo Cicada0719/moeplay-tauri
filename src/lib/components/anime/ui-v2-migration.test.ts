@@ -40,9 +40,12 @@ describe("anime UI-v2 migration contract", () => {
   it("keeps player fullscreen scoped to the player and gives anime detail a full media split", () => {
     const player = source("src/lib/components/anime/AnimePlayer.svelte");
     const detail = source("src/lib/components/anime/AnimeDetail.svelte");
-    expect(player).not.toContain("getCurrentWindow");
-    expect(player).not.toContain("setFullscreen(");
     expect(player).toContain("Player fullscreen is intentionally CSS/DOM scoped");
+    expect(player).toContain("hostWindowWasFullscreen");
+    expect(player).toContain("restoreHostWindowFullscreen");
+    expect(player).toContain("fullscreenGuardTimer");
+    expect(player).toContain("settingsStore.settings.startup_mode");
+    expect(player).toContain("if (!(await win.isFullscreen())) await win.setFullscreen(true)");
     expect(detail).toContain('class="detail-visual"');
     expect(detail).toContain("width: 100vw");
   });

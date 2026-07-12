@@ -2,7 +2,9 @@
   import Hls from "hls.js";
   import { invokeCmd } from "../../api/core";
   import { onDestroy, onMount } from "svelte";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { animeStore } from "../../stores/anime.svelte";
+  import { settingsStore } from "../../stores/settings.svelte";
   import Icon from "../Icon.svelte";
   import DanmakuOverlay from "./DanmakuOverlay.svelte";
   import { animeDownloadEpisode } from "../../api";
@@ -67,6 +69,9 @@
   let webFrameTimedOut = $state(false);
   let webFrameKey = $state(0);
   let isFullscreen = $state(false);
+  let hostWindowWasFullscreen = $state(false);
+  let restoreFullscreenTimer: number | null = null;
+  let fullscreenGuardTimer: number | null = null;
   let currentTime = $state(0);
   let mediaAspectRatio = $state(16 / 9);
   let showCommentsPanel = $state(false);
@@ -133,11 +138,21 @@
     document.addEventListener('fullscreenchange', onFullscreenChange);
     document.addEventListener('keydown', onKeyDown);
     isPipSupported = !!document.pictureInPictureEnabled;
+    hostWindowWasFullscreen = ["fullscreen", "big-picture"].includes(settingsStore.settings.startup_mode ?? "fullscreen");
+    try {
+      getCurrentWindow().isFullscreen().then((value) => {
+        hostWindowWasFullscreen ||= value;
+        if (hostWindowWasFullscreen) void restoreHostWindowFullscreen();
+      }).catch(() => {});
+      fullscreenGuardTimer = window.setInterval(() => { void restoreHostWindowFullscreen(); }, 320);
+    } catch { /* 浏览器预览环境 */ }
   });
   onDestroy(() => {
     document.removeEventListener('fullscreenchange', onFullscreenChange);
     document.removeEventListener('keydown', onKeyDown);
     if (extractTimer) clearInterval(extractTimer);
+    if (restoreFullscreenTimer) clearTimeout(restoreFullscreenTimer);
+    if (fullscreenGuardTimer) clearInterval(fullscreenGuardTimer);
   });
 
   // 离开 found 状态时关闭视频相关弹出面板
@@ -238,6 +253,24 @@
     }
   }
 
+  function shouldPreserveHostFullscreen() {
+    return hostWindowWasFullscreen || ["fullscreen", "big-picture"].includes(settingsStore.settings.startup_mode ?? "fullscreen");
+  }
+
+  async function restoreHostWindowFullscreen() {
+    if (!shouldPreserveHostFullscreen()) return;
+    try {
+      const win = getCurrentWindow();
+      if (!(await win.isFullscreen())) await win.setFullscreen(true);
+    } catch { /* 浏览器预览环境 */ }
+  }
+
+  function scheduleHostFullscreenRestore(delay = 100) {
+    if (!shouldPreserveHostFullscreen()) return;
+    if (restoreFullscreenTimer) clearTimeout(restoreFullscreenTimer);
+    restoreFullscreenTimer = window.setTimeout(() => { void restoreHostWindowFullscreen(); }, delay);
+  }
+
   async function setPlayerFullscreen(next: boolean) {
     if (next === isFullscreen) return;
 
@@ -249,10 +282,12 @@
     // Player fullscreen is intentionally CSS/DOM scoped. Never mutate the Tauri
     // application window here: a click inside the player must not restore or resize
     // the entire MoePlay window.
+    await restoreHostWindowFullscreen();
     isFullscreen = next;
     if (!next && document.fullscreenElement && overlayEl?.contains(document.fullscreenElement)) {
       try { await document.exitFullscreen(); } catch {}
     }
+    scheduleHostFullscreenRestore(next ? 60 : 140);
   }
 
   function toggleFullscreen() {
@@ -275,7 +310,9 @@
     else void closePlayer();
   }
   async function onFullscreenChange() {
-    // 原生 video / 源站 iframe 可能自己进入 DOM fullscreen；这里不抢状态，避免退出后又被强制拉回全屏。
+    // WebView2 退出 video/iframe 的 DOM fullscreen 时有机会把 Tauri 宿主窗口一并还原成带边框窗口。
+    // 播放器只管理自身展示；若进入播放器前宿主就是全屏，则在 DOM fullscreen 结束后恢复宿主状态。
+    if (!document.fullscreenElement) scheduleHostFullscreenRestore();
   }
 
   // HLS.js ↔ 原生双模兜底：加载阶段和播放阶段各自有看门狗，避免灰屏/黑屏空转。

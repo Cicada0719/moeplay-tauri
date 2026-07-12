@@ -17,7 +17,7 @@ test.describe("Scheme C global product shell", () => {
   test("keeps navigation and display controls in the top bar", async ({ page }) => {
     await expect(page.getByRole("link", { name: "MoePlay，跳到主要内容" })).toBeVisible();
     await expect(page.getByRole("button", { name: "打开番剧" })).toHaveCount(1);
-    await expect(page.getByRole("button", { name: "进入窗口全屏" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "进入应用全屏" })).toBeVisible();
     await expect(page.getByRole("button", { name: "进入大屏模式" })).toBeVisible();
   });
 
