@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Game, PlaytimeSummary } from "../../api";
-import { activityChartPoints, buildLocalSummary, buildMediaActivities, dailyChartPoints, fillActivityBars, fillDailyBars, summarizeChart } from "./dashboard-data";
+import { activityChartPoints, buildLocalSummary, buildMediaActivities, dailyChartPoints, fillActivityBars, fillDailyBars, summarizeChart, uniqueArchiveActivities } from "./dashboard-data";
 
 function game(): Game {
   return {
@@ -43,6 +43,19 @@ describe("records dashboard model", () => {
     const points = dailyChartPoints(bars);
     expect(points.map((point) => point.value)).toEqual([0, 5400]);
     expect(summarizeChart(points, "游玩时长")).toContain("峰值为 7/10 的 1.5h");
+  });
+
+  it("keeps only the newest archive row for repeated sessions of the same software", () => {
+    const source = game();
+    source.play_tracker.sessions = [
+      { id: "session-old", start_time: "2026-07-09T10:00:00Z", end_time: "2026-07-09T11:00:00Z", duration_seconds: 3600, notes: "" },
+      { id: "session-new", start_time: "2026-07-10T10:00:00Z", end_time: "2026-07-10T11:30:00Z", duration_seconds: 5400, notes: "" },
+    ];
+    const activities = buildMediaActivities(buildLocalSummary([source]).recent_sessions, [], [], [source]);
+    const archive = uniqueArchiveActivities(activities);
+    expect(activities).toHaveLength(2);
+    expect(archive).toHaveLength(1);
+    expect(archive[0].id).toContain("session-new");
   });
 
   it("keeps game/anime/comic activities in one ordered legacy fallback timeline", () => {

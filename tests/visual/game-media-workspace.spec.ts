@@ -22,9 +22,8 @@ test.describe("game media workspace v2", () => {
 
     await scene.click();
     await expect(page.getByTestId("switch-home-scene")).toBeVisible();
-    const sceneEntryCount = await page.locator(".mw-v2-scene__item").count();
+    const sceneEntryCount = await page.locator("[data-film-game]").count();
     expect(sceneEntryCount).toBeGreaterThanOrEqual(1);
-    expect(sceneEntryCount).toBeLessThanOrEqual(12);
     await expect(scene).toHaveAttribute("aria-pressed", "true");
     await expect(page).toHaveURL(/#home$/);
   });
@@ -47,16 +46,16 @@ test.describe("game media workspace v2", () => {
   test("Visual wheel steps one title per gesture and ignores controls", async ({ page }) => {
     const visual = page.locator('[data-media-mode="visual"]');
     await visual.click();
-    const stage = page.locator(".mw-v2-visual");
+    const stage = page.getByTestId("game-unified-stage");
     await stage.focus();
-    const before = await page.locator(".mw-v2-visual__queue button.active strong").textContent();
+    const before = await stage.getAttribute("data-selected-game");
     await stage.dispatchEvent("wheel", { deltaY: 90, deltaX: 0, deltaMode: 0 });
     await page.waitForTimeout(100);
-    const after = await page.locator(".mw-v2-visual__queue button.active strong").textContent();
+    const after = await stage.getAttribute("data-selected-game");
     expect(after).not.toBe(before);
     await stage.dispatchEvent("wheel", { deltaY: 120, deltaX: 0, deltaMode: 0 });
     await page.waitForTimeout(100);
-    await expect(page.locator(".mw-v2-visual__queue button.active strong")).toHaveText(after || "");
+    await expect(stage).toHaveAttribute("data-selected-game", after || "");
   });
 
 });
@@ -69,7 +68,7 @@ test.describe("v0.13.4 media workspace viewport and motion contract", () => {
     await expect(page.locator('[data-media-mode="visual"]')).toBeVisible();
     await expect(page.locator('[data-media-mode="index"]')).toBeVisible();
     await expect(page.locator('[data-media-mode="scene"]')).toBeVisible();
-    await expect(page.locator(".mw-v2-visual")).toBeVisible();
+    await expect(page.getByTestId("game-unified-stage")).toBeVisible();
   });
 
   test("1920x1080 and reduced-motion expose the same navigation paths without continuous animation", async ({ page }) => {
@@ -78,7 +77,7 @@ test.describe("v0.13.4 media workspace viewport and motion contract", () => {
     await page.goto("/?skip_wizard#home");
     await expect(page.getByTestId("switch-home")).toBeVisible();
     await page.locator('[data-media-mode="visual"]').click();
-    await expect(page.locator(".mw-v2-visual")).toHaveAttribute("data-reduced-motion", "true");
+    await expect(page.getByTestId("game-unified-stage")).toHaveAttribute("data-reduced-motion", "true");
     await page.locator('[data-media-mode="scene"]').click();
     await expect(page.getByTestId("switch-home-scene")).toBeVisible();
   });

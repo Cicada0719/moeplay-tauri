@@ -3,48 +3,47 @@ import { MEDIA_WORKSPACE_APP_STATE } from "./fixtures/v0134-fixtures";
 
 test.use({ appState: MEDIA_WORKSPACE_APP_STATE });
 
-test.describe("v0.13.4 game media workspace contract", () => {
+test.describe("game creative stage contract", () => {
   test.beforeEach(async ({ appPage }) => {
     await expect(appPage.getByTestId("switch-home")).toBeVisible();
   });
 
-  test("Visual renders exactly five owned slots and every slot exposes an action", async ({ appPage }) => {
+  test("nodate-inspired Visual keeps media and a unique game directory on two faces", async ({ appPage }) => {
     await appPage.locator('[data-media-mode="visual"]').click();
-    const visual = appPage.locator(".gv-stage");
-    const slots = visual.locator("[data-visual-slot]");
+    const stage = appPage.getByTestId("game-unified-stage");
+    await expect(stage).toBeVisible();
+    await expect(stage.locator(".nd-face--media")).toBeVisible();
+    await expect(stage.locator(".nd-face--archive")).toBeVisible();
+    await expect(stage.locator(".nd-media-map button")).toHaveCount(5);
 
-    await expect(slots).toHaveCount(5);
-    for (let index = 0; index < 5; index += 1) await expect(slots.nth(index)).toHaveAttribute("type", "button");
-    for (const role of ["lead", "scene-a", "scene-b", "continue", "featured"]) {
-      const slot = visual.locator(`[data-visual-slot="${role}"]`);
-      await expect(slot).toHaveCount(1);
-      await expect(slot).toHaveAttribute("data-action-type", /^(open-item|open-media|select-item|none)$/);
-    }
-    await expect(visual.locator('[data-visual-slot="lead"]')).toHaveAttribute("data-owner-item-id", "visual-fixture-owner");
+    const titles = await stage.locator(".nd-directory button strong").allTextContents();
+    expect(new Set(titles.map((title) => title.trim().toLocaleLowerCase("zh-CN"))).size).toBe(titles.length);
 
-    await slots.nth(0).click();
+    await stage.locator(".nd-lead").click();
     await expect(appPage).toHaveURL(/#game-detail\?id=visual-fixture-owner$/);
   });
 
-  test("Scene accepts keyboard and one-wheel navigation, then restores the saved mode", async ({ appPage }) => {
+  test("Tao-inspired Scene renders one frame per unique game and switches selection", async ({ appPage }) => {
     await appPage.locator('[data-media-mode="scene"]').click();
-    const scene = appPage.locator(".mw-v2-scene");
+    const scene = appPage.getByTestId("game-film-sequence");
     await expect(scene).toBeVisible();
-    const viewport = scene.locator(".mw-v2-scene__viewport");
-    await viewport.focus();
 
+    const frames = scene.locator("[data-film-game]");
+    const ids = await frames.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-film-game")));
+    expect(new Set(ids).size).toBe(ids.length);
+
+    await scene.focus();
     const beforeOwner = await scene.getAttribute("data-active-owner");
     await appPage.keyboard.press("ArrowDown");
     await expect(scene).not.toHaveAttribute("data-active-owner", beforeOwner || "");
 
-    await viewport.dispatchEvent("wheel", { deltaY: 120, deltaX: 0, deltaMode: 0 });
-    await expect(scene).toBeVisible();
+    const afterKeyboard = await scene.getAttribute("data-active-owner");
+    await scene.dispatchEvent("wheel", { deltaY: 80, deltaX: 0, deltaMode: 0 });
+    await expect(scene).not.toHaveAttribute("data-active-owner", afterKeyboard || "");
 
     await appPage.reload();
     await expect(appPage.getByTestId("switch-home-scene")).toBeVisible();
     await expect(appPage.locator('[data-media-mode="scene"]')).toHaveAttribute("aria-pressed", "true");
   });
 });
-
-
 

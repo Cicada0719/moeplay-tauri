@@ -3,6 +3,7 @@ import type { MediaPresentationItem, PresentationAsset } from "../model";
 import { normalizeMediaIdentity } from "./mediaIdentity";
 import { composeGameScene } from "./sceneComposition";
 import { composeGameVisual } from "./visualComposition";
+import { dedupePresentationItems } from "./presentationRanking";
 
 function asset(id: string, role: PresentationAsset["role"] = "screenshot", aspect: PresentationAsset["aspect"] = "landscape"): PresentationAsset {
   return { id, src: `https://media.test/${id}.webp`, role, alt: id, aspect };
@@ -37,6 +38,14 @@ describe("media composition", () => {
   it("normalizes remote query ordering and local slashes", () => {
     expect(normalizeMediaIdentity("https://x.test/a.webp?b=2&a=1#x")).toBe("https://x.test/a.webp?a=1&b=2");
     expect(normalizeMediaIdentity("C:\\Games\\Cover.webp")).toBe("c:/games/cover.webp");
+  });
+
+  it("collapses duplicate software records and keeps the richer media presentation", () => {
+    const sparse = item("duplicate-a", { title: "同一软件", hero: undefined, screenshots: [], media: [], mediaQuality: "d" });
+    const rich = item("duplicate-b", { title: " 同一软件 ", favorite: true });
+    const result = dedupePresentationItems([sparse, rich]);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe("duplicate-b");
   });
 
   it("always emits five semantic visual slots with matching ownership", () => {

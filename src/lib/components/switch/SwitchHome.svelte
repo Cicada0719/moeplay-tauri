@@ -249,9 +249,9 @@
               <div class="index-grid" data-testid="all-games-grid"><GameGrid /></div>
             </div>
           {:else if effectiveMode === "scene"}
-            <div class="workspace-view" data-module-style="cinematic" data-testid="switch-home-scene"><AdaptiveChromaStage src={adaptiveChromaSource} strength="immersive" style="height: 100%;"><GameSceneV2 items={presentationItems} selectedId={selected?.id ?? null} onAction={onMediaAction} onImport={() => gameStore.importGame()} /></AdaptiveChromaStage></div>
+            <section class="workspace-view" data-module-style="film-sequence" data-testid="switch-home-scene"><AdaptiveChromaStage src={adaptiveChromaSource} strength="immersive" style="height: 100%;"><GameSceneV2 items={presentationItems} selectedId={selected?.id ?? null} onAction={onMediaAction} onImport={() => gameStore.importGame()} /></AdaptiveChromaStage></section>
           {:else}
-            <section class="workspace-view" data-module-style="cinematic" data-testid="switch-home-stage"><AdaptiveChromaStage src={adaptiveChromaSource} strength="balanced" style="height: 100%;"><GameVisualV2 items={presentationItems} selectedId={selected?.id ?? null} onAction={onMediaAction} onImport={() => gameStore.importGame()} /></AdaptiveChromaStage></section>
+            <section class="workspace-view" data-module-style="cube-editorial" data-testid="switch-home-stage"><AdaptiveChromaStage src={adaptiveChromaSource} strength="balanced" style="height: 100%;"><GameVisualV2 items={presentationItems} selectedId={selected?.id ?? null} onAction={onMediaAction} onImport={() => gameStore.importGame()} /></AdaptiveChromaStage></section>
           {/if}
         {/snippet}
       </AsyncState>

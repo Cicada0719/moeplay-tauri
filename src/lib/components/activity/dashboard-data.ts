@@ -67,6 +67,37 @@ export function buildMediaActivities(sessions: PlaySessionEntry[], animeHistory:
   return [...gameItems, ...animeItems, ...comicItems].filter((item) => item.timestamp > 0).sort((a, b) => b.timestamp - a.timestamp);
 }
 
+
+export function archiveActivityIdentity(item: DashboardMediaActivity): string {
+  const payload = item.payload as Record<string, unknown> | null | undefined;
+  if (item.kind === "game") {
+    const gameId = String(payload?.game_id ?? "").trim();
+    if (gameId) return `game:${gameId}`;
+  }
+  if (item.kind === "anime") {
+    const key = String(payload?.key ?? payload?.sourceUrl ?? "").trim();
+    if (key) return `anime:${key}`;
+  }
+  if (item.kind === "comic") {
+    const id = String(payload?.id ?? "").trim();
+    if (id) return `comic:${id}`;
+  }
+  return `${item.kind}:${item.title.trim().replace(/\s+/g, " ").toLocaleLowerCase("zh-CN")}`;
+}
+
+/** Keeps the newest archive row for each software/title while preserving the full activity stream elsewhere. */
+export function uniqueArchiveActivities(items: readonly DashboardMediaActivity[]): DashboardMediaActivity[] {
+  const seen = new Set<string>();
+  return [...items]
+    .sort((a, b) => b.timestamp - a.timestamp || a.id.localeCompare(b.id))
+    .filter((item) => {
+      const identity = archiveActivityIdentity(item);
+      if (seen.has(identity)) return false;
+      seen.add(identity);
+      return true;
+    });
+}
+
 export function fillActivityBars(items: DashboardMediaActivity[], count: number, now = new Date()): Array<{ date: string; count: number }> {
   const byDate = new Map<string, number>();
   for (const item of items) {

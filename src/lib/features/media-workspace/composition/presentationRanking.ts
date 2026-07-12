@@ -33,6 +33,37 @@ export function compareFeaturedCandidates(a: MediaPresentationItem, b: MediaPres
     || a.id.localeCompare(b.id);
 }
 
+
+export function presentationIdentity(item: MediaPresentationItem): string {
+  return (item.originalTitle || item.title)
+    .normalize("NFKC")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("zh-CN");
+}
+
+function presentationRichness(item: MediaPresentationItem): number {
+  return qualityWeight(item) * 100
+    + item.media.length * 8
+    + (item.installed ? 20 : 0)
+    + (item.favorite ? 12 : 0)
+    + (recencyTimestamp(item) > 0 ? 6 : 0);
+}
+
+/** Collapses duplicate library records for the same software into the richest presentation. */
+export function dedupePresentationItems(items: readonly MediaPresentationItem[]): MediaPresentationItem[] {
+  const byIdentity = new Map<string, MediaPresentationItem>();
+  for (const item of items) {
+    const identity = presentationIdentity(item) || `id:${item.id}`;
+    const current = byIdentity.get(identity);
+    if (!current || presentationRichness(item) > presentationRichness(current)
+      || (presentationRichness(item) === presentationRichness(current) && item.id.localeCompare(current.id) < 0)) {
+      byIdentity.set(identity, item);
+    }
+  }
+  return [...byIdentity.values()];
+}
+
 export function selectDefaultItem(items: readonly MediaPresentationItem[]): MediaPresentationItem | null {
   return [...items].sort((a, b) =>
     compareContinueCandidates(a, b)

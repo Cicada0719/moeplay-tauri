@@ -58,7 +58,7 @@
       <span>01 / CINEMATIC</span><strong>电影档案</strong><small>游戏模块固定导演语言</small>
     </div>
     <MediaModeSwitcher {mode} onModeChange={onModeChange} label="游戏库显示模式" />
-    <div class="mw-shell__hint"><span>CINEMATIC / {mode.toUpperCase()}</span><strong>{mode === "index" ? "原生浏览" : mode === "scene" ? "滚轮浏览媒体流" : "滚轮切换作品"}</strong></div>
+    <div class="mw-shell__hint"><span>{mode === "scene" ? "FILM SEQUENCE" : "CUBE EDITORIAL"} / {mode.toUpperCase()}</span><strong>{mode === "index" ? "完整游戏库" : mode === "scene" ? "滚轮推进游戏胶片" : "滚轮旋转游戏档案"}</strong></div>
   </footer>
 </div>
 

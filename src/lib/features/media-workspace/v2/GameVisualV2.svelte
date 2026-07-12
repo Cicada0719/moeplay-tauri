@@ -1,11 +1,11 @@
 <script lang="ts">
   import "../styles/media-workspace.css";
   import "../styles/game-visual.css";
-  import { composeGameVisual, compareContinueCandidates, type VisualMediaSlot } from "../composition";
+  import { compareContinueCandidates, dedupePresentationItems, normalizeMediaIdentity, presentationIdentity } from "../composition";
   import MediaArtwork from "../components/MediaArtwork.svelte";
   import { findAction, formatPlaytime, runAction, statusLabel } from "../components/viewHelpers";
-  import type { MediaPresentationItem, MediaWorkspaceViewActions } from "../components/types";
-  import { adjacentItem, createWheelStepper, normalizeWheelDelta, shouldCaptureStageInput, type StepDirection } from "./visualStepNavigation";
+  import type { MediaPresentationItem, MediaWorkspaceViewActions, PresentationAsset } from "../components/types";
+  import { adjacentItem, createWheelStepper, normalizeWheelDelta, type StepDirection } from "./visualStepNavigation";
 
   interface Props extends MediaWorkspaceViewActions {
     items?: readonly MediaPresentationItem[];
@@ -14,8 +14,50 @@
 
   let { items = [], selectedId = null, onAction, onImport }: Props = $props();
 
-  const wheelStepper = createWheelStepper({ threshold: 72, cooldownMs: 450, gestureIdleMs: 180, axisLockRatio: 1.15 });
+  const wheelStepper = createWheelStepper({ threshold: 64, cooldownMs: 420, gestureIdleMs: 170, axisLockRatio: 1.1 });
+  let activeMediaIndex = $state(0);
+  let folded = $state(false);
+  let shifting = $state(false);
+  let shiftDirection = $state<StepDirection>(1);
   let reducedMotion = $state(false);
+  let shiftTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const uniqueItems = $derived.by(() => dedupePresentationItems(items)
+    .filter((item) => Boolean(findAction(item, "select")))
+    .sort(compareContinueCandidates));
+  const requestedItem = $derived(items.find((item) => item.id === selectedId) ?? null);
+  const featured = $derived(
+    uniqueItems.find((item) => item.id === selectedId)
+      ?? uniqueItems.find((item) => requestedItem && presentationIdentity(item) === presentationIdentity(requestedItem))
+      ?? uniqueItems[0]
+      ?? null,
+  );
+  const activeGameIndex = $derived(featured ? Math.max(0, uniqueItems.findIndex((item) => item.id === featured.id)) : 0);
+  const mediaAssets = $derived.by(() => {
+    if (!featured) return [] as PresentationAsset[];
+    const seen = new Set<string>();
+    return [featured.hero, ...featured.screenshots, featured.cover].filter((asset): asset is PresentationAsset => {
+      if (!asset?.src) return false;
+      const identity = normalizeMediaIdentity(asset.src);
+      if (!identity || seen.has(identity)) return false;
+      seen.add(identity);
+      return true;
+    }).slice(0, 6);
+  });
+  const activeAsset = $derived(mediaAssets[activeMediaIndex] ?? mediaAssets[0] ?? null);
+  const launch = $derived(featured ? findAction(featured, "launch") : undefined);
+  const open = $derived(featured ? findAction(featured, "open") : undefined);
+  const favorite = $derived(featured ? findAction(featured, "toggle-favorite") : undefined);
+  const directoryItems = $derived.by(() => {
+    if (uniqueItems.length <= 9) return uniqueItems.map((item, index) => ({ item, index }));
+    const start = Math.max(0, Math.min(activeGameIndex - 4, uniqueItems.length - 9));
+    return uniqueItems.slice(start, start + 9).map((item, offset) => ({ item, index: start + offset }));
+  });
+
+  $effect(() => {
+    featured?.id;
+    activeMediaIndex = 0;
+  });
 
   $effect(() => {
     if (typeof window === "undefined") return;
@@ -23,175 +65,173 @@
     const update = () => { reducedMotion = query.matches; };
     update();
     query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
+    return () => {
+      query.removeEventListener("change", update);
+      if (shiftTimer) clearTimeout(shiftTimer);
+    };
   });
 
-  const composition = $derived(composeGameVisual(items, selectedId));
-  const featured = $derived(composition.selectedItem);
-  const navigationOrder = $derived([...items]
-    .filter((item) => Boolean(findAction(item, "select")))
-    .sort(compareContinueCandidates));
-  const launch = $derived(featured ? findAction(featured, "launch") : undefined);
-  const open = $derived(featured ? findAction(featured, "open") : undefined);
-  const favorite = $derived(featured ? findAction(featured, "toggle-favorite") : undefined);
-
-  function isInteractiveTarget(target: EventTarget | null, stage: HTMLElement): boolean {
-    if (!(target instanceof Element)) return false;
-    const interactive = target.closest("button, a[href], input, select, textarea, summary, [contenteditable], [role='button'], [role='link'], [role='slider'], [role='textbox'], [tabindex]");
-    return interactive !== null && interactive !== stage;
+  function beginShift(direction: StepDirection) {
+    shiftDirection = direction;
+    shifting = true;
+    if (shiftTimer) clearTimeout(shiftTimer);
+    shiftTimer = setTimeout(() => { shifting = false; }, reducedMotion ? 0 : 480);
   }
 
-  function isScrollableSubregion(target: EventTarget | null, stage: HTMLElement): boolean {
-    if (!(target instanceof Element)) return false;
-    for (let node: Element | null = target; node && node !== stage; node = node.parentElement) {
-      if (!(node instanceof HTMLElement)) continue;
-      const style = getComputedStyle(node);
-      const scrollsY = /(auto|scroll|overlay)/.test(style.overflowY) && node.scrollHeight > node.clientHeight + 1;
-      const scrollsX = /(auto|scroll|overlay)/.test(style.overflowX) && node.scrollWidth > node.clientWidth + 1;
-      if (scrollsY || scrollsX) return true;
-    }
-    return false;
+  function selectGame(item: MediaPresentationItem, direction?: StepDirection) {
+    if (item.id === featured?.id) return;
+    const inferred = direction ?? (uniqueItems.findIndex((candidate) => candidate.id === item.id) >= activeGameIndex ? 1 : -1);
+    beginShift(inferred);
+    runAction(item, "select", onAction);
   }
 
-  function selectAdjacent(direction: StepDirection): void {
-    if (!featured || navigationOrder.length < 2) return;
-    const item = adjacentItem(navigationOrder, featured.id, direction);
-    if (item && item.id !== featured.id) runAction(item, "select", onAction);
+  function selectAdjacent(direction: StepDirection) {
+    if (!featured || uniqueItems.length < 2) return;
+    const item = adjacentItem(uniqueItems, featured.id, direction);
+    if (item) selectGame(item, direction);
   }
 
-  function handleWheel(event: WheelEvent): void {
-    const stage = event.currentTarget as HTMLElement;
-    if (!shouldCaptureStageInput({
-      isInteractiveTarget: isInteractiveTarget(event.target, stage),
-      isScrollableSubregion: isScrollableSubregion(event.target, stage),
-    })) return;
+  function selectAdjacentMedia(direction: StepDirection) {
+    if (mediaAssets.length < 2) return;
+    activeMediaIndex = (activeMediaIndex + direction + mediaAssets.length) % mediaAssets.length;
+  }
 
-    const viewportHeight = stage.clientHeight || window.innerHeight;
+  function isTypingTarget(target: EventTarget | null) {
+    return target instanceof Element && Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+  }
+
+  function handleWheel(event: WheelEvent) {
+    if (isTypingTarget(event.target)) return;
+    const viewportHeight = (event.currentTarget as HTMLElement).clientHeight || window.innerHeight;
     const deltaX = normalizeWheelDelta(event.deltaX, event.deltaMode, viewportHeight);
     const deltaY = normalizeWheelDelta(event.deltaY, event.deltaMode, viewportHeight);
-    if (Math.abs(deltaY) < Math.abs(deltaX) * 1.15 || deltaY === 0) return;
-
+    if (Math.abs(deltaY) < Math.abs(deltaX) * 1.1 || deltaY === 0) return;
     event.preventDefault();
     const direction = wheelStepper.push({ deltaX, deltaY, time: performance.now() });
     if (direction) selectAdjacent(direction);
   }
 
-  function handleKeydown(event: KeyboardEvent): void {
-    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-    const stage = event.currentTarget as HTMLElement;
-    if (!shouldCaptureStageInput({
-      isInteractiveTarget: isInteractiveTarget(event.target, stage),
-      isScrollableSubregion: isScrollableSubregion(event.target, stage),
-    })) return;
-
-    event.preventDefault();
-    selectAdjacent(event.key === "ArrowDown" ? 1 : -1);
-  }
-
-  function activateSlot(slot: VisualMediaSlot): void {
-    const action = slot.action;
-    if (action.type === "none") return;
-    const item = items.find((candidate) => candidate.id === action.itemId);
-    if (!item || slot.ownerItemId !== item.id) return;
-    if (action.type === "select-item") runAction(item, "select", onAction);
-    else runAction(item, "open", onAction);
-  }
-
-  function slotDescription(slot: VisualMediaSlot): string {
-    if (!slot.item) return `${slot.label}，暂无内容`;
-    if (slot.action.type === "select-item") return `${slot.label}：切换到 ${slot.item.title}`;
-    if (slot.action.type === "open-media") return `${slot.label}：查看 ${slot.item.title} 的媒体与详情`;
-    return `${slot.label}：打开 ${slot.item.title}`;
+  function handleKeydown(event: KeyboardEvent) {
+    if (isTypingTarget(event.target)) return;
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      event.preventDefault();
+      selectAdjacent(event.key === "ArrowDown" ? 1 : -1);
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      selectAdjacentMedia(event.key === "ArrowRight" ? 1 : -1);
+    } else if (event.key === "Enter" && featured) {
+      event.preventDefault();
+      runAction(featured, "open", onAction);
+    } else if (event.key.toLowerCase() === "f") {
+      event.preventDefault();
+      folded = !folded;
+    }
   }
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <section
-  class="mw-v2-visual gv-stage"
-  aria-labelledby="mw-v2-visual-title"
-  aria-describedby="mw-v2-visual-navigation-hint"
+  class="nd-stage"
+  class:nd-stage--folded={folded}
+  class:nd-stage--shifting={shifting}
+  class:nd-stage--previous={shiftDirection < 0}
+  data-testid="game-unified-stage"
+  data-selected-game={featured?.id ?? ""}
+  data-reduced-motion={reducedMotion}
+  role="application"
   tabindex="0"
-  data-reduced-motion={reducedMotion ? "true" : "false"}
+  aria-labelledby="nd-stage-title"
   onwheel={handleWheel}
   onkeydown={handleKeydown}
 >
-  <span id="mw-v2-visual-navigation-hint" class="gv-sr-only">在舞台空白处滚动或按上下方向键可逐项切换游戏</span>
-
   {#if featured}
-    {#if composition.backgroundAsset}
-      <div class="gv-background" aria-hidden="true">
-        <MediaArtwork src={composition.backgroundAsset.src} alt="" title={featured.title} eager />
-      </div>
-    {/if}
-    <div class="gv-background-tint" aria-hidden="true"></div>
-    <div class="gv-grid" aria-hidden="true"></div>
-
-    <header class="gv-folio">
-      <span>MOEPLAY / VISUAL ARCHIVE</span>
-      <strong>{String(items.length).padStart(3, "0")} TITLES</strong>
-    </header>
-
-    <article class="gv-story">
-      <p class="mw-v2-kicker">CURRENT ARCHIVE — {featured.metadata.releaseYear || "UNDATED"}</p>
-      <h1 id="mw-v2-visual-title">{featured.title}</h1>
-      <p class="gv-original">{featured.originalTitle || featured.metadata.developer || "PRIVATE GAME ARCHIVE"}</p>
-      <p class="gv-summary">{featured.description || `重新进入 ${featured.title}。游玩记录、媒体、存档与收藏将在同一个作品档案中继续。`}</p>
-      <dl class="gv-facts">
-        <div><dt>状态</dt><dd>{statusLabel(featured.metadata.completionStatus)}</dd></div>
-        <div><dt>时长</dt><dd>{formatPlaytime(featured.metadata.totalSeconds)}</dd></div>
-        <div><dt>平台</dt><dd>{featured.metadata.platform || "PC"}</dd></div>
-      </dl>
-      <div class="gv-actions">
-        {#if launch}<button class="mw-v2-action mw-v2-action--accent" onclick={() => runAction(featured, "launch", onAction)}><span>{launch.label}</span><i aria-hidden="true"></i></button>{/if}
-        {#if open}<button class="mw-v2-action" onclick={() => runAction(featured, "open", onAction)}>打开作品档案</button>{/if}
-        {#if favorite}<button class="mw-v2-action mw-v2-action--quiet" aria-pressed={favorite.active ?? featured.favorite} onclick={() => runAction(featured, "toggle-favorite", onAction)}>{favorite.active ?? featured.favorite ? "已收藏" : "收藏"}</button>{/if}
-      </div>
-    </article>
-
-    <div class="gv-media" aria-label="作品媒体编排">
-      {#each composition.slots as slot (slot.id)}
-        <button
-          class={`gv-slot gv-slot--${slot.role}`}
-          class:gv-slot--empty={!slot.asset}
-          type="button"
-          disabled={slot.action.type === "none"}
-          data-visual-slot={slot.role}
-          data-owner-item-id={slot.ownerItemId ?? ""}
-          data-action-type={slot.action.type}
-          onclick={() => activateSlot(slot)}
-          aria-label={slotDescription(slot)}
-        >
-          {#if slot.asset}
-            <MediaArtwork src={slot.asset.src} alt={slot.asset.alt} title={slot.item?.title || featured.title} eager={slot.role === "lead"} />
-          {:else}
-            <span class="gv-placeholder" aria-hidden="true">
-              <small>{slot.label.toUpperCase()}</small>
-              <strong>{slot.role === "scene-a" || slot.role === "scene-b" ? "NO SCENE" : "AWAITING MEDIA"}</strong>
-              <i></i>
-            </span>
-          {/if}
-          <span class="gv-slot-shade" aria-hidden="true"></span>
-          <span class="gv-slot-caption">
-            <small>{slot.label}</small>
-            <strong>{slot.item?.title || "媒体待补全"}</strong>
-          </span>
-        </button>
-      {/each}
+    <div class="nd-ambient" aria-hidden="true">
+      {#if activeAsset}<MediaArtwork src={activeAsset.src} alt="" title={featured.title} eager />{/if}
     </div>
 
-    <nav class="mw-v2-visual__queue gv-queue" aria-label="最近游戏">
-      {#each navigationOrder.slice(0, 6) as item, index (item.id)}
-        <button class:active={item.id === featured.id} onclick={() => runAction(item, "select", onAction)} aria-current={item.id === featured.id ? "true" : undefined}>
-          <span>{String(index + 1).padStart(2, "0")}</span>
-          <strong>{item.title}</strong>
-          <small>{statusLabel(item.metadata.completionStatus)}</small>
-        </button>
-      {/each}
-    </nav>
+    <header class="nd-register">
+      <div><span>MOEPLAY / GAME CUBE</span><strong>{String(activeGameIndex + 1).padStart(3, "0")} — {String(uniqueItems.length).padStart(3, "0")}</strong></div>
+      <div class="nd-register-actions">
+        <span>WHEEL / GAME</span><span>← → / MEDIA</span>
+        <button type="button" aria-pressed={folded} onclick={() => (folded = !folded)}>F / {folded ? "展开" : "折叠"}</button>
+      </div>
+    </header>
+
+    <div class="nd-cube-wrap">
+      <div class="nd-cube">
+        <article class="nd-face nd-face--media" aria-label="当前游戏媒体">
+          <button class="nd-lead" type="button" onclick={() => runAction(featured, "open", onAction)} aria-label={`打开 ${featured.title}`}>
+            {#if activeAsset}
+              <MediaArtwork src={activeAsset.src} alt={activeAsset.alt} title={featured.title} eager />
+            {:else}
+              <span class="nd-letter" aria-hidden="true">{featured.title.slice(0, 1)}</span>
+            {/if}
+            <span class="nd-lead-shade" aria-hidden="true"></span>
+            <span class="nd-lead-caption"><small>MEDIA / {String(activeMediaIndex + 1).padStart(2, "0")}</small><strong>{activeAsset?.role ?? "archive"}</strong></span>
+          </button>
+
+          <nav class="nd-media-map" aria-label="当前游戏媒体索引">
+            {#each mediaAssets as asset, index (asset.id)}
+              <button
+                type="button"
+                class:active={index === activeMediaIndex}
+                aria-current={index === activeMediaIndex ? "true" : undefined}
+                onclick={() => (activeMediaIndex = index)}
+              >
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                <strong>{asset.role}</strong>
+              </button>
+            {/each}
+            {#if mediaAssets.length === 0}<span class="nd-media-empty">NO MEDIA / 等待补充封面与截图</span>{/if}
+          </nav>
+          <span class="nd-face-label">FRONT LEFT / MEDIA</span>
+        </article>
+
+        <article class="nd-face nd-face--archive" aria-label="游戏档案与目录">
+          <div class="nd-title-block">
+            <span id="nd-stage-title">GAME ARCHIVE / {statusLabel(featured.metadata.completionStatus)}</span>
+            <h1>{featured.title}</h1>
+            {#if featured.originalTitle}<p class="nd-original">{featured.originalTitle}</p>{/if}
+            <p class="nd-summary">{featured.description || "以封面、截图、游玩状态和本地资料构成这份私人游戏档案。"}</p>
+          </div>
+
+          <dl class="nd-facts">
+            <div><dt>PLAYTIME</dt><dd>{formatPlaytime(featured.metadata.totalSeconds)}</dd></div>
+            <div><dt>STATUS</dt><dd>{statusLabel(featured.metadata.completionStatus)}</dd></div>
+            <div><dt>PLATFORM</dt><dd>{featured.metadata.platform || "PC"}</dd></div>
+          </dl>
+
+          <nav class="nd-directory" aria-label="游戏目录">
+            {#each directoryItems as entry (entry.item.id)}
+              <button
+                type="button"
+                class:active={entry.item.id === featured.id}
+                aria-current={entry.item.id === featured.id ? "true" : undefined}
+                data-directory-game={entry.item.id}
+                onclick={() => selectGame(entry.item)}
+              >
+                <span>{String(entry.index + 1).padStart(3, "0")}</span>
+                <strong>{entry.item.title}</strong>
+                <small>{statusLabel(entry.item.metadata.completionStatus)}</small>
+              </button>
+            {/each}
+          </nav>
+
+          <div class="nd-actions">
+            {#if launch}<button class="primary" type="button" onclick={() => runAction(featured, "launch", onAction)}>{launch.label}</button>{/if}
+            {#if open}<button type="button" onclick={() => runAction(featured, "open", onAction)}>打开档案</button>{/if}
+            {#if favorite}<button type="button" aria-pressed={favorite.active} onclick={() => runAction(featured, "toggle-favorite", onAction)}>{favorite.active ? "已收藏" : "收藏"}</button>{/if}
+          </div>
+          <span class="nd-face-label">FRONT RIGHT / DIRECTORY</span>
+        </article>
+      </div>
+    </div>
+
+    <footer class="nd-footer"><span>SCROLL TO ROTATE THE ARCHIVE</span><strong>↑ ↓ 切换游戏 · ← → 切换媒体 · ENTER 打开 · F 折叠</strong></footer>
   {:else}
-    <div class="mw-v2-empty gv-empty">
-      <span>ARCHIVE 000</span><h1 id="mw-v2-visual-title">建立你的第一份游戏档案</h1><p>导入游戏后，MoePlay 会以封面、场景、记录与存档重组你的私人媒体主页。</p>
+    <div class="mw-v2-empty nd-empty">
+      <span>ARCHIVE 000</span><h1 id="nd-stage-title">建立你的第一份游戏档案</h1><p>导入游戏后，这里会成为可以旋转和切换的私人媒体目录。</p>
       {#if onImport}<button class="mw-v2-action mw-v2-action--accent" onclick={() => void onImport?.()}><span>导入游戏</span><i aria-hidden="true"></i></button>{/if}
     </div>
   {/if}

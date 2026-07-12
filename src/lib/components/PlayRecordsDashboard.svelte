@@ -28,6 +28,7 @@
     summarizeChart,
     toDashboardSessions,
     toDashboardTopGames,
+    uniqueArchiveActivities,
   } from "./activity/dashboard-data";
   import { PageHeader, PageShell } from "./ui-v2";
 
@@ -52,6 +53,7 @@
   const localSummary = $derived(buildLocalSummary(gameStore.allGames));
   const activeSummary = $derived(summary ?? localSummary);
   const mediaActivities = $derived(buildMediaActivities(activeSummary.recent_sessions, animeStore.history, comicStore.readHistory, gameStore.allGames));
+  const archiveActivities = $derived(uniqueArchiveActivities(mediaActivities));
   const continueItems = $derived(mediaActivities.slice(0, 5));
   const hasRecords = $derived(activeSummary.session_count > 0 || activeSummary.total_seconds > 0 || animeStore.history.length > 0 || comicStore.readHistory.length > 0);
   const dailyBars = $derived(fillDailyBars(activeSummary.daily, 14));
@@ -167,7 +169,7 @@
 
   {#if recordsMode === "archive"}
     <RecordsArchiveView
-      items={mediaActivities}
+      items={archiveActivities}
       stats={dashboardStats}
       {dailyPoints}
       {monthlyPoints}
