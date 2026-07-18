@@ -84,7 +84,8 @@ test("v0.12 anime search, episode selection, extraction and automatic failover",
   await page.locator("select.rule-select").selectOption("主测试源");
   await page.getByPlaceholder("搜索番剧...").fill("验收番剧");
   await page.getByRole("button", { name: "搜索", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "主测试源" })).toBeVisible();
+  // 0.15.1 起搜索结果为跨源合并网格：来源以徽标文本呈现（替代原按源分组标题）
+  await expect(page.locator(".search-results-section").getByText("主测试源").first()).toBeVisible();
   await page.getByRole("button", { name: "验收番剧" }).click();
 
   await expect(page.getByRole("button", { name: /开始观看/ })).toBeVisible();
