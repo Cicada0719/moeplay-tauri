@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import { gameStore, type Game } from "../../stores/games.svelte";
   import { uiStore } from "../../stores/ui.svelte";
   import { navigateTo } from "../../stores/router.svelte";
@@ -7,7 +6,6 @@
   import { formatPlayTime } from "../../api";
   import CachedImage from "../CachedImage.svelte";
   import Icon from "../Icon.svelte";
-  import { attachGamepad } from "./useGamepad.svelte";
   import {
     coverOf,
     developerOf,
@@ -79,22 +77,6 @@
     navigateTo("game-detail", { entity: { kind: "game", id: game.id }, focus: "start" });
   }
 
-  function launchCurrent() {
-    const item = items[focusIndex];
-    if (item) {
-      focusCard();
-      launchGame(item.game);
-    }
-  }
-
-  function activateCurrent() {
-    const item = items[focusIndex];
-    if (item) {
-      focusCard();
-      openProfile(item.game);
-    }
-  }
-
   // 与 GameDetailPage.sessionDate 同款：MM/DD，随 i18n.locale 联动。
   function sessionDate(value: string): string {
     const date = new Date(value);
@@ -148,18 +130,6 @@
         behavior: prefersReducedMotion() ? "auto" : "smooth",
       });
     });
-  });
-
-  onMount(() => {
-    const detachGamepad = attachGamepad({
-      left: () => move(-1),
-      right: () => move(1),
-      activate: activateCurrent,
-      launch: launchCurrent,
-    });
-    return () => {
-      detachGamepad();
-    };
   });
 </script>
 

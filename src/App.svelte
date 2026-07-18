@@ -20,7 +20,7 @@
   import Icon from "./lib/components/Icon.svelte";
   import { Drawer } from "./lib/components/ui-v2";
   import { attachGamepad } from "./lib/components/switch/useGamepad.svelte";
-  import { activateGamepadFocus, focusGamepadSearch, moveGamepadFocus } from "./lib/actions/a11y/domGamepadNavigation";
+  import { activateGamepadFocus, collectGamepadFocusable, focusGamepadSearch, moveGamepadFocus } from "./lib/actions/a11y/domGamepadNavigation";
   import { getDefaultGamepadFocusRuntime } from "./lib/actions/a11y/gamepadFocus";
   import { DOCK_ITEMS, PRIMARY_CONTENT_VIEWS, TOOL_ITEMS, getViewLabel } from "./lib/nav";
   import { buildShortcutParameter, type ShortcutActions } from "./lib/shortcuts";
@@ -129,11 +129,27 @@
         const rect = dialog.getBoundingClientRect();
         return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
       });
-    return dialogs.at(-1) ?? document.querySelector("#main-content") ?? document;
+    return dialogs.at(-1) ?? document.querySelector("[data-testid='app-shell']") ?? document;
+  }
+
+  function visibleNavigationTarget(view: string): HTMLElement | null {
+    return Array.from(document.querySelectorAll<HTMLElement>(`[data-nav-view="${view}"]`))
+      .find((element) => {
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+      }) ?? null;
   }
 
   function moveNormalModeFocus(direction: "up" | "down" | "left" | "right") {
-    moveGamepadFocus(direction, { root: gamepadNavigationRoot() });
+    const root = gamepadNavigationRoot();
+    const focusable = collectGamepadFocusable({ root });
+    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const hasUsableFocus = active != null && focusable.includes(active);
+    const initial = hasUsableFocus ? active : visibleNavigationTarget(uiStore.currentView) ?? focusable[0] ?? null;
+    if (!initial) return;
+    if (!hasUsableFocus) initial.focus({ preventScroll: true });
+    moveGamepadFocus(direction, { root, activeElement: initial });
   }
 
   function activateNormalModeFocus() {
@@ -145,8 +161,15 @@
     if (available.length === 0) return;
     const current = available.indexOf(uiStore.currentView as (typeof PRIMARY_CONTENT_VIEWS)[number]);
     const nextIndex = current < 0 ? 0 : (current + delta + available.length) % available.length;
-    pickDock(available[nextIndex]);
-    queueMicrotask(() => moveNormalModeFocus("down"));
+    const nextView = available[nextIndex];
+    pickDock(nextView);
+    requestAnimationFrame(() => {
+      const target = visibleNavigationTarget(nextView);
+      if (target) {
+        target.focus({ preventScroll: true });
+        target.scrollIntoView({ block: "nearest", inline: "nearest" });
+      }
+    });
   }
 
   function focusCurrentSearch() {
@@ -337,7 +360,7 @@
         start: () => {
           if (!isBigPicture) uiStore.setBigPicture(true);
         },
-      }, { id: "app-global-gamepad", priority: -100 });
+      }, { id: "app-global-gamepad", priority: 10 });
     }
     return () => {
       releaseMotion();

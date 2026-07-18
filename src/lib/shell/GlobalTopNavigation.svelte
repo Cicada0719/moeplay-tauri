@@ -101,6 +101,7 @@
         <button
           type="button"
           class="content-link"
+          data-nav-view={item.view}
           class:active={item.view === currentView}
           aria-label={item.ariaLabel ?? `打开${itemLabel(item)}`}
           aria-current={item.view === currentView ? "page" : undefined}
@@ -134,6 +135,7 @@
             <button
               type="button"
               role="menuitem"
+              data-nav-view={item.view}
               class="module-menu-item"
               class:active={item.view === currentView}
               aria-current={item.view === currentView ? "page" : undefined}
@@ -150,7 +152,7 @@
   </nav>
 
   <div class="utility-navigation" aria-label="全局功能">
-    <button type="button" class="utility-button search-button" aria-label="全局搜索" onclick={onSearch}>
+    <button type="button" class="utility-button search-button" data-nav-action="search" aria-label="全局搜索" onclick={onSearch}>
       <Icon name="search" size={18} stroke={1.6} />
       <span class="utility-label">搜索</span>
       <span class="utility-code">FIND</span>
@@ -159,6 +161,7 @@
     <button
       type="button"
       class="utility-button status-button"
+      data-nav-action="status"
       class:has-activity={hasTaskActivity}
       class:has-failures={hasFailures}
       aria-label={`任务状态：进行中 ${taskActiveCount}，失败 ${taskFailedCount}`}
@@ -178,25 +181,25 @@
       {/if}
     </button>
 
-    <button id="system-dock-tools" type="button" class="utility-button" aria-label="打开工具抽屉" aria-expanded={toolsOpen} aria-controls="tools-drawer" onclick={onTools}>
+    <button id="system-dock-tools" type="button" class="utility-button" data-nav-action="tools" aria-label="打开工具抽屉" aria-expanded={toolsOpen} aria-controls="tools-drawer" onclick={onTools}>
       <Icon name="grid" size={18} stroke={1.6} />
       <span class="utility-label">工具</span>
       <span class="utility-code">TOOLS</span>
     </button>
 
-    <button type="button" class="utility-button mode-button fullscreen-button" class:active={windowFullscreen} aria-pressed={windowFullscreen} aria-label={windowFullscreen ? "退出应用全屏" : "进入应用全屏"} title={windowFullscreen ? "退出应用全屏" : "进入应用全屏"} onclick={onToggleFullscreen}>
+    <button type="button" class="utility-button mode-button fullscreen-button" data-nav-action="fullscreen" class:active={windowFullscreen} aria-pressed={windowFullscreen} aria-label={windowFullscreen ? "退出应用全屏" : "进入应用全屏"} title={windowFullscreen ? "退出应用全屏" : "进入应用全屏"} onclick={onToggleFullscreen}>
       <Icon name={windowFullscreen ? "shrink" : "maximize"} size={18} stroke={1.6} />
       <span class="utility-label">全屏</span>
       <span class="utility-code">FULL</span>
     </button>
 
-    <button type="button" class="utility-button mode-button" aria-label="进入大屏模式" onclick={onBigPicture}>
+    <button type="button" class="utility-button mode-button" data-nav-action="big-picture" aria-label="进入大屏模式" onclick={onBigPicture}>
       <Icon name="tv" size={18} stroke={1.6} />
       <span class="utility-label">大屏</span>
       <span class="utility-code">BIG</span>
     </button>
 
-    <button type="button" class="utility-button settings-button" aria-label="打开设置" onclick={onSettings}>
+    <button type="button" class="utility-button settings-button" data-nav-action="settings" aria-label="打开设置" onclick={onSettings}>
       <Icon name="gear" size={18} stroke={1.6} />
       <span class="utility-label">{i18n.t("menu.settings")}</span>
       <span class="utility-code">SET</span>

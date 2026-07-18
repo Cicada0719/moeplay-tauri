@@ -3,7 +3,6 @@
   import { gsap } from "gsap";
   import type { Game } from "../../stores/games.svelte";
   import TileCard from "./TileCard.svelte";
-  import { attachGamepad } from "./useGamepad.svelte";
 
   let {
     items,
@@ -89,17 +88,6 @@
     syncIndex(focusIndex + delta, true);
   }
 
-  function activateCurrent() {
-    focusCard();
-    if (focusIndex === sentinelIndex) onshowall();
-    else onactivate(items[focusIndex].id);
-  }
-
-  function launchCurrent() {
-    focusCard();
-    if (focusIndex < items.length) onlaunch(items[focusIndex].id);
-  }
-
   function handleWheel(event: WheelEvent) {
     if (Math.abs(event.deltaY) < 1 && Math.abs(event.deltaX) < 1) return;
     event.preventDefault();
@@ -168,19 +156,7 @@
       }, scroller);
     }
 
-    const detachGamepad = attachGamepad({
-      left: () => move(-1),
-      right: () => move(1),
-      pageLeft: () => syncIndex(focusIndex - 6, true),
-      pageRight: () => syncIndex(focusIndex + 6, true),
-      activate: activateCurrent,
-      launch: launchCurrent,
-      favorite: () => onfavorite?.(),
-      back: () => onback?.(),
-    });
-
     return () => {
-      detachGamepad();
       context?.revert();
     };
   });
