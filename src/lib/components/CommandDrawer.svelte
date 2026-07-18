@@ -9,6 +9,7 @@
   let DownloadPage: any = $state(null);
   let BackupPage: any = $state(null);
   let StatsPage: any = $state(null);
+  let ReplayPage: any = $state(null);
   let DiscoveryPage: any = $state(null);
   let DiagnosticsPage: any = $state(null);
   let SettingsPage: any = $state(null);
@@ -21,6 +22,7 @@
     { id: "downloads",    label: i18n.t("menu.downloads"), icon: "download" },
     { id: "backup",       label: i18n.t("menu.backup"), icon: "save" },
     { id: "stats",        label: i18n.t("menu.stats"),     icon: "chart" },
+    { id: "replay",       label: i18n.t("replay.nav"),     icon: "calendar" },
     { id: "steam-import", label: i18n.t("platform_import.title"), icon: "database" },
     { id: "emulator",     label: i18n.t("emulator_import.nav"), icon: "gamepad" },
     { id: "diagnostics",  label: i18n.t("menu.diagnostics"), icon: "toolbox" },
@@ -36,6 +38,7 @@
     if (v === "downloads" && !DownloadPage) import("./DownloadPage.svelte").then(m => DownloadPage = m.default);
     if (v === "backup" && !BackupPage) import("./BackupPage.svelte").then(m => BackupPage = m.default);
     if (v === "stats" && !StatsPage) import("./StatsPage.svelte").then(m => StatsPage = m.default);
+    if (v === "replay" && !ReplayPage) import("./ReplayPage.svelte").then(m => ReplayPage = m.default);
     if (v === "discovery" && !DiscoveryPage) import("./DiscoveryPage.svelte").then(m => DiscoveryPage = m.default);
     if (v === "diagnostics" && !DiagnosticsPage) import("./DiagnosticsPage.svelte").then(m => DiagnosticsPage = m.default);
     if (v === "settings" && !SettingsPage) import("./SettingsPage.svelte").then(m => SettingsPage = m.default);
@@ -107,6 +110,8 @@
             <BackupPage />
           {:else if activeView === "stats" && StatsPage}
             <StatsPage />
+          {:else if activeView === "replay" && ReplayPage}
+            <ReplayPage />
           {:else if activeView === "discovery" && DiscoveryPage}
             <DiscoveryPage />
           {:else if activeView === "diagnostics" && DiagnosticsPage}

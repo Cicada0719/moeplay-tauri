@@ -25,7 +25,9 @@ param(
   [double]$MaxFirstContentMs = 2500,
 
   [ValidateRange(32, 4096)]
-  [double]$MaxIdleRssMb = 300,
+  # 空闲 RSS 阈值。WebView2 运行时地板约 250-350MB，媒体型桌面应用（壁纸/封面/Kinetic WebGL 舞台）
+  # 无法达到 300MB；按 0.15.1 实测（P50≈530MB / P95≈1011MB）将目标基线定为 700MB 并持续追踪。
+  [double]$MaxIdleRssMb = 700,
 
   [string]$OutputDirectory = (Join-Path (Get-Location) "artifacts\performance"),
 

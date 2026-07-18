@@ -185,6 +185,8 @@ jobs:
 
 
   android-release:
+    # 暂不做安卓版本（用户决策 0.16.0）：job 整体禁用；恢复出 APK 时移除下一行。
+    if: false
     permissions:
       contents: write
     runs-on: ubuntu-latest

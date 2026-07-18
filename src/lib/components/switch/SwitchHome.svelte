@@ -19,6 +19,7 @@
   import LibraryHealthPanel from "../library/LibraryHealthPanel.svelte";
   import { readLibraryV2Flag } from "../library/feature-flag";
   import { KineticStage, kineticStageStore } from "../../features/kinetic";
+  import ContinueHeroRail from "./ContinueHeroRail.svelte";
 
   const quickFilters = [
     { id: "", label: "全部" },
@@ -122,6 +123,8 @@
     }
   });
 
+  let kineticBoot = $state(false);
+
   onMount(() => {
     libraryV2Enabled = readLibraryV2Flag();
     const storedMode = window.localStorage.getItem("moeplay:game-workspace-mode");
@@ -131,7 +134,12 @@
       setWorkspaceMode("index", false);
     }
     const timer = setInterval(() => (now = new Date()), 30_000);
-    return () => clearInterval(timer);
+    // Kinetic 舞台延后到浏览器空闲再挂载，避免 three.js 初始化阻塞首屏（0.16.0 性能项）。
+    const idleId = window.requestIdleCallback(() => { kineticBoot = true; }, { timeout: 900 });
+    return () => {
+      window.cancelIdleCallback(idleId);
+      clearInterval(timer);
+    };
   });
 
   function setWorkspaceMode(mode: ContentMode, persist = true) {
@@ -188,7 +196,7 @@
 </script>
 
 <PageShell as="div" width="full" scrollable={false} ariaLabel="游戏库" class="library-page-shell">
-  <KineticStage enabled={kineticStageStore.enabled} class="switch-home-kinetic-stage" />
+  {#if kineticBoot}<KineticStage enabled={kineticStageStore.enabled} class="switch-home-kinetic-stage" />{/if}
   <MediaWorkspaceShell
     mode={workspaceMode}
     {searching}
@@ -232,6 +240,8 @@
         class="library-async-state"
       >
         {#snippet children()}
+          <div class="home-stage">
+          <ContinueHeroRail />
           {#if showGrid}
             <div class="index-workbench" data-module-style="cinematic" data-testid="all-games-panel">
               <section class="index-toolbar" aria-labelledby="library-page-title">
@@ -274,6 +284,7 @@
           {:else}
             <section class="workspace-view" data-module-style="cube-editorial" data-testid="switch-home-stage"><AdaptiveChromaStage src={adaptiveChromaSource} strength="balanced" style="height: 100%;"><GameVisualV2 items={presentationItems} selectedId={selected?.id ?? null} onAction={onMediaAction} onImport={importLocalGame} /></AdaptiveChromaStage></section>
           {/if}
+          </div>
         {/snippet}
       </AsyncState>
     {/snippet}
@@ -289,6 +300,10 @@
   :global(.library-page-shell .library-async-state) { width: 100%; height: 100%; min-height: 0; }
   :global(.library-page-shell .library-async-state[data-state]:not([data-state="ready"])) { margin: 1.5rem; height: auto; }
   .workspace-view { width: 100%; height: 100%; min-height: 0; overflow: hidden; }
+  .home-stage { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  .home-stage > :global(.continue-hero) { flex: 0 0 auto; }
+  .home-stage > .index-workbench,
+  .home-stage > .workspace-view { flex: 1 1 auto; height: auto; min-height: 0; }
   .index-workbench { height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); background: rgb(5 7 10 / .92); }
   .index-toolbar { display: grid; gap: 10px; padding: 18px 26px 12px; border-bottom: 1px solid rgb(255 255 255 / .12); background: linear-gradient(90deg, rgb(var(--media-primary-rgb, 36 45 54) / .12), transparent 58%); }
   .index-grid { min-height: 0; display: flex; overflow: hidden; }
