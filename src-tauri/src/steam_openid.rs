@@ -642,7 +642,7 @@ pub fn detect_local_steam_id() -> Option<String> {
             return None;
         }
         let steam_id64 = active_user as u64 + 76561197960265728u64;
-        return Some(steam_id64.to_string());
+        Some(steam_id64.to_string())
     }
     #[cfg(not(windows))]
     None
@@ -654,14 +654,14 @@ pub fn is_steam_running() -> bool {
     {
         use winreg::enums::*;
         let hkcu = winreg::RegKey::predef(HKEY_CURRENT_USER);
-        return match hkcu.open_subkey("Software\\Valve\\Steam\\ActiveProcess") {
+        match hkcu.open_subkey("Software\\Valve\\Steam\\ActiveProcess") {
             Ok(key) => {
                 let user: u32 = key.get_value("ActiveUser").unwrap_or(0);
                 let pid: u32 = key.get_value("pid").unwrap_or(0);
                 user > 0 && pid > 0
             }
             Err(_) => false,
-        };
+        }
     }
     #[cfg(not(windows))]
     false
