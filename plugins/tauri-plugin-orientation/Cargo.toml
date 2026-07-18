@@ -3,6 +3,7 @@ name = "tauri-plugin-orientation"
 version = "0.1.0"
 edition = "2021"
 links = "tauri-plugin-orientation"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 tauri = "2"

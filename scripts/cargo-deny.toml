@@ -10,7 +10,14 @@ unsound = "workspace"
 yanked = "deny"
 maximum-db-staleness = "P7D"
 unused-ignored-advisory = "deny"
-ignore = []
+ignore = [
+  # reqwest 0.11 → rustls 0.21 → rustls-webpki 0.101.7；上游修复仅落在 0.102+，0.101 线无补丁版本。
+  # 影响面为 MITM 场景下的证书名校验/CRL 解析；本应用仅访问公开元数据 API，实际风险低。
+  # 根治路径：reqwest 0.11 → 0.12 升级（列入 0.16.0 技术债），届时移除本组 ignore。
+  "RUSTSEC-2026-0098",
+  "RUSTSEC-2026-0099",
+  "RUSTSEC-2026-0104",
+]
 
 [licenses]
 confidence-threshold = 0.8
