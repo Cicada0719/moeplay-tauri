@@ -484,7 +484,7 @@ mod tests {
         s.theme = "light".into();
         s.normalize_appearance();
         let a = s.appearance.unwrap();
-        assert_eq!(a.theme_pack, ThemePackId::AfterSchool);
+        assert_eq!(a.theme_pack, ThemePackId::ShiftEditorial);
         assert_eq!(a.color_mode, crate::models::ColorMode::Light);
     }
 }

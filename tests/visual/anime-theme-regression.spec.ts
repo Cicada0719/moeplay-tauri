@@ -6,7 +6,7 @@ import {
   type MockAppState,
 } from "./fixtures/app-fixture";
 
-type ThemePackId = "yozakura" | "after-school" | "neon-isekai";
+type ThemePackId = "phantom-pop" | "shift-editorial" | "borderless-lumen";
 type ColorMode = "pack-default" | "contrast";
 
 function themedState(themePack: ThemePackId, colorMode: ColorMode = "pack-default"): MockAppState {
@@ -40,9 +40,9 @@ function themedState(themePack: ThemePackId, colorMode: ColorMode = "pack-defaul
 }
 
 const themes = [
-  { name: "夜樱终端", id: "yozakura", color: "dark", decoration: "petals" },
-  { name: "青空放课后", id: "after-school", color: "light", decoration: "light-particles" },
-  { name: "霓虹异界", id: "neon-isekai", color: "dark", decoration: "digital-rain" },
+  { name: "魅影波普", id: "phantom-pop", color: "dark", decoration: "petals" },
+  { name: "素纸编集", id: "shift-editorial", color: "light", decoration: "light-particles" },
+  { name: "无界流光", id: "borderless-lumen", color: "dark", decoration: "petals" },
 ] as const;
 
 for (const theme of themes) {
@@ -73,7 +73,7 @@ for (const theme of themes) {
 }
 
 test.describe("anime theme surface and accessibility modes", () => {
-  test.use({ appState: themedState("yozakura") });
+  test.use({ appState: themedState("phantom-pop") });
 
   test("management surface applies a stronger, quieter wallpaper treatment", async ({ appPage }) => {
     const stage = appPage.locator(".wallpaper-stage");
@@ -109,7 +109,7 @@ test.describe("anime theme surface and accessibility modes", () => {
 });
 
 test.describe("contrast anime theme accessibility", () => {
-  test.use({ appState: themedState("yozakura", "contrast") });
+  test.use({ appState: themedState("phantom-pop", "contrast") });
 
   test("contrast removes decorative effects and has no serious settings violations", async ({ appPage }) => {
     await appPage.getByRole("banner").getByRole("button", { name: "打开设置" }).click();
@@ -119,11 +119,11 @@ test.describe("contrast anime theme accessibility", () => {
     await expect(root).toHaveAttribute("data-theme", "contrast");
     await expect(root).toHaveAttribute("data-decoration", "none");
     expect(await appPage.locator(".wallpaper-stage__decor").evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).display))).not.toContain("block");
-    await expect(appPage.getByRole("radio", { name: "高对比" })).toHaveAttribute("aria-checked", "true");
+    // ui-v2 设置页已移除色模式 radio 组（色模式随主题包派生）；contrast 语义由上方 data-* 断言与下方 axe 检查保障。
+    await expect(appPage.locator('[aria-label="主题包"]')).toHaveCount(1);
 
     const results = await new AxeBuilder({ page: appPage })
-      .include('[aria-label="二次元主题包"]')
-      .include(".wallpaper-setting")
+      .include('[aria-label="主题包"]')
       .analyze();
     const blocking = results.violations.filter(
       ({ impact }) => impact === "serious" || impact === "critical",

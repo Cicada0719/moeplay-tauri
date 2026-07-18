@@ -3,6 +3,8 @@ import { invokeCmd } from "../api/core";
 import { listen } from "@tauri-apps/api/event";
 import { debugLog } from "../utils/debug";
 import { findBestEpisodeMatch, rankSearchItems } from "../utils/animeSource";
+import { mergeSearchResults, type MergedSearchEntry } from "../features/anime-search/merge";
+import { createSearchCoverFetcher } from "../features/anime-search/covers";
 
 // ── 类型 ──────────────────────────────────────────────────────────────────
 
@@ -294,6 +296,11 @@ let _searchKeyword = $state("");
 let _searchResults = $state<[string, SearchItem[]][]>([]);
 let _selectedRule = $state<string | null>(null);
 let _searchToken = 0; // 防止旧的流式监听污染新一次搜索
+// 搜索合并去重 + 封面补全（逻辑见 features/anime-search）
+let _mergedSearchResults = $state<MergedSearchEntry[]>([]);
+let _searchCovers = $state<Record<string, string>>({}); // 合并 key → Bangumi 封面原始 URL
+const _coverFetcher = createSearchCoverFetcher();
+const SEARCH_GRID_LIMIT = 24; // 搜索网格首屏展示数，其余"显示更多"展开
 let _playGeneration = 0; // playEpisode 代际计数器，防止旧提取事件污染状态
 
 // 详情 (选中番剧的线路/集)
@@ -613,6 +620,13 @@ export const animeStore = {
   get activeTab() { return _activeTab; },
   get searchKeyword() { return _searchKeyword; },
   get searchResults() { return _searchResults; },
+  get mergedSearchResults() { return _mergedSearchResults; },
+  get searchCovers() { return _searchCovers; },
+  /** 合并条目的封面 asset URL；未就绪时返回 ""，卡片保持文字形态 */
+  getSearchCover(key: string): string {
+    const raw = _searchCovers[key];
+    return raw ? this.getImg(raw) : "";
+  },
   get selectedRule() { return _selectedRule; },
   get detailName() { return _detailName; },
   get detailUrl() { return _detailUrl; },
@@ -1154,6 +1168,7 @@ export const animeStore = {
     _loading = true;
     _error = null;
     _searchResults = [];
+    _mergedSearchResults = [];
     _view = "search";
     const token = ++_searchToken;
 
@@ -1163,6 +1178,7 @@ export const animeStore = {
         const items = await invokeCmd<SearchItem[]>("anime_search", { ruleName: _selectedRule, keyword });
         if (token !== _searchToken) return;
         _searchResults = items.length > 0 ? [[_selectedRule, items]] : [];
+        this._refreshMergedSearch();
         if (_searchResults.length === 0) _error = "未找到结果";
       } catch (e) {
         if (token === _searchToken) _error = String(e);
@@ -1182,6 +1198,7 @@ export const animeStore = {
         if (!source || seen.has(source)) return;
         seen.add(source);
         _searchResults = [..._searchResults, [source, items]];
+        this._refreshMergedSearch();
         _loading = false;
       });
       await invokeCmd("anime_search_all", { keyword });
@@ -1193,6 +1210,30 @@ export const animeStore = {
       if (token === _searchToken) _loading = false;
       unlisten?.();
     }
+  },
+
+  /** 跨源合并去重 + 触发首屏封面懒补。流式搜索期间每次源到达都会调用。 */
+  _refreshMergedSearch() {
+    const { entries } = mergeSearchResults(_searchResults, _searchKeyword, { limit: Number.POSITIVE_INFINITY });
+    _mergedSearchResults = entries;
+    this.ensureSearchCovers(SEARCH_GRID_LIMIT);
+  },
+
+  /** 为合并结果前 upto 条懒补 Bangumi 封面；并发限制与同 key 去重由 fetcher 保证。 */
+  ensureSearchCovers(upto: number) {
+    const token = _searchToken;
+    void _coverFetcher.fetch(_mergedSearchResults.slice(0, upto), {
+      searchSubjects: async (keyword) => {
+        const [subjects] = await invokeCmd<[BangumiSubject[], number]>("anime_bangumi_search", { keyword, offset: 0 });
+        return subjects;
+      },
+      isCurrent: () => token === _searchToken,
+      onCover: (key, image) => {
+        if (token !== _searchToken || _searchCovers[key]) return;
+        _searchCovers = { ..._searchCovers, [key]: image };
+        this._proxyImages([image]);
+      },
+    }).catch(() => {});
   },
 
   setSelectedRule(name: string | null) {

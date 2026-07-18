@@ -13,6 +13,7 @@
   import { Button, Card, EmptyState, SegmentControl, StatBlock, Tag } from "./ui";
   import { AsyncSection, MediaCard, PageShell } from "./ui-v2";
   import type { ViewState } from "./ui-v2";
+  import { formatSourceBadge } from "../features/anime-search/merge";
 
   let searchInput = $state("");
   let isSearching = $state(false);
@@ -68,6 +69,24 @@
   function openResult(ruleName: string, item: SearchItem, trigger?: HTMLElement) {
     detailReturnFocus = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     animeStore.openDetail(ruleName, item);
+  }
+
+  // ── 搜索合并网格：首屏 24 条，其余"显示更多"展开 ─────────────────────
+  const SEARCH_GRID_LIMIT = 24;
+  let showAllResults = $state(false);
+  const mergedResults = $derived(animeStore.mergedSearchResults);
+  const visibleMergedResults = $derived(showAllResults ? mergedResults : mergedResults.slice(0, SEARCH_GRID_LIMIT));
+  const hiddenResultCount = $derived(Math.max(0, mergedResults.length - SEARCH_GRID_LIMIT));
+
+  // 关键词变化（新搜索）时重置展开态
+  $effect(() => {
+    void animeStore.searchKeyword;
+    showAllResults = false;
+  });
+
+  function showMoreResults() {
+    showAllResults = true;
+    animeStore.ensureSearchCovers(mergedResults.length);
   }
 
   function searchBangumi(subject: BangumiSubject, trigger?: HTMLElement) {
@@ -208,31 +227,34 @@
       {:else if animeStore.view === "search"}
         <AsyncSection
           title={`搜索：“${animeStore.searchKeyword}”`}
-          description="按来源分组展示；部分来源失败时保留已经返回的结果。"
+          description="跨来源合并同名番剧，封面自动补全；部分来源失败时保留已经返回的结果。"
           state={searchSectionState()}
           details={animeStore.error || undefined}
           preserveContent={animeStore.searchResults.length > 0}
           primaryAction={animeStore.error ? { label: "重新搜索", onSelect: () => void animeStore.search(animeStore.searchKeyword) } : undefined}
           class="search-results-section"
         >
-          <div class="search-result-groups">
-            {#each animeStore.searchResults as [source, items] (source)}
-              <AsyncSection title={source} description={`${items.length} 个结果`} headingLevel={3} compact>
-                <div class="result-list" role="list" aria-label={`${source} 搜索结果`}>
-                  {#each items as item (item.url)}
-                    <MediaCard
-                      title={item.name}
-                      subtitle={source}
-                      variant="landscape"
-                      focusKey={`anime-search-${source}-${item.url}`}
-                      ariaLabel={`查看 ${item.name} 详情`}
-                      onActivate={(event) => openResult(source, item, event.currentTarget as HTMLElement)}
-                    />
-                  {/each}
-                </div>
-              </AsyncSection>
+          <div class="search-grid" role="list" aria-label="跨源合并搜索结果">
+            {#each visibleMergedResults as entry (entry.key)}
+              {@const cover = animeStore.getSearchCover(entry.key)}
+              <MediaCard
+                title={entry.name}
+                subtitle={formatSourceBadge(entry.sources)}
+                imageSrc={cover || undefined}
+                imageAlt={entry.name}
+                variant="poster"
+                focusKey={`anime-search-${entry.key}`}
+                ariaLabel={`查看 ${entry.name} 详情`}
+                class="search-cover-card"
+                onActivate={(event) => openResult(entry.sources[0], entry.items[0], event.currentTarget as HTMLElement)}
+              />
             {/each}
           </div>
+          {#if hiddenResultCount > 0 && !showAllResults}
+            <div class="search-more">
+              <Button variant="ghost" size="sm" press={showMoreResults}>显示更多（剩余 {hiddenResultCount} 条）</Button>
+            </div>
+          {/if}
         </AsyncSection>
 
       <!-- ═══════════════════════════════════════════════════════════
@@ -1024,7 +1046,15 @@
   .stats-bar.dropped { background: rgba(255,255,255,0.15); }
 
   /* ── Search results ────────────────────────────────────────── */
-  .result-list { display: flex; flex-direction: column; gap: 3px; }
+  .search-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 14px; }
+  .search-grid :global(.v2-media-card__media) { background: linear-gradient(135deg, rgba(255,255,255,0.07), rgba(255,255,255,0.02)); }
+  .search-grid :global(.v2-media-card__media img) { animation: search-cover-fade 0.45s ease-out both; }
+  @keyframes search-cover-fade { from { opacity: 0; } to { opacity: 1; } }
+  .search-more { display: flex; justify-content: center; margin-top: 16px; }
+  @media (prefers-reduced-motion: reduce) {
+    .search-grid :global(.v2-media-card__media img) { animation: none; }
+  }
+  :global([data-motion="reduce"]) .search-grid :global(.v2-media-card__media img) { animation: none; }
   :global(.ui-button.result-row) {
     display: flex; align-items: center; gap: 10px;
     padding: 10px 12px; border: 1px solid transparent; border-radius: 8px;

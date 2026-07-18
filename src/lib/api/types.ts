@@ -527,7 +527,7 @@ export interface DownloadTask {
 
 
 export interface AppearanceSettings {
-  theme_pack: "yozakura" | "after-school" | "neon-isekai";
+  theme_pack: "shift-editorial" | "phantom-pop" | "caution-industrial" | "astral-rail" | "borderless-lumen";
   color_mode: "pack-default" | "system" | "light" | "dark" | "black" | "contrast";
   wallpaper_rotation: "startup-random" | "fixed";
   fixed_wallpaper_id?: string;

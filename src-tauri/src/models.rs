@@ -754,6 +754,11 @@ pub enum ThemePackId {
     Yozakura,
     AfterSchool,
     NeonIsekai,
+    ShiftEditorial,
+    PhantomPop,
+    CautionIndustrial,
+    AstralRail,
+    BorderlessLumen,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
@@ -934,7 +939,7 @@ impl Settings {
         if self.appearance.is_none() {
             self.appearance = Some(match self.theme.as_str() {
                 "light" => AppearanceSettings {
-                    theme_pack: ThemePackId::AfterSchool,
+                    theme_pack: ThemePackId::ShiftEditorial,
                     color_mode: ColorMode::Light,
                     ..AppearanceSettings::default()
                 },
@@ -960,6 +965,17 @@ impl Settings {
         }
 
         if let Some(appearance) = &mut self.appearance {
+            // 旧动漫主题包（yozakura / after-school / neon-isekai）已退役：
+            // 存量设置统一迁移到现役主题包，旧变体仅为反序列化兼容保留。
+            let retired_pack = match appearance.theme_pack {
+                ThemePackId::Yozakura => Some(ThemePackId::PhantomPop),
+                ThemePackId::AfterSchool => Some(ThemePackId::ShiftEditorial),
+                ThemePackId::NeonIsekai => Some(ThemePackId::BorderlessLumen),
+                _ => None,
+            };
+            if let Some(pack) = retired_pack {
+                appearance.theme_pack = pack;
+            }
             if appearance.color_mode == ColorMode::Contrast {
                 appearance.decorative_effects = false;
             }

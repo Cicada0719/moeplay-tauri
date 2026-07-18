@@ -2786,7 +2786,7 @@ dependencies = [
 
 [[package]]
 name = "moeplay"
-version = "0.15.0"
+version = "0.15.1"
 dependencies = [
  "android-native-keyring-store",
  "chrono",

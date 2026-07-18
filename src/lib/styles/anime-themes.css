@@ -15,24 +15,6 @@
   --theme-ambient: rgba(232,85,127,.18);
 }
 
-[data-theme-pack="yozakura"] {
-  --accent: #e8557f; --accent-hi: #f383a4; --accent-lo: rgba(232,85,127,.16); --accent-ring: rgba(232,85,127,.55);
-  --mascot-accent: #f5a6c8; --theme-ambient: rgba(232,85,127,.22);
-}
-[data-theme-pack="after-school"] {
-  --accent: #3f9dcc; --accent-hi: #67b9df; --accent-lo: rgba(63,157,204,.15); --accent-ring: rgba(63,157,204,.52);
-  --mascot-accent: #ff9bb9; --theme-ambient: rgba(92,184,221,.2);
-  --wallpaper-scrim: linear-gradient(90deg, rgba(15,51,72,.76) 0%, rgba(23,70,91,.42) 48%, rgba(23,70,91,.08) 100%), linear-gradient(0deg, rgba(14,42,58,.7), transparent 52%);
-  --wallpaper-brightness: .86; --wallpaper-saturation: .88;
-}
-[data-theme-pack="neon-isekai"] {
-  --accent: #ec3b99; --accent-hi: #ff69b4; --accent-lo: rgba(236,59,153,.17); --accent-ring: rgba(46,230,235,.58);
-  --mascot-accent: #2ee6eb; --theme-ambient: rgba(46,230,235,.17);
-  --wallpaper-scrim: linear-gradient(90deg, rgba(1,3,14,.9) 0%, rgba(4,5,22,.62) 49%, rgba(4,5,22,.18) 100%), linear-gradient(0deg, rgba(2,4,16,.88), transparent 50%);
-  --wallpaper-brightness: .7; --wallpaper-saturation: 1.08;
-}
-
-
 [data-wallpaper-rating="suggestive"] .wallpaper-stage__image,
 [data-wallpaper-rating="adult"] .wallpaper-stage__image { filter: brightness(var(--wallpaper-brightness)) saturate(var(--wallpaper-saturation)) blur(18px); transform: scale(1.035); }
 [data-color-mode="contrast"] .wallpaper-stage__decor { display:none; }

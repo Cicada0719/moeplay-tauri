@@ -281,7 +281,7 @@
             <h2 class="s-title"><Icon name="eye" size={17} className="s-title-ic" /> {i18n.t("settings.section_appearance")}<span class="s-title-sub">外観 / APPEARANCE</span></h2>
           </div>
 
-          <div class="theme-pack-grid" aria-label="二次元主题包">
+          <div class="theme-pack-grid" aria-label="主题包">
             {#each THEME_PACKS as pack}
               <button
                 class="theme-pack-card"

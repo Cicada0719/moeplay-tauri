@@ -114,3 +114,45 @@ test.describe("Kinetic 电影化主视觉 QA", () => {
     await appPage.screenshot({ path: "test-results/theme-qa/kinetic-stage/home.png" });
   });
 });
+
+/**
+ * 主题点击切换回归（0.15.1 热修）：
+ * 0.15.0 中 Rust ThemePackId 未覆盖新包 id，update_settings 反序列化失败导致
+ * 点击新主题零响应。本用例锁定「点击卡片 → 即时生效 + 落盘调用」前端链路，
+ * Rust 侧同步由 theme-packs.test.ts 的防漂移契约与 cargo check 保障。
+ */
+test.describe("theme pack click switching (0.15.1 regression)", () => {
+  test.use({ appState: themedState("phantom-pop") });
+
+  test("clicking a pack card applies it live and persists via update_settings", async ({ appPage }) => {
+    const root = appPage.locator("html");
+    await expect(root).toHaveAttribute("data-theme-pack", "phantom-pop");
+
+    await appPage.getByRole("banner").getByRole("button", { name: "打开设置" }).click();
+    await expect(appPage).toHaveURL(/#settings$/);
+
+    await appPage.getByRole("button", { name: /星穹旅人/ }).click();
+
+    // 即时生效：data-theme-pack 与计算 accent 同步切换
+    await expect(root).toHaveAttribute("data-theme-pack", "astral-rail");
+    await expect(appPage.getByRole("button", { name: /星穹旅人/ })).toHaveAttribute("aria-pressed", "true");
+    const accent = await appPage.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim());
+    expect(accent).toBe("#d8b45a");
+
+    // 持久化链路：update_settings 携带新包 id（0.15.0 在此断裂）
+    const calls = await appPage.evaluate(() => {
+      const api = (window as unknown as { __MOEPLAY_TEST__?: { invocations: Array<{ command: string; args?: Record<string, unknown> }> } }).__MOEPLAY_TEST__;
+      return (api?.invocations ?? []).filter((i) => i.command === "update_settings");
+    });
+    expect(calls.length).toBeGreaterThan(0);
+    const last = calls[calls.length - 1];
+    const appearance = (last.args?.settings as { appearance?: { theme_pack?: string } } | undefined)?.appearance;
+    expect(appearance?.theme_pack).toBe("astral-rail");
+
+    // 再切一个包，确认连续切换同样生效
+    await appPage.getByRole("button", { name: /警戒工业/ }).click();
+    await expect(root).toHaveAttribute("data-theme-pack", "caution-industrial");
+    const accent2 = await appPage.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim());
+    expect(accent2).toBe("#f59e0b");
+  });
+});

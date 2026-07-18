@@ -29,7 +29,8 @@ export async function installDeterministicEnvironment(
       const commandResults = state.commandResults ?? {};
       const clone = <T>(value: T): T => {
         if (value === undefined || value === null) return value;
-        return structuredClone(value);
+        // Svelte 5 $state 深代理无法 structuredClone（DataCloneError）；JSON 往返天然解代理。
+        return JSON.parse(JSON.stringify(value)) as T;
       };
 
       for (const [key, value] of Object.entries(state.localStorage ?? {})) {
