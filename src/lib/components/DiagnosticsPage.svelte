@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import Icon from "./Icon.svelte";
   import { Button, Card, EmptyState, StatBlock } from "./ui";
+  import { i18n } from "../stores/i18n.svelte";
   import {
     exportDiagnosticsZip,
     getMigrationStatus,
@@ -11,6 +12,7 @@
     type MigrationInfo,
     type PerformanceSnapshot,
   } from "../api";
+  import { PageShell, PageHeader, StateBoundary, type ViewState } from "./ui-v2";
 
   let report = $state<DiagnosticsReport | null>(null);
   let perf = $state<PerformanceSnapshot | null>(null);
@@ -19,6 +21,13 @@
   let loading = $state(true);
   let exporting = $state(false);
   let error = $state<string | null>(null);
+  // 导出失败与页级加载错误分离：原实现共用 error，report 就绪后导出失败会被吞掉。
+  let exportError = $state<string | null>(null);
+
+  // 三态统一：加载 / 错误 / 就绪收敛到 StateBoundary。
+  const viewState = $derived<ViewState>(
+    !report && error ? "error" : !report ? "loading" : "ready",
+  );
 
   async function load() {
     loading = true;
@@ -36,11 +45,11 @@
 
   async function exportBundle() {
     exporting = true;
-    error = null;
+    exportError = null;
     try {
       exported = await exportDiagnosticsZip();
     } catch (e) {
-      error = String(e);
+      exportError = String(e);
     } finally {
       exporting = false;
     }
@@ -51,165 +60,156 @@
   });
 </script>
 
-<section class="tool-page aura-page" data-aura-echo="DIAGNOSTICS">
-  <header class="tool-head aura-head">
-    <div class="head-copy">
-      <span class="eyebrow aura-kicker">Diagnostics</span>
-      <h1 class="aura-title">诊断</h1>
-      <p>系统信息、迁移状态、性能快照和默认脱敏的诊断导出。</p>
-    </div>
-    <Button press={exportBundle} loading={exporting} disabled={exporting}>
-      <Icon name="download" size={16} />
-      <span>导出脱敏诊断包</span>
-    </Button>
-  </header>
+<PageShell as="div" width="full" scrollable={false} class="diagnostics-v2-shell" labelledBy="diagnostics-page-title" ariaLabel={i18n.t("diagnostics.title")}>
+  <div class="dg">
+    <div class="v2-grain dg-grain" aria-hidden="true"></div>
 
-  {#if report}
-    <div class="stat-grid" aria-label="诊断概览">
-      <StatBlock class="stat-tile" label="系统" value={report.system_info.os} />
-      <StatBlock class="stat-tile" label="LE" value={report.system_info.locale_emulator_installed ? "已安装" : "未检测到"} />
-      <StatBlock class="stat-tile" label="游戏数" value={perf?.game_count ?? 0} />
-      <StatBlock class="stat-tile" label="缓存" value={Math.round((perf?.cache_size_bytes ?? 0) / 1024 / 1024)} unit="MB" />
-    </div>
+    <PageHeader
+      id="diagnostics-page-title"
+      class="dg-header"
+      eyebrow="診断 / DIAGNOSTICS"
+      title={i18n.t("diagnostics.title")}
+      description={i18n.t("diagnostics.subtitle")}
+    >
+      {#snippet actions()}
+        <Button variant="primary" press={exportBundle} loading={exporting} disabled={exporting}>
+          <Icon name="download" size={16} />
+          <span>{i18n.t("diagnostics.export")}</span>
+        </Button>
+      {/snippet}
+    </PageHeader>
 
-    <div class="content-grid">
-      <Card class="panel aura-panel">
-        <div class="panel-head">
-          <h2>问题</h2>
-          <span class="aura-num">{report.issues.length}</span>
-        </div>
-        {#if report.issues.length}
-          <div class="row-list">
-            {#each report.issues as issue}
-              <article class="data-row">
-                <strong class="status-cell aura-num"><span class="status-dot stopped"></span>{issue.severity}</strong>
-                <span>{issue.message}</span>
-              </article>
-            {/each}
+    <main class="dg-content">
+      <StateBoundary
+        state={viewState}
+        onRetry={load}
+        retryLabel={i18n.t("button.retry")}
+        title={i18n.t("diagnostics.error_title")}
+        description={error ?? undefined}
+        loadingRows={4}
+      >
+        {#if report}
+          {#if exportError}
+            <div class="dg-banner" role="alert">{i18n.t("diagnostics.export_failed", { error: exportError })}</div>
+          {/if}
+
+          <div class="dg-stat-grid" aria-label={i18n.t("diagnostics.overview_aria")}>
+            <StatBlock class="stat-tile" label={i18n.t("diagnostics.stat_system")} value={report.system_info.os} />
+            <StatBlock class="stat-tile" label={i18n.t("diagnostics.stat_le")} value={report.system_info.locale_emulator_installed ? i18n.t("diagnostics.le_installed") : i18n.t("diagnostics.le_missing")} />
+            <StatBlock class="stat-tile" label={i18n.t("diagnostics.stat_games")} value={perf?.game_count ?? 0} />
+            <StatBlock class="stat-tile" label={i18n.t("diagnostics.stat_cache")} value={Math.round((perf?.cache_size_bytes ?? 0) / 1024 / 1024)} unit="MB" />
           </div>
-        {:else}
-          <EmptyState title="暂无诊断问题" />
-        {/if}
-      </Card>
 
-      <Card class="panel aura-panel">
-        <div class="panel-head">
-          <h2>迁移</h2>
-          <span class="aura-num">{migrations.length}</span>
-        </div>
-        {#if migrations.length}
-          <div class="row-list">
-            {#each migrations as migration}
-              <article class="data-row">
-                <strong class="status-cell aura-num"><span class="status-dot" class:running={migration.applied} class:stopped={!migration.applied}></span>v{migration.version}</strong>
-                <span>{migration.applied ? "已应用" : "待应用"} · {migration.description}</span>
-              </article>
-            {/each}
+          <div class="dg-panels">
+            <Card class="panel">
+              <div class="panel-head">
+                <h2>{i18n.t("diagnostics.panel_issues")}</h2>
+                <span class="mono">{report.issues.length}</span>
+              </div>
+              {#if report.issues.length}
+                <div class="row-list">
+                  {#each report.issues as issue}
+                    <article class="data-row">
+                      <strong class="status-cell mono"><span class="status-dot stopped"></span>{issue.severity}</strong>
+                      <span>{issue.message}</span>
+                    </article>
+                  {/each}
+                </div>
+              {:else}
+                <EmptyState title={i18n.t("diagnostics.issues_empty")} />
+              {/if}
+            </Card>
+
+            <Card class="panel">
+              <div class="panel-head">
+                <h2>{i18n.t("diagnostics.panel_migrations")}</h2>
+                <span class="mono">{migrations.length}</span>
+              </div>
+              {#if migrations.length}
+                <div class="row-list">
+                  {#each migrations as migration}
+                    <article class="data-row">
+                      <strong class="status-cell mono"><span class="status-dot" class:running={migration.applied} class:stopped={!migration.applied}></span>v{migration.version}</strong>
+                      <span>{migration.applied ? i18n.t("diagnostics.migration_applied") : i18n.t("diagnostics.migration_pending")} · {migration.description}</span>
+                    </article>
+                  {/each}
+                </div>
+              {:else}
+                <EmptyState title={i18n.t("diagnostics.migrations_empty")} />
+              {/if}
+            </Card>
           </div>
-        {:else}
-          <EmptyState title="暂无迁移记录" />
+
+          <Card class="panel">
+            <div class="panel-head">
+              <h2>{i18n.t("diagnostics.panel_log")}</h2>
+              <span class="mono">{new Date(perf?.timestamp ?? Date.now()).toLocaleTimeString(i18n.locale, { hour: "2-digit", minute: "2-digit" })}</span>
+            </div>
+            <div class="log-well" aria-label={i18n.t("diagnostics.log_aria")}>
+              <code>os={report.system_info.os} arch={report.system_info.arch} memory={report.system_info.memory_gb}GB</code>
+              <code>db={report.app_info.database_size_mb}MB games={perf?.game_count ?? report.app_info.game_count} cache={Math.round((perf?.cache_size_bytes ?? 0) / 1024 / 1024)}MB</code>
+              <code>scrapers={(report.app_info.scrape_sources ?? []).join(",") || "none"}</code>
+              <code>export={exported || "not_run"}</code>
+            </div>
+          </Card>
+
+          {#if exported}
+            <p class="dg-exported">
+              <Icon name="check" size={16} />
+              <span>{i18n.t("diagnostics.exported", { path: exported })}</span>
+            </p>
+          {/if}
         {/if}
-      </Card>
-    </div>
-
-    <Card class="panel aura-panel">
-      <div class="panel-head">
-        <h2>日志井</h2>
-        <span class="aura-num">{new Date(perf?.timestamp ?? Date.now()).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</span>
-      </div>
-      <div class="log-well aura-inset" aria-label="诊断日志井">
-        <code>os={report.system_info.os} arch={report.system_info.arch} memory={report.system_info.memory_gb}GB</code>
-        <code>db={report.app_info.database_size_mb}MB games={perf?.game_count ?? report.app_info.game_count} cache={Math.round((perf?.cache_size_bytes ?? 0) / 1024 / 1024)}MB</code>
-        <code>scrapers={(report.app_info.scrape_sources ?? []).join(",") || "none"}</code>
-        <code>export={exported || "not_run"}</code>
-      </div>
-    </Card>
-
-    {#if exported}
-      <p class="exported aura-inset">
-        <Icon name="check" size={16} />
-        <span>脱敏诊断包已导出：{exported}</span>
-      </p>
-    {/if}
-  {:else if error}
-    <Card class="panel aura-panel loading-panel">
-      <EmptyState title="诊断加载失败" description={error ?? undefined} action={{ label: "重试", onclick: load }} />
-    </Card>
-  {:else}
-    <Card class="panel aura-panel loading-panel">
-      <EmptyState title="正在运行诊断" />
-    </Card>
-  {/if}
-</section>
+      </StateBoundary>
+    </main>
+  </div>
+</PageShell>
 
 <style>
-  .tool-page {
-    min-width: 0;
+  :global(.diagnostics-v2-shell) { height: 100%; }
+  :global(.diagnostics-v2-shell .v2-page-shell__inner) { height: 100%; padding: 0; }
+
+  .dg {
+    position: relative;
     height: 100%;
-    padding: 24px;
-    overflow: auto;
     display: flex;
     flex-direction: column;
-    gap: 16px;
-    background: var(--bg-void, var(--bg-base));
+    overflow: hidden;
+    color: var(--text-primary);
   }
 
-  .tool-head,
-  .exported {
-    min-width: 0;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--bg-card);
-    box-shadow: none;
+  /* Halftone grain background layer (utility class lives in tokens-v2.css). */
+  .dg-grain { position: absolute; inset: 0; z-index: 0; }
+
+  :global(.dg-header) {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 26px 28px 14px;
+    flex-shrink: 0;
   }
 
-  .tool-head {
+  .dg-content {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    width: 100%;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 28px 40px;
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 18px 20px;
+    flex-direction: column;
+    gap: 14px;
+    scroll-behavior: smooth;
   }
 
-  .aura-head {
-    align-items: center;
-  }
-
-  .head-copy {
-    min-width: 0;
-    display: grid;
-    gap: 4px;
-  }
-
-  .eyebrow,
-  .panel-head span {
-    color: var(--text-muted);
-    font-size: 12px;
-    font-weight: 650;
-    line-height: 1.2;
-    letter-spacing: 0;
-  }
-
-  .aura-kicker {
-    text-transform: none;
-  }
-
-  h1,
   h2,
   p {
     margin: 0;
-  }
-
-  h1 {
-    color: var(--text-primary);
-    font-size: 24px;
-    font-weight: 750;
-    line-height: 1.15;
-    letter-spacing: 0;
-  }
-
-  .aura-title {
-    font-size: clamp(24px, 2.2vw, 32px);
   }
 
   h2 {
@@ -226,18 +226,29 @@
     line-height: 1.55;
   }
 
-  .stat-grid,
-  .content-grid {
-    min-width: 0;
-    display: grid;
-    gap: 12px;
+  .dg-banner {
+    padding: 12px 14px;
+    border: 1px solid color-mix(in srgb, var(--danger, #ef4444) 45%, transparent);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--danger, #ef4444) 10%, transparent);
+    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
   }
 
-  .stat-grid {
+  .dg-stat-grid,
+  .dg-panels {
+    min-width: 0;
+    display: grid;
+    gap: 14px;
+  }
+
+  .dg-stat-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
-  .content-grid {
+  .dg-panels {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -256,6 +267,20 @@
     border-bottom: 1px solid var(--border);
   }
 
+  .panel-head span {
+    min-width: 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 650;
+    line-height: 1.2;
+    letter-spacing: 0;
+  }
+
+  .mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
   .row-list {
     min-width: 0;
     display: grid;
@@ -263,21 +288,13 @@
     overflow: hidden;
   }
 
-  .aura-page .data-row {
+  .data-row {
     min-width: 0;
     padding: 12px 0;
     display: grid;
     grid-template-columns: minmax(72px, 0.25fr) minmax(0, 1fr);
     gap: 12px;
     border-bottom: 1px solid var(--border);
-    border-top: 0;
-    border-right: 0;
-    border-left: 0;
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
   }
 
   .data-row:last-child {
@@ -314,6 +331,9 @@
     padding: 12px;
     display: grid;
     gap: 8px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-inset, var(--bg-base));
     color: var(--text-secondary);
     font-family: var(--font-mono);
     font-size: 12px;
@@ -328,49 +348,42 @@
     overflow-wrap: anywhere;
   }
 
-  .exported {
+  .dg-exported {
     padding: 12px 14px;
     display: flex;
     align-items: center;
     gap: 8px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-card);
     color: var(--text-primary);
   }
 
-  .exported span {
+  .dg-exported span {
     min-width: 0;
     overflow-wrap: anywhere;
   }
 
-  :global(.ui-card.loading-panel) {
-    min-height: 180px;
-    display: grid;
-    place-items: center;
-  }
-
   @media (max-width: 900px) {
-    .stat-grid,
-    .content-grid {
+    .dg-stat-grid,
+    .dg-panels {
       grid-template-columns: 1fr;
-    }
-
-    .tool-head {
-      flex-direction: column;
-      align-items: stretch;
-    }
-
-    .tool-head :global(.ui-button) {
-      width: 100%;
     }
   }
 
   @media (max-width: 560px) {
-    .tool-page {
-      padding: 18px;
-    }
+    .dg-content { padding: 0 16px 36px; }
+    :global(.dg-header) { padding: 20px 16px 12px; }
 
     .data-row {
       grid-template-columns: 1fr;
       gap: 4px;
     }
   }
+
+  /* ── Reduced motion ── */
+  @media (prefers-reduced-motion: reduce) {
+    .dg-content { scroll-behavior: auto; }
+  }
+  :global([data-motion="reduce"]) .dg-content { scroll-behavior: auto; }
 </style>

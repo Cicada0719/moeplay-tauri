@@ -49,6 +49,22 @@
     result = null;
 
     const chosen = pickRandom();
+
+    // 双信号降级：OS 偏好或应用内 data-motion="reduce" 时跳过翻牌动画，直接给出结果。
+    const reduceMotion =
+      window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ||
+      document.documentElement.dataset.motion === "reduce";
+    if (reduceMotion) {
+      displayGame = chosen;
+      result = chosen;
+      spinning = false;
+      recentResults = [...recentResults, chosen.id].slice(-5);
+      try {
+        localStorage.setItem("moeplay-wtp-recent", JSON.stringify(recentResults));
+      } catch {}
+      return;
+    }
+
     const tl = gsap.timeline();
 
     // Rapid card flip phase
@@ -316,4 +332,13 @@
   .wtp-spin-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
   @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .wtp-overlay { animation: none; }
+    .wtp-close, .wtp-btn, .wtp-spin-btn { transition: none; }
+  }
+  :global([data-motion="reduce"]) .wtp-overlay { animation: none; }
+  :global([data-motion="reduce"]) .wtp-close,
+  :global([data-motion="reduce"]) .wtp-btn,
+  :global([data-motion="reduce"]) .wtp-spin-btn { transition: none; }
 </style>

@@ -3,6 +3,7 @@
   import { animeStore, type AnimeHistory } from "../stores/anime.svelte";
   import { comicStore, type ReadRecord } from "../stores/comic.svelte";
   import { gameStore } from "../stores/games.svelte";
+  import { platformStore } from "../platform";
   import { uiStore } from "../stores/ui.svelte";
   import { formatPlayTime, getPlaytimeSummary, type Game, type PlaySessionEntry, type PlaytimeSummary } from "../api";
   import { createActivityStore, tauriActivityApi, type ActivityEventPatch, type ActivityEventView, type ActivityFilters, type ContinueCandidate } from "../features/activity";
@@ -56,6 +57,8 @@
   const archiveActivities = $derived(uniqueArchiveActivities(mediaActivities));
   const continueItems = $derived(mediaActivities.slice(0, 5));
   const hasRecords = $derived(activeSummary.session_count > 0 || activeSummary.total_seconds > 0 || animeStore.history.length > 0 || comicStore.readHistory.length > 0);
+  const canLaunchGames = $derived(platformStore.capabilities.gameLaunch);
+  const canImportGames = $derived(platformStore.capabilities.localGameScan || platformStore.capabilities.steamIntegration);
   const dailyBars = $derived(fillDailyBars(activeSummary.daily, 14));
   const monthlyBars = $derived(activeSummary.monthly.slice(-8));
   const activityBars = $derived(fillActivityBars(mediaActivities, 14));
@@ -122,7 +125,15 @@
 
   function findGame(id: string | undefined): Game | null { return id ? gameStore.allGames.find((game) => game.id === id) ?? null : null; }
   function openGame(gameId: string | undefined) { const game = findGame(gameId); if (!game) return; gameStore.selectGame(game.id); uiStore.currentView = "game-detail"; }
-  async function launchGame(gameId: string | undefined) { if (gameId) await gameStore.launch(gameId); }
+  function openGameImport() { uiStore.currentView = canImportGames ? "steam-import" : "home"; }
+  async function resumeGame(gameId: string | undefined) {
+    if (!gameId) return;
+    if (canLaunchGames) {
+      await gameStore.launch(gameId);
+    } else {
+      openGame(gameId);
+    }
+  }
 
   async function openActivity(item: DashboardMediaActivity) {
     if (item.kind === "game") { openGame((item.payload as PlaySessionEntry).game_id); return; }
@@ -176,7 +187,7 @@
       warning={summaryWarning}
       {loading}
       onOpen={(item) => { void openActivity(item); }}
-      onImport={() => (uiStore.currentView = "steam-import")}
+      onImport={openGameImport}
     />
   {:else}
     <section class="records-index" aria-labelledby="records-page-title">
@@ -184,8 +195,8 @@
         {#snippet actions()}
           <div class="records-header-actions">
             {#if latestActivity}<button class="primary" type="button" onclick={() => openActivity(latestActivity)}>继续 {latestActivity.title}</button>
-            {:else if lastPlayedGame}<button class="primary" type="button" onclick={() => launchGame(lastPlayedGame?.id)}>继续 {lastPlayedGame.name}</button>
-            {:else}<button class="primary" type="button" onclick={() => (uiStore.currentView = "steam-import")}>导入游戏</button>{/if}
+            {:else if lastPlayedGame}<button class="primary" type="button" onclick={() => resumeGame(lastPlayedGame?.id)}>继续 {lastPlayedGame.name}</button>
+            {:else}<button class="primary" type="button" onclick={openGameImport}>{canImportGames ? "导入游戏" : "查看资料库"}</button>{/if}
             {#if lastPlayedGame}<button type="button" onclick={() => openGame(lastPlayedGame?.id)}>查看最近游戏</button>{/if}
           </div>
         {/snippet}
@@ -212,7 +223,7 @@
         onExport={(path, format) => { void exportActivity(path, format); }}
         onRetry={() => { void loadActivityV2(); }}
       />
-      <LegacyOverviewSection loading={loading} {hasRecords} stats={dashboardStats} continueItems={continueItems} warning={summaryWarning} onOpenActivity={(item) => { void openActivity(item); }} onImport={() => (uiStore.currentView = "steam-import")} onHome={() => (uiStore.currentView = "home")} />
+      <LegacyOverviewSection loading={loading} {hasRecords} stats={dashboardStats} continueItems={continueItems} warning={summaryWarning} onOpenActivity={(item) => { void openActivity(item); }} onImport={openGameImport} onHome={() => (uiStore.currentView = "home")} />
       <LegacyInsightsSection {hasRecords} {dailyPoints} {dailySummary} {monthlyPoints} {monthlySummary} activityPoints={combinedActivityPoints} activitySummary={activitySummaryText} {mediaCounts} {topGames} mediaActivities={mediaActivities} {recentSessions} onOpenGame={openGame} onOpenActivity={(item) => { void openActivity(item); }} />
     </section>
   {/if}

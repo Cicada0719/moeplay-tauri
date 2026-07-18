@@ -4,10 +4,12 @@
     blendPalette,
     fallbackPalette,
     paletteCssVariables,
+    parseCssColorToRgb,
   } from "../model/adaptiveChroma";
   import type {
     AdaptiveChromaPalette,
     AdaptiveChromaStrength,
+    RgbColor,
   } from "../model/chromaTypes";
   import { loadAdaptiveChromaPalette } from "./imagePalette";
 
@@ -25,12 +27,20 @@
     src = null,
     strength = "balanced",
     enabled = true,
-    themePalette = fallbackPalette(),
+    themePalette,
     children,
     class: className = "",
     style = "",
   }: Props = $props();
 
+  // 未取色时的回退 accent 跟随当前主题包的 --accent，而非固定鲑红。
+  function readThemeAccent(): RgbColor | null {
+    if (typeof window === "undefined" || typeof document === "undefined") return null;
+    const computed = window.getComputedStyle(document.documentElement).getPropertyValue("--accent");
+    return parseCssColorToRgb(computed) ?? parseCssColorToRgb(document.documentElement.style.getPropertyValue("--accent"));
+  }
+
+  let themeAccent = $state<RgbColor | null>(readThemeAccent());
   let mediaPalette = $state<AdaptiveChromaPalette>(fallbackPalette());
   let loadState = $state<"idle" | "loading" | "ready" | "error">("idle");
   let reducedMotion = $state(false);
@@ -38,10 +48,15 @@
 
   const sourceUrl = $derived(src?.trim() ?? "");
   const shouldLoad = $derived(enabled && strength !== "off" && Boolean(sourceUrl));
+  const baseThemePalette = $derived.by(() => {
+    if (themePalette) return themePalette;
+    const base = fallbackPalette();
+    return themeAccent ? { ...base, accent: themeAccent } : base;
+  });
   const blendedPalette = $derived(
     shouldLoad
-      ? blendPalette(themePalette, mediaPalette, strength)
-      : blendPalette(themePalette, fallbackPalette(), "off"),
+      ? blendPalette(baseThemePalette, mediaPalette, strength)
+      : blendPalette(baseThemePalette, fallbackPalette(), "off"),
   );
   const displayState = $derived(!enabled || strength === "off" ? "disabled" : !sourceUrl ? "fallback" : loadState);
   const contrastMode = $derived(highContrast ? "high" : "normal");
@@ -63,6 +78,8 @@
       "--adaptive-chroma-surface-rgb": legacyVariables["--media-surface-rgb"],
       "--adaptive-chroma-foreground-rgb": legacyVariables["--media-foreground-rgb"],
       "--adaptive-chroma-on-accent-rgb": legacyVariables["--media-on-accent-rgb"],
+      "--media-accent": `rgb(${legacyVariables["--media-accent-rgb"]})`,
+      "--media-on-accent": `rgb(${legacyVariables["--media-on-accent-rgb"]})`,
       "--adaptive-chroma-strength": enabled ? strength : "off",
       "--adaptive-chroma-contrast-mode": contrastMode,
       "--adaptive-chroma-transition-duration": reducedMotion ? "0ms" : "180ms",
@@ -80,6 +97,20 @@
     "background-repeat: no-repeat",
     variableStyle,
   ].filter(Boolean).join("; "));
+
+  // 主题包切换时重新解析 --accent，保持回退色跟随主题。
+  $effect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+    const root = document.documentElement;
+    const sync = () => {
+      themeAccent = readThemeAccent();
+    };
+    sync();
+    if (typeof MutationObserver !== "function") return;
+    const observer = new MutationObserver(sync);
+    observer.observe(root, { attributes: true, attributeFilter: ["data-theme-pack", "data-theme", "data-color-mode"] });
+    return () => observer.disconnect();
+  });
 
   $effect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;

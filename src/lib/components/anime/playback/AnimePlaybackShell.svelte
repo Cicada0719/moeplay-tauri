@@ -13,6 +13,7 @@
     nextEpisodeTitle?: string;
     aspectRatio?: number;
     fullscreen?: boolean;
+    chromeVisible?: boolean;
     variant?: PlaybackVariant;
     panelOpen?: boolean;
     stageLabel?: string;
@@ -32,6 +33,7 @@
     nextEpisodeTitle = "",
     aspectRatio = 16 / 9,
     fullscreen = false,
+    chromeVisible = true,
     variant = "classic",
     panelOpen = false,
     stageLabel = "视频播放区域",
@@ -95,6 +97,7 @@
 <section
   class="anime-playback-shell anime-playback-shell--{variant}"
   class:anime-playback-shell--fullscreen={fullscreen}
+  class:anime-playback-shell--chrome-hidden={fullscreen && !chromeVisible}
   class:anime-playback-shell--with-panel={panelOpen}
   data-testid="anime-playback-shell"
   data-playback-variant={variant}

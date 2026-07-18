@@ -70,28 +70,28 @@
 </div>
 
 <style>
-  .mw-shell { position: relative; width: 100%; height: 100%; min-height: 0; display: grid; grid-template-rows: 56px minmax(0, 1fr) 68px; overflow: hidden; isolation: isolate; background: rgb(var(--media-surface-rgb, 13 16 20) / .74); color: var(--text-primary); }
-  .mw-shell::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: linear-gradient(115deg, rgb(var(--media-primary-rgb, 70 76 88) / .22), transparent 50%), radial-gradient(circle at 72% 34%, rgb(var(--media-secondary-rgb, 70 76 88) / .18), transparent 48%), linear-gradient(180deg, rgb(8 10 13 / .14), rgb(8 10 13 / .58)); }
-  .mw-shell__topline { display: grid; grid-template-columns: minmax(210px, .45fr) minmax(260px, 1fr) auto; align-items: stretch; border-top: 1px solid rgb(255 255 255 / .12); border-bottom: 1px solid rgb(255 255 255 / .13); background: rgb(var(--media-surface-rgb, 10 12 16) / .78); backdrop-filter: blur(18px) saturate(1.18); }
-  .mw-shell__module { display: flex; align-items: center; gap: 11px; padding: 0 16px; border-right: 1px solid rgb(255 255 255 / .12); }
+  .mw-shell { position: relative; width: 100%; height: 100%; min-height: 0; display: grid; grid-template-rows: 56px minmax(0, 1fr) 68px; overflow: hidden; isolation: isolate; background: color-mix(in srgb, var(--bg-deep) 74%, transparent); color: var(--text-primary); }
+  .mw-shell::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: linear-gradient(115deg, var(--accent-lo), transparent 50%), radial-gradient(circle at 72% 34%, var(--accent-lo), transparent 48%), linear-gradient(180deg, color-mix(in srgb, var(--bg-deep) 14%, transparent), color-mix(in srgb, var(--bg-deep) 58%, transparent)); }
+  .mw-shell__topline { display: grid; grid-template-columns: minmax(210px, .45fr) minmax(260px, 1fr) auto; align-items: stretch; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--bg-deep) 78%, transparent); backdrop-filter: blur(18px) saturate(1.18); }
+  .mw-shell__module { display: flex; align-items: center; gap: 11px; padding: 0 16px; border-right: 1px solid var(--border); }
   .mw-shell__module { min-width: 0; }
   .mw-shell__module span, .mw-shell__module small { display: block; font-family: "JetBrains Mono", monospace; }
-  .mw-shell__module span { color: rgb(var(--media-accent-rgb, 199 71 47)); font-size: 9px; }
+  .mw-shell__module span { color: var(--accent); font-size: 9px; }
   .mw-shell__module strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
   .mw-shell__module small { margin-left: auto; color: var(--text-muted); font-size: 8px; }
-  .mw-shell__search { min-width: 0; display: flex; align-items: center; gap: 10px; margin: 9px 14px; padding: 0 13px; border: 1px solid rgb(255 255 255 / .12); background: rgb(255 255 255 / .025); }
-  .mw-shell__search:focus-within { border-color: rgb(var(--media-accent-rgb, 199 71 47) / .65); box-shadow: inset 0 -1px rgb(var(--media-accent-rgb, 199 71 47)); }
+  .mw-shell__search { min-width: 0; display: flex; align-items: center; gap: 10px; margin: 9px 14px; padding: 0 13px; border: 1px solid var(--border); background: color-mix(in srgb, var(--text-primary) 2.5%, transparent); }
+  .mw-shell__search:focus-within { border-color: color-mix(in srgb, var(--accent) 65%, transparent); box-shadow: inset 0 -1px var(--accent); }
   .mw-shell__search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--text-primary); font: 12px/1 var(--font-ui); }
   .mw-shell__search button { display: grid; border: 0; background: transparent; color: var(--text-muted); cursor: pointer; }
-  .mw-shell__utilities { display: flex; border-left: 1px solid rgb(255 255 255 / .12); }
-  .mw-shell__utilities button { min-width: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 13px; border: 0; border-left: 1px solid rgb(255 255 255 / .1); background: transparent; color: var(--text-secondary); font: 600 10px/1 var(--font-ui); cursor: pointer; }
-  .mw-shell__utilities button:hover { color: var(--text-primary); background: rgb(255 255 255 / .04); }
+  .mw-shell__utilities { display: flex; border-left: 1px solid var(--border); }
+  .mw-shell__utilities button { min-width: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 13px; border: 0; border-left: 1px solid var(--border); background: transparent; color: var(--text-secondary); font: 600 10px/1 var(--font-ui); cursor: pointer; }
+  .mw-shell__utilities button:hover { color: var(--text-primary); background: color-mix(in srgb, var(--text-primary) 4%, transparent); }
   .mw-shell__utilities button.legacy { color: var(--text-muted); }
-  .mw-shell__utilities button.scope-toggle.active { color: rgb(var(--media-accent-rgb, 199 71 47)); background: rgb(var(--media-accent-rgb, 199 71 47) / .1); box-shadow: inset 0 -2px rgb(var(--media-accent-rgb, 199 71 47)); }
+  .mw-shell__utilities button.scope-toggle.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); box-shadow: inset 0 -2px var(--accent); }
   .mw-shell__stage { min-height: 0; overflow: hidden; }
-  .mw-shell__director { z-index: 8; display: grid; grid-template-columns: minmax(250px, 1fr) minmax(420px, 580px) minmax(170px, 1fr); align-items: stretch; border-top: 1px solid rgb(255 255 255 / .14); background: rgb(var(--media-surface-rgb, 10 12 16) / .84); backdrop-filter: blur(20px) saturate(1.14); }
-  .mw-shell__style-id { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; align-content: center; gap: 4px 11px; padding: 0 20px; border-right: 1px solid rgb(255 255 255 / .12); }
-  .mw-shell__style-id span { grid-row: 1 / 3; align-self: center; color: var(--c-accent, #c7472f); font: 600 9px/1 var(--font-mono); letter-spacing: .1em; }
+  .mw-shell__director { z-index: 8; display: grid; grid-template-columns: minmax(250px, 1fr) minmax(420px, 580px) minmax(170px, 1fr); align-items: stretch; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--bg-deep) 84%, transparent); backdrop-filter: blur(20px) saturate(1.14); }
+  .mw-shell__style-id { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; align-content: center; gap: 4px 11px; padding: 0 20px; border-right: 1px solid var(--border); }
+  .mw-shell__style-id span { grid-row: 1 / 3; align-self: center; color: var(--accent); font: 600 9px/1 var(--font-mono); letter-spacing: .1em; }
   .mw-shell__style-id strong { font-size: 11px; letter-spacing: .08em; }
   .mw-shell__style-id small { color: var(--text-muted); font: 500 7px/1 var(--font-mono); letter-spacing: .08em; }
   .mw-shell__director :global(.mw-mode-switcher) { width: 100%; max-width: none; height: 100%; border-top: 0; border-bottom: 0; }

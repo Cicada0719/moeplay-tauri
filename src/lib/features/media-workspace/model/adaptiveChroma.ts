@@ -157,3 +157,36 @@ export function paletteCssVariables(palette: AdaptiveChromaPalette): Record<stri
 export function fallbackPalette(): AdaptiveChromaPalette {
   return { ...FALLBACK_PALETTE };
 }
+
+/**
+ * Parse a theme token color (hex or rgb()/rgba()) into channels.
+ * Returns null for anything unrecognized so callers keep their fallback.
+ */
+export function parseCssColorToRgb(value: string): RgbColor | null {
+  const input = value.trim();
+  if (!input) return null;
+  const hex = /^#([0-9a-f]{3,8})$/i.exec(input);
+  if (hex) {
+    const raw = hex[1];
+    const normalized = raw.length <= 4 ? [...raw].map((channel) => channel + channel).join("") : raw;
+    if (normalized.length !== 6 && normalized.length !== 8) return null;
+    return {
+      r: parseInt(normalized.slice(0, 2), 16),
+      g: parseInt(normalized.slice(2, 4), 16),
+      b: parseInt(normalized.slice(4, 6), 16),
+    };
+  }
+  const fn = /^rgba?\(\s*([^)]+?)\s*\)$/i.exec(input);
+  if (fn) {
+    const channels = fn[1]
+      .replace(/\//g, " ")
+      .split(/[\s,]+/)
+      .filter(Boolean)
+      .slice(0, 3)
+      .map((part) => (part.endsWith("%") ? (parseFloat(part) / 100) * 255 : parseFloat(part)));
+    if (channels.length === 3 && channels.every((channel) => Number.isFinite(channel))) {
+      return { r: clampChannel(channels[0]), g: clampChannel(channels[1]), b: clampChannel(channels[2]) };
+    }
+  }
+  return null;
+}

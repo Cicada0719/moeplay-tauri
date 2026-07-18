@@ -23,4 +23,9 @@
     color: var(--accent);
     font-weight: 600;
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pill { transition: none; }
+  }
+  :global([data-motion="reduce"]) .pill { transition: none; }
 </style>

@@ -106,6 +106,11 @@ test("v0.12 anime search, episode selection, extraction and automatic failover",
   const fullscreenButton = page.getByRole("button", { name: "进入全屏" });
   await fullscreenButton.click();
   await expect(page.locator(".player-overlay")).toHaveClass(/fullscreen/);
+  const playbackShell = page.getByTestId("anime-playback-shell");
+  await expect(playbackShell).not.toHaveClass(/anime-playback-shell--chrome-hidden/);
+  await expect(playbackShell).toHaveClass(/anime-playback-shell--chrome-hidden/, { timeout: 4_500 });
+  await page.locator(".player-body").hover({ position: { x: 120, y: 90 } });
+  await expect(playbackShell).not.toHaveClass(/anime-playback-shell--chrome-hidden/);
   await page.locator(".player-body").click({ position: { x: 120, y: 90 } });
   await expect(page.locator(".player-overlay")).toHaveClass(/fullscreen/);
   const windowFullscreenCalls = await page.evaluate(() =>
@@ -114,13 +119,18 @@ test("v0.12 anime search, episode selection, extraction and automatic failover",
   expect(windowFullscreenCalls.length).toBeGreaterThan(0);
   await page.getByRole("button", { name: "退出全屏" }).click();
   await expect(page.locator(".player-overlay")).not.toHaveClass(/fullscreen/);
-  await page.waitForTimeout(180);
+  await page.waitForTimeout(650);
   const repairedFullscreenCalls = await page.evaluate(() =>
     (window as any).__animeAcceptanceCalls.filter((entry: any) => String(entry.command).includes("set_fullscreen")),
   );
   expect(repairedFullscreenCalls.some((entry: any) => entry.args?.value === false)).toBe(true);
   expect(repairedFullscreenCalls.at(-1)?.args?.value).toBe(true);
-  for (const viewport of [{ width: 900, height: 600 }, { width: 1920, height: 1080 }]) {
+  for (const viewport of [
+    { width: 360, height: 800 },
+    { width: 800, height: 360 },
+    { width: 900, height: 600 },
+    { width: 1920, height: 1080 },
+  ]) {
     await page.setViewportSize(viewport);
     await page.waitForTimeout(120);
     const bodyBox = await page.locator(".anime-playback-shell__body").boundingBox();

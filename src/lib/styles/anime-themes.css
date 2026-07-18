@@ -1,5 +1,4 @@
-/* MoePlay anime theme packs. Components consume semantic roles; packs only calibrate tokens. */
-:root {
+/* MoePlay anime theme packs. Components consume semantic roles; packs only calibrate tokens. */:root {
   --color-canvas: var(--bg-base);
   --color-surface-1: var(--bg-surface);
   --color-surface-2: var(--bg-elev);
@@ -63,3 +62,5 @@
 @keyframes anime-float { 0%,100%{transform:translateY(12px);opacity:.2} 50%{transform:translateY(-20px);opacity:.9} }
 @keyframes anime-rain { from{transform:translateY(-120px);opacity:0} 20%{opacity:.7} to{transform:translateY(110vh);opacity:0} }
 @media (prefers-reduced-motion:reduce) { .wallpaper-stage__image{transition:none}.wallpaper-stage__decor{display:none} }
+[data-motion="reduce"] .wallpaper-stage__image{transition:none}
+[data-motion="reduce"] .wallpaper-stage__decor{display:none}

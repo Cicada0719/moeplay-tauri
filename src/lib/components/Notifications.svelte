@@ -69,4 +69,9 @@
     from { transform: translateX(40px); opacity: 0; }
     to   { transform: translateX(0); opacity: 1; }
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    .notification { animation: none; }
+  }
+  :global([data-motion="reduce"]) .notification { animation: none; }
 </style>

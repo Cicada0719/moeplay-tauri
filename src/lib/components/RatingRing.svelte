@@ -20,7 +20,9 @@
   const fmt = (v: number) => (max <= 10 ? v.toFixed(1) : Math.round(v).toString());
 
   onMount(() => {
-    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    const reduce =
+      window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ||
+      document.documentElement.dataset.motion === "reduce";
     if (reduce || !ringEl) return;
     const ctx = gsap.context(() => {
       gsap.fromTo(

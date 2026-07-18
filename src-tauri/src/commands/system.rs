@@ -39,24 +39,40 @@ pub fn get_running_games(monitor: State<'_, ProcessMonitor>) -> Vec<RunningGameI
 
 #[tauri::command]
 pub fn pick_directory() -> Result<String, String> {
-    let dir = rfd::FileDialog::new().set_title("选择目录").pick_folder();
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        Err("目录选择器仅支持桌面端".to_string())
+    }
 
-    match dir {
-        Some(path) => Ok(path.to_string_lossy().to_string()),
-        None => Err("已取消".to_string()),
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let dir = rfd::FileDialog::new().set_title("选择目录").pick_folder();
+
+        match dir {
+            Some(path) => Ok(path.to_string_lossy().to_string()),
+            None => Err("已取消".to_string()),
+        }
     }
 }
 
 #[tauri::command]
 pub fn pick_image_file() -> Result<String, String> {
-    let file = rfd::FileDialog::new()
-        .set_title("选择看板娘图片")
-        .add_filter("图片", &["png", "jpg", "jpeg", "webp", "svg"])
-        .pick_file();
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        Err("图片选择器仅支持桌面端".to_string())
+    }
 
-    match file {
-        Some(path) => Ok(path.to_string_lossy().to_string()),
-        None => Err("已取消".to_string()),
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let file = rfd::FileDialog::new()
+            .set_title("选择看板娘图片")
+            .add_filter("图片", &["png", "jpg", "jpeg", "webp", "svg"])
+            .pick_file();
+
+        match file {
+            Some(path) => Ok(path.to_string_lossy().to_string()),
+            None => Err("已取消".to_string()),
+        }
     }
 }
 

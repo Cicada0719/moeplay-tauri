@@ -5,6 +5,7 @@ use crate::{diagnostics, performance};
 use serde::Serialize;
 use std::path::PathBuf;
 use tauri::{AppHandle, State};
+#[cfg(desktop)]
 use tauri_plugin_updater::UpdaterExt;
 
 #[tauri::command]
@@ -123,6 +124,17 @@ pub async fn dispatch_queued_operations(app: AppHandle, queue: TaskQueue) {
     }
 }
 
+#[cfg(mobile)]
+async fn execute_update_check(
+    app: &AppHandle,
+    queue: &TaskQueue,
+    task_id: &str,
+) -> Result<UpdateCheckResult, String> {
+    let _ = app;
+    fail_update_check(queue, task_id, "unsupported_platform")
+}
+
+#[cfg(desktop)]
 async fn execute_update_check(
     app: &AppHandle,
     queue: &TaskQueue,

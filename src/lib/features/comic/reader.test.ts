@@ -8,6 +8,7 @@ import {
   nextReadingDirection,
   normalizeReaderZoom,
   readerDirectionLabel,
+  readerSwipePageDelta,
   sanitizeRequestHeaders,
 } from "./reader";
 import type { ComicProviderDescriptor } from "./types";
@@ -134,6 +135,16 @@ describe("comic reader interaction contract", () => {
     expect(nextReadingDirection("right-to-left")).toBe("vertical");
     expect(readerDirectionLabel("vertical")).toBe("纵向滚动");
     expect(readerDirectionLabel("right-to-left")).toBe("从右到左");
+  });
+
+  it("maps horizontal touch swipes to the selected reading direction", () => {
+    expect(readerSwipePageDelta(-80, 8, "left-to-right")).toBe(1);
+    expect(readerSwipePageDelta(80, 8, "left-to-right")).toBe(-1);
+    expect(readerSwipePageDelta(80, 8, "right-to-left")).toBe(1);
+    expect(readerSwipePageDelta(-80, 8, "right-to-left")).toBe(-1);
+    expect(readerSwipePageDelta(30, 2, "left-to-right")).toBe(0);
+    expect(readerSwipePageDelta(90, 100, "right-to-left")).toBe(0);
+    expect(readerSwipePageDelta(90, 0, "vertical")).toBe(0);
   });
 
   it("maps keyboard input without stealing modified browser shortcuts", () => {

@@ -350,58 +350,66 @@ pub async fn download_wallpaper(
 
 #[tauri::command]
 pub fn import_wallpaper() -> Result<Option<WallpaperRecord>, String> {
-    ensure_dirs()?;
-    let Some(source) = rfd::FileDialog::new()
-        .add_filter("Images", &["jpg", "jpeg", "png", "webp"])
-        .pick_file()
-    else {
-        return Ok(None);
-    };
-    let metadata = fs::metadata(&source).map_err(|e| e.to_string())?;
-    if metadata.len() > MAX_WALLPAPER_BYTES {
-        return Err("wallpaper exceeds 20MB".into());
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        Err("壁纸导入文件选择器仅支持桌面端".to_string())
     }
-    let (width, height) = inspect_image(&source)?;
-    let ext = source
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(str::to_ascii_lowercase)
-        .filter(|e| matches!(e.as_str(), "jpg" | "jpeg" | "png" | "webp"))
-        .ok_or("unsupported wallpaper type")?;
-    let bytes = fs::read(&source).map_err(|e| e.to_string())?;
-    let hash = hex::encode(Sha256::digest(&bytes));
-    let id = format!("custom-{}", &hash[..16]);
-    let target = custom_dir().join(format!("{}.{}", id, ext));
-    let tmp = target.with_extension(format!("{}.tmp", ext));
-    fs::write(&tmp, &bytes).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, &target).map_err(|e| e.to_string())?;
-    let asset = WallpaperAsset {
-        id: id.clone(),
-        theme_pack: ThemePackId::Yozakura,
-        title: source
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("Custom wallpaper")
-            .to_string(),
-        download_url: String::new(),
-        preview_url: String::new(),
-        sha256: hash,
-        byte_size: metadata.len(),
-        width,
-        height,
-        rating: WallpaperRating::General,
-        author: "Local user".into(),
-        source_url: String::new(),
-        license_id: "Local-Only".into(),
-        license_url: String::new(),
-        attribution_required: false,
-    };
-    Ok(Some(WallpaperRecord {
-        asset,
-        installed: true,
-        local_path: Some(target.to_string_lossy().into_owned()),
-        source: "custom".into(),
-    }))
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        ensure_dirs()?;
+        let Some(source) = rfd::FileDialog::new()
+            .add_filter("Images", &["jpg", "jpeg", "png", "webp"])
+            .pick_file()
+        else {
+            return Ok(None);
+        };
+        let metadata = fs::metadata(&source).map_err(|e| e.to_string())?;
+        if metadata.len() > MAX_WALLPAPER_BYTES {
+            return Err("wallpaper exceeds 20MB".into());
+        }
+        let (width, height) = inspect_image(&source)?;
+        let ext = source
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_ascii_lowercase)
+            .filter(|e| matches!(e.as_str(), "jpg" | "jpeg" | "png" | "webp"))
+            .ok_or("unsupported wallpaper type")?;
+        let bytes = fs::read(&source).map_err(|e| e.to_string())?;
+        let hash = hex::encode(Sha256::digest(&bytes));
+        let id = format!("custom-{}", &hash[..16]);
+        let target = custom_dir().join(format!("{}.{}", id, ext));
+        let tmp = target.with_extension(format!("{}.tmp", ext));
+        fs::write(&tmp, &bytes).map_err(|e| e.to_string())?;
+        fs::rename(&tmp, &target).map_err(|e| e.to_string())?;
+        let asset = WallpaperAsset {
+            id: id.clone(),
+            theme_pack: ThemePackId::Yozakura,
+            title: source
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("Custom wallpaper")
+                .to_string(),
+            download_url: String::new(),
+            preview_url: String::new(),
+            sha256: hash,
+            byte_size: metadata.len(),
+            width,
+            height,
+            rating: WallpaperRating::General,
+            author: "Local user".into(),
+            source_url: String::new(),
+            license_id: "Local-Only".into(),
+            license_url: String::new(),
+            attribution_required: false,
+        };
+        Ok(Some(WallpaperRecord {
+            asset,
+            installed: true,
+            local_path: Some(target.to_string_lossy().into_owned()),
+            source: "custom".into(),
+        }))
+    }
 }
 
 #[tauri::command]

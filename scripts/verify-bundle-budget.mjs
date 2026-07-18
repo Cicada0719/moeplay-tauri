@@ -4,9 +4,10 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 export const DEFAULT_BUDGET = Object.freeze({
-  // v0.13.8 maintenance and signed-update settings add a small, bounded surface.
-  totalJavaScriptBytes: 2_110_000,
-  largestChunkBytes: 950_000,
+  // v0.15.0 re-baseline: ui-v2 迁移完成 + Kinetic 舞台（three 独立懒加载 chunk ~480KB，按需拉取）。
+  // 主壳 app chunk ~1.02MB；总量含 KineticScene/AnimePage 等按需 chunk。
+  totalJavaScriptBytes: 2_900_000,
+  largestChunkBytes: 1_100_000,
   animeChunkBytes: 700_000,
   comicChunkBytes: 100_000,
 });

@@ -292,4 +292,9 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .sp-cand-meta { font-size: 10px; color: var(--text-muted); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sp-btn { transition: none; }
+  }
+  :global([data-motion="reduce"]) .sp-btn { transition: none; }
 </style>

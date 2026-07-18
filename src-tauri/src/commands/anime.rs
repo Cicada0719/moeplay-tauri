@@ -306,13 +306,14 @@ pub async fn anime_verify_rule_webview(
         now_millis()
     );
     let init_script = verification_init_script(&rule);
-    let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parsed))
+    let builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parsed))
         .title(format!("源站验证 · {}", rule.name))
         .inner_size(980.0, 720.0)
         .min_inner_size(720.0, 520.0)
-        .resizable(true)
-        .center()
-        .initialization_script(&init_script);
+        .resizable(true);
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let builder = builder.center();
+    let mut builder = builder.initialization_script(&init_script);
     if !rule.user_agent.is_empty() {
         builder = builder.user_agent(&rule.user_agent);
     }

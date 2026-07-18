@@ -40,4 +40,9 @@
       opacity: 0.15;
     }
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    span { animation: none; display: none; }
+  }
+  :global([data-motion="reduce"]) span { animation: none; display: none; }
 </style>

@@ -1,5 +1,7 @@
 mod platform;
 pub use platform::*;
+mod runtime;
+pub use runtime::*;
 mod download;
 pub use download::*;
 mod emulators;
@@ -55,6 +57,9 @@ pub use comic::*;
 mod manga;
 pub use manga::*;
 
+mod novel;
+pub use novel::*;
+
 mod anime;
 pub use anime::*;
 
@@ -81,3 +86,6 @@ pub use sources::*;
 
 mod extension_index;
 pub use extension_index::*;
+
+mod sync_envelope;
+pub use sync_envelope::*;

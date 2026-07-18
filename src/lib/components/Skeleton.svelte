@@ -82,4 +82,11 @@
     0%   { background-position: -400px 0; }
     100% { background-position: 400px 0; }
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton, .skeleton-img, .skeleton-chip { animation: none; }
+  }
+  :global([data-motion="reduce"]) .skeleton,
+  :global([data-motion="reduce"]) .skeleton-img,
+  :global([data-motion="reduce"]) .skeleton-chip { animation: none; }
 </style>

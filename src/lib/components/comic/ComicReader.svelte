@@ -7,6 +7,7 @@
     nextReadingDirection,
     normalizeReaderZoom,
     readerDirectionLabel,
+    readerSwipePageDelta,
     READER_ZOOM_STEP,
     type ComicReadingDirection,
   } from "../../features/comic/reader";
@@ -42,6 +43,9 @@
   let loadedPages = $state<Set<string>>(new Set());
   let failedPages = $state<Record<string, string>>({});
   let retryVersions = $state<Record<string, number>>({});
+  let swipePointerId = $state<number | null>(null);
+  let swipeStartX = $state(0);
+  let swipeStartY = $state(0);
 
   const pageCount = $derived(images.length);
   const directionLabel = $derived(readerDirectionLabel(direction));
@@ -147,6 +151,26 @@
     currentPage = nearest;
   }
 
+  function handlePointerDown(event: PointerEvent) {
+    if (direction === "vertical" || (event.pointerType !== "touch" && event.pointerType !== "pen")) return;
+    if ((event.target as HTMLElement).closest("button, input, select, textarea, a")) return;
+    swipePointerId = event.pointerId;
+    swipeStartX = event.clientX;
+    swipeStartY = event.clientY;
+    try { scrollRoot?.setPointerCapture?.(event.pointerId); } catch { /* synthetic events and older WebViews */ }
+  }
+
+  function handlePointerUp(event: PointerEvent) {
+    if (swipePointerId !== event.pointerId) return;
+    const delta = readerSwipePageDelta(event.clientX - swipeStartX, event.clientY - swipeStartY, direction);
+    swipePointerId = null;
+    if (delta !== 0) movePage(delta);
+  }
+
+  function cancelPointerGesture() {
+    swipePointerId = null;
+  }
+
   async function handleKeydown(event: KeyboardEvent) {
     if (isTypingTarget(event.target)) return;
     const command = getReaderKeyboardCommand(event, direction);
@@ -222,7 +246,17 @@
     Escape 退出，方向键或 PageUp/PageDown 翻页，方括号切换章节，D 切换阅读方向，加减号缩放，T 显示或隐藏工具栏。
   </p>
 
-  <div bind:this={scrollRoot} class="reader-scroll" onscroll={updateCurrentPageFromScroll}>
+  <div
+    bind:this={scrollRoot}
+    class="reader-scroll"
+    class:single-page-mode={direction !== "vertical"}
+    role="region"
+    aria-label="漫画页面"
+    onscroll={updateCurrentPageFromScroll}
+    onpointerdown={handlePointerDown}
+    onpointerup={handlePointerUp}
+    onpointercancel={cancelPointerGesture}
+  >
     {#if loading}
       <AsyncState state="loading" title="正在准备漫画页面" description="正在解析当前章节，请稍候。" loadingDelayMs={0} />
     {:else if webUrl}
@@ -277,6 +311,24 @@
             </article>
           {/if}
         {/each}
+        {#if direction !== "vertical" && pageCount > 1}
+          <button
+            class="page-edge page-edge-previous"
+            class:rtl={direction === "right-to-left"}
+            type="button"
+            onclick={() => movePage(-1)}
+            disabled={currentPage === 0}
+            aria-label="上一页"
+          ><Icon name="chevronLeft" size={22} /></button>
+          <button
+            class="page-edge page-edge-next"
+            class:rtl={direction === "right-to-left"}
+            type="button"
+            onclick={() => movePage(1)}
+            disabled={currentPage >= pageCount - 1}
+            aria-label="下一页"
+          ><Icon name="chevronRight" size={22} /></button>
+        {/if}
       </div>
 
       <nav class="reader-bottom-nav" aria-label="漫画阅读导航">
@@ -316,7 +368,7 @@
     align-items: center;
     gap: var(--v2-space-3, 0.75rem);
     min-height: 3.75rem;
-    padding: 0.55rem 1rem;
+    padding: max(0.55rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) 0.55rem max(1rem, env(safe-area-inset-left));
     border-bottom: 1px solid var(--v2-color-border, rgba(255,255,255,0.08));
     background: rgba(10, 12, 18, 0.94);
     backdrop-filter: blur(0.8rem);
@@ -358,6 +410,8 @@
     scroll-padding-top: 0.75rem;
   }
 
+  .reader-scroll.single-page-mode { touch-action: pan-y; }
+
   .web-reader-shell { width: 100%; height: 100%; min-height: 32rem; }
   .web-reader { display: block; width: 100%; height: 100%; min-height: 32rem; border: 0; background: #111318; }
 
@@ -372,11 +426,35 @@
   }
 
   .images-list.single-page {
+    position: relative;
     width: 100%;
     min-height: calc(100% - 6rem);
     padding: 1rem;
     justify-content: center;
   }
+
+  .page-edge {
+    position: absolute;
+    z-index: 3;
+    top: 1rem;
+    bottom: 1rem;
+    display: grid;
+    width: min(18%, 7rem);
+    place-items: center;
+    border: 0;
+    background: transparent;
+    color: transparent;
+    cursor: pointer;
+  }
+  .page-edge:not(:disabled):focus-visible,
+  .page-edge:not(:disabled):active { outline: none; background: linear-gradient(90deg, rgba(0,0,0,.5), transparent); color: #fff; }
+  .page-edge:disabled { pointer-events: none; }
+  .page-edge-previous { left: 0; }
+  .page-edge-next { right: 0; }
+  .page-edge-next:not(:disabled):focus-visible,
+  .page-edge-next:not(:disabled):active { background: linear-gradient(-90deg, rgba(0,0,0,.5), transparent); }
+  .page-edge-previous.rtl { right: 0; left: auto; }
+  .page-edge-next.rtl { right: auto; left: 0; }
 
   .img-wrap {
     position: relative;
@@ -462,11 +540,46 @@
     .reader-bottom-nav :global(button:nth-child(3)) { grid-column: 1 / -1; grid-row: 1; }
   }
 
+  @media (max-width: 52rem) and (orientation: portrait) {
+    .reader-overlay { grid-template-rows: auto minmax(0, 1fr) auto; }
+    .reader-overlay.toolbar-hidden { grid-template-rows: minmax(0, 1fr) auto; }
+    .reader-scroll {
+      scroll-padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+      overscroll-behavior-y: contain;
+    }
+    .reader-bottom-nav {
+      position: sticky;
+      bottom: 0;
+      z-index: 3;
+      padding-block: 0.65rem max(0.85rem, env(safe-area-inset-bottom));
+      border-top: 1px solid rgba(255,255,255,0.08);
+      background: rgba(9, 11, 16, 0.94);
+      backdrop-filter: blur(0.85rem);
+    }
+    .reader-bottom-nav :global(button) { min-height: 44px; }
+    .single-page .img-wrap { min-height: calc(100dvh - 9rem); }
+    .single-page .comic-img { max-height: calc((100dvh - 9rem) * var(--reader-zoom)); }
+  }
+
   @media (max-width: 34rem) {
     .reader-toolbar { min-height: 3.25rem; }
     .reader-tools :global(button:first-child) { flex: 1; }
     .zoom-output { min-width: 2.6rem; }
     .images-list.single-page { padding-inline: 0.25rem; }
+  }
+
+  @media (max-height: 520px) and (orientation: landscape) {
+    .reader-toolbar { grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .4rem; min-height: 3rem; padding-block: max(.25rem, env(safe-area-inset-top)) .25rem; }
+    .reader-tools { grid-column: auto; justify-content: flex-end; padding: 0; }
+    .chapter-info { text-align: center; }
+    .chapter-pos { display: none; }
+    .reader-tools :global(button) { min-height: 38px; padding-inline: .55rem; }
+    .single-page .img-wrap { min-height: calc(100dvh - 5.25rem); }
+    .single-page .comic-img { max-height: calc((100dvh - 5.25rem) * var(--reader-zoom)); }
+    .images-list.single-page { min-height: calc(100% - 3rem); padding: .25rem; }
+    .reader-scroll.single-page-mode { touch-action: pan-y pinch-zoom; }
+    .page-edge { top: .25rem; bottom: .25rem; width: min(22%, 8rem); }
+    .reader-bottom-nav { display: none; }
   }
 
   @media (min-width: 100rem) {

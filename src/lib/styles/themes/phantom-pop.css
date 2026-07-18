@@ -1,0 +1,105 @@
+/* 魅影波普 · 设计语言见 plans/theme-specs/phantom-pop.md
+   全套换肤：c-*（scheme-c 消费面）+ 语义色 + 控件签名。
+   选择器 html[data-theme-pack] 与 scheme-c 同特异性，靠 main.ts 末位导入取胜。 */
+html[data-theme-pack="phantom-pop"] {
+  /* ── 怪盗黑红调色板（scheme-c c-* 面） ── */
+  --c-black: #0a0809;
+  --c-void: #0d0a0b;
+  --c-surface-1: #120e10;
+  --c-surface-2: #1a1416;
+  --c-surface-3: #221a1d;
+  --c-paper: #f5f0f1;
+  --c-muted: #a89a9e;
+  --c-dim: #6e5f63;
+  --c-line: rgba(245, 240, 241, .16);
+  --c-line-strong: rgba(245, 240, 241, .40);
+  --c-accent: #e6242f;
+  --c-accent-hi: #ff4d57;
+
+  /* ── 语义色 ── */
+  --accent: #e6242f;
+  --accent-hi: #ff4d57;
+  --accent-lo: rgba(230, 36, 47, .18);
+  --accent-ring: rgba(230, 36, 47, .55);
+  --bg-void: #0a0809;
+  --bg-deep: #0d0a0b;
+  --bg: #120e10;
+  --bg-base: #120e10;
+  --bg-surface: #171114;
+  --bg-secondary: #1a1416;
+  --bg-elev: #1e1518;
+  --bg-card: #241a1e;
+  --bg-hover: #2a1e23;
+  --bg-active: rgba(230, 36, 47, .16);
+  --text-primary: #f5f0f1;
+  --text-secondary: #cfc0c4;
+  --text-muted: #a89a9e;
+  --text-dim: #6e5f63;
+  --border: rgba(245, 240, 241, .14);
+  --border-hover: rgba(245, 240, 241, .30);
+  --border-glass: rgba(245, 240, 241, .10);
+
+  /* ── 形态与质感：锐角、硬边、去阴影 ── */
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --focus-ring: 0 0 0 2px #0a0809, 0 0 0 4px rgba(230, 36, 47, .60);
+  --glass-bg: rgba(10, 8, 9, .92);
+  --glass-border: rgba(245, 240, 241, .16);
+  --glass-highlight: none;
+  --shadow-card: none;
+  --shadow-hover: 0 4px 0 rgba(230, 36, 47, .25);
+
+  /* ── 壁纸舞台 ── */
+  --mascot-accent: #ffffff;
+  --theme-ambient: rgba(230, 36, 47, .20);
+  --wallpaper-scrim:
+    linear-gradient(90deg, rgba(10,8,9,.90) 0%, rgba(10,8,9,.62) 47%, rgba(10,8,9,.28) 100%),
+    linear-gradient(0deg, rgba(10,8,9,.86), transparent 52%);
+  --wallpaper-brightness: .78;
+  --wallpaper-saturation: 1.05;
+}
+
+/* ── 控件签名：怪盗波普（锐角切角 + 硬边无阴影） ── */
+html[data-theme-pack="phantom-pop"] .ui-button {
+  border-radius: 0;
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 0 100%);
+  box-shadow: none;
+  letter-spacing: .06em;
+}
+html[data-theme-pack="phantom-pop"] .ui-button--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+html[data-theme-pack="phantom-pop"] .ui-button--primary:hover:not(:disabled) {
+  background: var(--accent-hi);
+  border-color: var(--accent-hi);
+  transform: none;
+}
+html[data-theme-pack="phantom-pop"] .ui-button:disabled {
+  opacity: .5;
+}
+html[data-theme-pack="phantom-pop"] .ui-button--secondary,
+html[data-theme-pack="phantom-pop"] .ui-button--ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+}
+html[data-theme-pack="phantom-pop"] .ui-card {
+  border-radius: 0;
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+html[data-theme-pack="phantom-pop"] .ui-input,
+html[data-theme-pack="phantom-pop"] .ui-search__input,
+html[data-theme-pack="phantom-pop"] input,
+html[data-theme-pack="phantom-pop"] select,
+html[data-theme-pack="phantom-pop"] textarea {
+  border-radius: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme-pack="phantom-pop"] .ui-button { transition: none; }
+}
+:global([data-motion="reduce"]) html[data-theme-pack="phantom-pop"] .ui-button { transition: none; }

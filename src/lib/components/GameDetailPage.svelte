@@ -2,18 +2,11 @@
   import { onMount } from "svelte";
   import { gsap } from "gsap";
   import { gameStore } from "../stores/games.svelte";
+  import { i18n } from "../stores/i18n.svelte";
   import { uiStore } from "../stores/ui.svelte";
   import { handleBackNavigation } from "../stores/router.svelte";
-  import {
-    createSaveSnapshot,
-    detectSaveCandidates,
-    formatPlayTime,
-    listSaveSnapshots,
-    restoreSaveSnapshot,
-    updateGame,
-    type SaveCandidateDir,
-    type SaveSnapshot,
-  } from "../api";
+  import { platformStore } from "../platform";
+  import { formatPlayTime, updateGame } from "../api";
   import type { Game } from "../stores/games.svelte";
   import { fileSrc } from "../utils";
   import { Button, Card, Dialog, Input, Tag } from "./ui";
@@ -38,12 +31,6 @@
 
   let game = $derived(gameStore.selectedGame);
   let galleryEl = $state<HTMLElement>();
-  let saveCandidates = $state<SaveCandidateDir[]>([]);
-  let saveSnapshots = $state<SaveSnapshot[]>([]);
-  let savesLoading = $state(false);
-  let savesError = $state("");
-  let lastSaveGameId = "";
-
   const currentArt = $derived(fileSrc(heroImageOf(game)) ?? "");
   const coverSource = $derived(coverOf(game));
   const screenshots = $derived.by(() => {
@@ -69,7 +56,6 @@
   const achievementTotal = $derived(game?.play_tracker?.achievements_total ?? 0);
   const achievementUnlocked = $derived(game?.play_tracker?.achievements_unlocked ?? 0);
   const achievementPercent = $derived(achievementTotal > 0 ? Math.round((achievementUnlocked / achievementTotal) * 100) : 0);
-  const latestSnapshot = $derived(saveSnapshots[0] ?? null);
   const privateReview = $derived(game?.play_tracker?.review?.trim() ?? "");
   const archiveFacts = $derived.by(() => {
     if (!game) return [] as Array<{ label: string; value: string }>;
@@ -95,11 +81,13 @@
   function sessionDate(value: string): string {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value || "未记录";
-    return date.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+    return date.toLocaleDateString(i18n.locale, { month: "2-digit", day: "2-digit" });
   }
 
   onMount(() => {
-    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    const reduce =
+      window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ||
+      document.documentElement.dataset.motion === "reduce";
     const node = galleryEl;
     if (reduce || !node) return;
     const ctx = gsap.context(() => {
@@ -113,13 +101,6 @@
       });
     }, node);
     return () => ctx.revert();
-  });
-
-  $effect(() => {
-    const id = game?.id ?? "";
-    if (!id || id === lastSaveGameId) return;
-    lastSaveGameId = id;
-    void refreshSaves(id);
   });
 
   async function handleLaunch() {
@@ -140,51 +121,6 @@
 
   function closeDetail() {
     handleBackNavigation();
-  }
-
-  function handleBackup() {
-    uiStore.currentView = "backup";
-  }
-
-  async function refreshSaves(gameId = game?.id) {
-    if (!gameId) return;
-    savesLoading = true;
-    savesError = "";
-    try {
-      const [candidates, snapshots] = await Promise.all([
-        detectSaveCandidates(gameId),
-        listSaveSnapshots(gameId),
-      ]);
-      saveCandidates = candidates ?? [];
-      saveSnapshots = snapshots ?? [];
-    } catch (e) {
-      savesError = String(e);
-    } finally {
-      savesLoading = false;
-    }
-  }
-
-  async function createSnapshot(path?: string) {
-    if (!game) return;
-    try {
-      await createSaveSnapshot(game.id, path || saveDirOf(game) || null, "详情页快速快照");
-      await refreshSaves(game.id);
-      uiStore.notify("存档快照已创建", "success");
-    } catch (e) {
-      savesError = String(e);
-      uiStore.notify(`存档快照失败：${e}`, "error");
-    }
-  }
-
-  async function restoreSnapshot(snapshot: SaveSnapshot) {
-    if (!game) return;
-    try {
-      await restoreSaveSnapshot(game.id, snapshot.file_path, saveDirOf(game) || null);
-      uiStore.notify("存档已恢复", "success");
-    } catch (e) {
-      savesError = String(e);
-      uiStore.notify(`恢复失败：${e}`, "error");
-    }
   }
 
   function handleScrape() {
@@ -225,8 +161,8 @@
 
 <DetailPanel
   open
-  title={game?.name ?? "游戏未找到"}
-  description={game ? [developer, releaseYear !== "----" ? releaseYear : "", platform].filter(Boolean).join(" · ") : "该游戏可能已被移除或数据加载失败"}
+  title={game?.name ?? i18n.t("gamedetail.missing_title")}
+  description={game ? [developer, releaseYear !== "----" ? releaseYear : "", platform].filter(Boolean).join(" · ") : i18n.t("gamedetail.missing_desc")}
   onClose={closeDetail}
   side="right"
   size="lg"
@@ -240,14 +176,14 @@
         {#if currentArt}<div class="bg-layer" style={`background-image: url("${currentArt}")`}></div>{/if}
         <div class="hero-scrim"></div>
 
-        <aside class="hero-contact-sheet" aria-label="游戏视觉档案">
+        <aside class="hero-contact-sheet" aria-label={i18n.t("gamedetail.visual_archive_aria")}>
           <span class="contact-label">VISUAL CONTACT / {String(game.id).padStart(3, "0")}</span>
           <div class="contact-grid">
             {#each screenshots.slice(0, 3) as shot, index}
-              <figure class:contact-wide={index === 0}><img src={shot} alt={`${game.name} 视觉档案 ${index + 1}`} loading={index === 0 ? "eager" : "lazy"} /></figure>
+              <figure class:contact-wide={index === 0}><img src={shot} alt={i18n.t("gamedetail.visual_archive_alt", { name: game.name, index: index + 1 })} loading={index === 0 ? "eager" : "lazy"} /></figure>
             {/each}
             {#if screenshots.length === 0 && coverSource}
-              <figure class="contact-wide"><CachedImage source={coverSource} cacheKey={`detail-contact-${game.id}`} alt={`${game.name} 视觉档案`} loading="eager" /></figure>
+              <figure class="contact-wide"><CachedImage source={coverSource} cacheKey={`detail-contact-${game.id}`} alt={i18n.t("gamedetail.cover_alt", { name: game.name })} loading="eager" /></figure>
             {/if}
           </div>
         </aside>
@@ -256,7 +192,7 @@
           <div class="poster">
             <div class="poster-frame">
               {#if coverSource}
-                <CachedImage source={coverSource} cacheKey={`detail-cover-${game.id}`} alt={`${game.name} 封面`} loading="eager" />
+                <CachedImage source={coverSource} cacheKey={`detail-cover-${game.id}`} alt={i18n.t("gamedetail.cover_alt", { name: game.name })} loading="eager" />
               {:else}
                 <span class="poster-letter">{game.name?.trim()?.[0]?.toUpperCase() ?? "?"}</span>
               {/if}
@@ -282,10 +218,17 @@
             </div>
 
             <div class="actions">
-              <Button class="game-detail-primary" press={handleLaunch}>启动游戏</Button>
-              <Button variant="secondary" press={handleLaunchJP}>日区启动</Button>
-              <Button variant="secondary" press={handleScrape}>刮削</Button>
-              <Button variant="ghost" press={openEdit}>编辑</Button>
+              {#if platformStore.capabilities.gameLaunch}
+                <Button class="game-detail-primary" press={handleLaunch}>{i18n.t("gamedetail.launch")}</Button>
+                <Button variant="secondary" press={handleLaunchJP}>{i18n.t("gamedetail.launch_jp")}</Button>
+              {:else}
+                <div class="mobile-companion-note" role="status">
+                  <Icon name="smartphone" size={18} />
+                  <span>{i18n.t("gamedetail.mobile_note")}</span>
+                </div>
+              {/if}
+              <Button variant="secondary" press={handleScrape}>{i18n.t("button.scrape")}</Button>
+              <Button variant="ghost" press={openEdit}>{i18n.t("gamedetail.edit")}</Button>
             </div>
           </div>
 
@@ -295,8 +238,8 @@
 
       <div class="body">
         <section class="editorial-dossier" aria-label="作品档案">
-          <div class="dossier-index"><span>01 / SYNOPSIS</span><strong>作品简介</strong></div>
-          <p class="desc">{game.description || "暂无简介。可使用刮削补全剧情简介、标签与截图。"}</p>
+          <div class="dossier-index"><span>01 / SYNOPSIS</span><strong>{i18n.t("gamedetail.synopsis_title")}</strong></div>
+          <p class="desc">{game.description || i18n.t("gamedetail.synopsis_empty")}</p>
           {#if archiveFacts.length}
             <dl class="archive-facts">
               {#each archiveFacts as fact}<div><dt>{fact.label}</dt><dd>{fact.value}</dd></div>{/each}
@@ -312,29 +255,29 @@
         </section>
 
         {#if screenshots.length}
-          <section class="gallery" bind:this={galleryEl} aria-label="截图画廊">
+          <section class="gallery" bind:this={galleryEl} aria-label={i18n.t("gamedetail.screenshots_aria")}>
             <div class="gallery-track">
               {#each screenshots.slice(0, 8) as shot, index}
-                <figure class="shot"><img src={shot} alt={`${game.name} 截图 ${index + 1}`} loading="lazy" /></figure>
+                <figure class="shot"><img src={shot} alt={i18n.t("gamedetail.screenshot_alt", { name: game.name, index: index + 1 })} loading="lazy" /></figure>
               {/each}
             </div>
           </section>
         {/if}
 
-        <section class="panels" aria-label="存档与成就">
+        <section class="panels" aria-label={i18n.t("gamedetail.panels_aria")}>
           <SavePanel gameId={game.id} saveDir={saveDirOf(game)} compact />
 
           <Card class="panel" padding="none">
-            <div class="panel-head"><span class="panel-label">Achievements</span><h3>成就</h3></div>
+            <div class="panel-head"><span class="panel-label">Achievements</span><h3>{i18n.t("gamedetail.achievements_title")}</h3></div>
             <div class="panel-body">
               <div class="achieve-row"><div class="achieve-nums"><b>{achievementTotal ? `${achievementPercent}%` : "--"}</b><span>{achievementUnlocked} / {achievementTotal}</span></div></div>
-              <div class="achieve-bar" aria-label={`成就进度 ${achievementPercent}%`}><i style={`width:${achievementPercent}%`}></i></div>
-              <p class="panel-note">{achievementTotal ? "来自平台同步的成就数据。" : "暂无成就数据，Steam 同步后自动填充。"}</p>
+              <div class="achieve-bar" aria-label={i18n.t("gamedetail.achievements_progress_aria", { percent: achievementPercent })}><i style={`width:${achievementPercent}%`}></i></div>
+              <p class="panel-note">{achievementTotal ? i18n.t("gamedetail.achievements_note") : i18n.t("gamedetail.achievements_none")}</p>
             </div>
           </Card>
 
           <Card class="panel" padding="none">
-            <div class="panel-head"><span class="panel-label">Recent Play</span><h3>最近会话</h3></div>
+            <div class="panel-head"><span class="panel-label">Recent Play</span><h3>{i18n.t("gamedetail.sessions_title")}</h3></div>
             <div class="panel-body">
               {#if recentSessions.length}
                 <div class="session-list">
@@ -346,7 +289,7 @@
                     </div>
                   {/each}
                 </div>
-              {:else}<p class="panel-note">还没有游玩记录。</p>{/if}
+              {:else}<p class="panel-note">{i18n.t("gamedetail.sessions_empty")}</p>{/if}
             </div>
           </Card>
         </section>
@@ -354,20 +297,20 @@
         <GameNotes gameId={game.id} />
       </div>
 
-      <Dialog open={isEditing} onClose={() => isEditing = false} title={`编辑：${game.name}`}>
+      <Dialog open={isEditing} onClose={() => isEditing = false} title={i18n.t("gamedetail.edit_title", { name: game.name })}>
         <div class="edit-panel">
           <header class="edit-header">
-            <h3>编辑：{game.name}</h3>
-            <button class="edit-close" onclick={() => isEditing = false} aria-label="关闭"><Icon name="x" size={18} /></button>
+            <h3>{i18n.t("gamedetail.edit_title", { name: game.name })}</h3>
+            <button class="edit-close" onclick={() => isEditing = false} aria-label={i18n.t("gamedetail.edit_close_aria")}><Icon name="x" size={18} /></button>
           </header>
           <div class="edit-body">
-            <div class="edit-field"><label for="edit-name">游戏名称</label><Input id="edit-name" bind:value={editName} /></div>
-            <div class="edit-field"><label for="edit-exe">可执行文件路径</label><Input id="edit-exe" class="mono" bind:value={editExePath} /></div>
-            <div class="edit-field"><label for="edit-desc">游戏简介</label><textarea id="edit-desc" bind:value={editDesc} rows={5}></textarea></div>
+            <div class="edit-field"><label for="edit-name">{i18n.t("gamedetail.edit_name")}</label><Input id="edit-name" bind:value={editName} /></div>
+            <div class="edit-field"><label for="edit-exe">{i18n.t("gamedetail.edit_exe")}</label><Input id="edit-exe" class="mono" bind:value={editExePath} /></div>
+            <div class="edit-field"><label for="edit-desc">{i18n.t("gamedetail.edit_desc")}</label><textarea id="edit-desc" bind:value={editDesc} rows={5}></textarea></div>
           </div>
           <footer class="edit-footer">
-            <Button press={saveEdit} disabled={isSaving}>{isSaving ? "保存中…" : "保存修改"}</Button>
-            <Button variant="ghost" press={() => isEditing = false}>取消</Button>
+            <Button press={saveEdit} disabled={isSaving}>{isSaving ? i18n.t("gamedetail.edit_saving") : i18n.t("gamedetail.edit_save")}</Button>
+            <Button variant="ghost" press={() => isEditing = false}>{i18n.t("button.cancel")}</Button>
           </footer>
         </div>
       </Dialog>
@@ -375,9 +318,9 @@
   {:else}
     <AsyncState
       state="error"
-      title="游戏未找到"
-      description="该游戏可能已被移除或数据加载失败。"
-      primaryAction={{ label: "返回游戏库", onSelect: closeDetail }}
+      title={i18n.t("gamedetail.missing_title")}
+      description={i18n.t("gamedetail.missing_desc")}
+      primaryAction={{ label: i18n.t("gamedetail.back_to_library"), onSelect: closeDetail }}
       class="game-detail-missing"
     />
   {/if}
@@ -918,4 +861,31 @@
   .private-review p { max-width:74ch; margin:10px 0; color:var(--text-primary); font:500 clamp(1rem,1.5vw,1.25rem)/1.65 var(--font-ui); }
   .private-review footer { color:var(--text-muted); font:700 8px/1 var(--font-mono); letter-spacing:.12em; }
   @media(max-width:42rem){.editorial-dossier{grid-template-columns:1fr}.archive-facts{grid-column:1}.private-review{grid-column:1}}
+  .mobile-companion-note { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent); border-radius: 10px; color: var(--text-secondary); background: color-mix(in srgb, var(--surface-2) 82%, transparent); font-size: 13px; }
+
+  /* ── Reduced motion：media query 与 data-motion 双信号降级 ── */
+  @media (prefers-reduced-motion: reduce) {
+    .bg-layer { animation: none; }
+    .poster-frame,
+    .chip,
+    .shot,
+    .session-row,
+    .achieve-bar i,
+    .contact-grid img,
+    .contact-grid :global(.cached-image) { transition: none; }
+    .poster-frame:hover { transform: none; }
+    .contact-grid figure:hover img,
+    .contact-grid figure:hover :global(.cached-image) { transform: none; }
+  }
+  :global([data-motion="reduce"]) .bg-layer { animation: none; }
+  :global([data-motion="reduce"]) .poster-frame,
+  :global([data-motion="reduce"]) .chip,
+  :global([data-motion="reduce"]) .shot,
+  :global([data-motion="reduce"]) .session-row,
+  :global([data-motion="reduce"]) .achieve-bar i,
+  :global([data-motion="reduce"]) .contact-grid img,
+  :global([data-motion="reduce"]) .contact-grid :global(.cached-image) { transition: none; }
+  :global([data-motion="reduce"]) .poster-frame:hover { transform: none; }
+  :global([data-motion="reduce"]) .contact-grid figure:hover img,
+  :global([data-motion="reduce"]) .contact-grid figure:hover :global(.cached-image) { transform: none; }
 </style>

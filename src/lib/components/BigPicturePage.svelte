@@ -237,7 +237,7 @@
     const t = setInterval(() => (now = new Date()), 30_000);
     const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
     const syncMotion = () => {
-      prefersReducedMotion = motionQuery.matches;
+      prefersReducedMotion = motionQuery.matches || document.documentElement.dataset.motion === "reduce";
       if (prefersReducedMotion) { bgPrevious = null; bgFading = false; }
     };
     syncMotion();
@@ -522,4 +522,11 @@
     font-size: 10px; color: var(--text-secondary); font-family: var(--font-mono);
   }
   .bp-pos { margin-left: auto; font-family: var(--font-mono); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .bp-nav button, .bp-exit, .bp-settings { transition: none; }
+  }
+  :global([data-motion="reduce"]) .bp-nav button,
+  :global([data-motion="reduce"]) .bp-exit,
+  :global([data-motion="reduce"]) .bp-settings { transition: none; }
 </style>

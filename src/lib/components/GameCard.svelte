@@ -335,7 +335,7 @@
   }
   .card-action:hover:not(:disabled) { color: white; transform: translateY(-1px); }
   .card-action.favorite.active { color: var(--accent-pink); }
-  .card-action.delete:hover:not(:disabled) { color: #ff8c9d; border-color: rgba(255,113,132,.45); }
+  .card-action.delete:hover:not(:disabled) { color: var(--color-error); border-color: color-mix(in srgb, var(--color-error) 45%, transparent); }
   .card-action:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   .card-action:disabled { cursor: wait; opacity: .55; }
 
@@ -346,13 +346,13 @@
     gap: 1rem; padding: 1.25rem; border: 1px solid rgba(255,113,132,.35); border-radius: var(--v2-radius-lg, 1rem);
     background: var(--v2-color-surface-raised, var(--bg-elev)); color: var(--text-primary); box-shadow: 0 1.5rem 5rem rgba(0,0,0,.55); outline: none;
   }
-  .delete-dialog-icon { display: grid; place-items: center; width: 3rem; height: 3rem; border-radius: .8rem; background: rgba(255,113,132,.12); color: #ff7184; }
+  .delete-dialog-icon { display: grid; place-items: center; width: 3rem; height: 3rem; border-radius: .8rem; background: color-mix(in srgb, var(--color-error) 12%, transparent); color: var(--color-error); }
   .delete-dialog h2 { margin: 0; font-size: 1.1rem; }
   .delete-dialog p { margin: .45rem 0 0; color: var(--text-secondary); font-size: .85rem; line-height: 1.65; }
   .delete-dialog footer { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: .65rem; margin-top: .25rem; }
   .delete-dialog footer button { min-height: 2.5rem; padding: 0 1rem; border-radius: .65rem; font: 650 .85rem/1 var(--font-ui); cursor: pointer; }
   .safe-cancel { border: 1px solid var(--border); background: var(--bg-hover); color: var(--text-primary); }
-  .danger-confirm { border: 1px solid rgba(255,113,132,.45); background: #c83f55; color: white; }
+  .danger-confirm { border: 1px solid color-mix(in srgb, var(--color-error) 45%, transparent); background: #c83f55; color: white; }
   .delete-dialog footer button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-ring); }
   .delete-dialog footer button:disabled { cursor: wait; opacity: .6; }
 
@@ -361,4 +361,5 @@
   @media (prefers-reduced-motion: reduce) {
     .card-action { transition: none; }
   }
+  :global([data-motion="reduce"]) .card-action { transition: none; }
 </style>

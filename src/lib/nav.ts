@@ -13,8 +13,8 @@ export interface NavItem {
   shortcut?: string;
 }
 
-/** Four primary content roots. Escape never silently jumps between these roots. */
-export const PRIMARY_CONTENT_VIEWS = ["home", "records", "anime", "comic"] as const;
+/** Five primary content roots. Escape never silently jumps between these roots. */
+export const PRIMARY_CONTENT_VIEWS = ["home", "records", "anime", "comic", "novel"] as const;
 const primaryContentViewSet = new Set<string>(PRIMARY_CONTENT_VIEWS);
 const detailViewSet = new Set(["game-detail"]);
 
@@ -24,6 +24,7 @@ export const DOCK_ITEMS: NavItem[] = [
   { id: "records",  label: "记录",   ariaLabel: "打开游玩记录",     icon: "chart", view: "records",      group: "library", surface: "content", shortcut: "2" },
   { id: "anime",    label: "番剧",   ariaLabel: "打开番剧",         icon: "film",  view: "anime",        group: "library", surface: "content", shortcut: "3" },
   { id: "comic",    label: "漫画",   ariaLabel: "打开漫画",         icon: "book",  view: "comic",        group: "library", surface: "content", shortcut: "4" },
+  { id: "novel",    label: "小说",   ariaLabel: "打开小说阅读",     icon: "collection", view: "novel", group: "library", surface: "content" },
   { id: "tools",    label: "工具",   ariaLabel: "打开工具抽屉",     icon: "grid",  view: "__tools",      group: "tools",   surface: "utility", shortcut: "5" },
   { id: "settings", label: "设置",   ariaLabel: "打开设置",         icon: "gear",  view: "settings",     group: "system",  surface: "utility" },
   { id: "bigpic",   label: "大屏",   ariaLabel: "进入大屏模式",     icon: "tv",    view: "__bigpicture", group: "system",  surface: "mode" },

@@ -14,9 +14,11 @@
   import { MediaWorkspaceShell } from "../../features/media-workspace/shell";
   import { adaptGamesToPresentation, type ContentMode, type MediaPresentationAction, type MediaPresentationItem } from "../../features/media-workspace/model";
   import { mediaWorkspaceState } from "../../features/media-workspace/state";
+  import { platformStore } from "../../platform";
   import { composeGameVisual } from "../../features/media-workspace/composition";
   import LibraryHealthPanel from "../library/LibraryHealthPanel.svelte";
   import { readLibraryV2Flag } from "../library/feature-flag";
+  import { KineticStage, kineticStageStore } from "../../features/kinetic";
 
   const quickFilters = [
     { id: "", label: "全部" },
@@ -178,10 +180,15 @@
     gameStore.filterTag = null;
     gameStore.sortBy = "recent";
   }
+  function importLocalGame() {
+    if (!platformStore.capabilities.localGameScan) return;
+    void gameStore.importGame();
+  }
   function openPlatformImport() { navigateTo("steam-import", { focus: "start" }); }
 </script>
 
 <PageShell as="div" width="full" scrollable={false} ariaLabel="游戏库" class="library-page-shell">
+  <KineticStage enabled={kineticStageStore.enabled} class="switch-home-kinetic-stage" />
   <MediaWorkspaceShell
     mode={workspaceMode}
     {searching}
@@ -197,7 +204,7 @@
     onSearchInput={(value) => (gameStore.searchQuery = value)}
     onClearSearch={() => { gameStore.searchQuery = ""; searchInput?.focus(); }}
     onOpenHealth={() => (healthOpen = true)}
-    onImport={() => gameStore.importGame()}
+    onImport={importLocalGame}
   >
     {#snippet content()}
       <AsyncState
@@ -206,18 +213,22 @@
         preserveContent={libraryState === "refreshing" || libraryState === "partial"}
         title={libraryState === "empty" ? "还没有游戏" : libraryState === "error" ? "游戏库加载失败" : undefined}
         description={libraryState === "empty"
-          ? (localOnly ? "没有检测到本地已安装游戏；切换到“全部”可查看已同步的云端库。" : "同步 Steam / Epic、添加本地游戏，开始建立你的游戏库。")
+          ? (localOnly
+            ? "没有检测到本地已安装游戏；切换到“全部”可查看已同步的云端库。"
+            : platformStore.capabilities.localGameScan
+              ? "同步 Steam / Epic、添加本地游戏，开始建立你的游戏库。"
+              : "手机版用于浏览、整理和补全已同步的游戏资料；本地 PC 游戏导入请回到桌面端。")
           : libraryState === "error"
             ? (gameStore.loadError ?? undefined)
             : libraryState === "partial"
               ? `部分游戏库数据未能刷新：${gameStore.loadError}`
               : undefined}
-        primaryAction={libraryState === "empty"
-          ? { label: "添加本地游戏", onSelect: () => gameStore.importGame() }
+        primaryAction={libraryState === "empty" && platformStore.capabilities.localGameScan
+          ? { label: "添加本地游戏", onSelect: importLocalGame }
           : libraryState === "error" || libraryState === "partial"
             ? { label: "重试", onSelect: () => gameStore.load() }
             : undefined}
-        secondaryAction={libraryState === "empty" ? { label: "Steam / Epic 导入", onSelect: openPlatformImport } : undefined}
+        secondaryAction={libraryState === "empty" && platformStore.capabilities.localGameScan ? { label: "Steam / Epic 导入", onSelect: openPlatformImport } : undefined}
         class="library-async-state"
       >
         {#snippet children()}
@@ -225,7 +236,9 @@
             <div class="index-workbench" data-module-style="cinematic" data-testid="all-games-panel">
               <section class="index-toolbar" aria-labelledby="library-page-title">
                 {#snippet gridHeaderActions()}
-                  <button class="header-action add-game" type="button" onclick={() => gameStore.importGame()}><Icon name="plus" size={15} /> 添加游戏</button>
+                  {#if platformStore.capabilities.localGameScan}
+                  <button class="header-action add-game" type="button" onclick={importLocalGame}><Icon name="plus" size={15} /> 添加游戏</button>
+                  {/if}
                 {/snippet}
                 <PageHeader
                   id="library-page-title"
@@ -257,9 +270,9 @@
               <div class="index-grid" data-testid="all-games-grid"><GameGrid /></div>
             </div>
           {:else if effectiveMode === "scene"}
-            <section class="workspace-view" data-module-style="film-sequence" data-testid="switch-home-scene"><AdaptiveChromaStage src={adaptiveChromaSource} strength="immersive" style="height: 100%;"><GameSceneV2 items={presentationItems} selectedId={selected?.id ?? null} onAction={onMediaAction} onImport={() => gameStore.importGame()} /></AdaptiveChromaStage></section>
+            <section class="workspace-view" data-module-style="film-sequence" data-testid="switch-home-scene"><AdaptiveChromaStage src={adaptiveChromaSource} strength="immersive" style="height: 100%;"><GameSceneV2 items={presentationItems} selectedId={selected?.id ?? null} onAction={onMediaAction} onImport={importLocalGame} /></AdaptiveChromaStage></section>
           {:else}
-            <section class="workspace-view" data-module-style="cube-editorial" data-testid="switch-home-stage"><AdaptiveChromaStage src={adaptiveChromaSource} strength="balanced" style="height: 100%;"><GameVisualV2 items={presentationItems} selectedId={selected?.id ?? null} onAction={onMediaAction} onImport={() => gameStore.importGame()} /></AdaptiveChromaStage></section>
+            <section class="workspace-view" data-module-style="cube-editorial" data-testid="switch-home-stage"><AdaptiveChromaStage src={adaptiveChromaSource} strength="balanced" style="height: 100%;"><GameVisualV2 items={presentationItems} selectedId={selected?.id ?? null} onAction={onMediaAction} onImport={importLocalGame} /></AdaptiveChromaStage></section>
           {/if}
         {/snippet}
       </AsyncState>
@@ -270,7 +283,9 @@
 
 <style>
   :global(.library-page-shell.v2-page-shell) { height: 100%; overflow: hidden; }
-  :global(.library-page-shell > .v2-page-shell__inner) { height: 100%; max-width: none; padding: 0; display: flex; min-height: 0; }
+  :global(.library-page-shell > .v2-page-shell__inner) { height: 100%; max-width: none; padding: 0; display: flex; min-height: 0; position: relative; }
+  :global(.switch-home-kinetic-stage) { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+  :global(.library-page-shell .mw-shell) { z-index: 1; }
   :global(.library-page-shell .library-async-state) { width: 100%; height: 100%; min-height: 0; }
   :global(.library-page-shell .library-async-state[data-state]:not([data-state="ready"])) { margin: 1.5rem; height: auto; }
   .workspace-view { width: 100%; height: 100%; min-height: 0; overflow: hidden; }

@@ -282,4 +282,9 @@
   :global(.sce-btn-danger) {
     color: #f87171 !important;
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sce-color-btn { transition: none; }
+  }
+  :global([data-motion="reduce"]) .sce-color-btn { transition: none; }
 </style>

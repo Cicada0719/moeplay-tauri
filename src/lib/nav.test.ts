@@ -23,8 +23,8 @@ describe("navigation single source of truth", () => {
     expect(new Set(shortcuts).size).toBe(shortcuts.length);
   });
 
-  it("keeps the four primary content roots in the required order", () => {
-    expect(PRIMARY_CONTENT_VIEWS).toEqual(["home", "records", "anime", "comic"]);
+  it("keeps the five primary content roots in the required order", () => {
+    expect(PRIMARY_CONTENT_VIEWS).toEqual(["home", "records", "anime", "comic", "novel"]);
     expect(DOCK_ITEMS.filter(item => item.surface === "content").map(item => item.view))
       .toEqual(PRIMARY_CONTENT_VIEWS);
   });
@@ -40,6 +40,7 @@ describe("navigation single source of truth", () => {
 
   it("classifies primary, detail and subview return levels", () => {
     expect(isPrimaryContentView("anime")).toBe(true);
+    expect(isPrimaryContentView("novel")).toBe(true);
     expect(getRouteLevel("home")).toBe("primary");
     expect(getRouteLevel("game-detail")).toBe("detail");
     expect(getRouteLevel("settings")).toBe("subview");

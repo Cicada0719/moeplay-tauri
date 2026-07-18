@@ -12,6 +12,10 @@
   background: #030506;
 }
 
+html.is-mobile-platform .anime-playback-shell {
+  height: 100dvh;
+}
+
 .anime-playback-shell--provider {
   width: min(1180px, 100%);
   height: min(760px, calc(100% - 12px));
@@ -247,6 +251,33 @@
   left: 0;
 }
 
+.anime-playback-shell--fullscreen .anime-playback-shell__context,
+.anime-playback-shell--fullscreen .anime-playback-shell__toolbar {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition:
+    opacity 160ms ease,
+    transform 200ms ease,
+    visibility 0s linear;
+}
+
+.anime-playback-shell--fullscreen.anime-playback-shell--chrome-hidden .anime-playback-shell__context,
+.anime-playback-shell--fullscreen.anime-playback-shell--chrome-hidden .anime-playback-shell__toolbar {
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-12px);
+  pointer-events: none;
+  transition:
+    opacity 160ms ease,
+    transform 200ms ease,
+    visibility 0s linear 200ms;
+}
+
+.anime-playback-shell--fullscreen.anime-playback-shell--chrome-hidden .anime-playback-shell__stage {
+  cursor: none;
+}
+
 .anime-playback-shell--fullscreen .anime-playback-shell__body {
   position: absolute;
   inset: 0;
@@ -279,7 +310,7 @@
   .anime-playback-shell__context {
     min-height: 58px;
     gap: 10px;
-    padding: 9px 10px;
+    padding: max(9px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) 9px max(10px, env(safe-area-inset-left));
   }
 
   .anime-playback-shell__identity h2 { font-size: 14px; }
@@ -298,6 +329,39 @@
   .anime-playback-shell--fullscreen .anime-playback-shell__toolbar { top: 58px; }
 }
 
+@media (max-width: 759px) and (orientation: portrait) {
+  .anime-playback-shell__context { align-items: flex-start; }
+  .anime-playback-shell__header-actions { align-self: center; }
+  .anime-playback-shell__stage { padding: 4px 0 0; }
+  .anime-playback-shell__media-frame { border-radius: 0; box-shadow: none; }
+  .anime-playback-shell__panel { height: min(54dvh, 29rem); }
+}
+
+@media (max-height: 520px) and (orientation: landscape) {
+  .anime-playback-shell--provider { border-radius: 0; }
+  .anime-playback-shell__context {
+    min-height: 44px;
+    gap: 8px;
+    padding-block: max(4px, env(safe-area-inset-top)) 4px;
+  }
+  .anime-playback-shell__identity h2 { font-size: 13px; }
+  .anime-playback-shell__episode-line { display: none; }
+  .anime-playback-shell__stage { padding: 0; }
+  .anime-playback-shell__media-frame { border-radius: 0; box-shadow: none; }
+  .anime-playback-shell__panel {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: auto;
+    width: min(44vw, 320px);
+    height: auto;
+    border-top: 0;
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .anime-playback-shell__footer { display: none; }
+  .anime-playback-shell--fullscreen .anime-playback-shell__toolbar { top: 44px; }
+}
+
 @media (max-height: 650px) and (min-width: 760px) {
   .anime-playback-shell__context { min-height: 52px; padding-block: 7px; }
   .anime-playback-shell__episode-line small { display: none; }
@@ -307,7 +371,11 @@
 
 @media (prefers-reduced-motion: reduce) {
   .anime-playback-shell__media-frame { transition: none; }
+  .anime-playback-shell--fullscreen .anime-playback-shell__context,
+  .anime-playback-shell--fullscreen .anime-playback-shell__toolbar { transition: none; }
   .anime-playback-shell__ambient img { filter: blur(30px) saturate(0.75) brightness(0.24); }
 }
 
 [data-motion="reduce"] .anime-playback-shell__media-frame { transition: none; }
+[data-motion="reduce"] .anime-playback-shell--fullscreen .anime-playback-shell__context,
+[data-motion="reduce"] .anime-playback-shell--fullscreen .anime-playback-shell__toolbar { transition: none; }

@@ -770,6 +770,7 @@
     .search-form { grid-column: 1; }
     .provider-v2-entry { grid-column: 2; }
     .tab-btn { min-width: 0; flex: 1; justify-content: center; }
+    .cover-grid { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
   }
   @media (max-width: 620px) {
     .editorial-chrome { grid-template-columns: 1fr auto; gap: .5rem; padding: .75rem 1rem; }
@@ -779,6 +780,23 @@
     .tab-bar { padding-inline: 1rem; }
     .tab-btn { padding-inline: .4rem; font-size: .6rem; }
     .tab-btn :global(svg) { display: none; }
+    .anime-content > :not(.rec-page) { margin: 1rem; }
+    .cover-grid, .collect-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .weekday-tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+    .weekday-tabs::-webkit-scrollbar { display: none; }
+    .weekday-tab { flex: 0 0 auto; min-height: 44px; padding-inline: 14px; }
+    .stats-grid { grid-template-columns: 1fr; }
+    .catalog-header { flex-direction: column; }
+    .catalog-actions { width: 100%; overflow-x: auto; }
+    .history-row { min-height: 72px; padding-inline: 10px; }
+  }
+
+  @media (max-height: 520px) and (orientation: landscape) {
+    .editorial-chrome { min-height: 3.4rem; padding-block: .35rem; }
+    .tab-bar { min-height: 2.75rem; }
+    .tab-btn { min-height: 2.75rem; }
+    .anime-content > :not(.rec-page) { margin-block: .75rem; }
+    .cover-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px; }
   }
 
   /* ── Cover Card Grid ─────────────────────────────────────── */
@@ -1128,4 +1146,23 @@
 
   .overlays { position: absolute; inset: 0; z-index: 20; pointer-events: all; }
   .provider-v2-overlay { position: absolute; inset: 0; z-index: 40; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .weekday-tab, .history-row, .stats-bar, .catalog-item { transition: none; }
+    .spinner { animation: none; }
+    :global(.ui-card.cover-card), :global(.ui-card.collect-card),
+    :global(.ui-button.clear-btn), :global(.ui-button.remove-btn),
+    :global(.ui-button.result-row), :global(.ui-button.remove-rule) { transition: none; }
+  }
+  :global([data-motion="reduce"]) .weekday-tab,
+  :global([data-motion="reduce"]) .history-row,
+  :global([data-motion="reduce"]) .stats-bar,
+  :global([data-motion="reduce"]) .catalog-item,
+  :global([data-motion="reduce"] .ui-card.cover-card),
+  :global([data-motion="reduce"] .ui-card.collect-card),
+  :global([data-motion="reduce"] .ui-button.clear-btn),
+  :global([data-motion="reduce"] .ui-button.remove-btn),
+  :global([data-motion="reduce"] .ui-button.result-row),
+  :global([data-motion="reduce"] .ui-button.remove-rule) { transition: none; }
+  :global([data-motion="reduce"]) .spinner { animation: none; }
 </style>

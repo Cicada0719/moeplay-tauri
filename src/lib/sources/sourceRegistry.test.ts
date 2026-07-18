@@ -14,11 +14,12 @@ describe("source registry", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("contains active game, anime, and comic sources", () => {
+  it("contains active game, anime, comic, and novel sources", () => {
     const active = getSourceAdaptersByLifecycle("active");
     expect(active.some((source) => source.mediaType === "game")).toBe(true);
     expect(active.some((source) => source.mediaType === "anime")).toBe(true);
     expect(active.some((source) => source.mediaType === "comic")).toBe(true);
+    expect(active.some((source) => source.mediaType === "novel")).toBe(true);
   });
 
   it("tracks the v0.12.0 built-in comic adapters as active sources", () => {
@@ -40,6 +41,26 @@ describe("source registry", () => {
     expect(references.some((source) => source.id === "mangayomi-extensions")).toBe(true);
     expect(references.some((source) => source.id === "cloudstream-model")).toBe(true);
     expect(references.every((source) => source.referenceUrl)).toBe(true);
+  });
+
+  it("tracks visual novel metadata and legal storefront sources for games", () => {
+    const gameIds = getSourceAdaptersByMediaType("game").map((source) => source.id);
+    expect(gameIds).toEqual(expect.arrayContaining([
+      "vndb-kana-api",
+      "bangumi-game-api",
+      "ymgal-api",
+      "kungal-metadata",
+      "dlsite-store-metadata",
+      "getchu-store-metadata",
+      "erogamescape-metadata",
+      "itchio-visual-novel-store",
+      "igdb-game-metadata",
+    ]));
+
+    expect(getSourceAdaptersByEcosystem("vndb")[0].capabilities).toEqual(expect.arrayContaining(["search", "detail", "metadata"]));
+    expect(getSourceAdaptersByEcosystem("itchio")[0].lifecycle).toBe("planned");
+    expect(getSourceAdaptersByEcosystem("igdb")[0].authMode).toBe("api-key");
+    expect(getSourceAdaptersByMediaType("game").every((source) => !source.capabilities.includes("download") || source.id === "local-game-library")).toBe(true);
   });
 
   it("marks index import ecosystems separately from license-only references", () => {
@@ -66,6 +87,8 @@ describe("source registry", () => {
     expect(summary.total).toBe(SOURCE_ADAPTER_MANIFESTS.length);
     expect(summary.byMediaType.anime).toBe(getSourceAdaptersByMediaType("anime").length);
     expect(summary.byMediaType.comic).toBeGreaterThanOrEqual(2);
+    expect(summary.byMediaType.novel).toBe(2);
+    expect(summary.byMediaType.game).toBeGreaterThanOrEqual(9);
     expect(summary.indexImportable).toBe(4);
     expect(summary.highLicenseRisk).toBe(3);
     expect(summary.requiresVerification).toBeGreaterThan(0);

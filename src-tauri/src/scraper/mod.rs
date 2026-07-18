@@ -7,6 +7,7 @@ pub mod cache;
 pub mod dlsite;
 pub mod erogamescape;
 pub mod error;
+pub mod getchu;
 pub mod kungal;
 pub mod merge;
 pub mod pcgw;
@@ -42,6 +43,7 @@ pub async fn search_all(
     vndb_enabled: bool,
     bangumi_enabled: bool,
     dlsite_enabled: bool,
+    getchu_enabled: bool,
     touchgal_enabled: bool,
     erogamescape_enabled: bool,
     ymgal_enabled: bool,
@@ -88,6 +90,7 @@ pub async fn search_all(
     spawn_source!(vndb_enabled, "vndb", vndb::search_simple);
     spawn_source!(bangumi_enabled, "bangumi", bangumi::search_simple);
     spawn_source!(dlsite_enabled, "dlsite", dlsite::search_simple);
+    spawn_source!(getchu_enabled, "getchu", getchu::search_simple);
     spawn_source!(touchgal_enabled, "touchgal", touchgal::search_simple);
     spawn_source!(
         erogamescape_enabled,
@@ -141,6 +144,7 @@ pub async fn scrape_game(
     vndb_enabled: bool,
     bangumi_enabled: bool,
     dlsite_enabled: bool,
+    getchu_enabled: bool,
     touchgal_enabled: bool,
     erogamescape_enabled: bool,
     ymgal_enabled: bool,
@@ -154,6 +158,7 @@ pub async fn scrape_game(
         vndb_enabled,
         bangumi_enabled,
         dlsite_enabled,
+        getchu_enabled,
         touchgal_enabled,
         erogamescape_enabled,
         ymgal_enabled,

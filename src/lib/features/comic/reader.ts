@@ -134,6 +134,18 @@ export function moveReaderPage(index: number, delta: number, pageCount: number):
   return clampReaderPage(index + delta, pageCount);
 }
 
+export function readerSwipePageDelta(
+  deltaX: number,
+  deltaY: number,
+  direction: ComicReadingDirection,
+  threshold = 48,
+): -1 | 0 | 1 {
+  if (direction === "vertical" || Math.abs(deltaX) < threshold || Math.abs(deltaX) <= Math.abs(deltaY) * 1.2) return 0;
+  const swipedRight = deltaX > 0;
+  if (direction === "right-to-left") return swipedRight ? 1 : -1;
+  return swipedRight ? -1 : 1;
+}
+
 export function normalizeReaderZoom(value: number): number {
   if (!Number.isFinite(value)) return 100;
   const stepped = Math.round(value / READER_ZOOM_STEP) * READER_ZOOM_STEP;

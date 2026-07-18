@@ -838,6 +838,9 @@ pub struct Settings {
     /// 启用 DLsite 刮削
     #[serde(default = "Settings::default_true")]
     pub dlsite_enabled: bool,
+    /// 启用 Getchu 刮削（站点响应较慢，默认关闭）
+    #[serde(default)]
+    pub getchu_enabled: bool,
     /// 启用 TouchGAL 刮削
     #[serde(default = "Settings::default_true")]
     pub touchgal_enabled: bool,
@@ -903,6 +906,7 @@ impl Default for Settings {
             vndb_enabled: true,
             bangumi_enabled: true,
             dlsite_enabled: true,
+            getchu_enabled: false,
             touchgal_enabled: true,
             erogamescape_enabled: true,
             ymgal_enabled: true,

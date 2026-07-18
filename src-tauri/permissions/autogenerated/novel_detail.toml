@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-novel-detail"
+description = "Enables the novel_detail command without any pre-configured scope."
+commands.allow = ["novel_detail"]
+
+[[permission]]
+identifier = "deny-novel-detail"
+description = "Denies the novel_detail command without any pre-configured scope."
+commands.deny = ["novel_detail"]

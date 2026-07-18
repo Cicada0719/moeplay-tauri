@@ -148,4 +148,9 @@
   .bpmr-progress-label {
     display: block; font-size: 10px; color: var(--text-muted);
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    .bpmr-card { transition: none; }
+  }
+  :global([data-motion="reduce"]) .bpmr-card { transition: none; }
 </style>

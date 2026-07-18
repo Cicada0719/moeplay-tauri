@@ -8,11 +8,16 @@ import {
 } from "./theme-packs";
 
 describe("theme pack registry", () => {
-  it("registers the three shipped anime theme packs with complete bundled assets", () => {
+  it("registers the eight shipped anime theme packs with complete bundled assets", () => {
     expect(THEME_PACKS.map((pack) => pack.id)).toEqual([
       "yozakura",
       "after-school",
       "neon-isekai",
+      "shift-editorial",
+      "phantom-pop",
+      "caution-industrial",
+      "astral-rail",
+      "borderless-lumen",
     ]);
 
     for (const pack of THEME_PACKS) {

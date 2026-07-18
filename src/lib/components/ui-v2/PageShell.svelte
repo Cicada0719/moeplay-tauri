@@ -88,7 +88,4 @@
       max(var(--v2-space-8), env(safe-area-inset-left));
   }
 
-  .v2-page-shell:focus-visible {
-    box-shadow: inset var(--v2-focus-ring);
-  }
 </style>

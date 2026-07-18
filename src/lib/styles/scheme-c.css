@@ -62,6 +62,7 @@ body { background: var(--c-black); color: var(--c-paper); }
 .view-wrapper { --page-accent: var(--c-accent); }
 .view-wrapper[data-route-view="anime"] { --page-accent: #d15848; }
 .view-wrapper[data-route-view="comic"] { --page-accent: #d0b45f; }
+.view-wrapper[data-route-view="novel"] { --page-accent: #b78867; }
 .view-wrapper[data-route-view="records"],
 .view-wrapper[data-route-view="stats"] { --page-accent: #7d9a91; }
 .view-wrapper[data-route-view="tasks"],
@@ -263,3 +264,8 @@ body { background: var(--c-black); color: var(--c-paper); }
   margin: 0 !important;
 }
 .view-wrapper[data-route-view="records"] .records-v2-shell { background: #060606 !important; }
+
+[data-motion="reduce"] .app-container::after { display: none; }
+[data-motion="reduce"] .anime-page :where(.media-card img), [data-motion="reduce"] .comic-v2-shell :where(img) { transition: none; }
+[data-motion="reduce"] .view-wrapper[data-module-style="kinetic"] :where(.comic-v2-shell .comic-card, .comic-v2-shell .v2-media-row) { transform: none !important; transition: none; }
+[data-motion="reduce"] .view-wrapper[data-module-style="kinetic"] .v2-content-grid > * { transform: none !important; }

@@ -1,0 +1,99 @@
+/* 无界流光 · 设计语言见 plans/theme-specs/borderless-lumen.md
+   全套换肤：c-*（scheme-c 消费面）+ 语义色 + 控件签名。
+   选择器 html[data-theme-pack] 与 scheme-c 同特异性，靠 main.ts 末位导入取胜。 */
+html[data-theme-pack="borderless-lumen"] {
+  /* ── 无界光场调色板（scheme-c c-* 面） ── */
+  --c-black: #040408;
+  --c-void: #07070d;
+  --c-surface-1: #0b0b14;
+  --c-surface-2: #10101c;
+  --c-surface-3: #151524;
+  --c-paper: #f2f1ff;
+  --c-muted: #a9a6cc;
+  --c-dim: #615e85;
+  --c-line: rgba(242, 241, 255, .13);
+  --c-line-strong: rgba(242, 241, 255, .34);
+  --c-accent: #7c5cff;
+  --c-accent-hi: #a68bff;
+
+  /* ── 语义色 ── */
+  --accent: #7c5cff;
+  --accent-hi: #a68bff;
+  --accent-lo: rgba(124, 92, 255, .18);
+  --accent-ring: rgba(124, 92, 255, .55);
+  --bg-void: #040408;
+  --bg-deep: #07070d;
+  --bg: #0b0b14;
+  --bg-base: #0b0b14;
+  --bg-surface: #0e0e1a;
+  --bg-secondary: #10101c;
+  --bg-elev: #121222;
+  --bg-card: #17172a;
+  --bg-hover: #1c1c33;
+  --bg-active: rgba(124, 92, 255, .16);
+  --text-primary: #f2f1ff;
+  --text-secondary: #c6c3e8;
+  --text-muted: #a9a6cc;
+  --text-dim: #615e85;
+  --border: rgba(242, 241, 255, .12);
+  --border-hover: rgba(242, 241, 255, .30);
+  --border-glass: rgba(242, 241, 255, .10);
+
+  /* ── 形态与质感：有机圆角、柔光阴影 ── */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --focus-ring: 0 0 0 2px #040408, 0 0 0 4px rgba(124, 92, 255, .60);
+  --glass-bg: rgba(4, 4, 8, .92);
+  --glass-border: rgba(242, 241, 255, .13);
+  --glass-highlight: none;
+  --shadow-card: 0 2px 16px rgba(2, 2, 6, .6);
+  --shadow-hover: 0 8px 28px rgba(2, 2, 6, .7);
+
+  /* ── 壁纸舞台 ── */
+  --mascot-accent: #56e0d4;
+  --theme-ambient: rgba(124, 92, 255, .22);
+  --wallpaper-scrim:
+    linear-gradient(90deg, rgba(4,4,8,.88) 0%, rgba(4,4,8,.58) 47%, rgba(4,4,8,.22) 100%),
+    linear-gradient(0deg, rgba(4,4,8,.82), transparent 50%);
+  --wallpaper-brightness: .80;
+  --wallpaper-saturation: 1.10;
+}
+
+/* ── 控件签名：有机流光（全圆角 pill + 柔光） ── */
+html[data-theme-pack="borderless-lumen"] .ui-button {
+  border-radius: 999px;
+  border-color: transparent;
+  box-shadow: none;
+}
+html[data-theme-pack="borderless-lumen"] .ui-button--primary {
+  background: linear-gradient(120deg, #6f4ef0, #4f8fe8);
+  border-color: transparent;
+  color: #fff;
+}
+html[data-theme-pack="borderless-lumen"] .ui-button--primary:hover:not(:disabled) {
+  filter: brightness(1.12);
+  transform: none;
+}
+html[data-theme-pack="borderless-lumen"] .ui-button--secondary,
+html[data-theme-pack="borderless-lumen"] .ui-button--ghost {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+html[data-theme-pack="borderless-lumen"] .ui-card {
+  border-radius: 14px;
+  box-shadow: var(--shadow-card);
+}
+html[data-theme-pack="borderless-lumen"] .ui-input,
+html[data-theme-pack="borderless-lumen"] .ui-search__input,
+html[data-theme-pack="borderless-lumen"] input,
+html[data-theme-pack="borderless-lumen"] select,
+html[data-theme-pack="borderless-lumen"] textarea {
+  border-radius: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme-pack="borderless-lumen"] .ui-button { transition: none; }
+}
+:global([data-motion="reduce"]) html[data-theme-pack="borderless-lumen"] .ui-button { transition: none; }

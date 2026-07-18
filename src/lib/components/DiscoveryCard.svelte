@@ -107,7 +107,7 @@
     transform: translateY(-2px);
     box-shadow: var(--shadow-hover);
   }
-  .cover-wrap { position: relative; aspect-ratio: 3/4; background: var(--aura-inset); }
+  .cover-wrap { position: relative; aspect-ratio: 3/4; background: var(--bg-deep); }
   .cover-wrap :global(.cached-image) {
     width: 100%; aspect-ratio: 3/4; object-fit: cover; display: block;
   }
@@ -144,4 +144,11 @@
     opacity: 0; transition: opacity 0.2s;
   }
   .cover-wrap:hover .url-hint, .cover-placeholder:hover .url-hint { opacity: 0.85; }
+
+  @media (prefers-reduced-motion: reduce) {
+    :global(.discovery-card) { transition: none; }
+    .url-hint { transition: none; }
+  }
+  :global([data-motion="reduce"] .discovery-card) { transition: none; }
+  :global([data-motion="reduce"]) .url-hint { transition: none; }
 </style>

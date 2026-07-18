@@ -11,8 +11,8 @@
     type DashboardData,
   } from "../api/dashboard";
   import { uiStore } from "../stores/ui.svelte";
-  import Icon from "./Icon.svelte";
-  import { Button, Card, Chart, EmptyState, Skeleton, StatBlock, Tag } from "./ui";
+  import { i18n } from "../stores/i18n.svelte";
+  import { Card, Chart, EmptyState, StatBlock, Tag } from "./ui";
   import {
     buildCompletionDoughnutData,
     buildMonthlyTrendData,
@@ -21,6 +21,7 @@
     doughnutOptions,
     statusBarOptions,
   } from "../utils/chart";
+  import { PageShell, PageHeader, StateBoundary, type ViewState } from "./ui-v2";
 
   let data = $state<DashboardData | null>(null);
   let loading = $state(true);
@@ -28,15 +29,20 @@
 
   let heroNumEl = $state<HTMLSpanElement>();
   let doneNumEl = $state<HTMLSpanElement>();
-  const statusLabels: Record<string, string> = {
-    not_started: "未开始",
-    playing: "进行中",
-    completed: "已通关",
-    dropped: "搁置",
-    on_hold: "暂停",
-    plan_to_play: "计划玩",
-    replaying: "重温中",
-  };
+  const statusLabels = $derived<Record<string, string>>({
+    not_started: i18n.t("stats.status_not_started"),
+    playing: i18n.t("stats.status_playing"),
+    completed: i18n.t("stats.status_completed"),
+    dropped: i18n.t("stats.status_dropped"),
+    on_hold: i18n.t("stats.status_on_hold"),
+    plan_to_play: i18n.t("stats.status_plan_to_play"),
+    replaying: i18n.t("stats.status_replaying"),
+  });
+
+  // 三态统一：加载 / 错误 / 空 / 就绪收敛到 StateBoundary。
+  const viewState = $derived<ViewState>(
+    loading ? "loading" : error ? "error" : data ? "ready" : "empty",
+  );
 
   async function loadDashboard() {
     loading = true;
@@ -66,7 +72,9 @@
   $effect(() => {
     if (!data || loading) return;
     const d = data;
-    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    const reduce =
+      window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ||
+      document.documentElement.dataset.motion === "reduce";
     if (reduce) return;
 
     const ctx = gsap.context(() => {
@@ -95,201 +103,192 @@
   });
 </script>
 
-<section class="stats-page aura-page" data-aura-echo="STATISTICS">
-  <header class="aura-head">
-    <div>
-      <span class="aura-kicker">Library Pulse</span>
-      <h1 class="aura-title">统计</h1>
-      <p>Collection scale, completion state, play rhythm, and recent sessions.</p>
-    </div>
-  </header>
+<PageShell as="div" width="full" scrollable={false} class="stats-v2-shell" labelledBy="stats-page-title" ariaLabel={i18n.t("stats.title")}>
+  <div class="st">
+    <div class="v2-grain st-grain" aria-hidden="true"></div>
 
-  {#if loading}
-    <div class="loading-stack">
-      <Skeleton variant="stat" count={4} />
-      <Skeleton variant="block" count={2} />
-    </div>
-  {:else if error}
-    <div class="inline-error" role="alert">
-      <Icon name="x" size={16} />
-      <span>加载失败：{error}</span>
-      <Button variant="ghost" size="sm" class="retry-btn" press={loadDashboard}>
-        <Icon name="refresh" size={15} />
-        <span>重试</span>
-      </Button>
-    </div>
-  {:else if data}
-    <div class="bento">
-      <Card class="metric-card hero">
-        <span class="label">游戏总数</span>
-        <span class="value hero-value aura-num" bind:this={heroNumEl}>{data.total_games}</span>
-        <span class="hint">完成率 <span class="aura-num">{data.completion_rate}%</span></span>
-      </Card>
+    <PageHeader
+      id="stats-page-title"
+      class="st-header"
+      eyebrow="統計 / STATS"
+      title={i18n.t("stats.title")}
+      description={i18n.t("stats.subtitle")}
+    />
 
-      <StatBlock label="已通关" value={data.completed_games} class="stat-cell" />
-
-      <StatBlock label="总时长" value={data.playtime_hours.toFixed(0)} unit="h" class="stat-cell" />
-
-      <StatBlock
-        label="磁盘占用"
-        value={data.disk_usage_gb.toFixed(1)}
-        unit="GB"
-        hint="后台缓存统计，重新进入页面后更新"
-        class="stat-cell"
-      />
-
-      <Card class="metric-card donut-card">
-        <span class="label">完成率</span>
-        <div class="donut">
-          <Chart type="doughnut" data={buildCompletionDoughnutData(data.completion_rate)} options={doughnutOptions} />
-          <span class="donut-num aura-num">{data.completion_rate}%</span>
-        </div>
-      </Card>
-
-      <Card class="metric-card wide">
-        <span class="label">状态分布</span>
-        <div class="status-chart">
-          <Chart
-            type="bar"
-            data={buildStatusDistributionData(toStatusCountItems(data.completion_distribution), statusLabels)}
-            options={statusBarOptions}
-          />
-        </div>
-      </Card>
-
-      <Card class="metric-card">
-        <span class="label">热门标签</span>
-        <div class="tag-cloud">
-          {#each toCountItems(data.top_tags).slice(0, 10) as tag}
-            <Tag class="tag-chip">
-              {tag.name}<small class="aura-num">{tag.count}</small>
-            </Tag>
-          {/each}
-        </div>
-      </Card>
-
-      <Card class="metric-card">
-        <span class="label">数据覆盖</span>
-        <div class="flat-list">
-          <div class="list-row">
-            <span>已安装</span>
-            <span class="mono muted aura-num">{data.installed_games} / {data.total_games}</span>
-          </div>
-          <div class="list-row">
-            <span>元数据刮削</span>
-            <span class="mono muted aura-num">{data.scrape_coverage.toFixed(1)}%</span>
-          </div>
-        </div>
-      </Card>
-
-      <Card class="metric-card wide">
-        <span class="label">月度趋势</span>
-        {#if (data.monthly_heatmap ?? []).length > 0}
-          <div class="trend-chart">
-            <Chart
-              type="line"
-              data={buildMonthlyTrendData(data.monthly_heatmap)}
-              options={commonChartOptions}
-            />
-          </div>
-        {:else}
-          <EmptyState title="暂无数据" />
-        {/if}
-      </Card>
-
-      <Card class="metric-card wide">
-        <span class="label">最近游玩</span>
-        {#if data.recent_games.length > 0}
-          <div class="sessions">
-            {#each data.recent_games.slice(0, 5) as game, index}
-              <div class="session-row">
-                <span class="game-name">{game}</span>
-                <span class="mono muted aura-num">RECENT</span>
-                <span class="mono aura-num">#{index + 1}</span>
-              </div>
-            {/each}
-          </div>
-        {:else}
-          <EmptyState title="暂无记录" />
-        {/if}
-      </Card>
-
-      <Card class="metric-card wide">
-        <span class="label">智能合集</span>
-        <div class="collection-grid">
-          {#each toCollectionCountItems(data.collections).slice(0, 8) as collection}
-            <Card
-              class="collection-action"
-              padding="none"
-              hoverable
-              onclick={() => handleCollectionClick(collection)}
-              ariaLabel={collection.name}
-            >
-              <span class="collection-count aura-num">{collection.count}</span>
-              <span class="collection-name">{collection.name}</span>
+    <main class="st-content">
+      <StateBoundary
+        state={viewState}
+        onRetry={loadDashboard}
+        retryLabel={i18n.t("button.retry")}
+        title={viewState === "error" ? i18n.t("stats.error_title") : i18n.t("stats.empty_title")}
+        description={viewState === "error" ? (error ?? undefined) : i18n.t("stats.empty_desc")}
+        loadingRows={5}
+      >
+        {#if data}
+          <div class="bento">
+            <Card class="metric-card hero">
+              <span class="label">{i18n.t("stats.total_games")}</span>
+              <span class="value hero-value" bind:this={heroNumEl}>{data.total_games}</span>
+              <span class="hint">{i18n.t("stats.completion_rate")} <span class="mono">{data.completion_rate}%</span></span>
             </Card>
-          {/each}
-        </div>
-      </Card>
-    </div>
-  {:else}
-    <div class="empty-panel">
-      <EmptyState title="暂无统计数据" description="导入游戏并游玩后，这里将展示统计仪表盘。" />
-    </div>
-  {/if}
-</section>
+
+            <StatBlock label={i18n.t("stats.completed_games")} value={data.completed_games} class="stat-cell" />
+
+            <StatBlock label={i18n.t("stats.total_hours")} value={data.playtime_hours.toFixed(0)} unit="h" class="stat-cell" />
+
+            <StatBlock
+              label={i18n.t("stats.disk_usage")}
+              value={data.disk_usage_gb.toFixed(1)}
+              unit="GB"
+              hint={i18n.t("stats.disk_hint")}
+              class="stat-cell"
+            />
+
+            <Card class="metric-card donut-card">
+              <span class="label">{i18n.t("stats.completion_rate")}</span>
+              <div class="donut">
+                <Chart type="doughnut" data={buildCompletionDoughnutData(data.completion_rate)} options={doughnutOptions} />
+                <span class="donut-num mono">{data.completion_rate}%</span>
+              </div>
+            </Card>
+
+            <Card class="metric-card wide">
+              <span class="label">{i18n.t("stats.status_dist")}</span>
+              <div class="status-chart">
+                <Chart
+                  type="bar"
+                  data={buildStatusDistributionData(toStatusCountItems(data.completion_distribution), statusLabels)}
+                  options={statusBarOptions}
+                />
+              </div>
+            </Card>
+
+            <Card class="metric-card">
+              <span class="label">{i18n.t("stats.top_tags")}</span>
+              <div class="tag-cloud">
+                {#each toCountItems(data.top_tags).slice(0, 10) as tag}
+                  <Tag class="tag-chip">
+                    {tag.name}<small class="mono">{tag.count}</small>
+                  </Tag>
+                {/each}
+              </div>
+            </Card>
+
+            <Card class="metric-card">
+              <span class="label">{i18n.t("stats.data_coverage")}</span>
+              <div class="flat-list">
+                <div class="list-row">
+                  <span>{i18n.t("stats.installed")}</span>
+                  <span class="mono muted">{data.installed_games} / {data.total_games}</span>
+                </div>
+                <div class="list-row">
+                  <span>{i18n.t("stats.scraped")}</span>
+                  <span class="mono muted">{data.scrape_coverage.toFixed(1)}%</span>
+                </div>
+              </div>
+            </Card>
+
+            <Card class="metric-card wide">
+              <span class="label">{i18n.t("stats.monthly_heatmap")}</span>
+              {#if (data.monthly_heatmap ?? []).length > 0}
+                <div class="trend-chart">
+                  <Chart
+                    type="line"
+                    data={buildMonthlyTrendData(data.monthly_heatmap)}
+                    options={commonChartOptions}
+                  />
+                </div>
+              {:else}
+                <EmptyState title={i18n.t("stats.no_data")} />
+              {/if}
+            </Card>
+
+            <Card class="metric-card wide">
+              <span class="label">{i18n.t("stats.recent_games")}</span>
+              {#if data.recent_games.length > 0}
+                <div class="sessions">
+                  {#each data.recent_games.slice(0, 5) as game, index}
+                    <div class="session-row">
+                      <span class="game-name">{game}</span>
+                      <span class="mono muted">RECENT</span>
+                      <span class="mono">#{index + 1}</span>
+                    </div>
+                  {/each}
+                </div>
+              {:else}
+                <EmptyState title={i18n.t("stats.no_records")} />
+              {/if}
+            </Card>
+
+            <Card class="metric-card wide">
+              <span class="label">{i18n.t("stats.smart_collections")}</span>
+              <div class="collection-grid">
+                {#each toCollectionCountItems(data.collections).slice(0, 8) as collection}
+                  <Card
+                    class="collection-action"
+                    padding="none"
+                    hoverable
+                    onclick={() => handleCollectionClick(collection)}
+                    ariaLabel={collection.name}
+                  >
+                    <span class="collection-count mono">{collection.count}</span>
+                    <span class="collection-name">{collection.name}</span>
+                  </Card>
+                {/each}
+              </div>
+            </Card>
+          </div>
+        {/if}
+      </StateBoundary>
+    </main>
+  </div>
+</PageShell>
 
 <style>
-  .stats-page {
-    min-width: 0;
+  :global(.stats-v2-shell) { height: 100%; }
+  :global(.stats-v2-shell .v2-page-shell__inner) { height: 100%; padding: 0; }
+
+  .st {
+    position: relative;
     height: 100%;
-    padding: 24px;
-    overflow: auto;
     display: flex;
     flex-direction: column;
-    gap: 16px;
-    background: var(--aura-bg, var(--bg-void));
-  }
-
-  .aura-head {
-    min-width: 0;
-    width: min(1180px, 100%);
-    padding: 18px 20px;
-  }
-
-  .aura-head > div {
-    min-width: 0;
-    display: grid;
-    gap: 4px;
-  }
-
-  .aura-kicker {
-    color: var(--text-muted);
-    font-size: 12px;
-    font-weight: 650;
-    line-height: 1.2;
-  }
-
-  .aura-title,
-  .aura-head p {
-    margin: 0;
-  }
-
-  .aura-title {
+    overflow: hidden;
     color: var(--text-primary);
-    font-size: clamp(24px, 2.2vw, 32px);
-    font-weight: 760;
-    line-height: 1.12;
   }
 
-  .aura-head p {
-    color: var(--text-secondary);
-    line-height: 1.55;
+  /* Halftone grain background layer (utility class lives in tokens-v2.css). */
+  .st-grain { position: absolute; inset: 0; z-index: 0; }
+
+  :global(.st-header) {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 26px 28px 14px;
+    flex-shrink: 0;
+  }
+
+  .st-content {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    width: 100%;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 28px 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    scroll-behavior: smooth;
   }
 
   .bento {
     min-width: 0;
-    width: min(1180px, 100%);
+    width: 100%;
     display: grid;
     grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
     grid-auto-flow: dense;
@@ -297,9 +296,7 @@
   }
 
   :global(.ui-card.metric-card),
-  :global(.ui-stat.stat-cell),
-  .inline-error,
-  .empty-panel {
+  :global(.ui-stat.stat-cell) {
     min-width: 0;
   }
 
@@ -350,7 +347,6 @@
     font-size: clamp(44px, 7vw, 68px);
   }
 
-  
   .hint,
   .muted {
     color: var(--text-muted);
@@ -381,8 +377,6 @@
   .donut-num {
     position: absolute;
     color: var(--text-primary);
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
     font-size: 18px;
     font-weight: 760;
   }
@@ -474,8 +468,6 @@
 
   .collection-count {
     color: var(--text-primary);
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
     font-size: 18px;
     font-weight: 760;
   }
@@ -489,39 +481,7 @@
     font-size: 12px;
   }
 
-  .inline-error {
-    min-height: 54px;
-    padding: 12px 14px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--bg-card);
-    color: var(--color-error);
-  }
-
-  .inline-error span {
-    min-width: 0;
-    overflow-wrap: anywhere;
-  }
-
-  .inline-error :global(.ui-button.retry-btn) {
-    margin-left: auto;
-  }
-
-  .empty-panel {
-    min-height: 220px;
-    display: grid;
-    place-items: center;
-  }
-
-  .loading-stack {
-    min-width: 0;
-    display: grid;
-    gap: 14px;
-  }
-
+  /* ── Responsive ── */
   @media (max-width: 900px) {
     .bento {
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -538,9 +498,8 @@
   }
 
   @media (max-width: 560px) {
-    .stats-page {
-      padding: 18px;
-    }
+    .st-content { padding: 0 16px 36px; }
+    :global(.st-header) { padding: 20px 16px 12px; }
 
     .bento,
     .collection-grid {
@@ -553,16 +512,11 @@
     :global(.ui-stat.stat-cell) {
       grid-column: 1;
     }
-
-    .inline-error {
-      align-items: stretch;
-      flex-direction: column;
-    }
-
-    .inline-error :global(.ui-button.retry-btn) {
-      width: 100%;
-      justify-content: center;
-      margin-left: 0;
-    }
   }
+
+  /* ── Reduced motion ── */
+  @media (prefers-reduced-motion: reduce) {
+    .st-content { scroll-behavior: auto; }
+  }
+  :global([data-motion="reduce"]) .st-content { scroll-behavior: auto; }
 </style>

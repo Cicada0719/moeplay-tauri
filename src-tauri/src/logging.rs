@@ -8,6 +8,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(not(mobile))]
 use std::time::{Duration, SystemTime};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
@@ -21,22 +22,32 @@ pub fn log_dir() -> PathBuf {
 
 /// 初始化 tracing：文件滚动 + 控制台 + panic hook。
 pub fn init() {
+    #[cfg(not(mobile))]
     let dir = log_dir();
+    #[cfg(not(mobile))]
     fs::create_dir_all(&dir).ok();
+    #[cfg(not(mobile))]
     prune_log_files(&dir);
 
     // 文件滚动：每天一个文件，保留 7 天
+    #[cfg(not(mobile))]
     let file_appender = tracing_appender::rolling::daily(&dir, "moegame.log");
+    #[cfg(not(mobile))]
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     // 过滤器：默认 info，可设 RUST_LOG=debug
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
-    let fmt_layer = fmt::layer().with_target(true).with_thread_ids(true).json();
-
+    #[cfg(not(mobile))]
     let subscriber = tracing_subscriber::registry()
         .with(env_filter)
-        .with(fmt_layer.with_writer(non_blocking))
+        .with(
+            fmt::layer()
+                .with_target(true)
+                .with_thread_ids(true)
+                .json()
+                .with_writer(non_blocking),
+        )
         .with(
             fmt::layer()
                 .with_target(false)
@@ -45,10 +56,25 @@ pub fn init() {
                 .with_writer(std::io::stderr),
         );
 
+    // Android starts before a Tauri AppHandle is available. At that point
+    // `dirs::data_dir()` can resolve to the read-only filesystem root, and
+    // tracing-appender panics while creating its rolling log directory. Logcat
+    // already captures stderr, so mobile startup deliberately uses only the
+    // console layer.
+    #[cfg(mobile)]
+    let subscriber = tracing_subscriber::registry().with(env_filter).with(
+        fmt::layer()
+            .with_target(false)
+            .with_thread_names(true)
+            .pretty()
+            .with_writer(std::io::stderr),
+    );
+
     tracing::subscriber::set_global_default(subscriber)
         .expect("tracing subscriber should be set only once");
 
     // 注意：_guard 需要泄漏（全局存活），否则 non_blocking writer 会被 drop
+    #[cfg(not(mobile))]
     std::mem::forget(_guard);
 
     // Panic hook：崩溃时记录完整信息和回溯
@@ -113,7 +139,9 @@ pub fn collect_recent_logs(lines: usize) -> Vec<String> {
     result
 }
 
+#[cfg(not(mobile))]
 const LOG_RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+#[cfg(not(mobile))]
 const MAX_LOG_BYTES: u64 = 100 * 1024 * 1024;
 
 fn is_log_file(path: &Path) -> bool {
@@ -124,10 +152,12 @@ fn is_log_file(path: &Path) -> bool {
             .is_some_and(|name| name.starts_with("moegame.log"))
 }
 
+#[cfg(not(mobile))]
 fn prune_log_files(dir: &Path) {
     prune_log_files_with_policy(dir, SystemTime::now(), LOG_RETENTION, MAX_LOG_BYTES);
 }
 
+#[cfg(not(mobile))]
 fn prune_log_files_with_policy(dir: &Path, now: SystemTime, retention: Duration, max_bytes: u64) {
     let mut files: Vec<_> = fs::read_dir(dir)
         .into_iter()

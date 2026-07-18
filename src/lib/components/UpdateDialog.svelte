@@ -238,4 +238,13 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .update-backdrop, .update-dialog, .update-spinner { animation: none; }
+    .progress-fill { transition: none; }
+  }
+  :global([data-motion="reduce"]) .update-backdrop,
+  :global([data-motion="reduce"]) .update-dialog,
+  :global([data-motion="reduce"]) .update-spinner { animation: none; }
+  :global([data-motion="reduce"]) .progress-fill { transition: none; }
 </style>

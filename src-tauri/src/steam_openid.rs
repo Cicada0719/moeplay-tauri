@@ -630,32 +630,41 @@ pub async fn verify_api_key(api_key: &str) -> Result<String, String> {
 /// 从本地 Steam 客户端注册表获取当前登录的 SteamID64。
 /// Playnite 也是这样做的：读 HKCU\Software\Valve\Steam\ActiveProcess\ActiveUser
 pub fn detect_local_steam_id() -> Option<String> {
-    use winreg::enums::*;
-    let hkcu = winreg::RegKey::predef(HKEY_CURRENT_USER);
-    let steam_key = hkcu
-        .open_subkey("Software\\Valve\\Steam\\ActiveProcess")
-        .ok()?;
-    let active_user: u32 = steam_key.get_value("ActiveUser").ok()?;
-    if active_user == 0 {
-        return None;
+    #[cfg(windows)]
+    {
+        use winreg::enums::*;
+        let hkcu = winreg::RegKey::predef(HKEY_CURRENT_USER);
+        let steam_key = hkcu
+            .open_subkey("Software\\Valve\\Steam\\ActiveProcess")
+            .ok()?;
+        let active_user: u32 = steam_key.get_value("ActiveUser").ok()?;
+        if active_user == 0 {
+            return None;
+        }
+        let steam_id64 = active_user as u64 + 76561197960265728u64;
+        return Some(steam_id64.to_string());
     }
-    // SteamID3 → SteamID64: add 76561197960265728
-    let steam_id64 = active_user as u64 + 76561197960265728u64;
-    Some(steam_id64.to_string())
+    #[cfg(not(windows))]
+    None
 }
 
 /// 检测本地 Steam 是否正在运行且已登录
 pub fn is_steam_running() -> bool {
-    use winreg::enums::*;
-    let hkcu = winreg::RegKey::predef(HKEY_CURRENT_USER);
-    match hkcu.open_subkey("Software\\Valve\\Steam\\ActiveProcess") {
-        Ok(key) => {
-            let user: u32 = key.get_value("ActiveUser").unwrap_or(0);
-            let pid: u32 = key.get_value("pid").unwrap_or(0);
-            user > 0 && pid > 0
-        }
-        Err(_) => false,
+    #[cfg(windows)]
+    {
+        use winreg::enums::*;
+        let hkcu = winreg::RegKey::predef(HKEY_CURRENT_USER);
+        return match hkcu.open_subkey("Software\\Valve\\Steam\\ActiveProcess") {
+            Ok(key) => {
+                let user: u32 = key.get_value("ActiveUser").unwrap_or(0);
+                let pid: u32 = key.get_value("pid").unwrap_or(0);
+                user > 0 && pid > 0
+            }
+            Err(_) => false,
+        };
     }
+    #[cfg(not(windows))]
+    false
 }
 
 // ============================================================================
@@ -749,7 +758,7 @@ pub fn open_login_webview(app_handle: &tauri::AppHandle) -> Result<(), String> {
     // 未登录 → Steam 跳到 /login/home?goto=my/profile（仍带二维码），扫码后再回跳 /my/profile。
     // 比起从 /login/home 起步，能正确处理「默认已登录」这种识别不到 SteamID 的情况。
     tracing::info!("open_login_webview: creating webview...");
-    let window = tauri::WebviewWindowBuilder::new(
+    let mut builder = tauri::WebviewWindowBuilder::new(
         app_handle,
         "steam-login",
         tauri::WebviewUrl::External(
@@ -761,62 +770,66 @@ pub fn open_login_webview(app_handle: &tauri::AppHandle) -> Result<(), String> {
     .title("Steam 登录 · 支持扫码")
     .inner_size(900.0, 750.0)
     .min_inner_size(600.0, 500.0)
-    .resizable(true)
-    .center()
-    .on_navigation(move |nav_url| {
-        let url_str = nav_url.as_str();
-        // 抓取回传：注入脚本把全库塞进同源哨兵 URL → 解析 → 发前端导入 → 取消该次导航。
-        // 同一通道也承载探针（?p=1&rg=...），便于诊断 rgGames 是否就绪。
-        if url_str.contains(INGEST_SENTINEL) {
-            if let Some(games) = parse_scraped_games(url_str) {
-                let count = games.as_array().map(|a| a.len()).unwrap_or(0);
-                let sid = steam_id_nav
-                    .lock()
-                    .ok()
-                    .map(|g| g.clone())
-                    .unwrap_or_default();
-                tracing::info!(count, "Steam owned games scraped from logged-in session");
-                let _ = app.emit(
-                    "moe://steam-session-games",
-                    serde_json::json!({ "steam_id": sid, "games": games }),
-                );
-                ingested_nav.store(true, Ordering::SeqCst);
-            } else {
-                let q = url::Url::parse(url_str)
-                    .ok()
-                    .and_then(|u| u.query().map(|s| s.to_string()))
-                    .unwrap_or_default();
-                tracing::info!(query = %q, "Steam scrape probe/status (no data)");
+    .resizable(true);
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        builder = builder.center();
+    }
+    let window = builder
+        .on_navigation(move |nav_url| {
+            let url_str = nav_url.as_str();
+            // 抓取回传：注入脚本把全库塞进同源哨兵 URL → 解析 → 发前端导入 → 取消该次导航。
+            // 同一通道也承载探针（?p=1&rg=...），便于诊断 rgGames 是否就绪。
+            if url_str.contains(INGEST_SENTINEL) {
+                if let Some(games) = parse_scraped_games(url_str) {
+                    let count = games.as_array().map(|a| a.len()).unwrap_or(0);
+                    let sid = steam_id_nav
+                        .lock()
+                        .ok()
+                        .map(|g| g.clone())
+                        .unwrap_or_default();
+                    tracing::info!(count, "Steam owned games scraped from logged-in session");
+                    let _ = app.emit(
+                        "moe://steam-session-games",
+                        serde_json::json!({ "steam_id": sid, "games": games }),
+                    );
+                    ingested_nav.store(true, Ordering::SeqCst);
+                } else {
+                    let q = url::Url::parse(url_str)
+                        .ok()
+                        .and_then(|u| u.query().map(|s| s.to_string()))
+                        .unwrap_or_default();
+                    tracing::info!(query = %q, "Steam scrape probe/status (no data)");
+                }
+                return false;
             }
-            return false;
-        }
-        if let Some(sid) = extract_steam_id_from_url(url_str) {
-            if let Ok(mut s) = steam_id_nav.lock() {
-                *s = sid.clone();
+            if let Some(sid) = extract_steam_id_from_url(url_str) {
+                if let Ok(mut s) = steam_id_nav.lock() {
+                    *s = sid.clone();
+                }
+                if !emitted_nav.swap(true, Ordering::SeqCst) {
+                    tracing::info!(%sid, "Steam login detected via navigation");
+                    let _ = app.emit(
+                        "moe://steam-login",
+                        serde_json::json!({
+                            "steam_id": sid,
+                            "profile_url": url_str,
+                        }),
+                    );
+                    let _ = app.emit(
+                        "moe://steam-progress",
+                        serde_json::json!({
+                            "steam_id": sid,
+                            "status": "login_success",
+                            "message": "登录成功，正在读取游戏库…"
+                        }),
+                    );
+                }
             }
-            if !emitted_nav.swap(true, Ordering::SeqCst) {
-                tracing::info!(%sid, "Steam login detected via navigation");
-                let _ = app.emit(
-                    "moe://steam-login",
-                    serde_json::json!({
-                        "steam_id": sid,
-                        "profile_url": url_str,
-                    }),
-                );
-                let _ = app.emit(
-                    "moe://steam-progress",
-                    serde_json::json!({
-                        "steam_id": sid,
-                        "status": "login_success",
-                        "message": "登录成功，正在读取游戏库…"
-                    }),
-                );
-            }
-        }
-        true
-    })
-    .build()
-    .map_err(|e| format!("创建 Steam 登录窗口失败: {}", e))?;
+            true
+        })
+        .build()
+        .map_err(|e| format!("创建 Steam 登录窗口失败: {}", e))?;
 
     tracing::info!("open_login_webview: webview created, starting background poll");
 

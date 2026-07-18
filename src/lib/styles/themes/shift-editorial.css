@@ -1,0 +1,95 @@
+/* 素纸编集 · 设计语言见 plans/theme-specs/shift-editorial.md
+   全套换肤：c-*（scheme-c 消费面）+ 语义色 + 控件签名。
+   选择器 html[data-theme-pack] 与 scheme-c 同特异性，靠 main.ts 末位导入取胜。 */
+html[data-theme-pack="shift-editorial"] {
+  /* ── 纸面调色板（scheme-c c-* 面） ── */
+  --c-black: #f1ede4;
+  --c-void: #f7f4ee;
+  --c-surface-1: #fbf9f4;
+  --c-surface-2: #f1ede4;
+  --c-surface-3: #e9e3d7;
+  --c-paper: #18150f;
+  --c-muted: #6e675a;
+  --c-dim: #a39a86;
+  --c-line: rgba(24, 21, 15, .16);
+  --c-line-strong: rgba(24, 21, 15, .38);
+  --c-accent: #d4293c;
+  --c-accent-hi: #e8485a;
+
+  /* ── 语义色 ── */
+  --accent: #d4293c;
+  --accent-hi: #e8485a;
+  --accent-lo: rgba(212, 41, 60, .10);
+  --accent-ring: rgba(212, 41, 60, .45);
+  --bg-void: #f1ede4;
+  --bg-deep: #f7f4ee;
+  --bg: #f2eee6;
+  --bg-base: #f2eee6;
+  --bg-surface: #fbf9f4;
+  --bg-secondary: #ece7dc;
+  --bg-elev: #fffefa;
+  --bg-card: #fffdf8;
+  --bg-hover: #e7e1d4;
+  --bg-active: rgba(212, 41, 60, .12);
+  --text-primary: #18150f;
+  --text-secondary: #4a4438;
+  --text-muted: #8a8272;
+  --text-dim: #b0a894;
+  --border: rgba(24, 21, 15, .14);
+  --border-hover: rgba(24, 21, 15, .28);
+  --border-glass: rgba(24, 21, 15, .10);
+
+  /* ── 形态与质感：发丝线、微圆角、去阴影 ── */
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 6px;
+  --focus-ring: 0 0 0 2px #f7f4ee, 0 0 0 4px rgba(212, 41, 60, .55);
+  --glass-bg: rgba(247, 244, 238, .94);
+  --glass-border: rgba(24, 21, 15, .16);
+  --glass-highlight: inset 0 1px rgba(255, 255, 255, .5);
+  --shadow-card: 0 1px 0 rgba(24, 21, 15, .05);
+  --shadow-hover: 0 3px 12px rgba(24, 21, 15, .10);
+
+  /* ── 壁纸舞台 ── */
+  --mascot-accent: #1a1a1a;
+  --theme-ambient: rgba(212, 41, 60, .08);
+  --wallpaper-scrim:
+    linear-gradient(90deg, rgba(250,248,243,.88) 0%, rgba(250,248,243,.62) 47%, rgba(250,248,243,.25) 100%),
+    linear-gradient(0deg, rgba(250,248,243,.85), transparent 50%);
+  --wallpaper-brightness: .96;
+  --wallpaper-saturation: .85;
+}
+
+/* ── 控件签名：编辑发丝线 ── */
+html[data-theme-pack="shift-editorial"] .ui-button {
+  border-radius: 2px;
+  box-shadow: none;
+  letter-spacing: .08em;
+  font-weight: 650;
+}
+html[data-theme-pack="shift-editorial"] .ui-button--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+html[data-theme-pack="shift-editorial"] .ui-button--primary:hover:not(:disabled) {
+  background: var(--accent-hi);
+  border-color: var(--accent-hi);
+  transform: none;
+}
+html[data-theme-pack="shift-editorial"] .ui-card {
+  border-radius: 3px;
+  box-shadow: var(--shadow-card);
+}
+html[data-theme-pack="shift-editorial"] .ui-input,
+html[data-theme-pack="shift-editorial"] .ui-search__input,
+html[data-theme-pack="shift-editorial"] input,
+html[data-theme-pack="shift-editorial"] select,
+html[data-theme-pack="shift-editorial"] textarea {
+  border-radius: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme-pack="shift-editorial"] .ui-button { transition: none; }
+}
+:global([data-motion="reduce"]) html[data-theme-pack="shift-editorial"] .ui-button { transition: none; }

@@ -84,4 +84,10 @@
     padding: 8px; cursor: pointer; display: flex; transition: all 0.15s;
   }
   .view-btn.active, .view-btn:hover { color: var(--text-primary); border-color: var(--border-hover); background: var(--bg-hover); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .search-box, .view-btn { transition: none; }
+  }
+  :global([data-motion="reduce"]) .search-box,
+  :global([data-motion="reduce"]) .view-btn { transition: none; }
 </style>

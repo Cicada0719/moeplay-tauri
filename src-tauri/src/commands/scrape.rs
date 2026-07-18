@@ -14,6 +14,7 @@ pub async fn scrape_games(
     vndb: bool,
     bangumi: bool,
     dlsite: Option<bool>,
+    getchu: Option<bool>,
     touchgal: Option<bool>,
     erogamescape: Option<bool>,
     ymgal: Option<bool>,
@@ -24,6 +25,7 @@ pub async fn scrape_games(
     queue: State<'_, TaskQueue>,
 ) -> Result<ScrapeResponse, String> {
     let dlsite = dlsite.unwrap_or(false);
+    let getchu = getchu.unwrap_or(false);
     let touchgal = touchgal.unwrap_or(false);
     let erogamescape = erogamescape.unwrap_or(false);
     let ymgal = ymgal.unwrap_or(false);
@@ -34,6 +36,7 @@ pub async fn scrape_games(
     if !vndb
         && !bangumi
         && !dlsite
+        && !getchu
         && !touchgal
         && !erogamescape
         && !ymgal
@@ -75,6 +78,7 @@ pub async fn scrape_games(
         vndb,
         bangumi,
         dlsite,
+        getchu,
         touchgal,
         erogamescape,
         ymgal,
@@ -155,6 +159,7 @@ pub async fn scrape_game(
     vndb: bool,
     bangumi: bool,
     dlsite: Option<bool>,
+    getchu: Option<bool>,
     touchgal: Option<bool>,
     erogamescape: Option<bool>,
     ymgal: Option<bool>,
@@ -165,6 +170,7 @@ pub async fn scrape_game(
     secret_store: State<'_, SecretStore>,
 ) -> Result<ScrapeResponse, String> {
     let dlsite = dlsite.unwrap_or(false);
+    let getchu = getchu.unwrap_or(false);
     let touchgal = touchgal.unwrap_or(false);
     let erogamescape = erogamescape.unwrap_or(false);
     let ymgal = ymgal.unwrap_or(false);
@@ -175,6 +181,7 @@ pub async fn scrape_game(
     if !vndb
         && !bangumi
         && !dlsite
+        && !getchu
         && !touchgal
         && !erogamescape
         && !ymgal
@@ -216,6 +223,7 @@ pub async fn scrape_game(
         vndb,
         bangumi,
         dlsite,
+        getchu,
         touchgal,
         erogamescape,
         ymgal,
@@ -372,6 +380,9 @@ pub async fn fetch_full_detail(source: String, source_id: String) -> Result<Scra
         "dlsite" => scraper::dlsite::get_product(&source_id)
             .await
             .map_err(|e| e.to_string()),
+        "getchu" => scraper::getchu::get_product(&source_id)
+            .await
+            .map_err(|e| e.to_string()),
         "erogamescape" | "egs" => scraper::erogamescape::get_game(&source_id)
             .await
             .map_err(|e| e.to_string()),
@@ -470,6 +481,7 @@ pub async fn scrape_game_merged(
             settings.vndb_enabled,
             settings.bangumi_enabled,
             settings.dlsite_enabled,
+            settings.getchu_enabled,
             settings.touchgal_enabled,
             settings.erogamescape_enabled,
             settings.ymgal_enabled,

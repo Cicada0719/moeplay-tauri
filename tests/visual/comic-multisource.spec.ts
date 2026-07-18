@@ -33,6 +33,7 @@ const baoziDetailHtml = `
 
 const baoziChapterHtml = `
   <div class="comic-contain"><div><amp-img src="https://img.test/baozi-page-1.jpg"></amp-img></div></div>
+  <div class="comic-contain"><div><amp-img src="https://img.test/baozi-page-2.jpg"></amp-img></div></div>
 `;
 
 const dm5Html = `
@@ -82,7 +83,7 @@ test("v0.12 comic auto mode renders isolated parallel source sections", async ({
     };
   }, { mockSettings: settings, baoziSearchHtml: baoziHtml, dm5SearchHtml: dm5Html, detail: baoziDetailHtml, chapter: baoziChapterHtml });
 
-  await page.goto("/?skip_wizard");
+  await page.goto("/?skip_wizard&platform=android");
   await page.getByRole("button", { name: "漫画" }).click();
   const sourceTabs = page.getByRole("tablist", { name: "普通漫画源" });
   const autoTab = sourceTabs.getByRole("tab", { name: /自动/ });
@@ -120,9 +121,22 @@ test("v0.12 comic auto mode renders isolated parallel source sections", async ({
   await expect(reader).toBeVisible();
   await expect(page.locator('img[src="https://img.test/baozi-page-1.jpg"]')).toBeVisible();
 
+  for (const viewport of [{ width: 360, height: 800 }, { width: 800, height: 360 }]) {
+    await page.setViewportSize(viewport);
+    await expect(reader).toBeVisible();
+    const readerBox = await reader.boundingBox();
+    expect(readerBox?.width).toBeLessThanOrEqual(viewport.width);
+    expect(readerBox?.height).toBeLessThanOrEqual(viewport.height);
+  }
+
   await page.keyboard.press("d");
   await expect(reader).toHaveAttribute("data-reading-direction", "left-to-right");
-  await page.keyboard.press("+");
+  const readerScroll = reader.locator(".reader-scroll");
+  await readerScroll.dispatchEvent("pointerdown", { pointerId: 7, pointerType: "touch", clientX: 300, clientY: 160 });
+  await readerScroll.dispatchEvent("pointerup", { pointerId: 7, pointerType: "touch", clientX: 180, clientY: 164 });
+  await expect(reader.locator(".chapter-pos")).toContainText("页面 2 / 2");
+  await expect(page.locator('img[src="https://img.test/baozi-page-2.jpg"]')).toBeVisible();
+  await page.getByRole("button", { name: "放大漫画" }).click();
   await expect(page.getByLabel("当前缩放")).toHaveText("110%");
 
   await page.keyboard.press("Escape");

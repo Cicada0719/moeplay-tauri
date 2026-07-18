@@ -41,24 +41,33 @@ pub fn add_game_by_path(db: State<'_, Database>, path: String) -> Result<Game, S
 
 #[tauri::command]
 pub fn add_game_by_dialog(db: State<'_, Database>) -> Result<Game, String> {
-    let file = rfd::FileDialog::new()
-        .set_title("选择游戏可执行文件")
-        .add_filter("可执行文件", &["exe", "bat", "cmd", "lnk", "msi"])
-        .add_filter("所有文件", &["*"])
-        .pick_file();
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let _ = db;
+        Err("游戏文件选择器仅支持桌面端".to_string())
+    }
 
-    match file {
-        Some(path) => {
-            let name = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("未知游戏")
-                .to_string();
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let file = rfd::FileDialog::new()
+            .set_title("选择游戏可执行文件")
+            .add_filter("可执行文件", &["exe", "bat", "cmd", "lnk", "msi"])
+            .add_filter("所有文件", &["*"])
+            .pick_file();
 
-            let game = Game::new(name, path.to_string_lossy().to_string());
-            db.add_game(game)
+        match file {
+            Some(path) => {
+                let name = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("未知游戏")
+                    .to_string();
+
+                let game = Game::new(name, path.to_string_lossy().to_string());
+                db.add_game(game)
+            }
+            None => Err("已取消".to_string()),
         }
-        None => Err("已取消".to_string()),
     }
 }
 

@@ -160,4 +160,9 @@
     box-shadow: 0 0 8px rgba(232,85,127,0.4);
   }
   .vk-key.wide { min-width: 80px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .vk-key { transition: none; }
+  }
+  :global([data-motion="reduce"]) .vk-key { transition: none; }
 </style>

@@ -4,12 +4,14 @@
   import { cubicOut } from "svelte/easing";
   import { shortcut } from "@svelte-put/shortcut";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { onBackButtonPress } from "@tauri-apps/api/app";
+  import { invoke as tauriInvoke } from "@tauri-apps/api/core";
   import { gameStore } from "./lib/stores/games.svelte";
   import { settingsStore } from "./lib/stores/settings.svelte";
   import { uiStore } from "./lib/stores/ui.svelte";
   import { continueStore } from "./lib/stores/continue.svelte";
   import SwitchHome from "./lib/components/switch/SwitchHome.svelte";
-  import { GlobalTopNavigation } from "./lib/shell";
+  import { GlobalTopNavigation, MobileAppShell } from "./lib/shell";
   import Notifications from "./lib/components/Notifications.svelte";
   import WallpaperStage from "./lib/components/WallpaperStage.svelte";
   import BigPicturePage from "./lib/components/BigPicturePage.svelte";
@@ -33,6 +35,7 @@
   import { invokeCmd } from "./lib/api/core";
   import { wallpaperStore } from "./lib/stores/wallpapers.svelte";
   import { nativeFullscreenHealthy, reassertNativeFullscreen } from "./lib/utils/window-fullscreen";
+  import { isViewSupportedOnPlatform, orientationStore, platformStore } from "./lib/platform";
 
   const TOOLS_DRAWER_ID = "tools-drawer";
   const SHORTCUT_HELP_OVERLAY_ID = "shortcut-help";
@@ -40,7 +43,8 @@
   const UPDATE_OVERLAY_ID = "update-dialog";
 
   continueStore.start();
-  const isBigPicture = $derived(uiStore.bigPictureActive);
+  const isAndroid = $derived(platformStore.isAndroid);
+  const isBigPicture = $derived(uiStore.bigPictureActive && !isAndroid);
   const toolsDrawerOpen = $derived(uiStore.drawerOpen && uiStore.drawerView === "tools");
   const managementViews = new Set(["scraper","tasks","sources","downloads","backup","stats","diagnostics","settings","steam-import","emulator"]);
   const wallpaperSurface = $derived(managementViews.has(uiStore.currentView) ? "management" : uiStore.currentView === "game-detail" ? "immersive" : "browse");
@@ -97,6 +101,7 @@
 
   function pickDock(view: string) {
     if (view === "__bigpicture") {
+      if (isAndroid) return;
       closeToolsDrawer();
       uiStore.setBigPicture(true);
       return;
@@ -147,8 +152,12 @@
     queueMicrotask(focus);
   }
 
-  function layeredBack(): boolean {
+  async function layeredBack(): Promise<boolean> {
     if (uiStore.showFirstRunWizard) return true;
+    if (document.fullscreenElement) {
+      await document.exitFullscreen().catch(() => {});
+      return true;
+    }
     const result = handleBackNavigation();
     if (result !== "none") return true;
     if (isBigPicture) {
@@ -160,7 +169,9 @@
 
   function onKeydown(event: KeyboardEvent) {
     if (event.key !== "Escape" || event.defaultPrevented) return;
-    if (layeredBack()) event.preventDefault();
+    void layeredBack().then((handled) => {
+      if (handled) event.preventDefault();
+    });
   }
 
   const shortcutActions: ShortcutActions = {
@@ -179,19 +190,24 @@
     },
     goBack() {
       if (isBigPicture) return;
-      layeredBack();
+      void layeredBack();
     },
   };
 
   const shortcutParameter = $derived(buildShortcutParameter(shortcutActions));
 
   $effect(() => {
+    if (isAndroid && !isViewSupportedOnPlatform(uiStore.currentView, platformStore.capabilities)) {
+      navigateTo("home", { replace: true });
+      return;
+    }
     if (uiStore.currentView === "game-detail" && !gameStore.selectedGame && gameStore.games[0]) {
       gameStore.selectGame(gameStore.games[0].id);
     }
   });
 
   async function toggleWindowFullscreen() {
+    if (!platformStore.capabilities.desktopWindowControl) return;
     try {
       const win = appWindow();
       if (!win) return;
@@ -237,6 +253,7 @@
   });
 
   onMount(() => {
+    void platformStore.initialize().then(() => orientationStore.initialize());
     const releaseMotion = motionStore.initialize();
     if (!booted) {
       booted = true;
@@ -244,12 +261,24 @@
       settingsStore.load();
     }
     const releaseRouter = initRouter();
-    const win = appWindow();
+    let androidBackListener: { unregister: () => Promise<void> } | null = null;
+    void platformStore.initialize().then(async () => {
+      if (!platformStore.isAndroid) return;
+      androidBackListener = await onBackButtonPress(() => {
+        void layeredBack().then((handled) => {
+          if (handled) return;
+          if (uiStore.currentView !== "home") navigateTo("home", { replace: true });
+          else void tauriInvoke("plugin:app|exit");
+        });
+      }).catch(() => null);
+    });
+    const win = platformStore.capabilities.desktopWindowControl ? appWindow() : null;
     win?.isFullscreen().then(value => { isWindowFullscreen = value; }).catch(() => {});
     window.addEventListener("keydown", onKeydown);
     void taskBadgeStore.load();
     const taskBadgeTimer = window.setInterval(() => void taskBadgeStore.refresh(), 5000);
-    const updateTimer = setTimeout(async () => {
+    const updateTimer = window.setTimeout(async () => {
+      if (!platformStore.capabilities.desktopUpdater) return;
       try {
         const result = await invokeCmd<{ available: boolean }>("start_update_check_task");
         if (result.available) showUpdateDialog = true;
@@ -257,8 +286,10 @@
         // The backend records a redacted failed task; startup remains quiet.
       }
     }, 5000);
-    _detachGamepad = attachGamepad({
-      back: layeredBack,
+    if (!isAndroid) _detachGamepad = attachGamepad({
+      back: () => {
+        void layeredBack();
+      },
       start: () => {
         if (!isBigPicture) uiStore.setBigPicture(true);
       },
@@ -266,6 +297,7 @@
     return () => {
       releaseMotion();
       releaseRouter();
+      void androidBackListener?.unregister();
       clearTimeout(updateTimer);
       clearInterval(taskBadgeTimer);
       unsubscribeTaskBadge();
@@ -287,6 +319,7 @@
     if (!settingsStore.loaded) return;
     _startupApplied = true;
 
+    if (!platformStore.capabilities.desktopWindowControl) return;
     const mode = settingsStore.settings.startup_mode ?? "fullscreen";
     const win = appWindow();
     if (mode === "big-picture") {
@@ -309,7 +342,7 @@
   const _skipWizard = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("skip_wizard");
   let _firstRunWizardShown = $state(false);
   $effect(() => {
-    if (_skipWizard || _firstRunWizardShown) return;
+    if (_skipWizard || _firstRunWizardShown || isAndroid) return;
     if (!booted || gameStore.loading || settingsStore.loading) return;
     if (settingsStore.settings && gameStore.games.length === 0 && !(settingsStore.settings.watch_dirs?.length)) {
       _firstRunWizardShown = true;
@@ -323,29 +356,40 @@
 <div
   class="app-container"
   class:fullscreen={isBigPicture}
+  class:mobile-shell={isAndroid}
   data-testid="app-shell"
   data-ui-ready={booted ? "true" : "false"}
 >
   {#if !isBigPicture}
     <WallpaperStage surface={wallpaperSurface} />
 
-    <div class="global-top-navigation">
-      <GlobalTopNavigation
+    {#if isAndroid}
+      <MobileAppShell
         currentView={uiStore.currentView}
-        contentItems={DOCK_ITEMS.filter(item => item.surface === "content")}
         onNavigate={pickDock}
         onSearch={focusCurrentSearch}
-        onStatus={() => navigateTo("tasks")}
-        onTools={openToolsDrawer}
-        onSettings={() => navigateTo("settings")}
-        onToggleFullscreen={toggleWindowFullscreen}
-        onBigPicture={() => pickDock("__bigpicture")}
-        windowFullscreen={isWindowFullscreen}
-        toolsOpen={toolsDrawerOpen}
         {taskActiveCount}
         {taskFailedCount}
       />
-    </div>
+    {:else}
+      <div class="global-top-navigation">
+        <GlobalTopNavigation
+          currentView={uiStore.currentView}
+          contentItems={DOCK_ITEMS.filter(item => item.surface === "content")}
+          onNavigate={pickDock}
+          onSearch={focusCurrentSearch}
+          onStatus={() => navigateTo("tasks")}
+          onTools={openToolsDrawer}
+          onSettings={() => navigateTo("settings")}
+          onToggleFullscreen={toggleWindowFullscreen}
+          onBigPicture={() => pickDock("__bigpicture")}
+          windowFullscreen={isWindowFullscreen}
+          toolsOpen={toolsDrawerOpen}
+          {taskActiveCount}
+          {taskFailedCount}
+        />
+      </div>
+    {/if}
 
     <div id="main-content" class="main-content" data-testid="main-content">
       {#key uiStore.currentView}
@@ -353,7 +397,7 @@
           class="view-wrapper"
           data-route-root
           data-route-view={uiStore.currentView}
-          data-module-style={uiStore.currentView === "home" || uiStore.currentView === "game-detail" ? "cinematic" : uiStore.currentView === "anime" ? "editorial" : uiStore.currentView === "comic" ? "kinetic" : "system"}
+          data-module-style={uiStore.currentView === "home" || uiStore.currentView === "game-detail" ? "cinematic" : uiStore.currentView === "anime" || uiStore.currentView === "novel" ? "editorial" : uiStore.currentView === "comic" ? "kinetic" : "system"}
           aria-label={getViewLabel(uiStore.currentView)}
           tabindex="-1"
           in:fade={{ duration: 240, easing: cubicOut }}
@@ -403,6 +447,10 @@
             {#await import("./lib/components/ComicPage.svelte") then { default: Comp }}
               <Comp />
             {/await}
+          {:else if uiStore.currentView === "novel"}
+            {#await import("./lib/components/NovelPage.svelte") then { default: Comp }}
+              <Comp />
+            {/await}
           {:else if uiStore.currentView === "diagnostics"}
             {#await import("./lib/components/DiagnosticsPage.svelte") then { default: Comp }}
               <Comp />
@@ -430,6 +478,7 @@
       {/key}
     </div>
 
+    {#if !isAndroid}
     <Drawer
       id={TOOLS_DRAWER_ID}
       open={toolsDrawerOpen}
@@ -458,7 +507,7 @@
         {/each}
       </div>
     </Drawer>
-
+    {/if}
 
   {:else}
     <BigPicturePage />
@@ -477,9 +526,10 @@
   {/await}
 {/if}
 
-<ShortcutHelp open={showShortcutHelp} onclose={() => setShortcutHelp(false)} />
-
-<UpdateDialog bind:open={showUpdateDialog} />
+{#if !isAndroid}
+  <ShortcutHelp open={showShortcutHelp} onclose={() => setShortcutHelp(false)} />
+  <UpdateDialog bind:open={showUpdateDialog} />
+{/if}
 
 <Notifications />
 
@@ -495,9 +545,12 @@
     background: var(--c-black, #050505);
   }
   .app-container.fullscreen { display: block; background: #050914; }
+  .app-container.mobile-shell { display: block; height: 100dvh; min-height: 100svh; }
+  .app-container.mobile-shell .main-content { position: absolute; inset: calc(56px + env(safe-area-inset-top)) 0 calc(64px + env(safe-area-inset-bottom)); overflow: hidden; }
+  .app-container.mobile-shell .view-wrapper { touch-action: pan-x pan-y; }
   .global-top-navigation { grid-column: 1; grid-row: 1; position: relative; z-index: 95; min-width: 0; }
   .main-content { grid-column: 1; grid-row: 2; min-width: 0; min-height: 0; position: relative; z-index: 1; overflow: hidden; }
-  .view-wrapper { position: absolute; inset: 0; display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; z-index: 1; }
+  .view-wrapper { position: absolute; inset: 0; display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; outline: none; z-index: 1; }
 
   .tools-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--c-line, var(--border)); border-left: 1px solid var(--c-line, var(--border)); }
   .tool-cell { min-height: 94px; display: grid; grid-template-columns: 34px 1fr; align-items: center; gap: 12px; padding: 14px 16px; border: 0; border-right: 1px solid var(--c-line, var(--border)); border-bottom: 1px solid var(--c-line, var(--border)); border-radius: 0; background: transparent; color: var(--c-muted, var(--text-secondary)); text-align: left; cursor: pointer; transition: color 160ms ease, background 160ms ease; }
@@ -506,6 +559,10 @@
   .tool-icon { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid var(--c-line, var(--border)); border-radius: 0; }
   .tool-label { font: 650 12px/1 var(--font-ui); letter-spacing: .08em; }
   .tool-cell:focus-visible { outline: 1px solid var(--c-paper, white); outline-offset: -3px; }
+
+  @media (orientation: landscape) and (max-height: 600px) {
+    .app-container.mobile-shell .main-content { inset: 0 0 0 calc(72px + env(safe-area-inset-left)); }
+  }
 
   @media (max-width: 760px) {
     .app-container { grid-template-columns: minmax(0, 1fr); grid-template-rows: 56px minmax(0, 1fr); }

@@ -9,6 +9,7 @@
     "core:default",
     "opener:default",
     "core:window:default",
+    "allow-get-platform-capabilities",
     "allow-get-games",
     "allow-get-game",
     "allow-search-games",
@@ -262,6 +263,9 @@
     "allow-comic-my-comments",
     "allow-manga-fetch-json",
     "allow-manga-fetch-text",
+    "allow-novel-search",
+    "allow-novel-detail",
+    "allow-novel-read-chapter",
     "allow-anime-get-rules",
     "allow-anime-set-rules",
     "allow-anime-add-rule",
@@ -358,6 +362,11 @@
     "allow-ai-v2-cancel-task",
     "allow-ai-changes-preview",
     "allow-ai-changes-apply",
-    "allow-ai-changes-undo"
+    "allow-ai-changes-undo",
+    "allow-merge-sync-envelopes",
+    "allow-get-sync-snapshot-path"
+  ],
+  "platforms": [
+    "windows"
   ]
 }

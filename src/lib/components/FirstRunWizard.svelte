@@ -3,6 +3,7 @@
   import { gameStore } from "../stores/games.svelte";
   import { settingsStore } from "../stores/settings.svelte";
   import { uiStore } from "../stores/ui.svelte";
+  import { i18n } from "../stores/i18n.svelte";
   import { pickDirectory, previewDirectoryForGames, importSelectedCandidates, secretSet, secretStatus } from "../api";
   import type { ImportPreviewCandidate } from "../api";
   import Icon from "./Icon.svelte";
@@ -35,11 +36,11 @@
   let srcSteam = $state(settingsStore.settings?.steam_enabled ?? true);
   let srcPcgw = $state(settingsStore.settings?.pcgw_enabled ?? true);
 
-  const steps = [
-    { icon: "folder", title: "欢迎使用萌游", desc: "选择包含 galgame 的文件夹，我们会自动扫描并导入游戏库。" },
-    { icon: "star", title: "配置 AI 增强（可选）", desc: "AI 用于翻译和智能补全元数据，跳过也可正常使用" },
-    { icon: "globe", title: "选择数据源", desc: "启用刮削源，游戏信息将自动从这些平台获取" },
-  ];
+  const steps = $derived([
+    { icon: "folder", title: i18n.t("firstrun.welcome_title"), desc: i18n.t("firstrun.welcome_desc") },
+    { icon: "star", title: i18n.t("firstrun.ai_title"), desc: i18n.t("firstrun.ai_desc") },
+    { icon: "globe", title: i18n.t("firstrun.sources_title"), desc: i18n.t("firstrun.sources_desc") },
+  ]);
 
   const sourceItems = [
     { key: "vndb",      label: "VNDB",            get: () => srcVndb,      set: (v: boolean) => srcVndb = v },
@@ -180,21 +181,21 @@
   }
 </script>
 
-<div class="wizard-overlay aura-page" data-aura-echo="SETUP" role="dialog" tabindex="-1" aria-label="首次启动向导">
-  <div class="wizard aura-panel aura-bevel">
-    <header class="aura-head">
+<div class="wizard-overlay" role="dialog" tabindex="-1" aria-label={i18n.t("firstrun.overlay_aria")}>
+  <div class="wizard">
+    <header class="wizard-head">
       <div class="step-icon">
         <Icon name={steps[step].icon} size={34} stroke={1.25} />
       </div>
       <div class="head-copy">
-        <p class="aura-kicker">First Run</p>
-        <h2 class="aura-title">{steps[step].title}</h2>
+        <p class="wizard-kicker">First Run</p>
+        <h2 class="wizard-title">{steps[step].title}</h2>
         <p class="desc">{steps[step].desc}</p>
       </div>
-      <div class="step-count" aria-label="当前步骤">
-        <strong class="aura-num">{String(step + 1).padStart(2, "0")}</strong>
+      <div class="step-count" aria-label={i18n.t("firstrun.step_aria")}>
+        <strong class="step-num">{String(step + 1).padStart(2, "0")}</strong>
         <span>/</span>
-        <span class="aura-num">{String(steps.length).padStart(2, "0")}</span>
+        <span class="step-num">{String(steps.length).padStart(2, "0")}</span>
       </div>
     </header>
 
@@ -217,30 +218,30 @@
           <div class="dir-chip">
             <Icon name="folder" size={14} />
             <span class="dir-path">{dir}</span>
-            <button class="dir-remove" onclick={() => removeFolder(dir)} aria-label="移除"><Icon name="x" size={12} /></button>
+            <button class="dir-remove" onclick={() => removeFolder(dir)} aria-label={i18n.t("firstrun.remove_aria")}><Icon name="x" size={12} /></button>
           </div>
         {/each}
         {#if scanDirs.length === 0}
-          <p class="dir-hint">尚未选择任何文件夹 — 点击下方按钮添加，或拖拽文件夹到此处</p>
+          <p class="dir-hint">{i18n.t("firstrun.dir_hint")}</p>
         {/if}
       </div>
 
       <button class="btn-primary" onclick={addFolder} disabled={scanRunning}>
-        <Icon name="folder" size={18} /> 选择文件夹
+        <Icon name="folder" size={18} /> {i18n.t("firstrun.pick_folder")}
       </button>
 
       {#if scanRunning && !previewDone}
-        <div class="scan-status">正在扫描 {scanDirs.length} 个目录...</div>
+        <div class="scan-status">{i18n.t("firstrun.scanning_dirs", { count: scanDirs.length })}</div>
       {:else if scanResult}
         <div class="scan-status success">
-          导入了 {scanResult.imported} 个游戏，跳过 {scanResult.skipped} 个
+          {i18n.t("firstrun.import_result", { imported: scanResult.imported, skipped: scanResult.skipped })}
         </div>
       {/if}
 
       {#if previewDone && candidates.length > 0}
         <div class="candidate-panel">
           <div class="candidate-head">
-            <span>发现 {candidates.length} 个候选</span>
+            <span>{i18n.t("firstrun.candidates_found", { count: candidates.length })}</span>
             <label class="candidate-toggle">
               <input
                 type="checkbox"
@@ -251,7 +252,7 @@
                   candidates = candidates.map((c) => ({ ...c, selected: checked }));
                 }}
               />
-              全选
+              {i18n.t("firstrun.select_all")}
             </label>
           </div>
           <div class="candidate-list">
@@ -266,39 +267,39 @@
                   <span class="candidate-engine">{c.engine}</span>
                 {/if}
                 {#if c.is_duplicate}
-                  <span class="candidate-dup">已存在</span>
+                  <span class="candidate-dup">{i18n.t("firstrun.dup")}</span>
                 {/if}
               </label>
             {/each}
           </div>
         </div>
       {:else if previewDone && candidates.length === 0}
-        <div class="scan-status">未检测到可导入的游戏。</div>
+        <div class="scan-status">{i18n.t("firstrun.none_found")}</div>
       {/if}
 
       <div class="actions">
-        <button class="btn-ghost" onclick={() => step = 1}>跳过</button>
+        <button class="btn-ghost" onclick={() => step = 1}>{i18n.t("firstrun.skip")}</button>
         {#if scanDirs.length > 0}
           {#if previewDone}
-            <button class="btn-ghost" onclick={previewFolders} disabled={scanRunning}>重新扫描</button>
+            <button class="btn-ghost" onclick={previewFolders} disabled={scanRunning}>{i18n.t("firstrun.rescan")}</button>
             <button class="btn-primary" onclick={importSelected} disabled={scanRunning || candidates.every((c) => !c.selected)}>
-              导入选中
+              {i18n.t("firstrun.import_selected")}
             </button>
           {:else}
-            <button class="btn-ghost" onclick={previewFolders} disabled={scanRunning}>扫描预览</button>
+            <button class="btn-ghost" onclick={previewFolders} disabled={scanRunning}>{i18n.t("firstrun.scan_preview")}</button>
           {/if}
         {/if}
-        <button class="btn-primary" onclick={() => step = 1} disabled={scanRunning}>下一步</button>
+        <button class="btn-primary" onclick={() => step = 1} disabled={scanRunning}>{i18n.t("firstrun.next")}</button>
       </div>
 
     <!-- Step 1: AI config -->
     {:else if step === 1}
       <div class="form">
-        <label for="wiz-api-url">API 地址</label>
+        <label for="wiz-api-url">{i18n.t("firstrun.api_url")}</label>
         <input id="wiz-api-url" type="text" bind:value={aiUrl} onblur={refreshAiStatus} placeholder="https://api.openai.com/v1/chat/completions" class="input" />
-        <label for="wiz-api-key">API Key（{aiConfigured ? "已配置；留空保持" : "未配置"}）</label>
+        <label for="wiz-api-key">API Key（{aiConfigured ? i18n.t("firstrun.api_key_configured") : i18n.t("firstrun.api_key_missing")}）</label>
         <input id="wiz-api-key" type="password" bind:value={aiKey} placeholder="sk-..." class="input" />
-        <label for="wiz-model">模型</label>
+        <label for="wiz-model">{i18n.t("firstrun.model")}</label>
         <select id="wiz-model" bind:value={aiModel} class="input">
           <option value="gpt-4o-mini">GPT-4o-mini</option>
           <option value="gpt-4o">GPT-4o</option>
@@ -309,9 +310,9 @@
       </div>
 
       <div class="actions">
-        <button class="btn-ghost" onclick={() => step = 0}>上一步</button>
-        <button class="btn-ghost" onclick={() => { aiKey = ""; step = 2; }}>跳过</button>
-        <button class="btn-primary" onclick={() => step = 2}>下一步</button>
+        <button class="btn-ghost" onclick={() => step = 0}>{i18n.t("firstrun.prev")}</button>
+        <button class="btn-ghost" onclick={() => { aiKey = ""; step = 2; }}>{i18n.t("firstrun.skip")}</button>
+        <button class="btn-primary" onclick={() => step = 2}>{i18n.t("firstrun.next")}</button>
       </div>
 
     <!-- Step 2: Data sources + finish -->
@@ -325,16 +326,16 @@
         {/each}
       </div>
 
-      <div class="finish-cta" aria-label="导入入口">
+      <div class="finish-cta" aria-label={i18n.t("firstrun.finish_aria")}>
         <button class="entry-card" onclick={() => scanDirs.length > 0 ? saveAndFinish("home") : step = 0} disabled={saving}>
           <Icon name="folder" size={20} />
-          <strong>{scanDirs.length > 0 ? "保存并扫描本地" : "添加本地目录"}</strong>
-          <span>从当前电脑的游戏文件夹开始建库</span>
+          <strong>{scanDirs.length > 0 ? i18n.t("firstrun.finish_local") : i18n.t("firstrun.add_local")}</strong>
+          <span>{i18n.t("firstrun.finish_local_desc")}</span>
         </button>
         <button class="entry-card" onclick={() => finishTo("steam-import")} disabled={saving}>
           <Icon name="download" size={20} />
-          <strong>Steam / Epic 导入</strong>
-          <span>同步平台库、游玩时长和封面</span>
+          <strong>{i18n.t("firstrun.finish_platform")}</strong>
+          <span>{i18n.t("firstrun.finish_platform_desc")}</span>
         </button>
       </div>
 
@@ -343,9 +344,9 @@
       {/if}
 
       <div class="actions">
-        <button class="btn-ghost" onclick={() => step = 1}>上一步</button>
+        <button class="btn-ghost" onclick={() => step = 1}>{i18n.t("firstrun.prev")}</button>
         <button class="btn-primary" onclick={() => saveAndFinish("home")} disabled={saving}>
-          {saving ? "保存中..." : "开始使用"}
+          {saving ? i18n.t("firstrun.saving") : i18n.t("firstrun.start")}
         </button>
       </div>
     {/if}
@@ -365,6 +366,10 @@
     animation: fadeInScale 0.35s ease-out;
     text-align: left;
     position: relative;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.018)), var(--bg-elev);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), var(--shadow-card);
     clip-path: polygon(0 0, calc(100% - 28px) 0, 100% 28px, 100% 100%, 0 100%);
   }
   .wizard::before {
@@ -374,11 +379,15 @@
     top: 0;
     width: 28px;
     height: 28px;
-    border-left: 1px solid var(--aura-border-strong);
+    border-left: 1px solid var(--accent-ring);
     background: var(--accent-lo);
     pointer-events: none;
   }
-  .aura-head {
+  .wizard-head {
+    position: relative;
+    z-index: 1;
+    min-width: 0;
+    padding: 28px 0 18px;
     display: grid;
     grid-template-columns: 48px minmax(0, 1fr) auto;
     align-items: start;
@@ -389,19 +398,43 @@
     height: 48px;
     border: 1px solid var(--border);
     border-radius: 8px;
-    background: var(--aura-inset);
+    background: var(--bg-deep);
     color: var(--accent);
     display: grid;
     place-items: center;
   }
-  .aura-kicker {
+  .wizard-kicker {
     margin: 0 0 6px;
     font-family: var(--font-mono);
     font-size: 0.72rem;
+    font-weight: 650;
+    letter-spacing: 0.14em;
+    line-height: 1.2;
     color: var(--accent);
     text-transform: uppercase;
   }
-  .aura-title { margin: 0; }
+  .wizard-title {
+    position: relative;
+    margin: 0;
+    padding-left: 14px;
+    color: var(--text-primary);
+    font-family: var(--font-display);
+    font-size: 24px;
+    font-weight: 750;
+    line-height: 1.15;
+    letter-spacing: 0;
+  }
+  .wizard-title::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 12%;
+    bottom: 12%;
+    width: 4px;
+    border-radius: 2px;
+    background: linear-gradient(180deg, var(--accent), var(--accent-hi));
+  }
+  .step-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
   .step-count {
     display: flex;
     align-items: baseline;
@@ -434,7 +467,6 @@
   .dot.done { background: var(--accent); }
   .line { width: 40px; height: 2px; background: var(--bg-hover); transition: all 0.3s; }
   .line.done { background: var(--accent); }
-  h2 { font-size: 1.2rem; font-weight: 650; color: var(--text-primary); }
   .desc { color: var(--text-secondary); font-size: 0.88rem; line-height: 1.55; max-width: 420px; margin: 6px 0 0; }
 
   .dir-list {
@@ -598,7 +630,7 @@
   }
 
   @media (max-width: 600px) {
-    .aura-head {
+    .wizard-head {
       grid-template-columns: 42px minmax(0, 1fr);
     }
     .step-count {
@@ -607,4 +639,29 @@
   }
 
   @keyframes fadeInScale { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .wizard { animation: none; }
+    .progress-track span,
+    .dot,
+    .line,
+    .input,
+    .btn-primary,
+    .btn-ghost,
+    .source-item,
+    .entry-card,
+    .candidate-row { transition: none; }
+    .entry-card:hover:not(:disabled) { transform: none; }
+  }
+  :global([data-motion="reduce"]) .wizard { animation: none; }
+  :global([data-motion="reduce"]) .progress-track span,
+  :global([data-motion="reduce"]) .dot,
+  :global([data-motion="reduce"]) .line,
+  :global([data-motion="reduce"]) .input,
+  :global([data-motion="reduce"]) .btn-primary,
+  :global([data-motion="reduce"]) .btn-ghost,
+  :global([data-motion="reduce"]) .source-item,
+  :global([data-motion="reduce"]) .entry-card,
+  :global([data-motion="reduce"]) .candidate-row { transition: none; }
+  :global([data-motion="reduce"]) .entry-card:hover:not(:disabled) { transform: none; }
 </style>

@@ -44,6 +44,7 @@
         s.bangumi_enabled,
         {
           dlsite: s.dlsite_enabled ?? true,
+          getchu: s.getchu_enabled ?? false,
           touchgal: s.touchgal_enabled ?? true,
           erogamescape: s.erogamescape_enabled ?? true,
           ymgal: s.ymgal_enabled ?? true,
@@ -149,6 +150,7 @@
           {#if settingsStore.settings.vndb_enabled}<span class="source-tag vndb">VNDB</span>{/if}
           {#if settingsStore.settings.bangumi_enabled}<span class="source-tag bangumi">Bangumi</span>{/if}
           {#if settingsStore.settings.dlsite_enabled ?? true}<span class="source-tag">DLsite</span>{/if}
+          {#if settingsStore.settings.getchu_enabled ?? false}<span class="source-tag">Getchu</span>{/if}
           {#if settingsStore.settings.touchgal_enabled ?? true}<span class="source-tag">TouchGAL</span>{/if}
           {#if settingsStore.settings.erogamescape_enabled ?? true}<span class="source-tag">EGS</span>{/if}
           {#if settingsStore.settings.ymgal_enabled ?? true}<span class="source-tag">Ymgal</span>{/if}
@@ -593,4 +595,10 @@
     transform: translateY(-1px);
     box-shadow: var(--shadow-sakura);
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    .search-btn, .result-item { transition: none; }
+  }
+  :global([data-motion="reduce"]) .search-btn,
+  :global([data-motion="reduce"]) .result-item { transition: none; }
 </style>

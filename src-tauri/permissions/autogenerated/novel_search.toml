@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-novel-search"
+description = "Enables the novel_search command without any pre-configured scope."
+commands.allow = ["novel_search"]
+
+[[permission]]
+identifier = "deny-novel-search"
+description = "Denies the novel_search command without any pre-configured scope."
+commands.deny = ["novel_search"]

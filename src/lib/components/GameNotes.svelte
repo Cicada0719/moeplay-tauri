@@ -92,4 +92,9 @@
   }
   .gn-textarea:focus { outline: none; border-color: var(--accent); }
   .gn-textarea::placeholder { color: var(--text-muted); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .gn-textarea { transition: none; }
+  }
+  :global([data-motion="reduce"]) .gn-textarea { transition: none; }
 </style>

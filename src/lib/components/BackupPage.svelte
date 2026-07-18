@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import Icon from "./Icon.svelte";
   import { Button, Card, EmptyState, Input } from "./ui";
+  import { i18n } from "../stores/i18n.svelte";
   import {
     compareSaveSnapshot,
     createSaveSnapshot,
@@ -15,6 +16,7 @@
     type SnapshotDiff,
   } from "../api";
   import { summarizeSnapshotDiff } from "../features/backup/preview";
+  import { PageShell, PageHeader, FilterBar, StateBoundary, type ViewState } from "./ui-v2";
 
   let games = $state<Game[]>([]);
   let selectedId = $state("");
@@ -28,6 +30,11 @@
   let restoring = $state(false);
 
   const selected = $derived(games.find((game) => game.id === selectedId));
+
+  // 三态统一：加载 / 错误 / 无游戏 / 就绪收敛到 StateBoundary。
+  const viewState = $derived<ViewState>(
+    loading ? "loading" : error ? "error" : games.length === 0 ? "empty" : "ready",
+  );
 
   async function load() {
     loading = true;
@@ -63,7 +70,7 @@
   async function previewRestore(snapshot: SaveSnapshot) {
     const saveDir = selected?.save_data.save_dir ?? candidates[0]?.path;
     if (!saveDir) {
-      error = "无法确定当前存档目录，请先在游戏详情中设置存档目录。";
+      error = i18n.t("backup.no_save_dir");
       return;
     }
     previewingPath = snapshot.file_path;
@@ -103,182 +110,201 @@
   });
 </script>
 
-<section class="tool-page aura-page" data-aura-echo="BACKUP">
-  <header class="tool-head aura-head">
-    <div class="head-copy">
-      <span class="eyebrow aura-kicker">Save Backup</span>
-      <h1 class="aura-title">存档管理</h1>
-      <p>自动探测存档目录，创建多版本快照，恢复前会生成安全检查点。</p>
-    </div>
-    <label class="select-field">
-      <span>游戏</span>
-      <select bind:value={selectedId} onchange={refresh}>
-        {#each games as game}
-          <option value={game.id}>{game.name}</option>
-        {/each}
-      </select>
-    </label>
-  </header>
+<PageShell as="div" width="full" scrollable={false} class="backup-v2-shell" labelledBy="backup-page-title" ariaLabel={i18n.t("backup.title")}>
+  <div class="bk">
+    <div class="v2-grain bk-grain" aria-hidden="true"></div>
 
-  <div class="toolbar">
-    <Input class="note-field" bind:value={note} placeholder="快照备注（可选）" />
-    <Button disabled={!selectedId} press={() => createSnapshot(candidates[0]?.path)}>
-      <Icon name="save" size={16} />
-      <span>创建快照</span>
-    </Button>
-  </div>
+    <PageHeader
+      id="backup-page-title"
+      class="bk-header"
+      eyebrow="バックアップ / BACKUP"
+      title={i18n.t("backup.title")}
+      description={i18n.t("backup.subtitle")}
+    >
+      {#snippet actions()}
+        <label class="select-field">
+          <span>{i18n.t("backup.game_label")}</span>
+          <select bind:value={selectedId} onchange={refresh}>
+            {#each games as game}
+              <option value={game.id}>{game.name}</option>
+            {/each}
+          </select>
+        </label>
+      {/snippet}
+    </PageHeader>
 
-  <div class="content-grid">
-    {#if loading}
-      <Card class="panel full-width">
-        <EmptyState title="正在加载存档数据…" />
-      </Card>
-    {:else if error}
-      <Card class="panel full-width">
-        <EmptyState title="加载失败" description={error ?? undefined} action={{ label: "重试", onclick: load }} />
-      </Card>
-    {:else}
-      <Card class="panel">
-        <div class="panel-head">
-          <h2>候选存档目录</h2>
-          <span>{selected?.name ?? "未选择"}</span>
+    <main class="bk-content">
+      <FilterBar label={i18n.t("backup.toolbar_aria")} class="bk-toolbar">
+        <Input class="note-field" bind:value={note} placeholder={i18n.t("backup.note_placeholder")} ariaLabel={i18n.t("backup.note_aria")} />
+        {#snippet actions()}
+          <Button variant="primary" disabled={!selectedId} press={() => createSnapshot(candidates[0]?.path)}>
+            <Icon name="save" size={16} />
+            <span>{i18n.t("backup.create")}</span>
+          </Button>
+        {/snippet}
+      </FilterBar>
+
+      <StateBoundary
+        state={viewState}
+        onRetry={load}
+        retryLabel={i18n.t("button.retry")}
+        title={viewState === "error" ? i18n.t("backup.error_title") : i18n.t("backup.empty_title")}
+        description={viewState === "error" ? (error ?? undefined) : i18n.t("backup.empty_desc")}
+        loadingRows={4}
+      >
+        <div class="bk-panels">
+          <Card class="panel">
+            <div class="panel-head">
+              <h2>{i18n.t("backup.panel_candidates")}</h2>
+              <span>{selected?.name ?? i18n.t("backup.no_selection")}</span>
+            </div>
+            {#if candidates.length}
+              <div class="row-list">
+                {#each candidates as item}
+                  <article class="data-row">
+                    <div class="row-copy">
+                      <strong>{item.path}</strong>
+                      <span>{i18n.t("backup.candidate_meta", { category: item.category, score: item.score, count: item.file_count })}</span>
+                    </div>
+                    <Button variant="ghost" size="sm" press={() => createSnapshot(item.path)}>
+                      <Icon name="save" size={15} />
+                      <span>{i18n.t("backup.backup_action")}</span>
+                    </Button>
+                  </article>
+                {/each}
+              </div>
+            {:else}
+              <EmptyState title={i18n.t("backup.candidates_empty_title")} description={i18n.t("backup.candidates_empty_desc")} />
+            {/if}
+          </Card>
+
+          <Card class="panel">
+            <div class="panel-head">
+              <h2>{i18n.t("backup.panel_snapshots")}</h2>
+              <span class="mono">{snapshots.length}</span>
+            </div>
+            {#if snapshots.length}
+              <div class="timeline-list">
+                {#each snapshots as snapshot}
+                  <article class="timeline-row">
+                    <span class="timeline-node" aria-hidden="true"></span>
+                    <div class="timeline-copy">
+                      <strong>{snapshot.file_name}</strong>
+                      <span>{i18n.t("backup.snapshot_meta", { created: snapshot.created_at, count: snapshot.file_count })}</span>
+                    </div>
+                    <Button variant="ghost" size="sm" press={() => previewRestore(snapshot)} loading={previewingPath === snapshot.file_path} disabled={previewingPath !== null}>
+                      <Icon name="refresh" size={15} />
+                      <span>{i18n.t("backup.preview_restore")}</span>
+                    </Button>
+                  </article>
+                {/each}
+              </div>
+            {:else}
+              <EmptyState title={i18n.t("backup.snapshots_empty_title")} description={i18n.t("backup.snapshots_empty_desc")} />
+            {/if}
+          </Card>
         </div>
-        {#if candidates.length}
-          <div class="row-list">
-            {#each candidates as item}
-              <article class="data-row">
-                <div class="row-copy">
-                  <strong>{item.path}</strong>
-                  <span>{item.category} · <span class="aura-num">{item.score}</span> 分 · <span class="aura-num">{item.file_count}</span> 文件</span>
-                </div>
-                <Button variant="ghost" size="sm" press={() => createSnapshot(item.path)}>
-                  <Icon name="save" size={15} />
-                  <span>备份</span>
-                </Button>
-              </article>
+      </StateBoundary>
+    </main>
+
+    {#if restorePreview}
+      {@const summary = summarizeSnapshotDiff(restorePreview.diff)}
+      <div class="restore-backdrop" role="presentation" onclick={(event) => { if (event.currentTarget === event.target && !restoring) restorePreview = null; }}>
+        <div class="restore-dialog-shell" role="dialog" aria-modal="true" aria-labelledby="restore-title">
+          <Card class="restore-dialog">
+          <div class="panel-head">
+            <div>
+              <h2 id="restore-title">{i18n.t("backup.restore_title")}</h2>
+              <p>{restorePreview.snapshot.file_name}</p>
+            </div>
+            <Button variant="quiet" size="sm" press={() => restorePreview = null} disabled={restoring} ariaLabel={i18n.t("backup.close_preview")}>
+              <Icon name="x" size={15} />
+            </Button>
+          </div>
+          <div class="restore-summary">
+            <strong>{i18n.t("backup.restore_changed_files", { count: summary.changedFiles })}</strong>
+            <span>{i18n.t("backup.restore_diff", { added: restorePreview.diff.added.length, changed: restorePreview.diff.changed.length, removed: restorePreview.diff.removed.length, unchanged: restorePreview.diff.unchanged })}</span>
+            <span>{i18n.t("backup.restore_checkpoint_note")}</span>
+          </div>
+          {#if summary.destructive}
+            <p class="restore-warning" role="alert">{i18n.t("backup.restore_warning")}</p>
+          {/if}
+          <div class="diff-columns">
+            {#each [
+              { label: i18n.t("backup.diff_added"), values: restorePreview.diff.added },
+              { label: i18n.t("backup.diff_changed"), values: restorePreview.diff.changed },
+              { label: i18n.t("backup.diff_removed"), values: restorePreview.diff.removed },
+            ] as group}
+              <div>
+                <strong>{group.label}</strong>
+                {#if group.values.length}
+                  {#each group.values.slice(0, 8) as value}<code>{value}</code>{/each}
+                  {#if group.values.length > 8}<span>{i18n.t("backup.diff_more", { count: group.values.length - 8 })}</span>{/if}
+                {:else}
+                  <span>{i18n.t("backup.diff_none")}</span>
+                {/if}
+              </div>
             {/each}
           </div>
-        {:else}
-          <EmptyState title="未检测到存档" description="可先在游戏详情里手动设置存档目录。" />
-        {/if}
-      </Card>
-
-      <Card class="panel">
-        <div class="panel-head">
-          <h2>快照</h2>
-          <span class="aura-num">{snapshots.length}</span>
-        </div>
-        {#if snapshots.length}
-          <div class="timeline-list">
-            {#each snapshots as snapshot}
-              <article class="timeline-row">
-                <span class="timeline-node" aria-hidden="true"></span>
-                <div class="timeline-copy">
-                  <strong>{snapshot.file_name}</strong>
-                  <span><span class="aura-num">{snapshot.created_at}</span> · <span class="aura-num">{snapshot.file_count}</span> 文件</span>
-                </div>
-                <Button variant="ghost" size="sm" press={() => previewRestore(snapshot)} loading={previewingPath === snapshot.file_path} disabled={previewingPath !== null}>
-                  <Icon name="refresh" size={15} />
-                  <span>预览恢复</span>
-                </Button>
-              </article>
-            {/each}
+          <div class="restore-actions">
+            <Button variant="ghost" press={() => restorePreview = null} disabled={restoring}>{i18n.t("button.cancel")}</Button>
+            <Button variant="primary" press={confirmRestore} loading={restoring} disabled={restoring}>{i18n.t("backup.confirm_restore")}</Button>
           </div>
-        {:else}
-          <EmptyState title="暂无快照" description="选择一个候选目录并创建第一份快照。" />
-        {/if}
-      </Card>
+          </Card>
+        </div>
+      </div>
     {/if}
   </div>
-
-  {#if restorePreview}
-    {@const summary = summarizeSnapshotDiff(restorePreview.diff)}
-    <div class="restore-backdrop" role="presentation" onclick={(event) => { if (event.currentTarget === event.target && !restoring) restorePreview = null; }}>
-      <div class="restore-dialog-shell" role="dialog" aria-modal="true" aria-labelledby="restore-title">
-        <Card class="restore-dialog">
-        <div class="panel-head">
-          <div>
-            <h2 id="restore-title">确认恢复快照</h2>
-            <p>{restorePreview.snapshot.file_name}</p>
-          </div>
-          <Button variant="quiet" size="sm" press={() => restorePreview = null} disabled={restoring} ariaLabel="关闭恢复预览">
-            <Icon name="x" size={15} />
-          </Button>
-        </div>
-        <div class="restore-summary">
-          <strong>{summary.changedFiles} 个文件将发生变化</strong>
-          <span>新增 {restorePreview.diff.added.length} · 覆盖 {restorePreview.diff.changed.length} · 移除 {restorePreview.diff.removed.length} · 不变 {restorePreview.diff.unchanged}</span>
-          <span>恢复前会自动创建当前存档的安全检查点。</span>
-        </div>
-        {#if summary.destructive}
-          <p class="restore-warning" role="alert">该操作会覆盖或移除当前存档文件，请确认快照正确。</p>
-        {/if}
-        <div class="diff-columns">
-          {#each [
-            { label: "新增", values: restorePreview.diff.added },
-            { label: "覆盖", values: restorePreview.diff.changed },
-            { label: "移除", values: restorePreview.diff.removed },
-          ] as group}
-            <div>
-              <strong>{group.label}</strong>
-              {#if group.values.length}
-                {#each group.values.slice(0, 8) as value}<code>{value}</code>{/each}
-                {#if group.values.length > 8}<span>另有 {group.values.length - 8} 项</span>{/if}
-              {:else}
-                <span>无</span>
-              {/if}
-            </div>
-          {/each}
-        </div>
-        <div class="restore-actions">
-          <Button variant="ghost" press={() => restorePreview = null} disabled={restoring}>取消</Button>
-          <Button variant="primary" press={confirmRestore} loading={restoring} disabled={restoring}>创建检查点并恢复</Button>
-        </div>
-        </Card>
-      </div>
-    </div>
-  {/if}
-
-</section>
+</PageShell>
 
 <style>
-  .tool-page {
-    min-width: 0;
+  :global(.backup-v2-shell) { height: 100%; }
+  :global(.backup-v2-shell .v2-page-shell__inner) { height: 100%; padding: 0; }
+
+  .bk {
+    position: relative;
     height: 100%;
-    padding: 24px;
-    overflow: auto;
     display: flex;
     flex-direction: column;
-    gap: 16px;
-    background: var(--bg-void, var(--bg-base));
+    overflow: hidden;
+    color: var(--text-primary);
   }
 
-  .tool-head,
-  .toolbar {
-    min-width: 0;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--bg-card);
-    box-shadow: none;
+  /* Halftone grain background layer (utility class lives in tokens-v2.css). */
+  .bk-grain { position: absolute; inset: 0; z-index: 0; }
+
+  :global(.bk-header) {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 26px 28px 14px;
+    flex-shrink: 0;
   }
 
-  .tool-head,
-  .toolbar {
+  .bk-content {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    width: 100%;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 28px 40px;
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 18px 20px;
+    flex-direction: column;
+    gap: 14px;
+    scroll-behavior: smooth;
   }
 
-  .head-copy {
-    min-width: 0;
+  .select-field {
+    min-width: min(320px, 100%);
     display: grid;
-    gap: 4px;
+    gap: 8px;
   }
 
-  .eyebrow,
-  .aura-kicker,
   .select-field span,
   .panel-head span,
   .row-copy span,
@@ -290,18 +316,9 @@
     letter-spacing: 0;
   }
 
-  h1,
   h2,
   p {
     margin: 0;
-  }
-
-  h1 {
-    color: var(--text-primary);
-    font-size: 24px;
-    font-weight: 750;
-    line-height: 1.15;
-    letter-spacing: 0;
   }
 
   h2 {
@@ -315,12 +332,6 @@
   p {
     color: var(--text-secondary);
     line-height: 1.55;
-  }
-
-  .select-field {
-    min-width: min(320px, 100%);
-    display: grid;
-    gap: 8px;
   }
 
   select {
@@ -344,15 +355,11 @@
     flex: 1;
   }
 
-  :global(.ui-card.full-width) {
-    grid-column: 1 / -1;
-  }
-
-  .content-grid {
+  .bk-panels {
     min-width: 0;
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px;
+    gap: 14px;
   }
 
   :global(.ui-card.panel) {
@@ -376,6 +383,11 @@
     white-space: nowrap;
   }
 
+  .mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
   .row-list {
     min-width: 0;
     display: grid;
@@ -395,7 +407,7 @@
     top: 16px;
     bottom: 16px;
     width: 1px;
-    background: var(--aura-line);
+    background: var(--border);
   }
 
   .data-row {
@@ -421,7 +433,7 @@
     gap: 12px;
     align-items: center;
     padding: 12px 0;
-    border-bottom: 1px solid var(--aura-line);
+    border-bottom: 1px solid var(--border);
   }
 
   .timeline-row:last-child {
@@ -434,10 +446,10 @@
     z-index: 1;
     width: 11px;
     height: 11px;
-    border: 2px solid var(--aura-data-a);
+    border: 2px solid var(--accent);
     border-radius: 50%;
-    background: var(--aura-bg);
-    box-shadow: 0 0 0 4px rgba(232, 85, 127, 0.08);
+    background: var(--bg-card);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 10%, transparent);
   }
 
   .timeline-copy,
@@ -464,14 +476,8 @@
   }
 
   @media (max-width: 900px) {
-    .content-grid {
+    .bk-panels {
       grid-template-columns: 1fr;
-    }
-
-    .tool-head,
-    .toolbar {
-      flex-direction: column;
-      align-items: stretch;
     }
 
     .select-field {
@@ -480,9 +486,8 @@
   }
 
   @media (max-width: 560px) {
-    .tool-page {
-      padding: 18px;
-    }
+    .bk-content { padding: 0 16px 36px; }
+    :global(.bk-header) { padding: 20px 16px 12px; }
 
     .data-row {
       grid-template-columns: 1fr;
@@ -493,8 +498,7 @@
     }
 
     .data-row :global(.ui-button),
-    .timeline-row :global(.ui-button),
-    .toolbar :global(.ui-button) {
+    .timeline-row :global(.ui-button) {
       width: 100%;
     }
 
@@ -516,4 +520,10 @@
   .diff-columns code { overflow: hidden; color: var(--text-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
   .restore-actions { display: flex; justify-content: flex-end; gap: 10px; }
   @media (max-width: 760px) { .diff-columns { grid-template-columns: 1fr; } }
+
+  /* ── Reduced motion ── */
+  @media (prefers-reduced-motion: reduce) {
+    .bk-content { scroll-behavior: auto; }
+  }
+  :global([data-motion="reduce"]) .bk-content { scroll-behavior: auto; }
 </style>

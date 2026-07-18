@@ -35,8 +35,14 @@ pub mod secret_store;
 pub mod security;
 pub mod services;
 pub mod stats;
+#[cfg(not(mobile))]
 pub mod steam_openid;
+#[cfg(mobile)]
+pub mod steam_openid_mobile;
+#[cfg(mobile)]
+pub use steam_openid_mobile as steam_openid;
 pub mod sync;
+pub mod sync_envelope;
 pub mod task_queue;
 pub mod thumbnail;
 pub mod translator;
@@ -52,16 +58,95 @@ pub mod video_proxy;
 use anime_download::AnimeDownloader;
 use db::Database;
 use downloader::Downloader;
+#[cfg(desktop)]
 use import::ImportWatcher;
+#[cfg(desktop)]
 use locale::LocaleEmulatorManager;
+#[cfg(desktop)]
 use process_monitor::ProcessMonitor;
 use std::path::PathBuf;
 use task_queue::TaskQueue;
+use tauri::Manager;
+#[cfg(desktop)]
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager,
 };
+
+#[cfg(target_os = "android")]
+fn configure_android_paths() {
+    const ANDROID_UIDS_PER_USER: u32 = 100_000;
+
+    let user_id = std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|status| {
+            status
+                .lines()
+                .find(|line| line.starts_with("Uid:"))
+                .and_then(|line| line.split_whitespace().nth(1))
+                .and_then(|uid| uid.parse::<u32>().ok())
+        })
+        .map(|uid| uid / ANDROID_UIDS_PER_USER)
+        .unwrap_or(0);
+
+    let package = std::fs::read("/proc/self/cmdline")
+        .ok()
+        .and_then(|cmdline| {
+            let end = cmdline
+                .iter()
+                .position(|byte| *byte == 0)
+                .unwrap_or(cmdline.len());
+            std::str::from_utf8(&cmdline[..end])
+                .ok()
+                .and_then(|name| name.split(':').next())
+                .filter(|name| !name.is_empty())
+                .map(str::to_owned)
+        })
+        .or_else(|| option_env!("TAURI_ANDROID_PACKAGE_UNESCAPED").map(str::to_owned))
+        .or_else(|| option_env!("WRY_ANDROID_PACKAGE").map(str::to_owned))
+        .unwrap_or_else(|| "com.moeplay.app".to_owned());
+
+    let app_home = PathBuf::from(format!("/data/user/{user_id}/{package}"));
+    let files_dir = app_home.join("files");
+    let cache_dir = app_home.join("cache");
+    let config_dir = files_dir.join("config");
+
+    for dir in [&files_dir, &cache_dir, &config_dir] {
+        let _ = std::fs::create_dir_all(dir);
+    }
+
+    // The dirs crate follows HOME/XDG on Android, but zygote-launched app
+    // processes do not populate those variables. Configure them before any
+    // database, cache, logger, or downloader is initialized.
+    std::env::set_var("HOME", &app_home);
+    std::env::set_var("XDG_DATA_HOME", &files_dir);
+    std::env::set_var("XDG_CACHE_HOME", &cache_dir);
+    std::env::set_var("XDG_CONFIG_HOME", &config_dir);
+    let _ = std::env::set_current_dir(&files_dir);
+}
+
+/// Seed the `ndk-context` crate global from the context that tao captured in
+/// `onActivityCreate`. tao 0.35 keeps the JVM/activity in its own registry and
+/// never initializes `ndk-context`, but `android-native-keyring-store` panics
+/// ("android context was not initialized") while the global is empty, which
+/// aborts the app at startup when `SecretStore::new()` runs.
+#[cfg(target_os = "android")]
+fn init_android_ndk_context() {
+    use tauri::tao::platform::android::prelude::main_android_context;
+
+    match main_android_context() {
+        Some(context) => {
+            unsafe {
+                ndk_context::initialize_android_context(
+                    context.java_vm,
+                    context.context_jobject,
+                );
+            }
+            crash_log("init_android_ndk_context() done");
+        }
+        None => crash_log("init_android_ndk_context() skipped: no android context"),
+    }
+}
 
 /// 启动 Tauri 应用（桌面入口）
 pub fn crash_log(msg: &str) {
@@ -83,7 +168,14 @@ pub fn crash_log(msg: &str) {
     }
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "android")]
+    configure_android_paths();
+
+    #[cfg(target_os = "android")]
+    init_android_ndk_context();
+
     crash_log("run() START");
     // 初始化结构化日志
     logging::init();
@@ -122,8 +214,12 @@ pub fn run() {
         .expect("AI v2 runtime initialization failed");
 
     crash_log("Building Tauri app...");
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_orientation::init());
+
+    #[cfg(desktop)]
+    let builder = builder
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.unminimize();
@@ -147,7 +243,9 @@ pub fn run() {
                     window.app_handle().exit(0);
                 }
             }
-        })
+        });
+
+    let builder = builder
         .manage(database)
         .manage(secret_store::SecretStore::new())
         .manage(providers::anime::AnimeProviderRegistry::default())
@@ -159,11 +257,19 @@ pub fn run() {
         .manage(task_queue)
         .manage(extension_index::ExtensionIndexService::default())
         .manage(ai_changes_service)
-        .manage(ai_v2_state)
+        .manage(ai_v2_state);
+
+    #[cfg(desktop)]
+    let builder = builder
         .manage(LocaleEmulatorManager::new())
         .manage(ProcessMonitor::new())
-        .manage(ImportWatcher::new())
+        .manage(ImportWatcher::new());
+
+    builder
         .invoke_handler(tauri::generate_handler![
+            commands::get_platform_capabilities,
+            commands::merge_sync_envelopes,
+            commands::get_sync_snapshot_path,
             // ---- 游戏查询 ----
             commands::get_games,
             commands::get_game,
@@ -492,6 +598,10 @@ pub fn run() {
             // ---- 普通漫画源 ----
             commands::manga_fetch_json,
             commands::manga_fetch_text,
+            // ---- 小说阅读 ----
+            commands::novel_search,
+            commands::novel_detail,
+            commands::novel_read_chapter,
             // ---- 番剧规则引擎 ----
             commands::anime_get_rules,
             commands::anime_set_rules,
@@ -576,43 +686,48 @@ pub fn run() {
             }
 
             // 系统托盘始终可用：关闭行为由前端设置决定；驻留托盘时可从这里恢复或彻底退出。
-            let show_item = MenuItem::with_id(app, "tray-show", "打开萌游", true, None::<&str>)?;
-            let quit_item = MenuItem::with_id(app, "tray-quit", "退出萌游", true, None::<&str>)?;
-            let tray_menu = Menu::with_items(app, &[&show_item, &quit_item])?;
-            let mut tray_builder = TrayIconBuilder::with_id("moeplay-main")
-                .menu(&tray_menu)
-                .tooltip("萌游 MoeGame")
-                .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id().as_ref() {
-                    "tray-show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.unminimize();
-                            let _ = window.set_focus();
+            #[cfg(desktop)]
+            {
+                let show_item =
+                    MenuItem::with_id(app, "tray-show", "打开萌游", true, None::<&str>)?;
+                let quit_item =
+                    MenuItem::with_id(app, "tray-quit", "退出萌游", true, None::<&str>)?;
+                let tray_menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+                let mut tray_builder = TrayIconBuilder::with_id("moeplay-main")
+                    .menu(&tray_menu)
+                    .tooltip("萌游 MoeGame")
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(|app, event| match event.id().as_ref() {
+                        "tray-show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
                         }
-                    }
-                    "tray-quit" => app.exit(0),
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.unminimize();
-                            let _ = window.set_focus();
+                        "tray-quit" => app.exit(0),
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
+                            let app = tray.app_handle();
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
                         }
-                    }
-                });
-            if let Some(icon) = app.default_window_icon().cloned() {
-                tray_builder = tray_builder.icon(icon);
+                    });
+                if let Some(icon) = app.default_window_icon().cloned() {
+                    tray_builder = tray_builder.icon(icon);
+                }
+                tray_builder.build(app)?;
             }
-            tray_builder.build(app)?;
 
             // Redispatch only payload-free, backend-owned queued operations.
             // Other operations are marked safely failed by the dispatcher rather

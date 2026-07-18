@@ -310,6 +310,7 @@ export interface Settings {
   vndb_enabled: boolean;
   bangumi_enabled: boolean;
   dlsite_enabled?: boolean;
+  getchu_enabled?: boolean;
   touchgal_enabled?: boolean;
   erogamescape_enabled?: boolean;
   ymgal_enabled?: boolean;
@@ -333,6 +334,7 @@ export type SecretKind =
   | "steam_api_key"
   | "bangumi_token"
   | "picacg_token"
+  | "webdav_password"
   | "runtime_connector_token";
 
 export interface SecretStatus {

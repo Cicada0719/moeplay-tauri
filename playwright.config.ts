@@ -1,11 +1,13 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const matrixTestMatch = /(?:accessibility-infra|visual|responsive|matrix)\.spec\.ts/;
+const requestedChannel = process.env.PLAYWRIGHT_CHANNEL?.trim();
+const browserChannel = requestedChannel === "bundled" ? undefined : (requestedChannel || "chrome");
 
 const commonUse = {
   ...devices["Desktop Chrome"],
   baseURL: "http://localhost:1420",
-  channel: "chrome" as const,
+  ...(browserChannel ? { channel: browserChannel } : {}),
   colorScheme: "dark" as const,
   locale: "zh-CN",
   timezoneId: "Asia/Shanghai",

@@ -1,0 +1,158 @@
+/* Shared settings-section primitives.
+   Imported by SettingsPage.svelte and every src/lib/components/settings/*
+   section so rows, heads and lists keep one visual contract across files.
+   Plain global stylesheet: section classes are passed into child ui
+   primitives (Card etc.), which scoped component styles cannot reach. */
+
+/* ── Section panel ── */
+.s-section { transition: border-color 0.3s ease; }
+.s-section:hover { border-color: var(--border-hover); }
+
+/* ── Scroll anchor for the category index ── */
+.section-anchor { display: block; height: 1px; margin-top: -1px; scroll-margin-top: 8px; }
+
+/* ── Section head ── */
+.s-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 14px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.s-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+/* Title pairing: small decorative kana/English annotation beside the
+   Chinese section title, set in the existing mono token. */
+.s-title-sub {
+  color: var(--text-dim);
+  font: 700 8px/1 var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transform: translateY(1px);
+}
+.s-title-ic { color: var(--accent); opacity: 0.85; }
+
+/* ── Row / Info ── */
+.s-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.s-info { display: flex; flex-direction: column; gap: 2px; }
+.s-label { font-size: 13.5px; font-weight: 650; color: var(--text-primary); }
+.s-desc { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+.s-note { margin: 0; padding: 8px 0 2px; font-size: 12.5px; color: var(--text-muted); line-height: 1.5; }
+.s-divider { height: 1px; background: var(--border); margin: 14px 0; }
+.s-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 0;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+/* ── Number input for player settings ── */
+.num-input { max-width: 90px; text-align: center; }
+
+/* ── Source grid ── */
+.src-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px 22px;
+}
+.src-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border);
+}
+.src-item:last-child { border-bottom: none; }
+.src-info { display: flex; flex-direction: column; gap: 1px; }
+.src-name { font-size: 13px; font-weight: 650; color: var(--text-primary); }
+.src-desc { font-size: 11.5px; color: var(--text-muted); }
+
+/* ── Directory list ── */
+.dir-list { display: flex; flex-direction: column; gap: 6px; }
+.dir-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+.dir-path {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dir-remove {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.dir-remove:hover {
+  color: var(--color-error);
+  background: rgba(248, 113, 113, 0.08);
+  border-color: rgba(248, 113, 113, 0.15);
+}
+
+/* ── Operations ── */
+.ops-list { display: flex; flex-direction: column; }
+.ops-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.ops-item:last-child { border-bottom: none; padding-bottom: 0; }
+.ops-info { display: flex; gap: 12px; align-items: center; }
+.ops-info > div { display: flex; flex-direction: column; gap: 2px; }
+.ops-icon { color: var(--text-muted); }
+.ops-msg {
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  border-left: 2px solid var(--accent, #e8557f);
+  margin: -4px 0 4px 30px;
+}
+
+/* ── Responsive ── */
+@media (max-width: 720px) {
+  .src-grid { grid-template-columns: 1fr; }
+  .s-row { grid-template-columns: 1fr; gap: 10px; }
+}
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .s-section, .dir-remove { transition: none; }
+}
+[data-motion="reduce"] .s-section,
+[data-motion="reduce"] .dir-remove { transition: none; }

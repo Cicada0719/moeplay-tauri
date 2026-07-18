@@ -23,6 +23,7 @@ pub enum SecretKind {
     SteamApiKey,
     BangumiToken,
     PicacgToken,
+    WebdavPassword,
     RuntimeConnectorToken,
 }
 
@@ -33,6 +34,7 @@ impl SecretKind {
             Self::SteamApiKey => "steam_api_key",
             Self::BangumiToken => "bangumi_token",
             Self::PicacgToken => "picacg_token",
+            Self::WebdavPassword => "webdav_password",
             Self::RuntimeConnectorToken => "runtime_connector_token",
         }
     }
@@ -134,6 +136,13 @@ impl Default for SecretStore {
 impl SecretStore {
     /// Construct a store backed by the current operating system credential manager.
     pub fn new() -> Self {
+        #[cfg(target_os = "android")]
+        match android_native_keyring_store::Store::new() {
+            Ok(store) => keyring_core::set_default_store(store),
+            Err(error) => {
+                tracing::error!(error = %error, "Android credential store initialization failed")
+            }
+        }
         Self {
             backend: Arc::new(OsKeyringBackend),
         }

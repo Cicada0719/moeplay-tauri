@@ -1,0 +1,10 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = "Allows MoePlay to read and control Android screen orientation."
+permissions = [
+  "allow-set-orientation",
+  "allow-get-orientation",
+  "allow-register-listener",
+  "allow-remove-listener",
+]

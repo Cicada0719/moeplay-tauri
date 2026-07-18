@@ -352,4 +352,16 @@
     .chapters-grid { grid-template-columns: 1fr; }
     .comment-form { grid-template-columns: 1fr; }
   }
+
+  @media (max-height: 520px) and (orientation: landscape) {
+    .detail-layout { grid-template-columns: minmax(8rem, 10rem) minmax(0, 1fr); }
+    .detail-aside { display:flex; padding:var(--v2-space-3); border-right:1px solid var(--v2-color-border); border-bottom:0; gap:var(--v2-space-2); }
+    .detail-cover { max-height:calc(100dvh - 10rem); }
+    .detail-content { padding:var(--v2-space-3); }
+    .description-block { margin-top:var(--v2-space-2); padding:var(--v2-space-2); }
+    .description-block p { -webkit-line-clamp:2; line-clamp:2; }
+    .detail-tabs { margin-top:var(--v2-space-3); }
+    .detail-tabpanel { padding-top:var(--v2-space-2); }
+    .chapters-grid { grid-template-columns:repeat(auto-fill,minmax(10rem,1fr)); }
+  }
 </style>

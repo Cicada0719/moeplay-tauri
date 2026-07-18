@@ -1,0 +1,101 @@
+/* 警戒工业 · 设计语言见 plans/theme-specs/caution-industrial.md
+   全套换肤：c-*（scheme-c 消费面）+ 语义色 + 控件签名。
+   选择器 html[data-theme-pack] 与 scheme-c 同特异性，靠 main.ts 末位导入取胜。 */
+html[data-theme-pack="caution-industrial"] {
+  /* ── 枪灰调色板（scheme-c c-* 面） ── */
+  --c-black: #0b0d10;
+  --c-void: #0d1014;
+  --c-surface-1: #10141a;
+  --c-surface-2: #161b22;
+  --c-surface-3: #1c2128;
+  --c-paper: #e8ecf0;
+  --c-muted: #9aa4b0;
+  --c-dim: #5d6772;
+  --c-line: rgba(232, 236, 240, .14);
+  --c-line-strong: rgba(232, 236, 240, .36);
+  --c-accent: #f59e0b;
+  --c-accent-hi: #ffb93d;
+
+  /* ── 语义色 ── */
+  --accent: #f59e0b;
+  --accent-hi: #ffb93d;
+  --accent-lo: rgba(245, 158, 11, .15);
+  --accent-ring: rgba(245, 158, 11, .50);
+  --bg-void: #0b0d10;
+  --bg-deep: #0d1014;
+  --bg: #10141a;
+  --bg-base: #10141a;
+  --bg-surface: #141920;
+  --bg-secondary: #161b22;
+  --bg-elev: #1a2029;
+  --bg-card: #232a33;
+  --bg-hover: #2a333d;
+  --bg-active: rgba(245, 158, 11, .14);
+  --text-primary: #e8ecf0;
+  --text-secondary: #b6bfc9;
+  --text-muted: #9aa4b0;
+  --text-dim: #5d6772;
+  --border: rgba(232, 236, 240, .12);
+  --border-hover: rgba(232, 236, 240, .28);
+  --border-glass: rgba(232, 236, 240, .10);
+
+  /* ── 形态与质感：锐利小圆角、橙环焦点、去玻璃高光 ── */
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 4px;
+  --focus-ring: 0 0 0 2px #0b0d10, 0 0 0 4px rgba(245, 158, 11, .55);
+  --glass-bg: rgba(11, 13, 16, .94);
+  --glass-border: rgba(232, 236, 240, .14);
+  --glass-highlight: none;
+  --shadow-card: none;
+  --shadow-hover: 0 2px 10px rgba(0, 0, 0, .5);
+
+  /* ── 壁纸舞台 ── */
+  --mascot-accent: #9aa4b0;
+  --theme-ambient: rgba(245, 158, 11, .14);
+  --wallpaper-scrim:
+    linear-gradient(90deg, rgba(11,13,16,.92) 0%, rgba(11,13,16,.68) 47%, rgba(11,13,16,.32) 100%),
+    linear-gradient(0deg, rgba(11,13,16,.88), transparent 50%);
+  --wallpaper-brightness: .72;
+  --wallpaper-saturation: .90;
+}
+
+/* ── 控件签名：工业 HUD 小切角 + 等宽工程字 ── */
+html[data-theme-pack="caution-industrial"] .ui-button {
+  clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 0 100%);
+  border: 1px solid var(--border);
+  box-shadow: none;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-size: .78em;
+}
+html[data-theme-pack="caution-industrial"] .ui-button--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #14181e; /* 橙底白字仅 2.15:1 → 深字 ≈8:1 */
+}
+html[data-theme-pack="caution-industrial"] .ui-button--primary:hover:not(:disabled) {
+  background: var(--accent-hi);
+  border-color: var(--accent-hi);
+  transform: none;
+}
+html[data-theme-pack="caution-industrial"] .ui-card {
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  box-shadow: none;
+}
+html[data-theme-pack="caution-industrial"] .ui-input,
+html[data-theme-pack="caution-industrial"] .ui-search__input,
+html[data-theme-pack="caution-industrial"] input,
+html[data-theme-pack="caution-industrial"] select,
+html[data-theme-pack="caution-industrial"] textarea {
+  border-radius: 2px;
+  background: var(--bg-void);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme-pack="caution-industrial"] .ui-button { transition: none; }
+}
+:global([data-motion="reduce"]) html[data-theme-pack="caution-industrial"] .ui-button { transition: none; }

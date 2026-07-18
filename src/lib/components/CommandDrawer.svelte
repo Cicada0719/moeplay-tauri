@@ -2,6 +2,7 @@
   import { fly, fade } from "svelte/transition";
   import { quintOut } from "svelte/easing";
   import { uiStore } from "../stores/ui.svelte";
+  import { i18n } from "../stores/i18n.svelte";
   import Icon from "./Icon.svelte";
 
   let ScraperPage: any = $state(null);
@@ -14,17 +15,17 @@
   let SteamImportDialog: any = $state(null);
   let EmulatorImportDialog: any = $state(null);
 
-  const navItems = [
-    { id: "discovery",    label: "资源发现", icon: "compass" },
-    { id: "scraper",      label: "AI 刮削",  icon: "star" },
-    { id: "downloads",    label: "资源下载", icon: "download" },
-    { id: "backup",       label: "存档管理", icon: "save" },
-    { id: "stats",        label: "统计",     icon: "chart" },
-    { id: "steam-import", label: "平台导入", icon: "database" },
-    { id: "emulator",     label: "模拟器",   icon: "gamepad" },
-    { id: "diagnostics",  label: "诊断",     icon: "toolbox" },
-    { id: "settings",     label: "设置",     icon: "gear" },
-  ];
+  const navItems = $derived([
+    { id: "discovery",    label: i18n.t("menu.discovery"), icon: "compass" },
+    { id: "scraper",      label: i18n.t("menu.scraper"),  icon: "star" },
+    { id: "downloads",    label: i18n.t("menu.downloads"), icon: "download" },
+    { id: "backup",       label: i18n.t("menu.backup"), icon: "save" },
+    { id: "stats",        label: i18n.t("menu.stats"),     icon: "chart" },
+    { id: "steam-import", label: i18n.t("platform_import.title"), icon: "database" },
+    { id: "emulator",     label: i18n.t("emulator_import.nav"), icon: "gamepad" },
+    { id: "diagnostics",  label: i18n.t("menu.diagnostics"), icon: "toolbox" },
+    { id: "settings",     label: i18n.t("menu.settings"), icon: "gear" },
+  ]);
 
   const activeView = $derived(uiStore.drawerView ?? "settings");
 
@@ -42,6 +43,12 @@
     if (v === "emulator" && !EmulatorImportDialog) import("./EmulatorImportDialog.svelte").then(m => EmulatorImportDialog = m.default);
   });
 
+  // 与全局运动偏好双信号对齐：OS prefers-reduced-motion + 应用内 data-motion="reduce"。
+  function reduceMotion(): boolean {
+    return window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ||
+      document.documentElement.dataset.motion === "reduce";
+  }
+
   function close() {
     uiStore.closeDrawer();
   }
@@ -57,11 +64,11 @@
 
 {#if uiStore.drawerOpen}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="drawer-overlay" transition:fade={{ duration: 220 }} onkeydown={onKeydown} onclick={close}>
+  <div class="drawer-overlay" transition:fade={{ duration: reduceMotion() ? 0 : 220 }} onkeydown={onKeydown} onclick={close}>
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="drawer-panel"
-      transition:fly={{ x: 0, y: 32, duration: 320, easing: quintOut }}
+      transition:fly={{ x: 0, y: reduceMotion() ? 0 : 32, duration: reduceMotion() ? 0 : 320, easing: quintOut }}
       onclick={(e) => e.stopPropagation()}
       onkeydown={onKeydown}
     >
@@ -287,4 +294,12 @@
   @keyframes drawer-spin {
     to { transform: rotate(360deg); }
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    .drawer-nav-item, .drawer-close { transition: none; }
+    .drawer-spinner { animation: none; }
+  }
+  :global([data-motion="reduce"]) .drawer-nav-item,
+  :global([data-motion="reduce"]) .drawer-close { transition: none; }
+  :global([data-motion="reduce"]) .drawer-spinner { animation: none; }
 </style>

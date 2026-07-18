@@ -14,6 +14,7 @@
   import { focusTrap } from "../../actions/a11y/focusTrap";
   import { focusWhenAvailable } from "./a11y";
   import { AnimePlaybackShell } from "./playback";
+  import { orientationStore, platformStore } from "../../platform";
 
   const status = $derived(animeStore.playerExtractStatus); // extracting | found | timeout | error
   const videoSrc = $derived(animeStore.playerVideoSrc);
@@ -113,6 +114,47 @@
   let showEpisodePanel = $state(false);
   let pickerRoadIdx = $state(0);
   const pickerEpisodes = $derived(roads[pickerRoadIdx]?.episodes ?? []);
+  let playerChromeVisible = $state(true);
+  let playerChromeTimer: number | null = null;
+  const playerChromeLockedOpen = $derived(
+    showSpeedMenu || showDanmakuSettings || showEpisodePanel || showCommentsPanel,
+  );
+
+  function clearPlayerChromeTimer() {
+    if (playerChromeTimer === null) return;
+    window.clearTimeout(playerChromeTimer);
+    playerChromeTimer = null;
+  }
+
+  function schedulePlayerChromeHide(delay = 2400) {
+    clearPlayerChromeTimer();
+    if (!isFullscreen || playerChromeLockedOpen) {
+      playerChromeVisible = true;
+      return;
+    }
+    playerChromeTimer = window.setTimeout(() => {
+      playerChromeTimer = null;
+      if (!isFullscreen || playerChromeLockedOpen) return;
+      const activeElement = document.activeElement;
+      if (
+        activeElement instanceof HTMLElement
+        && activeElement.closest('.anime-playback-shell__context, .anime-playback-shell__toolbar')
+      ) {
+        overlayEl?.focus({ preventScroll: true });
+      }
+      playerChromeVisible = false;
+    }, delay);
+  }
+
+  function revealPlayerChrome(delay = 2400) {
+    if (!isFullscreen) return;
+    playerChromeVisible = true;
+    schedulePlayerChromeHide(delay);
+  }
+
+  function handlePlayerPointerMove(event: PointerEvent) {
+    revealPlayerChrome(event.clientY <= 120 ? 3200 : 2400);
+  }
 
   function toggleEpisodePanel() {
     if (!showEpisodePanel) {
@@ -139,14 +181,16 @@
     document.addEventListener('fullscreenchange', onFullscreenChange);
     document.addEventListener('keydown', onKeyDown);
     isPipSupported = !!document.pictureInPictureEnabled;
-    hostWindowWasFullscreen = ["fullscreen", "big-picture"].includes(settingsStore.settings.startup_mode ?? "fullscreen");
-    try {
-      getCurrentWindow().isFullscreen().then((value) => {
-        hostWindowWasFullscreen ||= value;
-        if (hostWindowWasFullscreen) void restoreHostWindowFullscreen();
-      }).catch(() => {});
-      fullscreenGuardTimer = window.setInterval(() => { void restoreHostWindowFullscreen(); }, 320);
-    } catch { /* 浏览器预览环境 */ }
+    if (platformStore.capabilities.desktopWindowControl) {
+      hostWindowWasFullscreen = ["fullscreen", "big-picture"].includes(settingsStore.settings.startup_mode ?? "fullscreen");
+      try {
+        getCurrentWindow().isFullscreen().then((value) => {
+          hostWindowWasFullscreen ||= value;
+          if (hostWindowWasFullscreen) void restoreHostWindowFullscreen();
+        }).catch(() => {});
+        fullscreenGuardTimer = window.setInterval(() => { void restoreHostWindowFullscreen(); }, 320);
+      } catch { /* 浏览器预览环境 */ }
+    }
   });
   onDestroy(() => {
     document.removeEventListener('fullscreenchange', onFullscreenChange);
@@ -154,6 +198,8 @@
     if (extractTimer) clearInterval(extractTimer);
     if (restoreFullscreenTimer) clearTimeout(restoreFullscreenTimer);
     if (fullscreenGuardTimer) clearInterval(fullscreenGuardTimer);
+    clearPlayerChromeTimer();
+    if (isFullscreen) void orientationStore.exitVideoFullscreen();
   });
 
   // 离开 found 状态时关闭视频相关弹出面板
@@ -163,6 +209,19 @@
       showDanmakuSettings = false;
       showCommentsPanel = false;
     }
+  });
+
+  $effect(() => {
+    const fullscreen = isFullscreen;
+    const lockedOpen = playerChromeLockedOpen;
+    if (!fullscreen) {
+      clearPlayerChromeTimer();
+      playerChromeVisible = true;
+      return;
+    }
+    playerChromeVisible = true;
+    if (lockedOpen) clearPlayerChromeTimer();
+    else schedulePlayerChromeHide();
   });
 
   const currentRule = $derived(animeStore.rules.find(r => r.name === animeStore.playerRuleName));
@@ -255,7 +314,8 @@
   }
 
   function shouldPreserveHostFullscreen() {
-    return hostWindowWasFullscreen || ["fullscreen", "big-picture"].includes(settingsStore.settings.startup_mode ?? "fullscreen");
+    return platformStore.capabilities.desktopWindowControl
+      && (hostWindowWasFullscreen || ["fullscreen", "big-picture"].includes(settingsStore.settings.startup_mode ?? "fullscreen"));
   }
 
   async function restoreHostWindowFullscreen(force = false) {
@@ -283,6 +343,8 @@
     // the entire MoePlay window.
     await restoreHostWindowFullscreen();
     isFullscreen = next;
+    if (next) await orientationStore.enterVideoFullscreen();
+    else await orientationStore.exitVideoFullscreen();
     if (!next && document.fullscreenElement && overlayEl?.contains(document.fullscreenElement)) {
       try { await document.exitFullscreen(); } catch {}
     }
@@ -594,6 +656,7 @@
   }
 
   async function launchExternalPlayer() {
+    if (!platformStore.capabilities.externalPlayer) return;
     const targetUrl = videoSrc || nativePageUrl || pageUrl;
     if (!targetUrl) return;
     try {
@@ -740,6 +803,8 @@
     const target = e.target as HTMLElement;
     if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
 
+    if (isFullscreen) revealPlayerChrome(3200);
+
     if (e.key === 'f' || e.key === 'F') {
       e.preventDefault();
       toggleFullscreen();
@@ -846,12 +911,15 @@
 <div
   class="player-overlay"
   class:fullscreen={isFullscreen}
+  class:chrome-hidden={isFullscreen && !playerChromeVisible}
   role="dialog"
   aria-modal="true"
   aria-labelledby="anime-player-title"
   aria-describedby="anime-player-status"
   tabindex="-1"
   bind:this={overlayEl}
+  onpointermove={handlePlayerPointerMove}
+  onpointerdown={() => revealPlayerChrome()}
   use:focusTrap={{
     initialFocus: '[data-player-close]',
     returnFocus: false,
@@ -871,6 +939,7 @@
     {nextEpisodeTitle}
     aspectRatio={mediaAspectRatio}
     fullscreen={isFullscreen}
+    chromeVisible={playerChromeVisible}
     panelOpen={showCommentsPanel || showEpisodePanel}
     variant="classic"
     stageLabel={`${animeStore.detailName} ${epName || "播放器"} 播放区域`}
@@ -1064,7 +1133,9 @@
                 <button class="state-btn" onclick={refreshWebFrame}>刷新网页</button>
                 <button class="state-btn" onclick={switchSource}>换源</button>
                 <button class="state-btn" onclick={openInBrowser}>外部浏览器打开</button>
-                <button class="state-btn" onclick={launchExternalPlayer}>外部播放器播放</button>
+                {#if platformStore.capabilities.externalPlayer}
+                  <button class="state-btn" onclick={launchExternalPlayer}>外部播放器播放</button>
+                {/if}
               </div>
             </div>
           {/if}
@@ -1144,9 +1215,11 @@
             <div class="state-actions">
               <button class="state-btn" type="button" onclick={() => switchToWebFallback()}>用网页播放</button>
               <button class="state-btn" type="button" onclick={openInBrowser}>浏览器打开</button>
-              <button class="state-btn" type="button" onclick={launchExternalPlayer}>
-                <Icon name="externalLink" size={13} /> 外部播放
-              </button>
+              {#if platformStore.capabilities.externalPlayer}
+                <button class="state-btn" type="button" onclick={launchExternalPlayer}>
+                  <Icon name="externalLink" size={13} /> 外部播放
+                </button>
+              {/if}
             </div>
           {/if}
         </div>
@@ -1484,6 +1557,7 @@
     background: linear-gradient(180deg, #020503 0%, #000 100%);
     position: relative;
     transition: flex 0.2s;
+    touch-action: none;
   }
   .player-body.with-panel {
     flex: 1;
@@ -1820,4 +1894,21 @@
   }
   :global([data-motion="reduce"]) .player-overlay,
   :global([data-motion="reduce"]) .player-overlay * { animation: none !important; transition: none !important; }
+
+  @media (max-width: 759px) {
+    .player-toolbar { gap: 6px; padding: 6px max(8px, env(safe-area-inset-right)) 6px max(8px, env(safe-area-inset-left)); }
+    .tool-btn, .nav-btn { min-height: 40px; padding: 6px 10px; }
+    .player-bottom { gap: 6px; padding: 8px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
+    .bottom-btn { min-height: 44px; padding-inline: 12px; }
+    .danmaku-settings-panel { position: fixed; top: auto; right: max(8px, env(safe-area-inset-right)); bottom: max(8px, env(safe-area-inset-bottom)); left: max(8px, env(safe-area-inset-left)); width: auto; max-height: min(70dvh, 28rem); overflow-y: auto; }
+  }
+
+  @media (max-height: 520px) and (orientation: landscape) {
+    .player-toolbar { gap: 4px; padding-block: 3px; }
+    .tool-btn, .nav-btn { min-height: 34px; padding: 4px 8px; }
+    .tool-btn, .nav-btn { font-size: 0; }
+    .tool-btn :global(svg), .nav-btn :global(svg), .nav-btn .danmaku-icon, .nav-btn .danmaku-count, .nav-btn .pip-label, .nav-btn .dl-label, .nav-btn.speed-btn { font-size: 11px; }
+    .player-bottom { display: none; }
+    .comments-panel, .episodes-panel { width:min(320px, 46vw); }
+  }
 </style>

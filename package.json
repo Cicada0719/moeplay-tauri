@@ -1,7 +1,7 @@
 {
   "name": "moeplay",
   "private": true,
-  "version": "0.13.9",
+  "version": "0.15.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -37,7 +37,8 @@
     "measure:tauri-startup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-tauri-startup.ps1",
     "dev:concept": "vite",
     "build:concept": "vite build --mode concept",
-    "test:concept": "playwright test -c tests/concept/playwright.config.ts"
+    "test:concept": "playwright test -c tests/concept/playwright.config.ts",
+    "configure:android-signing": "node scripts/configure-android-signing.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",

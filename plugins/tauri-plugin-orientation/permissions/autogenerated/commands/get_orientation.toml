@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-get-orientation"
+description = "Enables the get_orientation command without any pre-configured scope."
+commands.allow = ["get_orientation"]
+
+[[permission]]
+identifier = "deny-get-orientation"
+description = "Denies the get_orientation command without any pre-configured scope."
+commands.deny = ["get_orientation"]

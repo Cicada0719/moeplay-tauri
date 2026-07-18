@@ -1,0 +1,104 @@
+/* 星穹旅人 · 设计语言见 plans/theme-specs/astral-rail.md
+   全套换肤：c-*（scheme-c 消费面）+ 语义色 + 控件签名。
+   选择器 html[data-theme-pack] 与 scheme-c 同特异性，靠 main.ts 末位导入取胜。 */
+html[data-theme-pack="astral-rail"] {
+  /* ── 深空调色板（scheme-c c-* 面） ── */
+  --c-black: #07081a;
+  --c-void: #090a1a;
+  --c-surface-1: #0d0f24;
+  --c-surface-2: #12142e;
+  --c-surface-3: #181a38;
+  --c-paper: #eef0ff;
+  --c-muted: #a3a8d4;
+  --c-dim: #64689a;
+  --c-line: rgba(238, 240, 255, .14);
+  --c-line-strong: rgba(238, 240, 255, .36);
+  --c-accent: #d8b45a;
+  --c-accent-hi: #eed390;
+
+  /* ── 语义色 ── */
+  --accent: #d8b45a;
+  --accent-hi: #eed390;
+  --accent-lo: rgba(216, 180, 90, .15);
+  --accent-ring: rgba(216, 180, 90, .50);
+  --bg-void: #07081a;
+  --bg-deep: #090a1a;
+  --bg: #0d0f24;
+  --bg-base: #0d0f24;
+  --bg-surface: #12142e;
+  --bg-secondary: #12142e;
+  --bg-elev: #181a38;
+  --bg-card: #1e2044;
+  --bg-hover: #252858;
+  --bg-active: rgba(216, 180, 90, .14);
+  --text-primary: #eef0ff;
+  --text-secondary: #c3c7ea;
+  --text-muted: #a3a8d4;
+  --text-dim: #64689a;
+  --border: rgba(238, 240, 255, .12);
+  --border-hover: rgba(238, 240, 255, .30);
+  --border-glass: rgba(238, 240, 255, .10);
+
+  /* ── 形态与质感：柔圆角、星金发丝线、柔光晕 ── */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --focus-ring: 0 0 0 2px #090a1a, 0 0 0 4px rgba(216, 180, 90, .55);
+  --glass-bg: rgba(9, 10, 26, .94);
+  --glass-border: rgba(238, 240, 255, .14);
+  --glass-highlight: inset 0 1px rgba(238, 240, 255, .06);
+  --shadow-card: 0 2px 14px rgba(4, 5, 18, .5);
+  --shadow-hover: 0 6px 22px rgba(4, 5, 18, .6);
+
+  /* ── 壁纸舞台 ── */
+  --mascot-accent: #8ea2ff;
+  --theme-ambient: rgba(126, 148, 255, .18);
+  --wallpaper-scrim:
+    linear-gradient(90deg, rgba(9,10,26,.90) 0%, rgba(9,10,26,.60) 47%, rgba(9,10,26,.24) 100%),
+    linear-gradient(0deg, rgba(9,10,26,.85), transparent 52%);
+  --wallpaper-brightness: .80;
+  --wallpaper-saturation: 1.00;
+}
+
+/* ── 控件签名：星穹优雅（柔圆角 + 金发丝线） ── */
+html[data-theme-pack="astral-rail"] .ui-button {
+  border-radius: 8px;
+  letter-spacing: .04em;
+}
+html[data-theme-pack="astral-rail"] .ui-button--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a1533; /* 金底必须深字：白字仅 2.05:1，#1a1533 ≈ 8.7:1 ✓ */
+}
+html[data-theme-pack="astral-rail"] .ui-button--primary:hover:not(:disabled) {
+  background: var(--accent-hi);
+  border-color: var(--accent-hi);
+  color: #1a1533;
+}
+html[data-theme-pack="astral-rail"] .ui-button--secondary {
+  background: transparent;
+  border-color: var(--accent-ring);
+  color: var(--accent);
+}
+html[data-theme-pack="astral-rail"] .ui-button--secondary:hover:not(:disabled) {
+  background: var(--accent-lo);
+  border-color: var(--accent);
+  color: var(--accent-hi);
+}
+html[data-theme-pack="astral-rail"] .ui-card {
+  border-radius: 8px;
+  box-shadow: var(--shadow-card);
+}
+html[data-theme-pack="astral-rail"] .ui-input,
+html[data-theme-pack="astral-rail"] .ui-search__input,
+html[data-theme-pack="astral-rail"] input,
+html[data-theme-pack="astral-rail"] select,
+html[data-theme-pack="astral-rail"] textarea {
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme-pack="astral-rail"] .ui-button { transition: none; }
+}
+:global([data-motion="reduce"]) html[data-theme-pack="astral-rail"] .ui-button { transition: none; }

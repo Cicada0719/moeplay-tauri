@@ -26,6 +26,7 @@ const defaultSettings: Settings = {
   vndb_enabled: true,
   bangumi_enabled: true,
   dlsite_enabled: true,
+  getchu_enabled: false,
   touchgal_enabled: true,
   erogamescape_enabled: true,
   ymgal_enabled: true,
@@ -51,7 +52,11 @@ type LegacySettingsPayload = Settings & {
 
 function sanitizeSettings(settings: LegacySettingsPayload): Settings {
   const { ai_api_key: _aiApiKey, steam_api_key: _steamApiKey, ...publicSettings } = settings;
-  return { ...defaultSettings, ...publicSettings };
+  const merged: Settings = { ...defaultSettings, ...publicSettings };
+  // 启动模式已移除 "dashboard"（普通模式）档位：存量设置值统一归一化为 "fullscreen"，
+  // 与其真实运行行为一致（窗口默认 fullscreen:true，"dashboard" 无任何分支处理）。
+  if (merged.startup_mode === "dashboard") merged.startup_mode = "fullscreen";
+  return merged;
 }
 
 let _settings = $state<Settings>({ ...defaultSettings });

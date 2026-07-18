@@ -508,4 +508,13 @@
     .detail-body { grid-template-columns: 1fr; }
     .info-panel { border-right: none; border-bottom: 1px solid var(--border); }
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    .overlay, .detail-panel { animation: none; }
+    .nav-dot, .nav-arrow { transition: none; }
+  }
+  :global([data-motion="reduce"]) .overlay,
+  :global([data-motion="reduce"]) .detail-panel { animation: none; }
+  :global([data-motion="reduce"]) .nav-dot,
+  :global([data-motion="reduce"]) .nav-arrow { transition: none; }
 </style>

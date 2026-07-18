@@ -74,3 +74,25 @@
     --v2-motion-slow: 0ms;
   }
 }
+
+/**
+ * Subtle halftone grain overlay (pure CSS, no image assets).
+ * Two offset dot matrices simulate a printed halftone screen; colors derive
+ * from the active theme through the v2 color roles, and opacity stays low so
+ * the texture never competes with content. Apply on an absolutely positioned
+ * background layer with `inset: 0` and a low z-index.
+ */
+.v2-grain {
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--v2-color-text) 55%, transparent) 0.8px, transparent 1px),
+    radial-gradient(circle at 4px 4px, color-mix(in srgb, var(--v2-color-accent) 45%, transparent) 0.6px, transparent 0.9px);
+  background-size: 7px 7px;
+  opacity: 0.06;
+}
+
+@media (prefers-contrast: more) {
+  .v2-grain {
+    opacity: 0.03;
+  }
+}

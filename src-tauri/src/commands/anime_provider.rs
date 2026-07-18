@@ -5,11 +5,12 @@ use crate::db_sqlite::repositories::{
 use crate::domain::{
     ProviderError, ProviderErrorKind, ProviderHealth, ResolvedTarget, ResourceKind,
 };
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use crate::providers::anime::scan_local_media_directory;
 use crate::providers::anime::{
-    protect_hls_target, scan_local_media_directory, AnimeDetail, AnimeEpisode,
-    AnimeLocalMediaScanResult, AnimeLocalMediaSeries, AnimeProviderConfig, AnimeProviderDescriptor,
-    AnimeProviderRegistry, AnimeResolveRequest, AnimeResolveResponse, AnimeSearchQuery,
-    AnimeSearchResponse,
+    protect_hls_target, AnimeDetail, AnimeEpisode, AnimeLocalMediaScanResult,
+    AnimeLocalMediaSeries, AnimeProviderConfig, AnimeProviderDescriptor, AnimeProviderRegistry,
+    AnimeResolveRequest, AnimeResolveResponse, AnimeSearchQuery, AnimeSearchResponse,
 };
 use crate::secret_store::{SecretKind, SecretStore};
 use crate::task_queue::{JobOperation, TaskKind, TaskQueue, TaskStatus};
@@ -355,15 +356,23 @@ pub async fn anime_provider_resolve(
 #[tauri::command]
 pub fn anime_provider_pick_local_directory(
 ) -> Result<Option<AnimeLocalMediaScanResult>, AnimeProviderCommandError> {
-    let Some(directory) = rfd::FileDialog::new()
-        .set_title("选择番剧媒体目录")
-        .pick_folder()
-    else {
-        return Ok(None);
-    };
-    scan_local_media_directory(&directory)
-        .map(Some)
-        .map_err(redact_provider_error)
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        Ok(None)
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let Some(directory) = rfd::FileDialog::new()
+            .set_title("选择番剧媒体目录")
+            .pick_folder()
+        else {
+            return Ok(None);
+        };
+        scan_local_media_directory(&directory)
+            .map(Some)
+            .map_err(redact_provider_error)
+    }
 }
 
 #[tauri::command]
@@ -390,14 +399,14 @@ pub async fn anime_provider_open_fallback(
         ResolvedTarget::Webview { url, allowed_hosts } => {
             let parsed = validate_fallback_url(&url, Some(&allowed_hosts))?;
             let label = format!("anime-provider-{}", uuid::Uuid::new_v4().simple());
-            WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parsed))
+            let builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parsed))
                 .title("番剧播放")
                 .inner_size(1100.0, 760.0)
                 .min_inner_size(720.0, 520.0)
-                .resizable(true)
-                .center()
-                .build()
-                .map_err(|_| fallback_error("webview"))?;
+                .resizable(true);
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            let builder = builder.center();
+            builder.build().map_err(|_| fallback_error("webview"))?;
             Ok(AnimeProviderFallbackOpenResponse {
                 mode: "webview".to_string(),
             })

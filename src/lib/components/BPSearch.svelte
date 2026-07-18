@@ -286,4 +286,11 @@
   }
 
   @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .bps-overlay { animation: none; }
+    .bps-result { transition: none; }
+  }
+  :global([data-motion="reduce"]) .bps-overlay { animation: none; }
+  :global([data-motion="reduce"]) .bps-result { transition: none; }
 </style>

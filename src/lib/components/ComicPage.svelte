@@ -619,6 +619,17 @@
   .recent-reading strong,.recent-reading small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .recent-reading strong { font-size:11px; } .recent-reading small{margin-top:5px;color:var(--v2-color-text-secondary);font-size:9px}
   @media(max-width:760px){.ordinary-home{grid-template-columns:1fr}.ordinary-lead{border-right:0;border-bottom:1px solid var(--v2-color-border)} }
+  @media(max-height:520px) and (orientation:landscape){
+    .ordinary-home{min-height:100%;grid-template-columns:minmax(0,1.2fr) minmax(240px,.8fr)}
+    .ordinary-lead{padding:20px;border-right:1px solid var(--v2-color-border);border-bottom:0}
+    .ordinary-lead h2{font-size:clamp(1.8rem,5vw,3.2rem)}
+    .source-register,.reading-ready,.recent-reading{padding:14px}
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .recent-reading button { transition: none; }
+  }
+  :global([data-motion="reduce"]) .recent-reading button { transition: none; }
 </style>
 
 

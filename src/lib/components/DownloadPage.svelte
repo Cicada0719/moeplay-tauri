@@ -17,7 +17,6 @@
     animePauseDownload,
     animeResumeDownload,
     animeRemoveDownload,
-    animeClearFinishedDownloads,
     animeOpenDownloadFolder,
     type AnimeDownloadTask,
   } from "../api";
@@ -26,7 +25,9 @@
     persistentDownloadsApi,
     type Job,
   } from "../features/jobs";
-  import { Button, Card, EmptyState, Input, SegmentControl, Tag } from "./ui";
+  import { i18n } from "../stores/i18n.svelte";
+  import { Button, Card, Input, SegmentControl, Tag } from "./ui";
+  import { PageShell, PageHeader, FilterBar, AsyncState, type ViewState } from "./ui-v2";
 
   type DownloadEvidence = {
     accepted: boolean;
@@ -57,6 +58,7 @@
   let loading = $state(false);
   let startError = $state<string | null>(null);
   let urlBox = $state<HTMLDivElement>();
+  let initialLoading = $state(true);
 
   const unsubscribeJobs = jobsStore.subscribe((snapshot) => {
     jobs = snapshot.jobs;
@@ -151,7 +153,10 @@
   }
 
   onMount(() => {
-    void refresh();
+    void (async () => {
+      await refresh();
+      initialLoading = false;
+    })();
     const id = window.setInterval(refresh, 1200);
     return () => {
       window.clearInterval(id);
@@ -159,14 +164,19 @@
     };
   });
 
+  const jobStatusLabels = $derived<Record<Job["status"], string>>({
+    queued: i18n.t("download.status.pending"),
+    running: i18n.t("download.status.downloading"),
+    paused: i18n.t("download.status.paused"),
+    succeeded: i18n.t("download.status.completed"),
+    failed: i18n.t("download.status.failed"),
+    cancelled: i18n.t("download.status.cancelled"),
+  });
+
   function rowStatus(row: DownloadRow): string {
     if (row.job) {
-      if (row.job.recovered) return "已恢复（可继续）";
-      const labels: Record<Job["status"], string> = {
-        queued: "等待中", running: "下载中", paused: "已暂停",
-        succeeded: "已完成", failed: "失败", cancelled: "已取消",
-      };
-      return labels[row.job.status];
+      if (row.job.recovered) return i18n.t("downloads.status_recovered");
+      return jobStatusLabels[row.job.status];
     }
     return statusLabel(row.task?.status ?? "Pending");
   }
@@ -187,10 +197,15 @@
   }
 
   function statusLabel(s: string): string {
-    const m: Record<string,string> = {
-      Pending: "等待中", Downloading: "下载中", Paused: "已暂停",
-      Completed: "已完成", Failed: "失败", Extracting: "解压中",
-      Importing: "导入中", Cancelled: "已取消",
+    const m: Record<string, string> = {
+      Pending: i18n.t("download.status.pending"),
+      Downloading: i18n.t("download.status.downloading"),
+      Paused: i18n.t("download.status.paused"),
+      Completed: i18n.t("download.status.completed"),
+      Failed: i18n.t("download.status.failed"),
+      Extracting: i18n.t("download.status.extracting"),
+      Importing: i18n.t("download.status.importing"),
+      Cancelled: i18n.t("download.status.cancelled"),
     };
     return m[s] ?? s;
   }
@@ -210,10 +225,15 @@
   }
 
   function animeStatusLabel(s: string): string {
-    const m: Record<string,string> = {
-      Pending: "等待中", Parsing: "解析中", Downloading: "下载中",
-      Merging: "合并中", Completed: "已完成", Failed: "失败",
-      Paused: "已暂停", Cancelled: "已取消",
+    const m: Record<string, string> = {
+      Pending: i18n.t("download.status.pending"),
+      Parsing: i18n.t("download.status.parsing"),
+      Downloading: i18n.t("download.status.downloading"),
+      Merging: i18n.t("download.status.merging"),
+      Completed: i18n.t("download.status.completed"),
+      Failed: i18n.t("download.status.failed"),
+      Paused: i18n.t("download.status.paused"),
+      Cancelled: i18n.t("download.status.cancelled"),
     };
     return m[s] ?? s;
   }
@@ -238,255 +258,289 @@
   const activeCount = $derived(generalRows.filter(row => row.job?.status === "running" || (!row.job && row.task?.status === "Downloading")).length);
   const doneCount = $derived(generalRows.filter(row => row.job?.status === "succeeded" || (!row.job && row.task?.status === "Completed")).length);
   const animeActiveCount = $derived(animeDownloads.filter(d => d.status === "Downloading" || d.status === "Parsing" || d.status === "Merging").length);
-  const animeDoneCount = $derived(animeDownloads.filter(d => d.status === "Completed").length);
   const tabs = $derived([
-    { value: "general", label: "通用下载" },
-    { value: "anime", label: animeDownloads.length > 0 ? `番剧下载 (${animeDownloads.length})` : "番剧下载" },
+    { value: "general", label: i18n.t("downloads.tab_general") },
+    { value: "anime", label: animeDownloads.length > 0 ? i18n.t("downloads.tab_anime_count", { count: animeDownloads.length }) : i18n.t("downloads.tab_anime") },
   ]);
+
+  // 三态统一：首次加载 / 空列表 / 就绪 收敛到 AsyncState。
+  const generalViewState = $derived<ViewState>(
+    initialLoading && generalRows.length === 0 ? "loading" : generalRows.length ? "ready" : "empty",
+  );
+  const animeViewState = $derived<ViewState>(
+    initialLoading && animeDownloads.length === 0 ? "loading" : animeDownloads.length ? "ready" : "empty",
+  );
 </script>
 
-<section class="page aura-page" data-aura-echo="DOWNLOADS">
-  <Card class="page-head aura-head" padding="md">
-    <div>
-      <span class="aura-kicker">Transfer Queue</span>
-      <h1 class="aura-title">资源下载</h1>
-      <p>流式下载 · 暂停续传 · 自动解压导入</p>
+<PageShell as="div" width="full" scrollable={false} class="downloads-v2-shell" labelledBy="downloads-page-title" ariaLabel={i18n.t("downloads.title")}>
+  <div class="dl">
+    <div class="v2-grain dl-grain" aria-hidden="true"></div>
+
+    <PageHeader
+      id="downloads-page-title"
+      class="dl-header"
+      eyebrow="ダウンロード / DOWNLOADS"
+      title={i18n.t("downloads.title")}
+      description={i18n.t("downloads.subtitle")}
+    >
+      {#snippet actions()}
+        <div class="dl-head-actions">
+          {#if activeCount > 0}
+            <Tag variant="accent" size="sm">{i18n.t("downloads.tag_active", { count: activeCount })}</Tag>
+          {/if}
+          {#if doneCount > 0}
+            <Tag variant="neutral" size="sm">{i18n.t("downloads.tag_done", { count: doneCount })}</Tag>
+          {/if}
+          {#if animeActiveCount > 0}
+            <Tag variant="accent" size="sm">{i18n.t("downloads.tag_anime_active", { count: animeActiveCount })}</Tag>
+          {/if}
+          <Button variant="ghost" size="sm" press={clearGeneralFinished} title={i18n.t("downloads.clear_finished_title")}>
+            <Icon name="trash" size={14} /> {i18n.t("downloads.clear_finished")}
+          </Button>
+        </div>
+      {/snippet}
+    </PageHeader>
+
+    <div class="dl-tabs">
+      <FilterBar label={i18n.t("downloads.tabs_aria")}>
+        <SegmentControl options={tabs} value={activeTab} onChange={(v) => activeTab = v as "general" | "anime"} size="sm" />
+      </FilterBar>
     </div>
-    <div class="head-actions">
-      {#if activeCount > 0}
-        <Tag variant="accent" size="sm">{activeCount} 下载中</Tag>
-      {/if}
-      {#if doneCount > 0}
-        <Tag variant="neutral" size="sm">{doneCount} 已完成</Tag>
-      {/if}
-      {#if animeActiveCount > 0}
-        <Tag variant="accent" size="sm">番剧 {animeActiveCount} 下载中</Tag>
-      {/if}
-      <Button variant="ghost" size="sm" press={clearGeneralFinished} title="清除已完成">
-        <Icon name="trash" size={14} /> 清除
-      </Button>
-    </div>
-  </Card>
 
-  <SegmentControl options={tabs} value={activeTab} onChange={(v) => activeTab = v as "general" | "anime"} size="sm" />
+    <main class="dl-content">
+      {#if activeTab === "general"}
+        <FilterBar label={i18n.t("downloads.addbar_aria")} class="dl-addbar">
+          <div class="search-box" bind:this={urlBox}>
+            <Icon name="download" size={16} />
+            <Input bind:value={url} placeholder={i18n.t("download.url_placeholder")} onkeydown={(e) => e.key === "Enter" && start()} class="url-input" ariaLabel={i18n.t("downloads.url_aria")} />
+          </div>
+          <Input bind:value={filename} placeholder={i18n.t("download.filename_placeholder")} class="fname-input" ariaLabel={i18n.t("downloads.filename_aria")} />
+          <Input bind:value={quotaGb} placeholder={i18n.t("downloads.quota_placeholder")} class="quota-input" ariaLabel={i18n.t("downloads.quota_aria")} />
+          {#snippet actions()}
+            <Button variant="primary" press={start} loading={loading} disabled={loading}>
+              {loading ? i18n.t("downloads.adding") : i18n.t("download.add")}
+            </Button>
+          {/snippet}
+        </FilterBar>
+        {#if startError}<div class="task-error" role="alert">{startError}</div>{/if}
+        {#if jobsError}<div class="legacy-note">{i18n.t("downloads.jobs_fallback")}</div>{/if}
 
-  {#if activeTab === "general"}
-  <Card class="toolbar" padding="sm">
-    <div class="search-box" bind:this={urlBox}>
-      <Icon name="download" size={16} />
-      <Input bind:value={url} placeholder="粘贴下载 URL 或磁力链接" onkeydown={(e) => e.key === "Enter" && start()} class="url-input" ariaLabel="下载链接" />
-    </div>
-    <Input bind:value={filename} placeholder="文件名（可选）" class="fname-input" ariaLabel="文件名" />
-    <Input bind:value={quotaGb} placeholder="配额 GB（可选）" class="quota-input" ariaLabel="下载目录配额（GB）" />
-    <Button variant="primary" press={start} loading={loading} disabled={loading}>
-      {loading ? "添加中..." : "添加下载"}
-    </Button>
-  </Card>
-  {#if startError}<div class="task-error" role="alert">{startError}</div>{/if}
-  {#if jobsError}<div class="legacy-note">后台任务控制面暂不可用，正在保留旧版下载列表回退。</div>{/if}
+        {#if generalViewState === "ready"}
+          <Card class="panel dl-panel" padding="none">
+            <div class="downloads" role="list">
+              {#each generalRows as row (row.id)}
+                <article class="task {rowStatusClass(row)}" role="listitem">
+                  <div class="task-head">
+                    <strong class="task-fname">{row.task?.filename ?? row.job?.title ?? i18n.t("downloads.task_default")}</strong>
+                    <div class="task-badges">
+                      {#if row.job?.recovered}<Tag variant="muted" size="sm">{i18n.t("downloads.badge_recovered")}</Tag>{/if}
+                      <Tag variant="neutral" size="sm" class="status-badge {rowStatusClass(row)}">{rowStatus(row)}</Tag>
+                    </div>
+                  </div>
 
-  <Card class="panel aura-panel" padding="none">
-    {#if generalRows.length}
-      <div class="downloads" role="list">
-        {#each generalRows as row (row.id)}
-          <article class="task {rowStatusClass(row)}" role="listitem" data-job-state={row.job?.status ?? row.task?.status}>
-            <div class="task-head">
-              <strong class="task-fname">{row.task?.filename ?? row.job?.title ?? "下载任务"}</strong>
-              <div class="task-badges">
-                {#if row.job?.recovered}<Tag variant="muted" size="sm">重启恢复</Tag>{/if}
-                <Tag variant="neutral" size="sm" class="status-badge {rowStatusClass(row)}">{rowStatus(row)}</Tag>
-              </div>
-            </div>
+                  <div class="bar-wrap">
+                    <div class="bar" style="--p:{rowProgress(row)}"></div>
+                  </div>
 
-            <div class="bar-wrap">
-              <div class="bar aura-track" style="--p:{rowProgress(row)}"></div>
-            </div>
+                  <div class="task-meta">
+                    <span class="size-info">
+                      {formatFileSize(row.task?.downloaded_size ?? 0)} / {formatFileSize(row.task?.total_size ?? 0)}
+                      <span class="pct">({Math.round(rowProgress(row) * 100)}%)</span>
+                    </span>
+                    <span class="speed-info">
+                      {#if row.job?.pausable || (!row.job && row.task?.status === "Downloading")}
+                        <Icon name="download" size={12} /> {speedStr(row.task?.speed ?? 0)}
+                        {#if row.task && etaStr(row.task)}
+                          <span class="eta">{i18n.t("downloads.eta_left", { eta: etaStr(row.task) })}</span>
+                        {/if}
+                      {/if}
+                    </span>
+                  </div>
 
-            <div class="task-meta">
-              <span class="size-info">
-                {formatFileSize(row.task?.downloaded_size ?? 0)} / {formatFileSize(row.task?.total_size ?? 0)}
-                <span class="pct aura-num">({Math.round(rowProgress(row) * 100)}%)</span>
-              </span>
-              <span class="speed-info aura-num">
-                {#if row.job?.pausable || (!row.job && row.task?.status === "Downloading")}
-                  <Icon name="download" size={12} /> {speedStr(row.task?.speed ?? 0)}
-                  {#if row.task && etaStr(row.task)}
-                    <span class="eta aura-num">剩余 {etaStr(row.task)}</span>
+                  {#if row.job?.message}
+                    <div class="task-message">{row.job.message}</div>
                   {/if}
-                {/if}
-              </span>
-            </div>
+                  {#if row.task?.preflight}
+                    <div class:fail={!row.task.preflight.accepted} class="task-evidence">
+                      {#if row.task.preflight.accepted}
+                        {i18n.t("downloads.preflight_ok")}
+                        {#if row.task.preflight.requiredBytes != null} · {i18n.t("downloads.preflight_required", { size: formatFileSize(row.task.preflight.requiredBytes) })}{/if}
+                        {#if row.task.preflight.availableBytes != null} · {i18n.t("downloads.preflight_available", { size: formatFileSize(row.task.preflight.availableBytes) })}{/if}
+                        {#if row.task.preflight.quotaBytes != null} · {i18n.t("downloads.preflight_quota", { size: formatFileSize(row.task.preflight.quotaBytes) })}{/if}
+                      {:else}
+                        {row.task.preflight.reason ?? i18n.t("downloads.preflight_fail")}
+                      {/if}
+                    </div>
+                  {/if}
+                  {#if row.task?.error}
+                    <div class="task-error">{row.task.error}</div>
+                  {/if}
 
-            {#if row.job?.message}
-              <div class="task-message">{row.job.message}</div>
-            {/if}
-            {#if row.task?.preflight}
-              <div class:fail={!row.task.preflight.accepted} class="task-evidence">
-                {#if row.task.preflight.accepted}
-                  空间预检通过
-                  {#if row.task.preflight.requiredBytes != null} · 需 {formatFileSize(row.task.preflight.requiredBytes)}{/if}
-                  {#if row.task.preflight.availableBytes != null} · 可用 {formatFileSize(row.task.preflight.availableBytes)}{/if}
-                  {#if row.task.preflight.quotaBytes != null} · 配额 {formatFileSize(row.task.preflight.quotaBytes)}{/if}
-                {:else}
-                  {row.task.preflight.reason ?? "磁盘空间或配额预检失败"}
-                {/if}
-              </div>
-            {/if}
-            {#if row.task?.error}
-              <div class="task-error">{row.task.error}</div>
-            {/if}
-
-            <div class="task-actions">
-              {#if row.job?.status === "running" || (!row.job && row.task?.status === "Downloading")}
-                <Button variant="ghost" size="sm" press={() => act(row, "pause")}><Icon name="chevronDown" size={14} /> 暂停</Button>
-              {/if}
-              {#if (row.job?.status === "paused" && row.job.resumable) || (!row.job && row.task?.status === "Paused")}
-                <Button variant="ghost" size="sm" press={() => act(row, "resume")}><Icon name="play" size={14} /> {row.job?.recovered ? "继续恢复" : "继续"}</Button>
-              {/if}
-              {#if (row.job?.retryable && (row.job.status === "failed" || row.job.status === "paused")) || (!row.job && row.task?.status === "Failed")}
-                <Button variant="ghost" size="sm" press={() => act(row, "retry")}><Icon name="refresh" size={14} /> 重试</Button>
-              {/if}
-              {#if row.job?.cancellable || (!row.job && row.task?.status === "Downloading")}
-                <Button variant="ghost" size="sm" class="danger" press={() => act(row, "cancel")}><Icon name="x" size={14} /> 取消</Button>
-              {/if}
-              {#if row.job?.status === "paused" || row.job?.status === "failed" || row.job?.status === "succeeded" || row.job?.status === "cancelled" || (!row.job && row.task?.status !== "Downloading")}
-                <Button variant="ghost" size="sm" class="danger" press={() => removeRow(row)}><Icon name="trash" size={14} /> 移除</Button>
-              {/if}
+                  <div class="task-actions">
+                    {#if row.job?.status === "running" || (!row.job && row.task?.status === "Downloading")}
+                      <Button variant="ghost" size="sm" press={() => act(row, "pause")}><Icon name="chevronDown" size={14} /> {i18n.t("downloads.action_pause")}</Button>
+                    {/if}
+                    {#if (row.job?.status === "paused" && row.job.resumable) || (!row.job && row.task?.status === "Paused")}
+                      <Button variant="ghost" size="sm" press={() => act(row, "resume")}><Icon name="play" size={14} /> {row.job?.recovered ? i18n.t("downloads.action_resume_recovered") : i18n.t("downloads.action_resume")}</Button>
+                    {/if}
+                    {#if (row.job?.retryable && (row.job.status === "failed" || row.job.status === "paused")) || (!row.job && row.task?.status === "Failed")}
+                      <Button variant="ghost" size="sm" press={() => act(row, "retry")}><Icon name="refresh" size={14} /> {i18n.t("button.retry")}</Button>
+                    {/if}
+                    {#if row.job?.cancellable || (!row.job && row.task?.status === "Downloading")}
+                      <Button variant="ghost" size="sm" class="danger" press={() => act(row, "cancel")}><Icon name="x" size={14} /> {i18n.t("button.cancel")}</Button>
+                    {/if}
+                    {#if row.job?.status === "paused" || row.job?.status === "failed" || row.job?.status === "succeeded" || row.job?.status === "cancelled" || (!row.job && row.task?.status !== "Downloading")}
+                      <Button variant="ghost" size="sm" class="danger" press={() => removeRow(row)}><Icon name="trash" size={14} /> {i18n.t("downloads.action_remove")}</Button>
+                    {/if}
+                  </div>
+                </article>
+              {/each}
             </div>
-          </article>
-        {/each}
-      </div>
-    {:else}
-      <EmptyState
-        title="暂无下载任务"
-        description="粘贴资源链接开始下载。支持持久恢复、断点续传、磁盘空间与配额预检。"
-        action={{ label: "添加资源链接", onclick: focusUrlInput }}
-      />
-    {/if}
-  </Card>
-  {:else}
-  <!-- 番剧下载 Tab -->
-  <Card class="panel aura-panel" padding="none">
-    {#if animeDownloads.length}
-      <div class="downloads" role="list">
-        {#each animeDownloads as task}
-          <article class="task {animeStatusClass(task.status)}" role="listitem">
-            <div class="task-head">
-              <div class="task-info">
-                <strong class="task-fname">{task.episode_name || task.filename}</strong>
-                {#if task.anime_name}
-                  <span class="task-anime-name">{task.anime_name}</span>
-                {/if}
-              </div>
-              <div class="task-badges">
-                {#if task.is_m3u8}
-                  <Tag variant="muted" size="sm" class="m3u8">HLS</Tag>
-                {/if}
-                <Tag variant="neutral" size="sm" class="status-badge {animeStatusClass(task.status)}">{animeStatusLabel(task.status)}</Tag>
-              </div>
-            </div>
+          </Card>
+        {:else}
+          <AsyncState
+            state={generalViewState}
+            title={generalViewState === "empty" ? i18n.t("empty.no_downloads") : undefined}
+            description={generalViewState === "empty" ? i18n.t("downloads.empty_desc") : undefined}
+            primaryAction={generalViewState === "empty" ? { label: i18n.t("downloads.empty_action"), onSelect: focusUrlInput } : undefined}
+            loadingRows={4}
+          />
+        {/if}
+      {:else}
+        {#if animeViewState === "ready"}
+          <Card class="panel dl-panel" padding="none">
+            <div class="downloads" role="list">
+              {#each animeDownloads as task}
+                <article class="task {animeStatusClass(task.status)}" role="listitem">
+                  <div class="task-head">
+                    <div class="task-info">
+                      <strong class="task-fname">{task.episode_name || task.filename}</strong>
+                      {#if task.anime_name}
+                        <span class="task-anime-name">{task.anime_name}</span>
+                      {/if}
+                    </div>
+                    <div class="task-badges">
+                      {#if task.is_m3u8}
+                        <Tag variant="muted" size="sm" class="m3u8">HLS</Tag>
+                      {/if}
+                      <Tag variant="neutral" size="sm" class="status-badge {animeStatusClass(task.status)}">{animeStatusLabel(task.status)}</Tag>
+                    </div>
+                  </div>
 
-            <div class="bar-wrap">
-              <div class="bar aura-track" style="--p:{Math.min(1, Math.max(0, task.progress || 0))}"></div>
-            </div>
+                  <div class="bar-wrap">
+                    <div class="bar" style="--p:{Math.min(1, Math.max(0, task.progress || 0))}"></div>
+                  </div>
 
-            <div class="task-meta">
-              <span class="size-info">
-                {#if task.is_m3u8 && task.total_segments > 0}
-                  分片 {task.downloaded_segments}/{task.total_segments}
-                {:else}
-                  {formatFileSize(task.downloaded_size)} / {formatFileSize(task.total_size || 0)}
-                {/if}
-                <span class="pct aura-num">({Math.round(task.progress * 100)}%)</span>
-              </span>
-              <span class="speed-info aura-num">
-                {#if task.status === "Downloading"}
-                  <Icon name="download" size={12} /> {speedStr(task.speed)}
-                {/if}
-                {#if task.status === "Merging"}
-                  <Icon name="download" size={12} /> 合并分片中...
-                {/if}
-              </span>
-            </div>
+                  <div class="task-meta">
+                    <span class="size-info">
+                      {#if task.is_m3u8 && task.total_segments > 0}
+                        {i18n.t("downloads.segments", { done: task.downloaded_segments, total: task.total_segments })}
+                      {:else}
+                        {formatFileSize(task.downloaded_size)} / {formatFileSize(task.total_size || 0)}
+                      {/if}
+                      <span class="pct">({Math.round(task.progress * 100)}%)</span>
+                    </span>
+                    <span class="speed-info">
+                      {#if task.status === "Downloading"}
+                        <Icon name="download" size={12} /> {speedStr(task.speed)}
+                      {/if}
+                      {#if task.status === "Merging"}
+                        <Icon name="download" size={12} /> {i18n.t("downloads.merging")}
+                      {/if}
+                    </span>
+                  </div>
 
-            {#if task.error}
-              <div class="task-error">{task.error}</div>
-            {/if}
+                  {#if task.error}
+                    <div class="task-error">{task.error}</div>
+                  {/if}
 
-            <div class="task-actions">
-              {#if task.status === "Downloading" || task.status === "Parsing"}
-                <Button variant="ghost" size="sm" press={() => animePauseDownload(task.id).then(refresh)}><Icon name="chevronDown" size={14} /> 暂停</Button>
-              {/if}
-              {#if task.status === "Paused"}
-                <Button variant="ghost" size="sm" press={() => animeResumeDownload(task.id).then(refresh)}><Icon name="play" size={14} /> 继续</Button>
-              {/if}
-              {#if task.status === "Completed"}
-                <Button variant="ghost" size="sm" press={() => animeOpenDownloadFolder(task.id)}><Icon name="externalLink" size={14} /> 打开目录</Button>
-              {/if}
-              {#if task.status !== "Downloading" && task.status !== "Parsing" && task.status !== "Merging"}
-                <Button variant="ghost" size="sm" class="danger" press={() => animeRemoveDownload(task.id).then(refresh)}><Icon name="trash" size={14} /> 移除</Button>
-              {/if}
-              {#if task.status === "Downloading" || task.status === "Parsing" || task.status === "Paused"}
-                <Button variant="ghost" size="sm" class="danger" press={() => animeCancelDownload(task.id).then(refresh)}><Icon name="x" size={14} /> 取消</Button>
-              {/if}
+                  <div class="task-actions">
+                    {#if task.status === "Downloading" || task.status === "Parsing"}
+                      <Button variant="ghost" size="sm" press={() => animePauseDownload(task.id).then(refresh)}><Icon name="chevronDown" size={14} /> {i18n.t("downloads.action_pause")}</Button>
+                    {/if}
+                    {#if task.status === "Paused"}
+                      <Button variant="ghost" size="sm" press={() => animeResumeDownload(task.id).then(refresh)}><Icon name="play" size={14} /> {i18n.t("downloads.action_resume")}</Button>
+                    {/if}
+                    {#if task.status === "Completed"}
+                      <Button variant="ghost" size="sm" press={() => animeOpenDownloadFolder(task.id)}><Icon name="externalLink" size={14} /> {i18n.t("downloads.action_open_folder")}</Button>
+                    {/if}
+                    {#if task.status !== "Downloading" && task.status !== "Parsing" && task.status !== "Merging"}
+                      <Button variant="ghost" size="sm" class="danger" press={() => animeRemoveDownload(task.id).then(refresh)}><Icon name="trash" size={14} /> {i18n.t("downloads.action_remove")}</Button>
+                    {/if}
+                    {#if task.status === "Downloading" || task.status === "Parsing" || task.status === "Paused"}
+                      <Button variant="ghost" size="sm" class="danger" press={() => animeCancelDownload(task.id).then(refresh)}><Icon name="x" size={14} /> {i18n.t("button.cancel")}</Button>
+                    {/if}
+                  </div>
+                </article>
+              {/each}
             </div>
-          </article>
-        {/each}
-      </div>
-    {:else}
-      <EmptyState
-        title="暂无番剧下载"
-        description="在播放器中点击「下载」按钮即可下载当前剧集。支持 m3u8/HLS 分片下载。"
-      />
-    {/if}
-  </Card>
-  {/if}
-</section>
+          </Card>
+        {:else}
+          <AsyncState
+            state={animeViewState}
+            title={animeViewState === "empty" ? i18n.t("downloads.anime_empty_title") : undefined}
+            description={animeViewState === "empty" ? i18n.t("downloads.anime_empty_desc") : undefined}
+            loadingRows={4}
+          />
+        {/if}
+      {/if}
+    </main>
+  </div>
+</PageShell>
 
 <style>
-  .page {
+  :global(.downloads-v2-shell) { height: 100%; }
+  :global(.downloads-v2-shell .v2-page-shell__inner) { height: 100%; padding: 0; }
+
+  .dl {
     position: relative;
-    isolation: isolate;
-    min-width: 0;
-    padding: 24px;
-    overflow-y: auto;
     height: 100%;
     display: flex;
     flex-direction: column;
-    gap: 18px;
-    --aura-track: rgba(255, 255, 255, 0.08);
-    background: var(--bg-void);
+    overflow: hidden;
     color: var(--text-primary);
   }
 
-  :global(.page-head.aura-head) {
-    min-width: 0;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
-    padding: 18px 20px;
-  }
-  :global(.page-head.aura-head) > div:first-child {
-    min-width: 0;
-    display: grid;
-    gap: 4px;
-  }
-  :global(.page-head.aura-head) p {
-    color: var(--text-secondary);
-    font-size: 0.85rem;
-    margin-top: 2px;
-  }
-  h1 { font-size: 1.5rem; font-weight: 700; color: var(--text-primary); }
-  .head-actions { min-width: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  /* Halftone grain background layer (utility class lives in tokens-v2.css). */
+  .dl-grain { position: absolute; inset: 0; z-index: 0; }
 
-  :global(.toolbar) {
-    min-width: 0;
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    padding: 12px;
+  :global(.dl-header) {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 26px 28px 14px;
+    flex-shrink: 0;
   }
+  .dl-head-actions { min-width: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+
+  .dl-tabs {
+    position: relative;
+    z-index: 1;
+    flex-shrink: 0;
+    width: 100%;
+    max-width: 1280px;
+    margin: 0 auto 14px;
+    padding: 0 28px;
+  }
+  .dl-content {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    width: 100%;
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 28px 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    scroll-behavior: smooth;
+  }
+
+  /* ── Add-download bar ── */
   .search-box {
     position: relative;
     min-width: 0; flex: 1; display: flex; align-items: center; gap: 8px;
@@ -500,6 +554,7 @@
   :global(.ui-input.url-input) { padding-left: 36px; }
   :global(.ui-input.fname-input) { width: 180px; }
   :global(.ui-input.quota-input) { width: 150px; }
+
   .legacy-note,
   .task-message,
   .task-evidence {
@@ -512,11 +567,7 @@
   .legacy-note { color: var(--color-warning); }
   .task-evidence.fail { color: var(--color-error); background: rgba(239,68,68,0.08); }
 
-  :global(.panel.aura-panel) {
-    flex: 1;
-    overflow-y: auto;
-    padding: 0;
-  }
+  :global(.ui-card.dl-panel) { padding: 0; overflow: hidden; }
   .downloads { display: flex; flex-direction: column; }
 
   .task {
@@ -524,10 +575,13 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-    transition: border-color 0.2s;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.16s ease, border-color 0.16s ease;
   }
-  .task.done { border-color: rgba(34,197,94,0.25); }
-  .task.fail { border-color: rgba(239,68,68,0.25); }
+  .task:last-child { border-bottom: 0; }
+  .task:hover { background: rgba(255, 255, 255, 0.045); }
+  .task.done { border-bottom-color: rgba(74, 222, 128, 0.28); }
+  .task.fail { border-bottom-color: rgba(248, 113, 113, 0.28); }
 
   .task-head { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .task-fname { min-width: 0; font-size: 0.9rem; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -545,43 +599,39 @@
     border-color: transparent;
   }
 
-  .bar-wrap { height: 6px; border-radius: 3px; background: var(--bg-hover); overflow: hidden; }
-  .bar { height: 100%; border-radius: 3px; background: var(--accent); transition: width 0.4s ease; }
+  .bar-wrap { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+  .bar {
+    width: 100%; height: 100%; border-radius: 3px; background: var(--accent);
+    transform: scaleX(var(--p, 0));
+    transform-origin: left center;
+    transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: transform;
+  }
 
   .task-meta { min-width: 0; display: flex; justify-content: space-between; gap: 10px; font-size: 0.75rem; }
   .size-info { min-width: 0; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-  .pct { font-family: var(--font-mono); color: var(--accent); font-weight: 600; }
+  .pct { color: var(--accent); font-weight: 600; }
   .speed-info { min-width: 0; display: flex; align-items: center; gap: 8px; color: var(--text-muted); flex-wrap: wrap; justify-content: flex-end; }
   .eta { color: var(--text-muted); font-size: 0.7rem; }
+  .speed-info, .eta, .pct { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
   .task-error { font-size: 0.75rem; color: var(--color-error); padding: 6px 10px; border-radius: var(--radius-sm); background: rgba(239,68,68,0.08); }
 
   .task-actions { display: flex; gap: 6px; flex-wrap: wrap; }
   :global(.ui-button.danger:hover) { border-color: var(--color-error); color: var(--color-error); }
 
+  /* ── Responsive ── */
   @media (max-width: 700px) {
-    .page {
-      padding: 18px;
-    }
+    .dl-content { padding: 0 16px 36px; }
+    .dl-tabs { padding: 0 16px; }
+    :global(.dl-header) { padding: 20px 16px 12px; }
 
-    :global(.page-head.aura-head),
-    :global(.toolbar) {
-      align-items: stretch;
-      flex-direction: column;
-    }
-
-    .head-actions {
-      justify-content: flex-start;
-    }
+    .dl-head-actions { justify-content: flex-start; }
 
     .search-box,
     :global(.ui-input.fname-input),
-    .toolbar :global(.ui-button) {
+    :global(.ui-input.quota-input) {
       width: 100%;
-    }
-
-    .toolbar :global(.ui-button) {
-      justify-content: center;
     }
 
     .task-head,
@@ -595,70 +645,12 @@
     }
   }
 
-  .aura-kicker {
-    color: var(--text-muted);
-    font-size: 12px;
-    font-weight: 650;
-    line-height: 1.2;
+  /* ── Reduced motion ── */
+  @media (prefers-reduced-motion: reduce) {
+    .bar, .task { transition: none; }
+    .dl-content { scroll-behavior: auto; }
   }
-
-  .aura-title {
-    margin: 0;
-  }
-  :global(.page-head.aura-head) p {
-    margin: 0;
-  }
-
-  .aura-title {
-    font-size: clamp(24px, 2.2vw, 32px);
-    font-weight: 760;
-    line-height: 1.12;
-  }
-
-  .aura-page .task {
-    border: 0;
-    border-bottom: 1px solid var(--aura-border);
-    border-radius: 0;
-    padding: 16px 18px;
-    background: transparent;
-    box-shadow: none;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-    transition: background 0.16s ease, border-color 0.16s ease;
-  }
-
-  .aura-page .task:last-child {
-    border-bottom: 0;
-  }
-
-  .aura-page .task:hover {
-    background: rgba(255, 255, 255, 0.045);
-  }
-
-  .aura-page .task.done {
-    border-bottom-color: rgba(74, 222, 128, 0.28);
-  }
-
-  .aura-page .task.fail {
-    border-bottom-color: rgba(248, 113, 113, 0.28);
-  }
-
-  .bar-wrap {
-    background: var(--aura-track);
-  }
-
-  .bar {
-    width: 100%;
-    transform: scaleX(var(--p, 0));
-    transform-origin: left center;
-    transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
-    will-change: transform;
-  }
-
-  .speed-info,
-  .eta,
-  .pct {
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-  }
+  :global([data-motion="reduce"]) .bar,
+  :global([data-motion="reduce"]) .task { transition: none; }
+  :global([data-motion="reduce"]) .dl-content { scroll-behavior: auto; }
 </style>

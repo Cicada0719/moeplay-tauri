@@ -27,6 +27,7 @@
 
 <script lang="ts">
   import Icon from "../components/Icon.svelte";
+  import { i18n } from "../stores/i18n.svelte";
 
   let {
     currentView,
@@ -45,6 +46,20 @@
   }: GlobalTopNavigationProps = $props();
 
   let menuOpen = $state(false);
+
+  // i18n 接线：内容模块标签走 menu.* 词条，未收录的模块回退到路由自带文案。
+  const MENU_KEY_BY_ID: Record<string, string> = {
+    home: "menu.games",
+    records: "menu.records",
+    anime: "menu.anime",
+    comic: "menu.comic",
+    novel: "menu.novel",
+  };
+
+  function itemLabel(item: GlobalTopNavigationItem): string {
+    const key = MENU_KEY_BY_ID[item.id];
+    return key ? i18n.t(key) : item.label;
+  }
 
   const currentItem = $derived(
     contentItems.find((item) => item.view === currentView),
@@ -87,12 +102,12 @@
           type="button"
           class="content-link"
           class:active={item.view === currentView}
-          aria-label={item.ariaLabel ?? `打开${item.label}`}
+          aria-label={item.ariaLabel ?? `打开${itemLabel(item)}`}
           aria-current={item.view === currentView ? "page" : undefined}
           onclick={() => navigate(item.view)}
         >
           <span class="content-index">0{index + 1}</span>
-          <span>{item.label}</span>
+          <span>{itemLabel(item)}</span>
         </button>
       {/each}
     </div>
@@ -109,7 +124,7 @@
         onclick={() => (menuOpen = !menuOpen)}
       >
         <span class="current-kicker">当前模块</span>
-        <span class="current-label">{currentItem?.label ?? "导航"}</span>
+        <span class="current-label">{currentItem ? itemLabel(currentItem) : "导航"}</span>
         <Icon name="chevronDown" size={14} stroke={1.6} />
       </button>
 
@@ -125,7 +140,7 @@
               onclick={() => navigate(item.view)}
             >
               <span class="menu-index">0{index + 1}</span>
-              <span>{item.label}</span>
+              <span>{itemLabel(item)}</span>
               {#if item.view === currentView}<span class="menu-state">当前</span>{/if}
             </button>
           {/each}
@@ -183,7 +198,7 @@
 
     <button type="button" class="utility-button settings-button" aria-label="打开设置" onclick={onSettings}>
       <Icon name="gear" size={18} stroke={1.6} />
-      <span class="utility-label">设置</span>
+      <span class="utility-label">{i18n.t("menu.settings")}</span>
       <span class="utility-code">SET</span>
     </button>
   </div>

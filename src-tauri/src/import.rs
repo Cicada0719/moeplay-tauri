@@ -402,6 +402,7 @@ fn process_archive(app_handle: &tauri::AppHandle, archive_path: &Path) {
                                     s.vndb_enabled,
                                     s.bangumi_enabled,
                                     s.dlsite_enabled,
+                                    s.getchu_enabled,
                                     s.touchgal_enabled,
                                     s.erogamescape_enabled,
                                     s.ymgal_enabled,

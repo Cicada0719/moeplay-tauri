@@ -82,7 +82,9 @@
     });
     observer.observe(gridEl);
 
-    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    const reduce =
+      window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ||
+      document.documentElement.dataset.motion === "reduce";
     let context: gsap.Context | null = null;
     if (!reduce) {
       context = gsap.context(() => {

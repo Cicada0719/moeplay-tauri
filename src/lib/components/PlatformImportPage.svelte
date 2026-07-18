@@ -21,11 +21,12 @@
     type SyncAchievementsResult,
   } from "../api";
   import { gameStore } from "../stores/games.svelte";
+  import { i18n } from "../stores/i18n.svelte";
   import { settingsStore } from "../stores/settings.svelte";
   import { uiStore } from "../stores/ui.svelte";
-  import defaultLibraryBackdrop from "../assets/default-library-backdrop.png";
   import Icon from "./Icon.svelte";
   import { Button, Card, EmptyState, Input, StatBlock, Tag } from "./ui";
+  import { PageShell, PageHeader, StateBoundary, type ViewState } from "./ui-v2";
   import type { ApplyImportResponse, PreviewImportRequest } from "../features/library";
   import LibraryFeatureToggle from "./library/LibraryFeatureToggle.svelte";
   import LibraryV2ImportPanel from "./library/LibraryV2ImportPanel.svelte";
@@ -117,6 +118,11 @@
     if (steamConnectionLabel === "同步中") return "busy";
     return "idle";
   });
+
+  // 三态统一：初始平台状态的加载 / 失败收敛到 StateBoundary；分区操作反馈仍走各自 banner。
+  const statusViewState = $derived<ViewState>(
+    loadingStatus && !status ? "loading" : statusError ? "error" : "ready",
+  );
 
   onMount(() => {
     libraryV2Enabled = readLibraryV2Flag();
@@ -699,247 +705,257 @@
   }
 </script>
 
-<section class="platform-page aura-page" data-aura-echo="IMPORT">
-  <div class="backdrop" style={`background-image: url("${defaultLibraryBackdrop}")`}></div>
+<PageShell as="div" width="full" scrollable={false} class="platform-import-v2-shell" labelledBy="platform-import-page-title" ariaLabel={i18n.t("platform_import.title")}>
+  <div class="platform-page">
+    <div class="v2-grain pi-grain" aria-hidden="true"></div>
 
-  <header class="page-head aura-head">
-    <Button variant="ghost" class="back" press={goLibrary} ariaLabel="返回游戏库">
-      <Icon name="arrowLeft" size={18} />
-    </Button>
-    <div class="title-block">
-      <span class="aura-kicker">Platform Import</span>
-      <h1 class="aura-title">平台导入</h1>
-    </div>
-    <Card class={`connection ${steamConnectionTone}`} padding="sm">
-      <span>Steam</span>
-      <strong>{steamConnectionLabel}</strong>
-    </Card>
-    <LibraryFeatureToggle enabled={libraryV2Enabled} onChange={setLibraryV2Enabled} />
-  </header>
-
-  <nav class="step-strip aura-panel" aria-label="导入步骤">
-    <div class="step-item active">
-      <span class="step-num">01</span>
-      <strong>连接</strong>
-      <small>读取 Steam / Epic 本机状态</small>
-    </div>
-    <div class="step-item">
-      <span class="step-num">02</span>
-      <strong>预览</strong>
-      <small>勾选候选与去重结果</small>
-    </div>
-    <div class="step-item">
-      <span class="step-num">03</span>
-      <strong>导入</strong>
-      <small>{libraryV2Enabled ? "确认后增量写入" : "旧流程直接写入"}</small>
-    </div>
-  </nav>
-
-  <Card class="aggregate-bar" padding="md">
-    <div>
-      <strong>一键平台同步</strong>
-      <span>{libraryV2Enabled ? "自动聚合候选并生成 create / update / conflict / ignore diff；确认前零写入。" : "旧流程：按平台 ID 去重后直接增量写入，可随时切回 Library v2。"}</span>
-    </div>
-    <div class="aggregate-actions">
-      <Button variant="secondary" press={() => importAllAvailable(false)} disabled={importingAll || syncingSteam || scanningSteamLocal || scanningEpic}>
-        <Icon name="download" size={16} />{importingAll ? "同步中" : (libraryV2Enabled ? "预览全部可用" : "导入全部可用")}
-      </Button>
-      <Button press={() => importAllAvailable(true)} disabled={importingAll || syncingSteam || scanningSteamLocal || scanningEpic}>
-        <Icon name="refresh" size={16} />重新同步
-      </Button>
-    </div>
-  </Card>
-
-  {#if allImportError}
-    <div class="banner error aggregate-banner">{allImportError}</div>
-  {/if}
-  {#if allImportSummary}
-    <div class="banner ok aggregate-banner">
-      {allImportSummary.sections.join(" / ")} 完成：共处理 {allImportSummary.total}，新增 {allImportSummary.imported}，更新 {allImportSummary.updated}，跳过 {allImportSummary.skipped}，失败 {allImportSummary.failed}
-    </div>
-  {/if}
-
-  {#if libraryV2Enabled && libraryV2Request}
-    <LibraryV2ImportPanel
-      request={libraryV2Request}
-      title={libraryV2Title}
-      onApplied={handleLibraryV2Applied}
-      onClose={() => (libraryV2Request = null)}
-    />
-  {/if}
-
-  <Card class="aggregate-bar" padding="md">
-    <div>
-      <strong>Steam 成就同步</strong>
-      <span>从 Steam Web API 拉取所有 Steam 游戏的成就数据（需要 API Key + SteamID）。</span>
-    </div>
-    <div class="aggregate-actions">
-      <Button variant="secondary" press={handleSyncAchievements} disabled={syncingAchievements}>
-        <Icon name="star" size={16} />{syncingAchievements ? "同步中..." : "同步成就数据"}
-      </Button>
-    </div>
-  </Card>
-
-  {#if achievementError}
-    <div class="banner error aggregate-banner">{achievementError}</div>
-  {/if}
-  {#if achievementResult}
-    <div class="banner ok aggregate-banner">
-      成就同步完成：已同步 {achievementResult.synced}，跳过 {achievementResult.skipped}，失败 {achievementResult.failed}
-    </div>
-  {/if}
-
-  {#if statusError}
-    <div class="banner error">{statusError}</div>
-  {/if}
-
-  <div class="layout">
-    <Card class="panel account-panel steam-card" padding="lg">
-      <div class="panel-head">
-        <div>
-          <p class="eyebrow">Steam Account</p>
-          <h2>账号全库同步</h2>
+    <PageHeader
+      id="platform-import-page-title"
+      class="pi-header"
+      eyebrow="インポート / IMPORT"
+      title={i18n.t("platform_import.title")}
+      description={i18n.t("platform_import.subtitle")}
+    >
+      {#snippet actions()}
+        <div class="pi-header-actions">
+          <Button variant="ghost" class="back" press={goLibrary} ariaLabel={i18n.t("platform_import.back_aria")}>
+            <Icon name="arrowLeft" size={18} />
+          </Button>
+          <Card class={`connection ${steamConnectionTone}`} padding="sm">
+            <span>Steam</span>
+            <strong>{steamConnectionLabel}</strong>
+          </Card>
+          <LibraryFeatureToggle enabled={libraryV2Enabled} onChange={setLibraryV2Enabled} />
         </div>
-        <span class="state">{steamLoginMessage}</span>
-      </div>
+      {/snippet}
+    </PageHeader>
 
-      <div class="status-grid">
-        <StatBlock label="本机 Steam" value={status?.steam_path || "未检测到"} />
-        <StatBlock label="SteamID64" value={steamIdInput || "未连接"} />
-        <StatBlock label="API Key" value={status?.steam_api_key_validated ? "已验证" : (apiKeyInput ? "待验证" : (status?.has_steam_api_key ? "已保存待验证" : "未填写"))} />
+    <nav class="step-strip" aria-label={i18n.t("platform_import.steps_aria")}>
+      <div class="step-item active">
+        <span class="step-num">01</span>
+        <strong>{i18n.t("platform_import.step_connect")}</strong>
+        <small>{i18n.t("platform_import.step_connect_hint")}</small>
       </div>
+      <div class="step-item">
+        <span class="step-num">02</span>
+        <strong>{i18n.t("platform_import.step_preview")}</strong>
+        <small>{i18n.t("platform_import.step_preview_hint")}</small>
+      </div>
+      <div class="step-item">
+        <span class="step-num">03</span>
+        <strong>{i18n.t("platform_import.step_import")}</strong>
+        <small>{libraryV2Enabled ? i18n.t("platform_import.step_import_hint_v2") : i18n.t("platform_import.step_import_hint_legacy")}</small>
+      </div>
+    </nav>
 
-      <div class="field-row">
-        <label>
-          <span>Steam Web API Key</span>
-          <Input type="password" bind:value={apiKeyInput} autocomplete="off" placeholder="粘贴 Steam Web API Key" />
-        </label>
-        <div class="actions">
-          <Button variant="secondary" press={openApiKeyPage}><Icon name="globe" size={16} />打开 Key 页面</Button>
-          <Button variant="secondary" press={verifyKey} disabled={verifyingKey}><Icon name="check" size={16} />{verifyingKey ? "验证中" : "保存并验证"}</Button>
-          {#if status?.has_steam_api_key}
-            <Button variant="ghost" press={deleteSteamKey} disabled={verifyingKey}>删除 Key</Button>
+    <Card class="aggregate-bar" padding="md">
+      <div>
+        <strong>{i18n.t("platform_import.aggregate_title")}</strong>
+        <span>{libraryV2Enabled ? i18n.t("platform_import.aggregate_desc_v2") : i18n.t("platform_import.aggregate_desc_legacy")}</span>
+      </div>
+      <div class="aggregate-actions">
+        <Button variant="secondary" press={() => importAllAvailable(false)} disabled={importingAll || syncingSteam || scanningSteamLocal || scanningEpic}>
+          <Icon name="download" size={16} />{importingAll ? i18n.t("platform_import.syncing") : (libraryV2Enabled ? i18n.t("platform_import.preview_all") : i18n.t("platform_import.import_all"))}
+        </Button>
+        <Button press={() => importAllAvailable(true)} disabled={importingAll || syncingSteam || scanningSteamLocal || scanningEpic}>
+          <Icon name="refresh" size={16} />{i18n.t("platform_import.resync")}
+        </Button>
+      </div>
+    </Card>
+
+    {#if allImportError}
+      <div class="banner error aggregate-banner">{allImportError}</div>
+    {/if}
+    {#if allImportSummary}
+      <div class="banner ok aggregate-banner">
+        {i18n.t("platform_import.aggregate_summary", { sections: allImportSummary.sections.join(" / "), total: allImportSummary.total, imported: allImportSummary.imported, updated: allImportSummary.updated, skipped: allImportSummary.skipped, failed: allImportSummary.failed })}
+      </div>
+    {/if}
+
+    {#if libraryV2Enabled && libraryV2Request}
+      <LibraryV2ImportPanel
+        request={libraryV2Request}
+        title={libraryV2Title}
+        onApplied={handleLibraryV2Applied}
+        onClose={() => (libraryV2Request = null)}
+      />
+    {/if}
+
+    <StateBoundary
+      class="pi-boundary"
+      state={statusViewState}
+      onRetry={loadInitialState}
+      retryLabel={i18n.t("button.retry")}
+      title={i18n.t("platform_import.error_title")}
+      description={statusError || undefined}
+      loadingRows={4}
+    >
+      <div class="layout">
+        <Card class="panel account-panel steam-card" padding="lg">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Steam Account</p>
+              <h2>{i18n.t("platform_import.steam_account_title")}</h2>
+            </div>
+            <span class="state">{steamLoginMessage}</span>
+          </div>
+
+          <div class="status-grid">
+            <StatBlock label={i18n.t("platform_import.stat_local_steam")} value={status?.steam_path || i18n.t("platform_import.stat_not_detected")} />
+            <StatBlock label="SteamID64" value={steamIdInput || i18n.t("platform_import.stat_not_connected")} />
+            <StatBlock label="API Key" value={status?.steam_api_key_validated ? i18n.t("platform_import.stat_key_validated") : (apiKeyInput ? i18n.t("platform_import.stat_key_pending") : (status?.has_steam_api_key ? i18n.t("platform_import.stat_key_saved") : i18n.t("platform_import.stat_key_empty")))} />
+          </div>
+
+          <div class="field-row">
+            <label>
+              <span>Steam Web API Key</span>
+              <Input type="password" bind:value={apiKeyInput} autocomplete="off" placeholder={i18n.t("platform_import.apikey_placeholder")} />
+            </label>
+            <div class="actions">
+              <Button variant="secondary" press={openApiKeyPage}><Icon name="globe" size={16} />{i18n.t("platform_import.apikey_open")}</Button>
+              <Button variant="secondary" press={verifyKey} disabled={verifyingKey}><Icon name="check" size={16} />{verifyingKey ? i18n.t("platform_import.apikey_verifying") : i18n.t("platform_import.apikey_verify")}</Button>
+              {#if status?.has_steam_api_key}
+                <Button variant="ghost" press={deleteSteamKey} disabled={verifyingKey}>{i18n.t("platform_import.apikey_delete")}</Button>
+              {/if}
+            </div>
+          </div>
+
+          <div class="field-row">
+            <label>
+              <span>{i18n.t("platform_import.steamid_label")}</span>
+              <Input bind:value={steamProfileInput} placeholder="7656119... 或 https://steamcommunity.com/profiles/..." onkeydown={(e) => { if (e.key === "Enter") resolveSteamProfile(); }} />
+            </label>
+            <div class="actions">
+              <Button variant="secondary" press={detectLocalSteam} disabled={detectingSteam}><Icon name="search" size={16} />{detectingSteam ? i18n.t("platform_import.detecting") : i18n.t("platform_import.detect_local")}</Button>
+              <Button variant="secondary" press={openSteamLogin} disabled={openingLogin || syncingSteam}><Icon name="globe" size={16} />{openingLogin ? i18n.t("platform_import.login_waiting") : i18n.t("platform_import.login_web")}</Button>
+              <Button variant="secondary" press={resolveSteamProfile} disabled={resolvingSteam}><Icon name="check" size={16} />{resolvingSteam ? i18n.t("platform_import.resolving") : i18n.t("platform_import.resolve")}</Button>
+            </div>
+          </div>
+
+          {#if apiKeyMessage}
+            <div class="banner ok">{apiKeyMessage}</div>
           {/if}
-        </div>
+          {#if steamAccountError}
+            <div class="banner error">{steamAccountError}</div>
+          {/if}
+
+          <div class="field-row achievement-sync-row">
+            <div class="achievement-copy">
+              <span>{i18n.t("platform_import.achievement_title")}</span>
+              <small>{i18n.t("platform_import.achievement_desc")}</small>
+            </div>
+            <div class="actions">
+              <Button variant="secondary" press={handleSyncAchievements} disabled={syncingAchievements}>
+                <Icon name="star" size={16} />{syncingAchievements ? i18n.t("platform_import.achievement_syncing") : i18n.t("platform_import.achievement_sync")}
+              </Button>
+            </div>
+          </div>
+
+          {#if achievementError}
+            <div class="banner error">{achievementError}</div>
+          {/if}
+          {#if achievementResult}
+            <div class="banner ok">
+              {i18n.t("platform_import.achievement_result", { synced: achievementResult.synced, skipped: achievementResult.skipped, failed: achievementResult.failed })}
+            </div>
+          {/if}
+
+          <div class="primary-row">
+            <Button variant="secondary" press={previewSteamAccount} disabled={syncingSteam || openingLogin}>
+              <Icon name="search" size={16} />{i18n.t("platform_import.preview_library")}
+            </Button>
+            <Button press={() => syncSteamAccount(false)} disabled={syncingSteam || openingLogin}>
+              <Icon name="download" size={17} />{syncingSteam ? i18n.t("platform_import.achievement_syncing") : (libraryV2Enabled ? i18n.t("platform_import.scan_preview_library") : i18n.t("platform_import.sync_import_library"))}
+            </Button>
+          </div>
+
+          {#if syncingSteam}
+            <div class="progress"><span></span></div>
+          {/if}
+
+          {@render CandidateList({
+            title: i18n.t("platform_import.candidates_steam_account"),
+            scan: steamAccountScan,
+            selected: steamAccountSelected,
+            importing: syncingSteam,
+            result: steamAccountImport,
+            section: "steamAccount",
+            onToggle: toggleCandidate,
+            onToggleAll: toggleAll,
+            onImport: importSelected,
+            showInstalled: true,
+            previewMode: libraryV2Enabled,
+          })}
+        </Card>
+
+        <Card class="panel steam-local-card" padding="lg">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Steam Local</p>
+              <h2>{i18n.t("platform_import.local_installed")}</h2>
+            </div>
+            <Button variant="secondary" press={scanSteamLocal} disabled={scanningSteamLocal}>
+              <Icon name="search" size={16} />{scanningSteamLocal ? i18n.t("platform_import.scanning") : i18n.t("platform_import.scan")}
+            </Button>
+          </div>
+          {#if steamLocalError}<div class="banner error">{steamLocalError}</div>{/if}
+          {@render CandidateList({
+            title: i18n.t("platform_import.candidates_steam_local"),
+            scan: steamLocalScan,
+            selected: steamLocalSelected,
+            importing: importingSteamLocal,
+            result: steamLocalImport,
+            section: "steamLocal",
+            onToggle: toggleCandidate,
+            onToggleAll: toggleAll,
+            onImport: importSelected,
+            previewMode: libraryV2Enabled,
+          })}
+        </Card>
+
+        <Card class="panel epic-card" padding="lg">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Epic Local</p>
+              <h2>{i18n.t("platform_import.local_installed")}</h2>
+            </div>
+            <Button variant="secondary" press={scanEpicLocal} disabled={scanningEpic}>
+              <Icon name="search" size={16} />{scanningEpic ? i18n.t("platform_import.scanning") : i18n.t("platform_import.scan")}
+            </Button>
+          </div>
+          <div class="path-line">{status?.epic_manifest_path || i18n.t("platform_import.epic_path_missing")}</div>
+          {#if epicError}<div class="banner error">{epicError}</div>{/if}
+          {@render CandidateList({
+            title: i18n.t("platform_import.candidates_epic"),
+            scan: epicScan,
+            selected: epicSelected,
+            importing: importingEpic,
+            result: epicImport,
+            section: "epicLocal",
+            onToggle: toggleCandidate,
+            onToggleAll: toggleAll,
+            onImport: importSelected,
+            previewMode: libraryV2Enabled,
+          })}
+        </Card>
       </div>
 
-      <div class="field-row">
-        <label>
-          <span>SteamID64 / 个人主页</span>
-          <Input bind:value={steamProfileInput} placeholder="7656119... 或 https://steamcommunity.com/profiles/..." onkeydown={(e) => { if (e.key === "Enter") resolveSteamProfile(); }} />
-        </label>
-        <div class="actions">
-          <Button variant="secondary" press={detectLocalSteam} disabled={detectingSteam}><Icon name="search" size={16} />{detectingSteam ? "检测中" : "检测本地"}</Button>
-          <Button variant="secondary" press={openSteamLogin} disabled={openingLogin || syncingSteam}><Icon name="globe" size={16} />{openingLogin ? "等待登录" : "网页登录/扫码"}</Button>
-          <Button variant="secondary" press={resolveSteamProfile} disabled={resolvingSteam}><Icon name="check" size={16} />{resolvingSteam ? "解析中" : "解析"}</Button>
-        </div>
-      </div>
-
-      {#if apiKeyMessage}
-        <div class="banner ok">{apiKeyMessage}</div>
+      {#if steamAccountImport || steamLocalImport || epicImport}
+        <Card class="done-bar" padding="md">
+          <span>{i18n.t("platform_import.done_refreshed")}</span>
+          <Button press={goLibrary}><Icon name="collection" size={16} />{i18n.t("platform_import.view_library")}</Button>
+        </Card>
       {/if}
-      {#if steamAccountError}
-        <div class="banner error">{steamAccountError}</div>
-      {/if}
-
-      <div class="primary-row">
-        <Button variant="secondary" press={previewSteamAccount} disabled={syncingSteam || openingLogin}>
-          <Icon name="search" size={16} />预览全库
-        </Button>
-        <Button press={() => syncSteamAccount(false)} disabled={syncingSteam || openingLogin}>
-<Icon name="download" size={17} />{syncingSteam ? "同步中..." : (libraryV2Enabled ? "扫描并预览 Steam 全库" : "同步并导入 Steam 全库")}
-        </Button>
-      </div>
-
-      {#if syncingSteam}
-        <div class="progress"><span></span></div>
-      {/if}
-
-      {@render CandidateList({
-        title: "Steam 全库候选",
-        scan: steamAccountScan,
-        selected: steamAccountSelected,
-        importing: syncingSteam,
-        result: steamAccountImport,
-        section: "steamAccount",
-        onToggle: toggleCandidate,
-        onToggleAll: toggleAll,
-        onImport: importSelected,
-        showInstalled: true,
-        previewMode: libraryV2Enabled,
-      })}
-    </Card>
-
-    <Card class="panel steam-local-card" padding="lg">
-      <div class="panel-head">
-        <div>
-          <p class="eyebrow">Steam Local</p>
-          <h2>本机已安装</h2>
-        </div>
-        <Button variant="secondary" press={scanSteamLocal} disabled={scanningSteamLocal}>
-          <Icon name="search" size={16} />{scanningSteamLocal ? "扫描中" : "扫描"}
-        </Button>
-      </div>
-      {#if steamLocalError}<div class="banner error">{steamLocalError}</div>{/if}
-      {@render CandidateList({
-        title: "Steam 本机候选",
-        scan: steamLocalScan,
-        selected: steamLocalSelected,
-        importing: importingSteamLocal,
-        result: steamLocalImport,
-        section: "steamLocal",
-        onToggle: toggleCandidate,
-        onToggleAll: toggleAll,
-        onImport: importSelected,
-        previewMode: libraryV2Enabled,
-      })}
-    </Card>
-
-    <Card class="panel epic-card" padding="lg">
-      <div class="panel-head">
-        <div>
-          <p class="eyebrow">Epic Local</p>
-          <h2>本机已安装</h2>
-        </div>
-        <Button variant="secondary" press={scanEpicLocal} disabled={scanningEpic}>
-          <Icon name="search" size={16} />{scanningEpic ? "扫描中" : "扫描"}
-        </Button>
-      </div>
-      <div class="path-line">{status?.epic_manifest_path || "未检测到 Epic Launcher 本机清单目录"}</div>
-      {#if epicError}<div class="banner error">{epicError}</div>{/if}
-      {@render CandidateList({
-        title: "Epic 本机候选",
-        scan: epicScan,
-        selected: epicSelected,
-        importing: importingEpic,
-        result: epicImport,
-        section: "epicLocal",
-        onToggle: toggleCandidate,
-        onToggleAll: toggleAll,
-        onImport: importSelected,
-        previewMode: libraryV2Enabled,
-      })}
-    </Card>
+    </StateBoundary>
   </div>
-
-  {#if steamAccountImport || steamLocalImport || epicImport}
-    <Card class="done-bar" padding="md">
-      <span>游戏库已刷新</span>
-      <Button press={goLibrary}><Icon name="collection" size={16} />查看游戏库</Button>
-    </Card>
-  {/if}
-
-  {#if loadingStatus}
-    <Card class="loading-cover" padding="sm"><Icon name="refresh" size={18} />读取平台状态...</Card>
-  {/if}
-</section>
+</PageShell>
 
 {#snippet resultLine(result: PlatformImportResult)}
   <div class="result-line">
-    <Tag>新增 {result.imported}</Tag>
-    <Tag>更新 {result.updated}</Tag>
-    <Tag>跳过 {result.skipped}</Tag>
-    <Tag variant={result.failed > 0 ? "accent" : "neutral"}>失败 {result.failed}</Tag>
+    <Tag>{i18n.t("platform_import.result_added", { count: result.imported })}</Tag>
+    <Tag>{i18n.t("platform_import.result_updated", { count: result.updated })}</Tag>
+    <Tag>{i18n.t("platform_import.result_skipped", { count: result.skipped })}</Tag>
+    <Tag variant={result.failed > 0 ? "accent" : "neutral"}>{i18n.t("platform_import.result_failed", { count: result.failed })}</Tag>
   </div>
   {#if result.errors.length}
     <div class="error-list">
@@ -952,9 +968,9 @@
 
 {#snippet emptyState(scan: PlatformScanResult | null)}
   {#if scan}
-    <EmptyState icon="folder" title="没有候选游戏" description={scan.skipped.length ? scan.skipped[0] : undefined} />
+    <EmptyState icon="folder" title={i18n.t("platform_import.empty_none_title")} description={scan.skipped.length ? scan.skipped[0] : undefined} />
   {:else}
-    <EmptyState icon="search" title="等待扫描" description="扫描后会在这里显示候选列表。" />
+    <EmptyState icon="search" title={i18n.t("platform_import.empty_waiting_title")} description={i18n.t("platform_import.empty_waiting_desc")} />
   {/if}
 {/snippet}
 
@@ -965,10 +981,10 @@
       {#if props.scan?.candidates.length}
         <div class="candidate-actions">
           <Button variant="quiet" press={() => props.onToggleAll(props.section, props.scan!.candidates)}>
-            {props.selected.size === props.scan.candidates.length ? "取消全选" : "全选"}
+            {props.selected.size === props.scan.candidates.length ? i18n.t("platform_import.deselect_all") : i18n.t("platform_import.select_all")}
           </Button>
           <Button press={() => props.onImport(props.section)} disabled={props.importing || props.selected.size === 0}>
-            <Icon name="download" size={15} />{props.importing ? "处理中" : `${props.previewMode ? "预览" : "导入"}选中 ${props.selected.size}`}
+            <Icon name="download" size={15} />{props.importing ? i18n.t("platform_import.processing") : i18n.t(props.previewMode ? "platform_import.preview_selected" : "platform_import.import_selected", { count: props.selected.size })}
           </Button>
         </div>
       {/if}
@@ -989,7 +1005,7 @@
               <small>{game.install_dir || game.launch_uri}</small>
             </span>
             {#if props.showInstalled}
-              <Tag variant={game.installed ? "accent" : "neutral"}>{game.installed ? "已安装" : "账号库"}</Tag>
+              <Tag variant={game.installed ? "accent" : "neutral"}>{game.installed ? i18n.t("platform_import.tag_installed") : i18n.t("platform_import.tag_account")}</Tag>
             {/if}
             <code>{game.library_id}</code>
             <span class="playtime">{formatPlaytime(game.playtime_minutes)}</span>
@@ -1007,67 +1023,40 @@
 {/snippet}
 
 <style>
+  :global(.platform-import-v2-shell) { height: 100%; }
+  :global(.platform-import-v2-shell .v2-page-shell__inner) { height: 100%; padding: 0; }
+
   .platform-page {
-    flex: 1;
-    min-height: 0;
     position: relative;
+    height: 100%;
     overflow: hidden;
     background: var(--bg-void);
     color: var(--text-primary);
     display: flex;
     flex-direction: column;
   }
-  .backdrop {
-    position: absolute;
-    inset: 0;
-    z-index: 0;
-    background-size: cover;
-    background-position: center;
-    display: none;
-    opacity: 0;
-  }
-  .platform-page::after {
-    content: attr(data-aura-echo);
-    position: absolute;
-    z-index: 0;
-    right: clamp(18px, 4vw, 56px);
-    bottom: clamp(16px, 3vw, 42px);
-    color: var(--aura-echo);
-    font-family: var(--font-display);
-    font-size: clamp(44px, 10vw, 132px);
-    font-weight: 800;
-    line-height: 0.85;
-    letter-spacing: 0;
-    text-transform: uppercase;
-    pointer-events: none;
-  }
-  .page-head,
-  .step-strip,
-  :global(.ui-card.aggregate-bar),
-  .aggregate-banner,
-  .layout,
-  :global(.ui-card.done-bar),
-  :global(.ui-card.loading-cover) {
+
+  /* Halftone grain background layer (utility class lives in tokens-v2.css). */
+  .pi-grain { position: absolute; inset: 0; z-index: 0; }
+
+  :global(.pi-header) {
     position: relative;
     z-index: 1;
+    flex-shrink: 0;
+    padding: 22px 28px 12px;
   }
-  .page-head {
+  .pi-header-actions {
     display: flex;
     align-items: center;
-    gap: 14px;
-    margin: 24px 28px 0;
-    padding: 18px 20px;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
   :global(.ui-button.back.back) {
     width: 38px;
     height: 38px;
     padding: 0;
   }
-  .title-block {
-    min-width: 0;
-  }
-  .title-block span,
-  .aura-kicker,
   .eyebrow {
     display: block;
     font-family: var(--font-mono);
@@ -1077,16 +1066,13 @@
     text-transform: uppercase;
     margin-bottom: 5px;
   }
-  h1,
   h2 {
     margin: 0;
     color: #fff;
     letter-spacing: 0;
+    font-size: 18px;
   }
-  h1 { font-size: 28px; }
-  h2 { font-size: 18px; }
   :global(.ui-card.connection) {
-    margin-left: auto;
     min-width: 128px;
     display: flex;
     flex-direction: column;
@@ -1105,24 +1091,36 @@
   :global(.ui-card.connection.warn) strong { color: #fbbf24; }
   :global(.ui-card.connection.busy) strong { color: #93c5fd; }
 
+  .step-strip,
+  :global(.ui-card.aggregate-bar),
+  .aggregate-banner,
+  :global(.pi-boundary),
+  .layout,
+  :global(.ui-card.done-bar) {
+    position: relative;
+    z-index: 1;
+  }
   .step-strip {
     margin: 14px 28px 0;
     padding: 10px;
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-deep);
   }
   .step-item {
     min-width: 0;
     min-height: 58px;
-    border: 1px solid var(--aura-border);
+    border: 1px solid var(--border);
     border-radius: 8px;
     padding: 10px 12px;
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
     gap: 2px 10px;
     align-items: center;
-    background: var(--aura-inset);
+    background: var(--bg-void);
   }
   .step-item.active {
     border-color: rgba(232,85,127,0.34);
@@ -1184,6 +1182,11 @@
     margin: 12px 28px 0;
   }
 
+  :global(.pi-boundary) {
+    flex: 1;
+    min-height: 0;
+    margin: 20px 28px;
+  }
   .layout {
     flex: 1;
     min-height: 0;
@@ -1231,6 +1234,23 @@
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 10px;
     align-items: end;
+  }
+  .achievement-sync-row {
+    align-items: center;
+    border-top: 1px solid var(--border);
+    padding-top: 14px;
+  }
+  .achievement-copy span {
+    display: block;
+    color: rgba(255,255,255,0.52);
+    font-size: 11px;
+    font-weight: 700;
+    margin-bottom: 7px;
+  }
+  .achievement-copy small {
+    color: rgba(255,255,255,0.58);
+    font-size: 12px;
+    line-height: 1.5;
   }
   label {
     min-width: 0;
@@ -1281,7 +1301,7 @@
     display: block;
     width: 38%;
     height: 100%;
-    background: linear-gradient(90deg, var(--aura-data-a), var(--aura-data-b));
+    background: linear-gradient(90deg, var(--accent), rgba(232, 85, 127, 0.62));
     animation: slide 1.1s ease-in-out infinite alternate;
   }
   @keyframes slide {
@@ -1379,16 +1399,6 @@
     color: rgba(255,255,255,0.74);
     font-weight: 700;
   }
-  :global(.ui-card.loading-cover) {
-    position: absolute;
-    right: 28px;
-    top: 92px;
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    color: rgba(255,255,255,0.74);
-    font-size: 12px;
-  }
   @media (max-width: 1180px) {
     .layout {
       grid-template-columns: 1fr;
@@ -1398,15 +1408,15 @@
     }
   }
   @media (max-width: 760px) {
-    .page-head,
     .step-strip,
     :global(.ui-card.aggregate-bar),
     .aggregate-banner,
+    :global(.pi-boundary),
     .layout {
       margin-left: 16px;
       margin-right: 16px;
     }
-    .page-head,
+    :global(.pi-header),
     .layout {
       padding-left: 16px;
       padding-right: 16px;
@@ -1426,4 +1436,9 @@
       display: none;
     }
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    .progress span { animation: none; }
+  }
+  :global([data-motion="reduce"]) .progress span { animation: none; }
 </style>

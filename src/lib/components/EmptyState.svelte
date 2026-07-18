@@ -78,4 +78,9 @@
   }
   button:hover { background: var(--accent-hi); }
   button:active { transform: translateY(1px); }
+
+  @media (prefers-reduced-motion: reduce) {
+    button { transition: none; }
+  }
+  :global([data-motion="reduce"]) button { transition: none; }
 </style>
