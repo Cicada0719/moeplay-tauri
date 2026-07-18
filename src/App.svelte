@@ -20,7 +20,9 @@
   import Icon from "./lib/components/Icon.svelte";
   import { Drawer } from "./lib/components/ui-v2";
   import { attachGamepad } from "./lib/components/switch/useGamepad.svelte";
-  import { DOCK_ITEMS, TOOL_ITEMS, getViewLabel } from "./lib/nav";
+  import { activateGamepadFocus, focusGamepadSearch, moveGamepadFocus } from "./lib/actions/a11y/domGamepadNavigation";
+  import { getDefaultGamepadFocusRuntime } from "./lib/actions/a11y/gamepadFocus";
+  import { DOCK_ITEMS, PRIMARY_CONTENT_VIEWS, TOOL_ITEMS, getViewLabel } from "./lib/nav";
   import { buildShortcutParameter, type ShortcutActions } from "./lib/shortcuts";
   import {
     closeOverlay,
@@ -118,6 +120,33 @@
   function pickTool(view: string) {
     closeToolsDrawer();
     navigateTo(view);
+  }
+
+  function gamepadNavigationRoot(): ParentNode {
+    const dialogs = Array.from(document.querySelectorAll<HTMLElement>("[aria-modal='true']"))
+      .filter((dialog) => {
+        const style = getComputedStyle(dialog);
+        const rect = dialog.getBoundingClientRect();
+        return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+      });
+    return dialogs.at(-1) ?? document.querySelector("#main-content") ?? document;
+  }
+
+  function moveNormalModeFocus(direction: "up" | "down" | "left" | "right") {
+    moveGamepadFocus(direction, { root: gamepadNavigationRoot() });
+  }
+
+  function activateNormalModeFocus() {
+    activateGamepadFocus({ root: gamepadNavigationRoot() });
+  }
+
+  function cyclePrimaryContent(delta: number) {
+    const available = PRIMARY_CONTENT_VIEWS.filter((view) => isViewSupportedOnPlatform(view, platformStore.capabilities));
+    if (available.length === 0) return;
+    const current = available.indexOf(uiStore.currentView as (typeof PRIMARY_CONTENT_VIEWS)[number]);
+    const nextIndex = current < 0 ? 0 : (current + delta + available.length) % available.length;
+    pickDock(available[nextIndex]);
+    queueMicrotask(() => moveNormalModeFocus("down"));
   }
 
   function focusCurrentSearch() {
@@ -253,7 +282,8 @@
   });
 
   onMount(() => {
-    void platformStore.initialize().then(() => orientationStore.initialize());
+    const platformReady = platformStore.initialize();
+    void platformReady.then(() => orientationStore.initialize());
     const releaseMotion = motionStore.initialize();
     if (!booted) {
       booted = true;
@@ -262,7 +292,7 @@
     }
     const releaseRouter = initRouter();
     let androidBackListener: { unregister: () => Promise<void> } | null = null;
-    void platformStore.initialize().then(async () => {
+    void platformReady.then(async () => {
       if (!platformStore.isAndroid) return;
       androidBackListener = await onBackButtonPress(() => {
         void layeredBack().then((handled) => {
@@ -278,6 +308,7 @@
     void taskBadgeStore.load();
     const taskBadgeTimer = window.setInterval(() => void taskBadgeStore.refresh(), 5000);
     const updateTimer = window.setTimeout(async () => {
+      await platformReady.catch(() => {});
       if (!platformStore.capabilities.desktopUpdater) return;
       try {
         const result = await invokeCmd<{ available: boolean }>("start_update_check_task");
@@ -286,14 +317,28 @@
         // The backend records a redacted failed task; startup remains quiet.
       }
     }, 5000);
-    if (!isAndroid) _detachGamepad = attachGamepad({
-      back: () => {
-        void layeredBack();
-      },
-      start: () => {
-        if (!isBigPicture) uiStore.setBigPicture(true);
-      },
-    }, { id: "app-global-gamepad", priority: -100 });
+    let releaseGamepadMode = () => {};
+    if (!isAndroid) {
+      const runtime = getDefaultGamepadFocusRuntime();
+      releaseGamepadMode = runtime?.subscribeInputMode((mode) => {
+        document.documentElement.dataset.inputMode = mode;
+      }) ?? (() => {});
+      _detachGamepad = attachGamepad({
+        up: () => { if (!isBigPicture) moveNormalModeFocus("up"); },
+        down: () => { if (!isBigPicture) moveNormalModeFocus("down"); },
+        left: () => { if (!isBigPicture) moveNormalModeFocus("left"); },
+        right: () => { if (!isBigPicture) moveNormalModeFocus("right"); },
+        launch: () => { if (!isBigPicture) activateNormalModeFocus(); },
+        activate: () => { if (!isBigPicture) activateNormalModeFocus(); },
+        favorite: () => { if (!isBigPicture) focusGamepadSearch(gamepadNavigationRoot()); },
+        pageLeft: () => { if (!isBigPicture) cyclePrimaryContent(-1); },
+        pageRight: () => { if (!isBigPicture) cyclePrimaryContent(1); },
+        back: () => { void layeredBack(); },
+        start: () => {
+          if (!isBigPicture) uiStore.setBigPicture(true);
+        },
+      }, { id: "app-global-gamepad", priority: -100 });
+    }
     return () => {
       releaseMotion();
       releaseRouter();
@@ -303,6 +348,7 @@
       unsubscribeTaskBadge();
       window.removeEventListener("keydown", onKeydown);
       _detachGamepad();
+      releaseGamepadMode();
     };
   });
 
@@ -573,5 +619,3 @@
   @media (max-width: 520px) { .tools-grid { grid-template-columns: 1fr; } }
   @media (prefers-reduced-motion: reduce) { .tool-cell { transition: none; } }
 </style>
-
-

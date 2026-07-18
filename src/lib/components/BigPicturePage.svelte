@@ -42,7 +42,7 @@
 
   const games = $derived(gameStore.games);
   const allGames = $derived(gameStore.allGames);
-  const filteredGames = $derived(filterAll ? games : allGames.filter((g) => g.install_dir || g.exe_path));
+  const filteredGames = $derived(filterAll ? allGames : gameStore.installedGames);
   const focusGame = $derived(filteredGames[focusIdx] ?? null);
   const backgroundArt = $derived(pickBackgroundArt(focusGame));
   const isHeroBg = $derived(hasHeroBackground(focusGame));
@@ -252,6 +252,7 @@
       back: () => exitBigPicture(),
       pageLeft: () => cycleTab(-1),
       pageRight: () => cycleTab(1),
+      filter: () => { if (bpTab === "game") toggleFilter(); },
     }, { id: "big-picture-top-nav", zone: "top-nav", priority: 20 });
 
     getDefaultGamepadFocusRuntime()?.setActiveZone(activeZone);
@@ -364,6 +365,7 @@
               onMoveToTop={() => setZone("top-nav")}
               onTabPrevious={() => cycleTab(-1)}
               onTabNext={() => cycleTab(1)}
+              onToggleFilter={toggleFilter}
             />
           {/if}
         </div>
@@ -375,7 +377,7 @@
           <span><b>Y</b> 详情</span>
           <span><b>LB/RB</b> 切换分类</span>
           <span><b>/</b> 搜索</span>
-          <span><b>F</b> {filterAll ? "已安装" : "全部"}</span>
+          <span><b>View / F</b> {filterAll ? "仅看已安装" : "查看全部"}</span>
           <span class="bp-pos">{filteredGames.length ? focusIdx + 1 : 0} / {filteredGames.length}</span>
         </footer>
       {:else}

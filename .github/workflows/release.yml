@@ -172,7 +172,9 @@ jobs:
         shell: pwsh
         run: |
           $portable = Get-ChildItem src-tauri/target/release/bundle/portable/*.zip | Select-Object -First 1
-          gh release upload "${{ github.ref_name }}" latest.json $portable.FullName src-tauri/target/release/bundle/release-manifest.json src-tauri/target/release/bundle/sbom.cdx.json src-tauri/target/release/bundle/build-metadata.json --clobber
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          $updater = Get-Item "src-tauri/target/release/bundle/nsis/MoeGame_${version}_x64-setup.exe"
+          gh release upload "${{ github.ref_name }}" latest.json $updater.FullName "$($updater.FullName).sig" $portable.FullName src-tauri/target/release/bundle/release-manifest.json src-tauri/target/release/bundle/sbom.cdx.json src-tauri/target/release/bundle/build-metadata.json --clobber
 
       - name: Publish updater-ready release
         env:
@@ -185,7 +187,7 @@ jobs:
 
 
   android-release:
-    # 暂不做安卓版本（用户决策 0.16.0）：job 整体禁用；恢复出 APK 时移除下一行。
+    # 暂不做安卓版本（桌面发布策略）：job 整体禁用；恢复出 APK 时移除下一行。
     if: false
     permissions:
       contents: write

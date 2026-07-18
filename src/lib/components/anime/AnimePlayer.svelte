@@ -14,6 +14,8 @@
   import { focusTrap } from "../../actions/a11y/focusTrap";
   import { focusWhenAvailable } from "./a11y";
   import { AnimePlaybackShell } from "./playback";
+  import VideoEnhancementCanvas from "./VideoEnhancementCanvas.svelte";
+  import type { VideoEnhancementMode, VideoEnhancementStatus } from "../../features/anime-player/localVideoEnhancement";
   import { orientationStore, platformStore } from "../../platform";
 
   const status = $derived(animeStore.playerExtractStatus); // extracting | found | timeout | error
@@ -65,6 +67,13 @@
   const episodeCommentsLoading = $derived(animeStore.episodeCommentsLoading);
 
   let videoEl = $state<HTMLVideoElement | null>(null);
+  const enhancementMode = $derived(animeStore.videoEnhancementMode as VideoEnhancementMode);
+  let enhancementStatus = $state<VideoEnhancementStatus>("off");
+  let enhancementMessage = $state("");
+  const enhancementActive = $derived(enhancementMode !== "off" && enhancementStatus === "ready");
+  let mediaPaused = $state(true);
+  let mediaDuration = $state(0);
+  let mediaVolume = $state(1);
   let overlayEl = $state<HTMLDivElement | null>(null);
   let useWebFallback = $state(false); // 用户选择「用网页播放」时加载站点自带播放器
   let webFrameLoaded = $state(false);
@@ -628,8 +637,48 @@
   function handleTimeUpdate() {
     if (videoEl) {
       currentTime = videoEl.currentTime;
+      mediaDuration = Number.isFinite(videoEl.duration) ? videoEl.duration : 0;
+      mediaPaused = videoEl.paused;
       animeStore.updateProgress(Math.floor(videoEl.currentTime * 1000));
     }
+  }
+
+  function handleEnhancementStatus(next: VideoEnhancementStatus, message = "") {
+    enhancementStatus = next;
+    enhancementMessage = message;
+  }
+
+  function cycleEnhancementMode() {
+    const order: VideoEnhancementMode[] = ["off", "balanced", "quality"];
+    animeStore.videoEnhancementMode = order[(order.indexOf(enhancementMode) + 1) % order.length];
+  }
+
+  function toggleMediaPlayback() {
+    if (!videoEl) return;
+    if (videoEl.paused) void videoEl.play();
+    else videoEl.pause();
+  }
+
+  function seekMedia(value: number) {
+    if (!videoEl || !Number.isFinite(value)) return;
+    videoEl.currentTime = Math.max(0, Math.min(mediaDuration || value, value));
+    currentTime = videoEl.currentTime;
+  }
+
+  function setMediaVolume(value: number) {
+    if (!videoEl || !Number.isFinite(value)) return;
+    videoEl.volume = Math.max(0, Math.min(1, value));
+    mediaVolume = videoEl.volume;
+  }
+
+  function formatMediaTime(value: number): string {
+    if (!Number.isFinite(value) || value < 0) return "00:00";
+    const seconds = Math.floor(value % 60).toString().padStart(2, "0");
+    const minutes = Math.floor(value / 60);
+    const hours = Math.floor(minutes / 60);
+    return hours > 0
+      ? `${hours}:${String(minutes % 60).padStart(2, "0")}:${seconds}`
+      : `${String(minutes).padStart(2, "0")}:${seconds}`;
   }
   function retry() {
     useWebFallback = false;
@@ -974,6 +1023,16 @@
           </button>
         {/if}
         <button
+          class="nav-btn enhancement-toggle"
+          class:active={enhancementMode !== 'off'}
+          onclick={cycleEnhancementMode}
+          aria-label="切换本地超清化模式"
+          title={enhancementMessage || '本地 GPU 超清化，不上传视频'}
+        >
+          <Icon name="zap" size={14} />
+          <span>{enhancementMode === 'quality' ? '超清·质量' : enhancementMode === 'balanced' ? '超清·均衡' : '超清·关闭'}</span>
+        </button>
+        <button
           class="nav-btn danmaku-toggle"
           aria-label={danmakuEnabled ? '关闭弹幕' : '开启弹幕'}
           class:active={danmakuEnabled}
@@ -1178,12 +1237,51 @@
         <video
           bind:this={videoEl}
           class="player-video"
-          controls
+          controls={!enhancementActive}
           controlslist="nofullscreen noremoteplayback"
+          crossorigin="anonymous"
           disablepictureinpicture={false}
           autoplay
           ontimeupdate={handleTimeUpdate}
+          onplay={() => (mediaPaused = false)}
+          onpause={() => (mediaPaused = true)}
+          ondurationchange={() => { if (videoEl) mediaDuration = Number.isFinite(videoEl.duration) ? videoEl.duration : 0; }}
+          onvolumechange={() => { if (videoEl) mediaVolume = videoEl.volume; }}
         ></video>
+        <VideoEnhancementCanvas video={videoEl} mode={enhancementMode} onStatus={handleEnhancementStatus} />
+        {#if enhancementActive}
+          <div class="enhanced-media-controls" onpointerdown={(event) => event.stopPropagation()} onpointermove={(event) => event.stopPropagation()} onpointerup={(event) => event.stopPropagation()}>
+            <button type="button" onclick={toggleMediaPlayback} aria-label={mediaPaused ? '播放' : '暂停'}>
+              <Icon name={mediaPaused ? 'play' : 'pause'} size={16} />
+            </button>
+            <span class="enhanced-time">{formatMediaTime(currentTime)}</span>
+            <input
+              class="enhanced-progress"
+              type="range"
+              min="0"
+              max={Math.max(mediaDuration, 0)}
+              step="0.1"
+              value={Math.min(currentTime, mediaDuration || currentTime)}
+              aria-label="播放进度"
+              oninput={(event) => seekMedia(Number((event.currentTarget as HTMLInputElement).value))}
+            />
+            <span class="enhanced-time">{formatMediaTime(mediaDuration)}</span>
+            <Icon name="volume" size={15} />
+            <input
+              class="enhanced-volume"
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={mediaVolume}
+              aria-label="音量"
+              oninput={(event) => setMediaVolume(Number((event.currentTarget as HTMLInputElement).value))}
+            />
+            <span class="enhanced-badge">{enhancementMode === 'quality' ? 'LOCAL 1440P' : 'LOCAL 1080P'}</span>
+          </div>
+        {:else if enhancementMode !== 'off' && enhancementStatus === 'error'}
+          <div class="enhancement-error" role="status">{enhancementMessage || '本地超清化不可用，已回退到原始画面'}</div>
+        {/if}
         <DanmakuOverlay
           comments={danmakuComments}
           currentTime={currentTime}
@@ -1910,5 +2008,74 @@
     .tool-btn :global(svg), .nav-btn :global(svg), .nav-btn .danmaku-icon, .nav-btn .danmaku-count, .nav-btn .pip-label, .nav-btn .dl-label, .nav-btn.speed-btn { font-size: 11px; }
     .player-bottom { display: none; }
     .comments-panel, .episodes-panel { width:min(320px, 46vw); }
+  }
+
+  .player-video {
+    position: relative;
+    z-index: 0;
+    object-fit: contain;
+  }
+  .enhanced-media-controls {
+    position: absolute;
+    right: 18px;
+    bottom: 16px;
+    left: 18px;
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    padding: 8px 12px;
+    border: 1px solid rgba(255,255,255,.14);
+    border-radius: 10px;
+    background: rgba(4,7,10,.82);
+    box-shadow: 0 12px 38px rgba(0,0,0,.42);
+    backdrop-filter: blur(16px);
+  }
+  .enhanced-media-controls button {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    border: 1px solid rgba(255,255,255,.14);
+    border-radius: 50%;
+    background: rgba(255,255,255,.08);
+    color: white;
+    cursor: pointer;
+  }
+  .enhanced-progress { flex: 1 1 auto; min-width: 80px; accent-color: var(--accent); }
+  .enhanced-volume { width: 88px; accent-color: var(--accent); }
+  .enhanced-time { color: rgba(255,255,255,.72); font: 600 11px/1 var(--font-mono, monospace); }
+  .enhanced-badge {
+    flex: 0 0 auto;
+    padding: 5px 7px;
+    border: 1px solid color-mix(in srgb, var(--accent) 46%, transparent);
+    border-radius: 5px;
+    color: var(--accent);
+    font: 700 9px/1 var(--font-mono, monospace);
+    letter-spacing: .08em;
+  }
+  .enhancement-error {
+    position: absolute;
+    z-index: 4;
+    right: 18px;
+    bottom: 18px;
+    max-width: min(32rem, calc(100% - 36px));
+    padding: 9px 12px;
+    border: 1px solid rgba(255,180,90,.35);
+    border-radius: 7px;
+    background: rgba(18,12,5,.86);
+    color: #ffd39a;
+    font-size: 12px;
+  }
+  .enhancement-toggle.active {
+    border-color: color-mix(in srgb, var(--accent) 58%, transparent);
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  @media (max-width: 760px) {
+    .enhanced-volume, .enhanced-media-controls > :global(svg), .enhanced-badge { display: none; }
+    .enhanced-media-controls { right: 8px; bottom: 8px; left: 8px; gap: 6px; }
   }
 </style>

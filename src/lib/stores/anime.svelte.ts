@@ -5,6 +5,8 @@ import { debugLog } from "../utils/debug";
 import { findBestEpisodeMatch, rankSearchItems } from "../utils/animeSource";
 import { mergeSearchResults, type MergedSearchEntry } from "../features/anime-search/merge";
 import { createSearchCoverFetcher } from "../features/anime-search/covers";
+import { isRecommendationSnapshotFresh, readRecommendationSnapshot, writeRecommendationSnapshot } from "../features/anime-home/recommendationCache";
+import { normalizeVideoEnhancementMode, type VideoEnhancementMode } from "../features/anime-player/localVideoEnhancement";
 
 // ── 类型 ──────────────────────────────────────────────────────────────────
 
@@ -239,6 +241,7 @@ const BANGUMI_TOKEN_KEY = "bangumi-token";
 const BANGUMI_USERNAME_KEY = "bangumi-username";
 const BANGUMI_SYNC_PRIORITY_KEY = "bangumi-sync-priority"; // 0=localFirst, 1=bangumiFirst
 const SOURCE_HEALTH_KEY = 'anime-source-health-v1';
+const RECOMMENDATION_CACHE_KEY = 'anime-recommendations-v1';
 
 function loadJson<T>(key: string, fallback: T): T {
   if (typeof localStorage === "undefined") return fallback;
@@ -355,23 +358,30 @@ let _calendar = $state<BangumiCalendarDay[]>([]);
 let _calendarLoading = $state(false);
 let _calendarDay = $state(new Date().getDay() || 7); // 1=Mon..7=Sun
 
-// 推荐页 — 多板块
-let _recTrending = $state<BangumiSubject[]>([]);
-let _recTrendingTotal = $state(0);
+// Recommendation home: render last successful snapshot first, then refresh in the background.
+const _cachedRecommendations = readRecommendationSnapshot<BangumiSubject>(
+  typeof localStorage === "undefined" ? null : localStorage,
+  RECOMMENDATION_CACHE_KEY,
+);
+let _recTrending = $state<BangumiSubject[]>(_cachedRecommendations?.trending ?? []);
+let _recTrendingTotal = $state(_cachedRecommendations?.trendingTotal ?? 0);
 let _recTrendingLoading = $state(false);
-let _recTrendingOffset = $state(0);
+let _recTrendingOffset = $state(_cachedRecommendations?.trending.length ?? 0);
 
-let _recSeasonal = $state<BangumiSubject[]>([]);
-let _recSeasonalTotal = $state(0);
+let _recSeasonal = $state<BangumiSubject[]>(_cachedRecommendations?.seasonal ?? []);
+let _recSeasonalTotal = $state(_cachedRecommendations?.seasonalTotal ?? 0);
 let _recSeasonalLoading = $state(false);
-let _recSeasonalOffset = $state(0);
+let _recSeasonalOffset = $state(_cachedRecommendations?.seasonal.length ?? 0);
 
-let _recTopRated = $state<BangumiSubject[]>([]);
-let _recTopRatedTotal = $state(0);
+let _recTopRated = $state<BangumiSubject[]>(_cachedRecommendations?.topRated ?? []);
+let _recTopRatedTotal = $state(_cachedRecommendations?.topRatedTotal ?? 0);
 let _recTopRatedLoading = $state(false);
-let _recTopRatedOffset = $state(0);
+let _recTopRatedOffset = $state(_cachedRecommendations?.topRated.length ?? 0);
 
 let _recInitialized = $state(false);
+let _recError = $state<string | null>(null);
+let _recLastUpdated = $state(_cachedRecommendations?.storedAt ?? 0);
+let _recLoadGeneration = 0;
 
 // 我的 — 子 tab
 let _mySubTab = $state<"collection" | "history" | "stats">("collection");
@@ -526,7 +536,8 @@ let _playbackRate = $state(loadJson<number>('player-playback-rate', 1)); // 默�
 let _longPressRate = $state(loadJson<number>('player-long-press-rate', 3)); // 长按倍速
 let _skipOpening = $state(loadJson<number>('player-skip-opening', 0)); // 跳片头（秒）
 let _skipEnding = $state(loadJson<number>('player-skip-ending', 0)); // 跳片尾（秒）
-let _autoWebFallback = $state(loadJson<boolean>('player-auto-web-fallback', true)); // 解析/播放失败时自动用网页播放兜底
+let _autoWebFallback = $state(loadJson<boolean>('player-auto-web-fallback', true)); // parser/playback fallback
+let _videoEnhancementMode = $state<VideoEnhancementMode>(normalizeVideoEnhancementMode(loadJson<unknown>('player-video-enhancement', 'off'))); // 解析/播放失败时自动用网页播放兜底
 
 // 弹幕设置
 let _danmakuEnabled = $state(loadJson<boolean>('danmaku-enabled', true));
@@ -666,6 +677,9 @@ export const animeStore = {
   get recTopRatedLoading() { return _recTopRatedLoading; },
   get recTopRatedTotal() { return _recTopRatedTotal; },
   get recInitialized() { return _recInitialized; },
+  get recError() { return _recError; },
+  get recLastUpdated() { return _recLastUpdated; },
+  get recCacheFresh() { return isRecommendationSnapshotFresh(_recLastUpdated); },
 
   // 视频代理
   get proxyReady() { return _proxyReady; },
@@ -803,6 +817,8 @@ export const animeStore = {
   set skipEnding(v: number) { _skipEnding = v; saveJson('player-skip-ending', v); },
   get autoWebFallback() { return _autoWebFallback; },
   set autoWebFallback(v: boolean) { _autoWebFallback = v; saveJson('player-auto-web-fallback', v); },
+  get videoEnhancementMode() { return _videoEnhancementMode; },
+  set videoEnhancementMode(v: VideoEnhancementMode) { _videoEnhancementMode = normalizeVideoEnhancementMode(v); saveJson('player-video-enhancement', _videoEnhancementMode); },
 
   // 弹幕设置
   get danmakuOpacity() { return _danmakuOpacity; },
@@ -1027,61 +1043,113 @@ export const animeStore = {
 
   // ── 推荐页 ─────────────────────────────────────────────────────────
 
-  async loadRecommendations() {
-    if (_recInitialized) return;
+  _saveRecommendationCache() {
+    _recLastUpdated = Date.now();
+    writeRecommendationSnapshot(
+      typeof localStorage === "undefined" ? null : localStorage,
+      RECOMMENDATION_CACHE_KEY,
+      {
+        version: 1,
+        storedAt: _recLastUpdated,
+        seasonal: _recSeasonal,
+        seasonalTotal: _recSeasonalTotal,
+        trending: _recTrending,
+        trendingTotal: _recTrendingTotal,
+        topRated: _recTopRated,
+        topRatedTotal: _recTopRatedTotal,
+      },
+    );
+  },
+
+  async loadRecommendations(force = false) {
+    if (!force && _recInitialized) return;
+    if (_recTrendingLoading || _recSeasonalLoading || _recTopRatedLoading) return;
+    const generation = ++_recLoadGeneration;
     _recInitialized = true;
-    this._loadTrending(false);
-    this._loadSeasonal(false);
-    this._loadTopRated(false);
+    _recError = null;
+    const results = await Promise.allSettled([
+      this._loadTrending(false),
+      this._loadSeasonal(false),
+      this._loadTopRated(false),
+    ]);
+    if (generation !== _recLoadGeneration) return;
+    const failures = results.filter((result) => result.status === "rejected") as PromiseRejectedResult[];
+    const hasData = _recTrending.length + _recSeasonal.length + _recTopRated.length > 0;
+    if (failures.length < results.length) this._saveRecommendationCache();
+    if (failures.length > 0) {
+      const first = failures[0]?.reason;
+      const detail = first instanceof Error ? first.message : String(first ?? "unknown error");
+      _recError = hasData ? `部分节目刷新失败，正在显示最近缓存：${detail}` : `番剧首页加载失败：${detail}`;
+    }
+    if (!hasData && failures.length === results.length) _recInitialized = false;
+  },
+
+  async refreshRecommendations() {
+    return this.loadRecommendations(true);
   },
 
   async _loadTrending(append: boolean) {
+    if (_recTrendingLoading) return;
     _recTrendingLoading = true;
     try {
+      const offset = append ? _recTrendingOffset : 0;
       const [items, total] = await invokeCmd<[BangumiSubject[], number]>("anime_bangumi_search", {
-        keyword: "", offset: _recTrendingOffset, sort: "heat",
+        keyword: "", offset, sort: "heat",
       });
       _recTrending = append ? [..._recTrending, ...items] : items;
       _recTrendingTotal = total;
-      _recTrendingOffset = _recTrendingOffset + items.length;
+      _recTrendingOffset = offset + items.length;
       this._proxyImages(items.filter(i => i.image).map(i => i.image));
-    } catch { /* silent */ }
-    _recTrendingLoading = false;
+    } catch (error) {
+      throw new Error(`热门节目：${String(error)}`);
+    } finally {
+      _recTrendingLoading = false;
+    }
   },
 
   async _loadSeasonal(append: boolean) {
+    if (_recSeasonalLoading) return;
     _recSeasonalLoading = true;
     try {
+      const offset = append ? _recSeasonalOffset : 0;
       const season = currentSeason();
       const [items, total] = await invokeCmd<[BangumiSubject[], number]>("anime_bangumi_search", {
-        keyword: "", offset: _recSeasonalOffset, sort: "heat",
+        keyword: "", offset, sort: "heat",
         airDateGte: season.gte, airDateLte: season.lte,
       });
       _recSeasonal = append ? [..._recSeasonal, ...items] : items;
       _recSeasonalTotal = total;
-      _recSeasonalOffset = _recSeasonalOffset + items.length;
+      _recSeasonalOffset = offset + items.length;
       this._proxyImages(items.filter(i => i.image).map(i => i.image));
-    } catch { /* silent */ }
-    _recSeasonalLoading = false;
+    } catch (error) {
+      throw new Error(`本季新番：${String(error)}`);
+    } finally {
+      _recSeasonalLoading = false;
+    }
   },
 
   async _loadTopRated(append: boolean) {
+    if (_recTopRatedLoading) return;
     _recTopRatedLoading = true;
     try {
+      const offset = append ? _recTopRatedOffset : 0;
       const [items, total] = await invokeCmd<[BangumiSubject[], number]>("anime_bangumi_search", {
-        keyword: "", offset: _recTopRatedOffset, sort: "rank",
+        keyword: "", offset, sort: "rank",
       });
       _recTopRated = append ? [..._recTopRated, ...items] : items;
       _recTopRatedTotal = total;
-      _recTopRatedOffset = _recTopRatedOffset + items.length;
+      _recTopRatedOffset = offset + items.length;
       this._proxyImages(items.filter(i => i.image).map(i => i.image));
-    } catch { /* silent */ }
-    _recTopRatedLoading = false;
+    } catch (error) {
+      throw new Error(`高分节目：${String(error)}`);
+    } finally {
+      _recTopRatedLoading = false;
+    }
   },
 
-  loadMoreTrending() { this._loadTrending(true); },
-  loadMoreSeasonal() { this._loadSeasonal(true); },
-  loadMoreTopRated() { this._loadTopRated(true); },
+  async loadMoreTrending() { await this._loadTrending(true); this._saveRecommendationCache(); },
+  async loadMoreSeasonal() { await this._loadSeasonal(true); this._saveRecommendationCache(); },
+  async loadMoreTopRated() { await this._loadTopRated(true); this._saveRecommendationCache(); },
 
   async searchBangumi(keyword: string): Promise<BangumiSubject[]> {
     try {

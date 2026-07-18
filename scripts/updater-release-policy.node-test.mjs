@@ -24,7 +24,7 @@ test("official releases require signed automatic-update artifacts", () => {
     workflow.indexOf("Generate build metadata") < workflow.indexOf("Generate signed latest.json"),
     "build metadata must be captured before latest.json makes the checkout dirty",
   );
-  assert.match(workflow, /gh release upload .*latest\.json/);
+  assert.match(workflow, /gh release upload .*latest\.json.*\$updater\.FullName.*\.sig/);
   assert.match(workflow, /verify-updater-artifacts\.mjs --require/);
   assert.match(workflow, /gh release edit .*--draft=false/);
   assert.doesNotMatch(workflow, /degraded|installer-only|includeUpdaterJson: false/i);

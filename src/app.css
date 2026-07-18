@@ -770,3 +770,16 @@ button.ui-card:focus-visible {
     transition: none;
   }
 }
+
+/* Shared controller focus ring for every normal-mode content surface. */
+:root[data-input-mode="gamepad"] :where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent, #ff6b9a) 86%, white 14%) !important;
+  outline-offset: 4px !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--bg-void, #08090b) 75%, transparent),
+              0 0 24px color-mix(in srgb, var(--accent, #ff6b9a) 42%, transparent) !important;
+}
+
+:root[data-input-mode="gamepad"] :where(button, a, [tabindex]):focus-visible {
+  position: relative;
+  z-index: 3;
+}

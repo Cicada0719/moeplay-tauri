@@ -41,6 +41,7 @@ export interface GamepadScopeHandlers {
   activate?: () => void;
   launch?: () => void;
   favorite?: () => void;
+  filter?: () => void;
   back?: () => void;
   start?: () => void;
 }
@@ -104,6 +105,7 @@ const BUTTON = {
   Y: 3,
   LB: 4,
   RB: 5,
+  VIEW: 8,
   START: 9,
   DPAD_UP: 12,
   DPAD_DOWN: 13,
@@ -112,7 +114,7 @@ const BUTTON = {
 } as const;
 
 const DIRECTIONS: readonly GamepadDirection[] = ["up", "down", "left", "right"];
-const EDGE_BUTTONS = [BUTTON.A, BUTTON.B, BUTTON.X, BUTTON.Y, BUTTON.LB, BUTTON.RB, BUTTON.START] as const;
+const EDGE_BUTTONS = [BUTTON.A, BUTTON.B, BUTTON.X, BUTTON.Y, BUTTON.LB, BUTTON.RB, BUTTON.VIEW, BUTTON.START] as const;
 const MODIFIER_KEYS = new Set(["Alt", "AltGraph", "Control", "Meta", "Shift", "CapsLock", "NumLock", "ScrollLock"]);
 
 function makeDirectionState(): Record<GamepadDirection, DirectionState> {
@@ -555,6 +557,7 @@ export class GamepadFocusRuntime {
     edge(BUTTON.A, scope.handlers.launch);
     edge(BUTTON.Y, scope.handlers.activate);
     edge(BUTTON.X, scope.handlers.favorite);
+    edge(BUTTON.VIEW, scope.handlers.filter);
     edge(BUTTON.B, scope.handlers.back);
     const startHandler = scope.handlers.start ?? (scope.overlay ? undefined : this.findFallbackHandler("start"));
     edge(BUTTON.START, startHandler);

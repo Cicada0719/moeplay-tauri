@@ -1339,7 +1339,14 @@ pub async fn fetch_bangumi_calendar() -> Result<Vec<BangumiCalendarDay>, String>
         .get(&url)
         .send()
         .await
-        .map_err(|e| format!("Bangumi 请求失败: {}", e))?;
+        .map_err(|e| format!("Bangumi 请求失败: {}", e))?
+        .error_for_status()
+        .map_err(|e| {
+            format!(
+                "Bangumi HTTP status {}",
+                e.status().map(|s| s.as_u16()).unwrap_or(0)
+            )
+        })?;
     let data: serde_json::Value = resp
         .json()
         .await
@@ -1415,7 +1422,14 @@ pub async fn search_bangumi(
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("Bangumi 搜索失败: {}", e))?;
+        .map_err(|e| format!("Bangumi 搜索失败: {}", e))?
+        .error_for_status()
+        .map_err(|e| {
+            format!(
+                "Bangumi search HTTP status {}",
+                e.status().map(|s| s.as_u16()).unwrap_or(0)
+            )
+        })?;
     let data: serde_json::Value = resp
         .json()
         .await

@@ -100,6 +100,7 @@
       launch: () => onLaunch(focusIdx),
       activate: () => onActivate(focusIdx),
       favorite: () => onFavorite(focusIdx),
+      filter: () => onToggleFilter(),
       back: () => onBack(),
       pageLeft: () => onTabPrevious(),
       pageRight: () => onTabNext(),

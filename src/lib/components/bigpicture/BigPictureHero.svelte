@@ -26,6 +26,7 @@
     onMoveToTop,
     onTabPrevious,
     onTabNext,
+    onToggleFilter,
   }: {
     game: Game;
     weekHours: string;
@@ -37,6 +38,7 @@
     onMoveToTop: () => void;
     onTabPrevious: () => void;
     onTabNext: () => void;
+    onToggleFilter: () => void;
   } = $props();
 
   let actionsEl = $state<HTMLDivElement>();
@@ -116,6 +118,7 @@
       launch: () => activateAction(),
       activate: () => activateAction(),
       favorite: () => onFavorite(),
+      filter: () => onToggleFilter(),
       back: () => onMoveToWheel(),
       pageLeft: () => onTabPrevious(),
       pageRight: () => onTabNext(),

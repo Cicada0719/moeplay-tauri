@@ -262,6 +262,12 @@
            ═══════════════════════════════════════════════════════════ -->
       {:else if animeStore.activeTab === "recommend"}
         <div class="rec-page" id="anime-panel-recommend" role="tabpanel" aria-labelledby="anime-tab-recommend" tabindex="0">
+          {#if animeStore.recError}
+            <div class="recommendation-notice" role="status">
+              <span>{animeStore.recError}</span>
+              <button type="button" onclick={() => animeStore.refreshRecommendations()}>重新加载</button>
+            </div>
+          {/if}
           <AnimeEditorialHome
             history={animeStore.history}
             seasonal={animeStore.recSeasonal}
@@ -1195,4 +1201,26 @@
   :global([data-motion="reduce"] .ui-button.result-row),
   :global([data-motion="reduce"] .ui-button.remove-rule) { transition: none; }
   :global([data-motion="reduce"]) .spinner { animation: none; }
+
+  .recommendation-notice {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 0 clamp(1rem, 3vw, 3rem);
+    padding: .75rem 1rem;
+    border: 1px solid color-mix(in srgb, var(--accent, #ff6b9a) 35%, transparent);
+    background: color-mix(in srgb, var(--surface-1, #15171b) 88%, transparent);
+    color: var(--text-secondary);
+    font-size: .78rem;
+  }
+  .recommendation-notice button {
+    flex: 0 0 auto;
+    min-height: 2rem;
+    padding: 0 .8rem;
+    border: 1px solid currentColor;
+    background: transparent;
+    color: var(--text-primary);
+    cursor: pointer;
+  }
 </style>

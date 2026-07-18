@@ -92,4 +92,22 @@
       size="sm"
     />
   </div>
+  <div class="s-divider"></div>
+
+  <div class="s-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+    <div class="s-info">
+      <span class="s-label">本地超清化</span>
+      <span class="s-desc">使用 GPU 在本机放大并强化动画线条；均衡最高 1080p，质量优先最高 1440p。不会上传视频。</span>
+    </div>
+    <SegmentControl
+      options={[
+        { value: 'off', label: '关闭' },
+        { value: 'balanced', label: '均衡' },
+        { value: 'quality', label: '质量优先' },
+      ]}
+      value={animeStore.videoEnhancementMode}
+      onChange={(v) => animeStore.videoEnhancementMode = v as 'off' | 'balanced' | 'quality'}
+      size="sm"
+    />
+  </div>
 </Card>
