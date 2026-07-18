@@ -137,10 +137,7 @@ fn init_android_ndk_context() {
     match main_android_context() {
         Some(context) => {
             unsafe {
-                ndk_context::initialize_android_context(
-                    context.java_vm,
-                    context.context_jobject,
-                );
+                ndk_context::initialize_android_context(context.java_vm, context.context_jobject);
             }
             crash_log("init_android_ndk_context() done");
         }
