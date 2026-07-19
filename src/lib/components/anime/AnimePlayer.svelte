@@ -994,19 +994,19 @@
     stageLabel={`${animeStore.detailName} ${epName || "播放器"} 播放区域`}
   >
     {#snippet toolbar()}
-  <div class="player-toolbar" role="toolbar" aria-label="播放器工具栏" tabindex="-1" onclick={handleToolbarClickOutside} onkeydown={(e) => { if (e.key === "Escape") { showSpeedMenu = false; showDanmakuSettings = false; showEpisodePanel = false; showCommentsPanel = false; } }}>
-    <button class="tool-btn" type="button" data-player-close aria-label="关闭播放器并返回当前剧集" onclick={() => void closePlayer()}>
+  <div class="player-toolbar" role="toolbar" aria-label="播放器工具栏" data-gamepad-group tabindex="-1" onclick={handleToolbarClickOutside} onkeydown={(e) => { if (e.key === "Escape") { showSpeedMenu = false; showDanmakuSettings = false; showEpisodePanel = false; showCommentsPanel = false; } }}>
+    <button class="tool-btn" type="button" data-player-close data-gamepad-activate="返回剧集" aria-label="关闭播放器并返回当前剧集" onclick={() => void closePlayer()}>
       <Icon name="x" size={16} /> 关闭
     </button>
     <div class="toolbar-sep"></div>
     <div class="ep-nav">
-      <button class="nav-btn" type="button" aria-label="播放上一集" onclick={goPrev} disabled={!hasPrev}>
+      <button class="nav-btn" type="button" aria-label="播放上一集" data-gamepad-activate="上一集" onclick={goPrev} disabled={!hasPrev}>
         <Icon name="chevronLeft" size={15} /> 上一集
       </button>
-      <button class="nav-btn" type="button" aria-label="播放下一集" onclick={goNext} disabled={!hasNext}>
+      <button class="nav-btn" type="button" aria-label="播放下一集" data-gamepad-activate="下一集" onclick={goNext} disabled={!hasNext}>
         下一集 <Icon name="chevronRight" size={15} />
       </button>
-      <button class="nav-btn fullscreen-toggle" type="button" onclick={toggleFullscreen} aria-label={isFullscreen ? '退出全屏' : '进入全屏'} title={isFullscreen ? '退出全屏' : '全屏'}>
+      <button class="nav-btn fullscreen-toggle" type="button" onclick={toggleFullscreen} data-gamepad-activate={isFullscreen ? '退出全屏' : '进入全屏'} aria-label={isFullscreen ? '退出全屏' : '进入全屏'} title={isFullscreen ? '退出全屏' : '全屏'}>
         <Icon name={isFullscreen ? 'x' : 'maximize'} size={15} />
       </button>
       {#if status === "found"}
@@ -1024,6 +1024,8 @@
         {/if}
         <button
           class="nav-btn enhancement-toggle"
+          data-gamepad-secondary-action
+          data-gamepad-activate="切换本地超清化"
           class:active={enhancementMode !== 'off'}
           onclick={cycleEnhancementMode}
           aria-label="切换本地超清化模式"
@@ -1034,6 +1036,7 @@
         </button>
         <button
           class="nav-btn danmaku-toggle"
+          data-gamepad-activate={danmakuEnabled ? '关闭弹幕' : '开启弹幕'}
           aria-label={danmakuEnabled ? '关闭弹幕' : '开启弹幕'}
           class:active={danmakuEnabled}
           onclick={() => { animeStore.danmakuEnabled = !animeStore.danmakuEnabled; }}
@@ -1048,6 +1051,7 @@
         </button>
         <button
           class="nav-btn danmaku-settings-btn"
+          data-gamepad-activate="弹幕设置"
           aria-label={'打开弹幕设置'}
           class:active={showDanmakuSettings}
           onclick={() => { showDanmakuSettings = !showDanmakuSettings; showSpeedMenu = false; }}
@@ -1060,6 +1064,7 @@
         <div class="toolbar-sep"></div>
         <button
           class="nav-btn episodes-toggle"
+          data-gamepad-activate={showEpisodePanel ? '关闭选集' : '打开选集'}
           aria-label={showEpisodePanel ? '关闭选集面板' : '打开选集面板'}
           class:active={showEpisodePanel}
           onclick={toggleEpisodePanel}
@@ -1073,6 +1078,7 @@
         <div class="speed-control">
           <button
             class="nav-btn speed-btn"
+          data-gamepad-activate="选择播放速度"
           aria-label={'选择播放速度'}
             class:active={showSpeedMenu}
             onclick={() => showSpeedMenu = !showSpeedMenu}
@@ -1377,6 +1383,7 @@
               <button
                 class="ep-road-tab"
                 type="button"
+                data-gamepad-activate="切换线路"
                 role="tab"
                 class:active={pickerRoadIdx === i}
                 aria-selected={pickerRoadIdx === i}
@@ -1393,6 +1400,7 @@
             {#each pickerEpisodes as ep, i (ep.url + i)}
               <button
                 class="ep-panel-btn"
+                data-gamepad-activate="播放剧集"
                 class:current={pickerRoadIdx === roadIdx && i === epIdx}
                 onclick={() => pickEpisode(pickerRoadIdx, i)}
                 title={ep.name}
@@ -1412,7 +1420,7 @@
       <button class="bottom-btn" type="button" aria-label="播放上一集" onclick={goPrev} disabled={!hasPrev}>
         <Icon name="chevronLeft" size={16} /> 上一集
       </button>
-      <button class="bottom-btn close" type="button" onclick={() => void closePlayer()}>返回当前剧集</button>
+      <button class="bottom-btn close" type="button" data-gamepad-activate="返回剧集" onclick={() => void closePlayer()}>返回当前剧集</button>
       <button class="bottom-btn" type="button" aria-label="播放下一集" onclick={goNext} disabled={!hasNext}>
         下一集 <Icon name="chevronRight" size={16} />
       </button>

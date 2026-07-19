@@ -32,6 +32,7 @@
   {focusKey}
   {selected}
   ariaLabel={`打开漫画：${comic.title}`}
+  gamepadActivateLabel="打开漫画"
   onActivate={onclick}
   bind:interactiveRef
   class="comic-media-card"

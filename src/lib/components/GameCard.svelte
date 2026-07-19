@@ -194,6 +194,8 @@
       <button
         type="button"
         class="card-action favorite"
+        data-gamepad-secondary-action
+        data-gamepad-activate={game.favorite ? "取消收藏" : "收藏"}
         class:active={game.favorite}
         disabled={favoriteLoading || disabled || loading}
         aria-label={game.favorite ? `取消收藏 ${game.name}` : `收藏 ${game.name}`}
@@ -233,6 +235,7 @@
     selected={isSelected}
     {disabled}
     {loading}
+    gamepadActivateLabel={inSelectionMode ? (isSelected ? "取消选择" : "选择") : "打开档案"}
     ariaLabel={inSelectionMode ? `${isSelected ? "取消选择" : "选择"} ${game.name}` : `打开 ${game.name} 详情`}
     itemRole={resolvedItemRole}
     class={`game-card ${isList ? "game-card--list" : ""} ${isNsfw && nsfwMode === "blur" ? "game-card--blur" : ""} ${isNsfw && nsfwMode === "hide" ? "game-card--hidden-cover" : ""}`}
@@ -241,7 +244,7 @@
 
   {#if deleteOpen}
     <div class="delete-dialog-root" data-testid={`delete-dialog-${game.id}`}>
-      <button class="delete-dialog-backdrop" type="button" tabindex="-1" aria-label="取消删除" onclick={closeDeleteDialog}></button>
+      <button class="delete-dialog-backdrop" type="button" tabindex="-1" data-gamepad-skip="true" aria-label="取消删除" onclick={closeDeleteDialog}></button>
       <dialog
         open
         class="delete-dialog"

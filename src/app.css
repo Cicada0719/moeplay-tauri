@@ -783,3 +783,42 @@ button.ui-card:focus-visible {
   position: relative;
   z-index: 3;
 }
+
+
+/* Workspace focus mode: explicitly hide secondary chrome while preserving a global restore control. */
+.app-container[data-workspace-focus="true"][data-workspace-focus-view="home"] .mw-shell {
+  grid-template-rows: minmax(0, 1fr) !important;
+}
+.app-container[data-workspace-focus="true"][data-workspace-focus-view="home"] :is(.mw-shell__topline, .mw-shell__director) {
+  display: none !important;
+}
+.app-container[data-workspace-focus="true"][data-workspace-focus-view="home"] [data-route-view="game-detail"] :is(.hero-contact-sheet, .body) {
+  display: none !important;
+}
+.app-container[data-workspace-focus="true"][data-workspace-focus-view="home"] [data-route-view="game-detail"] .hero {
+  min-height: calc(100vh - 52px);
+}
+.app-container[data-workspace-focus="true"][data-workspace-focus-view="comic"] :is(.comic-v2-shell .v2-page-header, .comic-filter-bar, .category-chips, .ranking-periods) {
+  display: none !important;
+}
+.app-container[data-workspace-focus="true"][data-workspace-focus-view="comic"] .comic-page-frame {
+  padding-top: 0 !important;
+}
+.app-container[data-workspace-focus="true"][data-workspace-focus-view="anime"] .editorial-chrome {
+  display: none !important;
+}
+.app-container[data-workspace-focus="true"][data-workspace-focus-view="anime"] .anime-content {
+  flex: 1 1 100%;
+}
+.app-container[data-workspace-focus="true"][data-workspace-focus-view="novel"] :is(.home-scroll > .v2-page-header, .nv-searchbar, .home-scroll > .source-tabs) {
+  display: none !important;
+}
+.app-container[data-workspace-focus="true"][data-workspace-focus-view="novel"] .home-scroll {
+  padding-top: 12px !important;
+}
+.app-container[data-workspace-focus="true"][data-workspace-focus-view="records"] :is(.records-modebar, .records-index > .v2-page-header) {
+  display: none !important;
+}
+.app-container[data-workspace-focus="true"][data-workspace-focus-view="records"] .records-index {
+  padding-top: 0 !important;
+}

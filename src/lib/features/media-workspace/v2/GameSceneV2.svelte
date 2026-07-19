@@ -110,6 +110,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <section
   class="fs-stage"
+  data-gamepad-group
   data-testid="game-film-sequence"
   data-active-owner={active?.id ?? ""}
   data-reduced-motion={reducedMotion}
@@ -145,7 +146,7 @@
           data-film-index={index}
           aria-hidden={Math.abs(offset) > 2 ? "true" : undefined}
         >
-          <button type="button" tabindex={index === activeIndex ? 0 : -1} onclick={() => activateCard(item, index)} aria-label={`${index === activeIndex ? "打开" : "切换到"} ${item.title}`}>
+          <button type="button" tabindex={index === activeIndex ? 0 : -1} onclick={() => activateCard(item, index)} aria-label={`${index === activeIndex ? "打开档案" : "切换到"} ${item.title}`} data-gamepad-activate={index === activeIndex ? "打开档案" : "切换游戏"}>
             <span class="fs-frame-number">{String(index + 1).padStart(3, "0")}</span>
             <span class="fs-image">
               {#if asset}<MediaArtwork src={asset.src} alt={asset.alt} title={item.title} eager={Math.abs(offset) <= 1} />{:else}<i>{item.title.slice(0, 1)}</i>{/if}
@@ -174,8 +175,8 @@
         </div>
       </div>
       <div class="fs-actions">
-        {#if launch}<button class="primary" type="button" onclick={() => runAction(active, "launch", onAction)}>{launch.label}</button>{/if}
-        {#if open}<button type="button" onclick={() => runAction(active, "open", onAction)}>打开档案</button>{/if}
+        {#if launch}<button class="primary" type="button" data-gamepad-activate="启动游戏" onclick={() => runAction(active, "launch", onAction)}>{launch.label}</button>{/if}
+        {#if open}<button type="button" data-gamepad-activate="打开档案" onclick={() => runAction(active, "open", onAction)}>打开档案</button>{/if}
       </div>
     </footer>
   {:else}

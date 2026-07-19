@@ -6,7 +6,10 @@ export const DEFAULT_GAMEPAD_FOCUS_SELECTOR = [
   "input:not([disabled]):not([type='hidden'])",
   "select:not([disabled])",
   "textarea:not([disabled])",
-  "[tabindex]:not([tabindex='-1'])",
+  "[role='button']:not([aria-disabled='true'])",
+  "[role='tab']:not([aria-disabled='true'])",
+  "[role='option']:not([aria-disabled='true'])",
+  "[role='menuitem']:not([aria-disabled='true'])",
   "[contenteditable='true']",
 ].join(",");
 
@@ -20,8 +23,17 @@ function isHTMLElement(value: unknown): value is HTMLElement {
   return typeof HTMLElement !== "undefined" && value instanceof HTMLElement;
 }
 
+function isEligibleTabStop(element: HTMLElement): boolean {
+  const rawTabIndex = element.getAttribute("tabindex");
+  if (rawTabIndex == null || Number(rawTabIndex) >= 0) return true;
+  if (element.dataset.gamepadForce === "true") return true;
+  return ["tab", "option", "menuitem"].includes(element.getAttribute("role") ?? "");
+}
+
 function isVisible(element: HTMLElement): boolean {
-  if (element.hidden || element.closest("[hidden], [inert], [aria-hidden='true']")) return false;
+  if (element.hidden || element.closest("[hidden], [inert], [aria-hidden='true'], [data-gamepad-ignore='true']")) return false;
+  if (element.matches("[data-gamepad-skip='true']")) return false;
+  if (element.getAttribute("aria-disabled") === "true") return false;
   const style = typeof getComputedStyle === "function" ? getComputedStyle(element) : null;
   if (style && (style.display === "none" || style.visibility === "hidden" || style.opacity !== "" && Number(style.opacity) === 0)) return false;
   const rect = element.getBoundingClientRect();
@@ -34,7 +46,7 @@ export function collectGamepadFocusable(options: SpatialNavigationOptions = {}):
   const selector = options.selector ?? DEFAULT_GAMEPAD_FOCUS_SELECTOR;
   return Array.from(root.querySelectorAll(selector))
     .filter(isHTMLElement)
-    .filter((element) => !element.matches(":disabled") && isVisible(element));
+    .filter((element) => !element.matches(":disabled") && isEligibleTabStop(element) && isVisible(element));
 }
 
 function centerOf(rect: DOMRect): { x: number; y: number } {
@@ -58,11 +70,6 @@ function directionalScore(origin: DOMRect, candidate: DOMRect, direction: Spatia
   return primary * 10 + alignmentPenalty + Math.hypot(dx, dy) * 0.15 - overlap * 0.5;
 }
 
-function fallbackIndex(current: number, length: number, direction: SpatialDirection): number {
-  const delta = direction === "left" || direction === "up" ? -1 : 1;
-  return (current + delta + length) % length;
-}
-
 export function moveGamepadFocus(direction: SpatialDirection, options: SpatialNavigationOptions = {}): HTMLElement | null {
   const focusable = collectGamepadFocusable(options);
   if (focusable.length === 0) return null;
@@ -80,6 +87,40 @@ export function moveGamepadFocus(direction: SpatialDirection, options: SpatialNa
     return first;
   }
 
+  const tabList = active.getAttribute("role") === "tab" ? active.closest<HTMLElement>("[role='tablist']") : null;
+  const tabOrientation = tabList?.getAttribute("aria-orientation") ?? "horizontal";
+  const movesWithinTabList = tabList && (
+    (tabOrientation === "vertical" && (direction === "up" || direction === "down"))
+    || (tabOrientation !== "vertical" && (direction === "left" || direction === "right"))
+  );
+  if (tabList && movesWithinTabList) {
+    const tabs = collectGamepadFocusable({ root: tabList, selector: "[role='tab']:not([aria-disabled='true'])" });
+    const index = tabs.indexOf(active);
+    if (index >= 0 && tabs.length > 1) {
+      const delta = direction === "left" || direction === "up" ? -1 : 1;
+      const target = tabs[(index + delta + tabs.length) % tabs.length];
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+      return target;
+    }
+  }
+
+  const overrideSelector = active.getAttribute(`data-gamepad-nav-${direction}`)?.trim();
+  if (overrideSelector) {
+    let override: HTMLElement | null = null;
+    try {
+      const candidate = (options.root ?? document).querySelector(overrideSelector);
+      override = isHTMLElement(candidate) ? candidate : null;
+    } catch {
+      // Ignore invalid author-provided selectors and keep geometric navigation available.
+    }
+    if (override && collectGamepadFocusable({ ...options, root: override.parentNode ?? options.root }).includes(override)) {
+      override.focus({ preventScroll: true });
+      override.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+      return override;
+    }
+  }
+
   const origin = active.getBoundingClientRect();
   let winner: HTMLElement | null = null;
   let winnerScore = Number.POSITIVE_INFINITY;
@@ -92,10 +133,25 @@ export function moveGamepadFocus(direction: SpatialDirection, options: SpatialNa
     }
   }
 
-  winner ??= focusable[fallbackIndex(currentIndex, focusable.length, direction)];
+  if (!winner) return active;
   winner.focus({ preventScroll: true });
   winner.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
   return winner;
+}
+
+function activateElement(element: HTMLElement): void {
+  if (element instanceof HTMLSelectElement) {
+    try {
+      const showPicker = (element as HTMLSelectElement & { showPicker?: () => void }).showPicker;
+      if (typeof showPicker === "function") {
+        showPicker.call(element);
+        return;
+      }
+    } catch {
+      // WebView/browser denied showPicker; click is the portable fallback.
+    }
+  }
+  element.click();
 }
 
 export function activateGamepadFocus(options: SpatialNavigationOptions = {}): HTMLElement | null {
@@ -105,7 +161,7 @@ export function activateGamepadFocus(options: SpatialNavigationOptions = {}): HT
       ? document.activeElement
       : null;
   if (active && collectGamepadFocusable(options).includes(active)) {
-    active.click();
+    activateElement(active);
     return active;
   }
   const first = collectGamepadFocusable(options)[0] ?? null;
@@ -115,11 +171,28 @@ export function activateGamepadFocus(options: SpatialNavigationOptions = {}): HT
   return first;
 }
 
+export function activateGamepadSecondaryFocus(options: SpatialNavigationOptions = {}): HTMLElement | null {
+  const active = isHTMLElement(options.activeElement)
+    ? options.activeElement
+    : typeof document !== "undefined" && isHTMLElement(document.activeElement)
+      ? document.activeElement
+      : null;
+  if (!active) return activateGamepadFocus(options);
+  const group = active.closest<HTMLElement>("[data-gamepad-group]");
+  const secondary = group?.querySelector<HTMLElement>("[data-gamepad-secondary-action]:not([disabled])") ?? null;
+  if (secondary && isVisible(secondary)) {
+    activateElement(secondary);
+    return secondary;
+  }
+  return activateGamepadFocus(options);
+}
+
 export function focusGamepadSearch(root: ParentNode = document): HTMLElement | null {
-  const candidate = root.querySelector<HTMLElement>(
+  const candidates = Array.from(root.querySelectorAll<HTMLElement>(
     "input[type='search']:not([disabled]), [data-search-scope] input:not([disabled]), input[placeholder*='搜索']:not([disabled])",
-  );
-  if (!candidate || !isVisible(candidate)) return null;
+  ));
+  const candidate = candidates.find((element) => isEligibleTabStop(element) && isVisible(element)) ?? null;
+  if (!candidate) return null;
   candidate.focus({ preventScroll: true });
   candidate.scrollIntoView({ block: "center", inline: "nearest" });
   return candidate;

@@ -177,7 +177,7 @@
         <label class="search-wrap" aria-label="搜索番剧">
           <span class="search-index">SEARCH</span>
           <Icon name="search" size={14} />
-          <input class="search-input" type="search" placeholder="搜索番剧..." bind:value={searchInput} aria-busy={animeStore.loading} data-search-scope="anime" />
+          <input class="search-input" type="search" placeholder="搜索番剧..." bind:value={searchInput} aria-busy={animeStore.loading} data-search-scope="anime" data-gamepad-nav-down="#anime-tab-recommend" />
           {#if searchInput}<button class="search-clear" type="button" aria-label="清空搜索" onclick={clearSearch}><Icon name="x" size={13} /></button>{/if}
         </label>
         {#if animeStore.rules.length > 0}
@@ -204,6 +204,7 @@
             id={`anime-tab-${tab.id}`}
             aria-selected={animeStore.activeTab === tab.id}
             aria-controls={`anime-panel-${tab.id}`}
+            data-gamepad-activate="切换栏目"
             tabindex={animeStore.activeTab === tab.id ? 0 : -1}
             onclick={() => activateMainTab(tab.id, index)}
             onkeydown={(event) => handleMainTabKeydown(event, index)}
@@ -245,6 +246,7 @@
                 variant="poster"
                 focusKey={`anime-search-${entry.key}`}
                 ariaLabel={`查看 ${entry.name} 详情`}
+                gamepadActivateLabel="打开番剧详情"
                 class="search-cover-card"
                 onActivate={(event) => openResult(entry.sources[0], entry.items[0], event.currentTarget as HTMLElement)}
               />
@@ -417,7 +419,7 @@
           {:else}
             <div class="collect-grid">
               {#each animeStore.filteredCollection as item (item.key)}
-                <Card padding="none" hoverable={false} class="collect-card" onclick={() => {
+                <Card padding="none" hoverable={false} class="collect-card" ariaLabel={`打开 ${item.name} 详情`} onclick={() => {
                   if (item.ruleSource && item.sourceUrl) {
                     animeStore.openDetail(item.ruleSource, { name: item.name, url: item.sourceUrl }, item.image);
                   }
@@ -456,7 +458,7 @@
             </div>
             <div class="history-list">
               {#each animeStore.history as item (item.key)}
-                <div class="history-row" role="button" tabindex="0" onclick={() => {
+                <div class="history-row" role="button" tabindex="0" data-gamepad-group data-gamepad-label={`继续观看 ${item.name}`} data-gamepad-activate="打开番剧详情" onclick={() => {
                   animeStore.openDetail(item.ruleName, { name: item.name, url: item.sourceUrl }, item.image);
                 }} onkeydown={(e) => { if (e.key === "Enter") animeStore.openDetail(item.ruleName, { name: item.name, url: item.sourceUrl }, item.image); }}>
                   <div class="history-thumb">
@@ -476,7 +478,7 @@
                       {item.ruleName} · {fmtRelativeTime(item.updatedAt)}
                     </span>
                   </div>
-                  <Button variant="quiet" size="sm" press={(e) => { e.stopPropagation(); animeStore.removeHistory(item.key); }} ariaLabel="删除" class="remove-btn">
+                  <Button variant="quiet" size="sm" press={(e) => { e.stopPropagation(); animeStore.removeHistory(item.key); }} ariaLabel="删除观看记录" gamepadActivate="删除记录" gamepadSecondaryAction class="remove-btn">
                     <Icon name="x" size={12} />
                   </Button>
                 </div>

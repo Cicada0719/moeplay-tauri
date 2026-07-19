@@ -17,11 +17,14 @@
   import BigPicturePage from "./lib/components/BigPicturePage.svelte";
   import ShortcutHelp from "./lib/components/ShortcutHelp.svelte";
   import UpdateDialog from "./lib/components/UpdateDialog.svelte";
+  import GamepadHintBar from "./lib/components/GamepadHintBar.svelte";
+  import WorkspaceFocusToggle from "./lib/components/WorkspaceFocusToggle.svelte";
   import Icon from "./lib/components/Icon.svelte";
   import { Drawer } from "./lib/components/ui-v2";
   import { attachGamepad } from "./lib/components/switch/useGamepad.svelte";
-  import { activateGamepadFocus, collectGamepadFocusable, focusGamepadSearch, moveGamepadFocus } from "./lib/actions/a11y/domGamepadNavigation";
-  import { getDefaultGamepadFocusRuntime } from "./lib/actions/a11y/gamepadFocus";
+  import { activateGamepadFocus, activateGamepadSecondaryFocus, collectGamepadFocusable, focusGamepadSearch, moveGamepadFocus } from "./lib/actions/a11y/domGamepadNavigation";
+  import { adjustFocusedGamepadControl } from "./lib/actions/a11y/gamepadSemantics";
+  import { getDefaultGamepadFocusRuntime, type GamepadInputMode } from "./lib/actions/a11y/gamepadFocus";
   import { DOCK_ITEMS, PRIMARY_CONTENT_VIEWS, TOOL_ITEMS, getViewLabel } from "./lib/nav";
   import { buildShortcutParameter, type ShortcutActions } from "./lib/shortcuts";
   import {
@@ -36,6 +39,7 @@
   import { createJobsStore } from "./lib/features/jobs";
   import { invokeCmd } from "./lib/api/core";
   import { wallpaperStore } from "./lib/stores/wallpapers.svelte";
+  import { workspaceFocusStore } from "./lib/stores/workspaceFocus.svelte";
   import { nativeFullscreenHealthy, reassertNativeFullscreen } from "./lib/utils/window-fullscreen";
   import { isViewSupportedOnPlatform, orientationStore, platformStore } from "./lib/platform";
 
@@ -51,6 +55,10 @@
   const managementViews = new Set(["scraper","tasks","sources","downloads","backup","stats","diagnostics","settings","steam-import","emulator"]);
   const wallpaperSurface = $derived(managementViews.has(uiStore.currentView) ? "management" : uiStore.currentView === "game-detail" ? "immersive" : "browse");
   let isWindowFullscreen = $state(false);
+  let gamepadInputMode = $state<GamepadInputMode>("keyboard");
+  let gamepadConnected = $state(false);
+  const workspaceFocusAvailable = $derived(workspaceFocusStore.supports(uiStore.currentView));
+  const workspaceFocusEnabled = $derived(workspaceFocusStore.isEnabled(uiStore.currentView));
   const taskBadgeStore = createJobsStore();
   let taskActiveCount = $state(0);
   let taskFailedCount = $state(0);
@@ -122,6 +130,26 @@
     navigateTo(view);
   }
 
+  function toggleWorkspaceFocus() {
+    if (!workspaceFocusAvailable) return;
+    const enabled = workspaceFocusStore.toggle(uiStore.currentView);
+    uiStore.notify(enabled ? "已隐藏辅助控件；按 View 或右下角按钮恢复" : "已显示全部控件", "info");
+    requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && active.getClientRects().length === 0) {
+        visibleNavigationTarget(uiStore.currentView)?.focus({ preventScroll: true });
+      }
+    });
+  }
+
+  function refreshGamepadConnection() {
+    if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") {
+      gamepadConnected = false;
+      return;
+    }
+    gamepadConnected = Array.from(navigator.getGamepads()).some((gamepad) => Boolean(gamepad?.connected));
+  }
+
   function gamepadNavigationRoot(): ParentNode {
     const dialogs = Array.from(document.querySelectorAll<HTMLElement>("[aria-modal='true']"))
       .filter((dialog) => {
@@ -142,6 +170,7 @@
   }
 
   function moveNormalModeFocus(direction: "up" | "down" | "left" | "right") {
+    if (adjustFocusedGamepadControl(direction)) return;
     const root = gamepadNavigationRoot();
     const focusable = collectGamepadFocusable({ root });
     const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -343,8 +372,13 @@
     let releaseGamepadMode = () => {};
     if (!isAndroid) {
       const runtime = getDefaultGamepadFocusRuntime();
+      refreshGamepadConnection();
+      window.addEventListener("gamepadconnected", refreshGamepadConnection);
+      window.addEventListener("gamepaddisconnected", refreshGamepadConnection);
       releaseGamepadMode = runtime?.subscribeInputMode((mode) => {
+        gamepadInputMode = mode;
         document.documentElement.dataset.inputMode = mode;
+        if (mode === "gamepad") refreshGamepadConnection();
       }) ?? (() => {});
       _detachGamepad = attachGamepad({
         up: () => { if (!isBigPicture) moveNormalModeFocus("up"); },
@@ -352,8 +386,9 @@
         left: () => { if (!isBigPicture) moveNormalModeFocus("left"); },
         right: () => { if (!isBigPicture) moveNormalModeFocus("right"); },
         launch: () => { if (!isBigPicture) activateNormalModeFocus(); },
-        activate: () => { if (!isBigPicture) activateNormalModeFocus(); },
+        activate: () => { if (!isBigPicture) activateGamepadSecondaryFocus({ root: gamepadNavigationRoot() }); },
         favorite: () => { if (!isBigPicture) focusGamepadSearch(gamepadNavigationRoot()); },
+        filter: () => { if (!isBigPicture) toggleWorkspaceFocus(); },
         pageLeft: () => { if (!isBigPicture) cyclePrimaryContent(-1); },
         pageRight: () => { if (!isBigPicture) cyclePrimaryContent(1); },
         back: () => { void layeredBack(); },
@@ -370,6 +405,8 @@
       clearInterval(taskBadgeTimer);
       unsubscribeTaskBadge();
       window.removeEventListener("keydown", onKeydown);
+      window.removeEventListener("gamepadconnected", refreshGamepadConnection);
+      window.removeEventListener("gamepaddisconnected", refreshGamepadConnection);
       _detachGamepad();
       releaseGamepadMode();
     };
@@ -428,6 +465,9 @@
   class:mobile-shell={isAndroid}
   data-testid="app-shell"
   data-ui-ready={booted ? "true" : "false"}
+  data-gamepad-connected={gamepadConnected ? "true" : "false"}
+  data-workspace-focus={workspaceFocusEnabled ? "true" : undefined}
+  data-workspace-focus-view={workspaceFocusEnabled ? (workspaceFocusStore.scopeFor(uiStore.currentView) ?? undefined) : undefined}
 >
   {#if !isBigPicture}
     <WallpaperStage surface={wallpaperSurface} />
@@ -576,6 +616,21 @@
         {/each}
       </div>
     </Drawer>
+      {#if workspaceFocusAvailable}
+        <WorkspaceFocusToggle
+          active={workspaceFocusEnabled}
+          view={workspaceFocusStore.scopeFor(uiStore.currentView) ?? uiStore.currentView}
+          controllerActive={gamepadConnected && gamepadInputMode === "gamepad"}
+          onToggle={toggleWorkspaceFocus}
+        />
+      {/if}
+      <GamepadHintBar
+        connected={gamepadConnected}
+        inputMode={gamepadInputMode}
+        currentView={uiStore.currentView}
+        focusModeAvailable={workspaceFocusAvailable}
+        focusMode={workspaceFocusEnabled}
+      />
     {/if}
 
   {:else}

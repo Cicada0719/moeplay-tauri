@@ -217,18 +217,18 @@
               {#each detailTags.slice(0, 6) as tag, index}<Tag active={index === 0}>{tag}</Tag>{/each}
             </div>
 
-            <div class="actions">
+            <div class="actions" data-gamepad-group>
               {#if platformStore.capabilities.gameLaunch}
-                <Button class="game-detail-primary" press={handleLaunch}>{i18n.t("gamedetail.launch")}</Button>
-                <Button variant="secondary" press={handleLaunchJP}>{i18n.t("gamedetail.launch_jp")}</Button>
+                <Button class="game-detail-primary" press={handleLaunch} gamepadActivate="启动游戏">{i18n.t("gamedetail.launch")}</Button>
+                <Button variant="secondary" press={handleLaunchJP} gamepadActivate="日语环境启动">{i18n.t("gamedetail.launch_jp")}</Button>
               {:else}
                 <div class="mobile-companion-note" role="status">
                   <Icon name="smartphone" size={18} />
                   <span>{i18n.t("gamedetail.mobile_note")}</span>
                 </div>
               {/if}
-              <Button variant="secondary" press={handleScrape}>{i18n.t("button.scrape")}</Button>
-              <Button variant="ghost" press={openEdit}>{i18n.t("gamedetail.edit")}</Button>
+              <Button variant="secondary" press={handleScrape} gamepadActivate="抓取元数据" gamepadSecondaryAction>{i18n.t("button.scrape")}</Button>
+              <Button variant="ghost" press={openEdit} gamepadActivate="编辑档案">{i18n.t("gamedetail.edit")}</Button>
             </div>
           </div>
 
@@ -309,7 +309,7 @@
             <div class="edit-field"><label for="edit-desc">{i18n.t("gamedetail.edit_desc")}</label><textarea id="edit-desc" bind:value={editDesc} rows={5}></textarea></div>
           </div>
           <footer class="edit-footer">
-            <Button press={saveEdit} disabled={isSaving}>{isSaving ? i18n.t("gamedetail.edit_saving") : i18n.t("gamedetail.edit_save")}</Button>
+            <Button press={saveEdit} disabled={isSaving} gamepadActivate="保存档案">{isSaving ? i18n.t("gamedetail.edit_saving") : i18n.t("gamedetail.edit_save")}</Button>
             <Button variant="ghost" press={() => isEditing = false}>{i18n.t("button.cancel")}</Button>
           </footer>
         </div>

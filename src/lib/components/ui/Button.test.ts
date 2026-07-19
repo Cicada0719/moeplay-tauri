@@ -20,6 +20,21 @@ describe("Button", () => {
     expect(screen.getByRole("button", { name: "关闭" })).toBeInTheDocument();
   });
 
+  it("forwards controller labels and secondary-action semantics", () => {
+    render(ButtonTestWrapper, {
+      props: {
+        label: "收藏",
+        gamepadLabel: "收藏当前漫画",
+        gamepadActivate: "收藏",
+        gamepadSecondaryAction: true,
+      },
+    });
+    const button = screen.getByRole("button", { name: "收藏" });
+    expect(button).toHaveAttribute("data-gamepad-label", "收藏当前漫画");
+    expect(button).toHaveAttribute("data-gamepad-activate", "收藏");
+    expect(button).toHaveAttribute("data-gamepad-secondary-action");
+  });
+
   it("is disabled and has aria-busy when loading", () => {
     render(ButtonTestWrapper, { props: { label: "提交", loading: true } });
     const btn = screen.getByRole("button", { name: "提交" });

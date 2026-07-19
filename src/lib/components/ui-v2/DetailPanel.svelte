@@ -61,6 +61,7 @@
       class="v2-detail-panel__backdrop"
       type="button"
       tabindex="-1"
+      data-gamepad-skip="true"
       aria-label="关闭详情面板"
       onclick={() => closeOnBackdrop && onClose()}
     ></button>

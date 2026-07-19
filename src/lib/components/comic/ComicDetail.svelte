@@ -133,12 +133,12 @@
         />
 
         {#if isPicacg}
-          <div class="action-row">
-            <Button variant={comic.is_liked ? "primary" : "ghost"} size="sm" fullWidth press={handleLike} disabled={liking} ariaLabel={comic.is_liked ? "取消喜欢" : "喜欢漫画"}>
+          <div class="action-row" data-gamepad-group>
+            <Button variant={comic.is_liked ? "primary" : "ghost"} size="sm" fullWidth press={handleLike} disabled={liking} ariaLabel={comic.is_liked ? "取消喜欢" : "喜欢漫画"} gamepadActivate={comic.is_liked ? "取消喜欢" : "喜欢"}>
               <Icon name={comic.is_liked ? "heartFill" : "heart"} size={15} />
               {fmtNum(comic.likes_count)}
             </Button>
-            <Button variant={comic.is_favourite ? "primary" : "ghost"} size="sm" fullWidth press={handleFavourite} disabled={favouriting} ariaLabel={comic.is_favourite ? "取消收藏" : "收藏漫画"}>
+            <Button variant={comic.is_favourite ? "primary" : "ghost"} size="sm" fullWidth press={handleFavourite} disabled={favouriting} ariaLabel={comic.is_favourite ? "取消收藏" : "收藏漫画"} gamepadActivate={comic.is_favourite ? "取消收藏" : "收藏"} gamepadSecondaryAction>
               <Icon name="star" size={15} />
               {comic.is_favourite ? "已收藏" : "收藏"}
             </Button>
@@ -172,7 +172,7 @@
           <div class="description-block">
             <p class:expanded={descExpanded}>{comic.description}</p>
             {#if comic.description.length > 100}
-              <button type="button" onclick={() => (descExpanded = !descExpanded)} aria-expanded={descExpanded}>
+              <button type="button" onclick={() => (descExpanded = !descExpanded)} aria-expanded={descExpanded} data-gamepad-activate={descExpanded ? "收起简介" : "展开简介"}>
                 {descExpanded ? "收起简介" : "展开简介"}
               </button>
             {/if}
@@ -188,6 +188,7 @@
               aria-controls={`comic-detail-panel-${tab.value}`}
               tabindex={detailTab === tab.value ? 0 : -1}
               data-comic-detail-tab-index={index}
+              data-gamepad-activate="切换内容"
               class:active={detailTab === tab.value}
               onclick={() => (detailTab = tab.value)}
               onkeydown={(event) => handleTabKeydown(event, index)}
@@ -210,6 +211,8 @@
                     type="button"
                     class="chapter-button"
                     data-chapter-focus-key={chapterKey}
+                    data-gamepad-label={`阅读 ${chapter.title || `第 ${chapter.order} 话`}`}
+                    data-gamepad-activate="开始阅读"
                     onclick={(event) => openChapter(chapter, event)}
                   >
                     <span class="chapter-order">{chapter.order}</span>

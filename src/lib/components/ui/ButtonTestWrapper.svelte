@@ -7,13 +7,19 @@
     loading = false,
     disabled = false,
     ariaLabel,
+    gamepadLabel,
+    gamepadActivate,
+    gamepadSecondaryAction = false,
   }: {
     label?: string;
     onclick?: (event: MouseEvent) => void;
     loading?: boolean;
     disabled?: boolean;
     ariaLabel?: string;
+    gamepadLabel?: string;
+    gamepadActivate?: string;
+    gamepadSecondaryAction?: boolean;
   } = $props();
 </script>
 
-<Button {loading} {disabled} {onclick} {ariaLabel}>{label}</Button>
+<Button {loading} {disabled} {onclick} {ariaLabel} {gamepadLabel} {gamepadActivate} {gamepadSecondaryAction}>{label}</Button>

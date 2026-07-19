@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   activateGamepadFocus,
+  activateGamepadSecondaryFocus,
   collectGamepadFocusable,
   focusGamepadSearch,
   moveGamepadFocus,
@@ -68,11 +69,104 @@ describe("DOM gamepad spatial navigation", () => {
     expect(click).toHaveBeenCalledOnce();
   });
 
-  it("focuses the route search field", () => {
+  it("includes role-based internal controls and skips explicit controller exclusions", () => {
+    const roleButton = document.createElement("div");
+    roleButton.setAttribute("role", "button");
+    roleButton.tabIndex = 0;
+    const skipped = document.createElement("button");
+    skipped.dataset.gamepadSkip = "true";
+    document.body.append(roleButton, skipped);
+    place(roleButton, 0, 0);
+    place(skipped, 0, 50);
+    expect(collectGamepadFocusable()).toEqual([roleButton]);
+  });
+
+  it("keeps roving tabs controller-reachable while excluding generic negative tab stops", () => {
+    const rovingTab = document.createElement("button");
+    rovingTab.setAttribute("role", "tab");
+    rovingTab.tabIndex = -1;
+    const backdrop = document.createElement("button");
+    backdrop.tabIndex = -1;
+    document.body.append(rovingTab, backdrop);
+    place(rovingTab, 0, 0);
+    place(backdrop, 0, 50);
+
+    expect(collectGamepadFocusable()).toEqual([rovingTab]);
+  });
+
+  it("runs the focused card secondary action with Y semantics", () => {
+    const group = document.createElement("article");
+    group.dataset.gamepadGroup = "";
+    const primary = document.createElement("button");
+    const secondary = document.createElement("button");
+    secondary.dataset.gamepadSecondaryAction = "";
+    const click = vi.fn();
+    secondary.addEventListener("click", click);
+    group.append(primary, secondary);
+    document.body.append(group);
+    place(primary, 0, 0);
+    place(secondary, 0, 50);
+    primary.focus();
+    expect(activateGamepadSecondaryFocus()).toBe(secondary);
+    expect(click).toHaveBeenCalledOnce();
+  });
+
+  it("moves through roving tablists before applying geometric navigation", () => {
+    const tabList = document.createElement("div");
+    tabList.setAttribute("role", "tablist");
+    const first = document.createElement("button");
+    first.setAttribute("role", "tab");
+    first.tabIndex = 0;
+    const second = document.createElement("button");
+    second.setAttribute("role", "tab");
+    second.tabIndex = -1;
+    const unrelated = document.createElement("button");
+    tabList.append(first, second);
+    document.body.append(tabList, unrelated);
+    place(first, 0, 100);
+    place(second, 120, 100);
+    place(unrelated, 50, 0);
+    first.focus();
+
+    expect(moveGamepadFocus("right")).toBe(second);
+    expect(document.activeElement).toBe(second);
+  });
+
+  it("honors explicit directional overrides for dense internal layouts", () => {
     const search = document.createElement("input");
     search.type = "search";
-    document.body.append(search);
-    place(search, 0, 0);
+    search.dataset.gamepadNavRight = "#source-auto";
+    const source = document.createElement("button");
+    source.id = "source-auto";
+    document.body.append(search, source);
+    place(search, 0, 0, 500, 40);
+    place(source, 600, 0, 80, 40);
+    search.focus();
+
+    expect(moveGamepadFocus("right")).toBe(source);
+    expect(document.activeElement).toBe(source);
+  });
+
+  it("stays on the current control at a visual edge", () => {
+    const left = document.createElement("button");
+    const right = document.createElement("button");
+    document.body.append(left, right);
+    place(left, 0, 0);
+    place(right, 120, 0);
+    right.focus();
+    expect(moveGamepadFocus("right")).toBe(right);
+    expect(document.activeElement).toBe(right);
+  });
+
+  it("focuses the first visible route search field", () => {
+    const staleSearch = document.createElement("input");
+    staleSearch.type = "search";
+    staleSearch.hidden = true;
+    const search = document.createElement("input");
+    search.type = "search";
+    document.body.append(staleSearch, search);
+    place(staleSearch, 0, 0);
+    place(search, 0, 50);
     expect(focusGamepadSearch()).toBe(search);
     expect(document.activeElement).toBe(search);
   });

@@ -214,7 +214,7 @@
 >
   {#if toolbarVisible}
     <header class="reader-toolbar" aria-label="漫画阅读控制栏">
-      <Button class="reader-close" variant="ghost" size="sm" press={closeReader} ariaLabel="关闭阅读器并返回章节">
+      <Button class="reader-close" variant="ghost" size="sm" press={closeReader} ariaLabel="关闭阅读器并返回章节" gamepadActivate="返回章节">
         <Icon name="x" size={16} />
         关闭
       </Button>
@@ -225,19 +225,19 @@
       </div>
 
       <div class="reader-tools" aria-label="阅读显示设置">
-        <Button variant="quiet" size="sm" press={cycleDirection} title="按 D 切换阅读方向" ariaLabel={`阅读方向：${directionLabel}`}>
+        <Button variant="quiet" size="sm" press={cycleDirection} title="按 D 切换阅读方向" ariaLabel={`阅读方向：${directionLabel}`} gamepadActivate="切换阅读方向">
           <Icon name="layers" size={14} />{directionLabel}
         </Button>
-        <Button variant="quiet" size="sm" press={() => changeZoom(-READER_ZOOM_STEP)} disabled={zoom <= 60} ariaLabel="缩小漫画">−</Button>
+        <Button variant="quiet" size="sm" press={() => changeZoom(-READER_ZOOM_STEP)} disabled={zoom <= 60} ariaLabel="缩小漫画" gamepadActivate="缩小">−</Button>
         <output class="zoom-output" aria-label="当前缩放">{zoom}%</output>
-        <Button variant="quiet" size="sm" press={() => changeZoom(READER_ZOOM_STEP)} disabled={zoom >= 200} ariaLabel="放大漫画">＋</Button>
-        <Button variant="quiet" size="sm" press={() => (toolbarVisible = false)} ariaLabel="隐藏阅读工具栏" title="按 T 恢复工具栏">
+        <Button variant="quiet" size="sm" press={() => changeZoom(READER_ZOOM_STEP)} disabled={zoom >= 200} ariaLabel="放大漫画" gamepadActivate="放大">＋</Button>
+        <Button variant="quiet" size="sm" press={() => (toolbarVisible = false)} ariaLabel="隐藏阅读工具栏" title="按 T 恢复工具栏" gamepadActivate="隐藏控件">
           <Icon name="chevronDown" size={14} />
         </Button>
       </div>
     </header>
   {:else}
-    <button class="toolbar-reveal" type="button" onclick={() => (toolbarVisible = true)} aria-label="显示阅读工具栏" title="显示工具栏 (T)">
+    <button class="toolbar-reveal" type="button" onclick={() => (toolbarVisible = true)} aria-label="显示阅读工具栏" data-gamepad-activate="显示控件" title="显示工具栏 (T)">
       <Icon name="chevronDown" size={16} />
     </button>
   {/if}
@@ -331,14 +331,14 @@
         {/if}
       </div>
 
-      <nav class="reader-bottom-nav" aria-label="漫画阅读导航">
-        <Button variant="ghost" size="md" press={() => movePage(-1)} disabled={currentPage === 0}>
+      <nav class="reader-bottom-nav" aria-label="漫画阅读导航" data-gamepad-group>
+        <Button variant="ghost" size="md" press={() => movePage(-1)} disabled={currentPage === 0} gamepadActivate="上一页">
           <Icon name="chevronLeft" size={16} />上一页
         </Button>
-        <Button variant="ghost" size="md" press={() => changeChapter(-1)} disabled={!hasPrev}>上一话</Button>
-        <Button variant="secondary" size="md" press={closeReader}>返回详情</Button>
-        <Button variant="ghost" size="md" press={() => changeChapter(1)} disabled={!hasNext}>下一话</Button>
-        <Button variant="ghost" size="md" press={() => movePage(1)} disabled={currentPage >= pageCount - 1}>
+        <Button variant="ghost" size="md" press={() => changeChapter(-1)} disabled={!hasPrev} gamepadActivate="上一话">上一话</Button>
+        <Button variant="secondary" size="md" press={closeReader} gamepadActivate="返回详情">返回详情</Button>
+        <Button variant="ghost" size="md" press={() => changeChapter(1)} disabled={!hasNext} gamepadActivate="下一话">下一话</Button>
+        <Button variant="ghost" size="md" press={() => movePage(1)} disabled={currentPage >= pageCount - 1} gamepadActivate="下一页">
           下一页<Icon name="chevronRight" size={16} />
         </Button>
       </nav>

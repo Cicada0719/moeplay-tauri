@@ -253,7 +253,7 @@
         <form class="comic-search" aria-label="搜索普通漫画" onsubmit={(event) => { event.preventDefault(); void searchOrdinary(); }}>
           <label class="search-field">
             <Icon name="search" size={16} />
-            <input type="search" bind:value={searchInput} placeholder="搜索普通漫画..." data-search-scope="comic" aria-label="搜索普通漫画" />
+            <input type="search" bind:value={searchInput} placeholder="搜索普通漫画..." data-search-scope="comic" data-gamepad-nav-right="#comic-source-tab-auto" aria-label="搜索普通漫画" />
             {#if searchInput}<button type="button" class="search-clear" aria-label="清空普通漫画关键词" onclick={() => (searchInput = "")}><Icon name="x" size={13} /></button>{/if}
           </label>
           <Button type="submit" variant="primary" disabled={!searchInput.trim()} loading={comicStore.mangaDexLoading}>搜索</Button>

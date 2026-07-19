@@ -21,6 +21,7 @@
     disabled = false,
     loading = false,
     ariaLabel,
+    gamepadActivateLabel,
     focusKey,
     itemRole = "listitem",
     class: className = "",
@@ -45,6 +46,7 @@
     disabled?: boolean;
     loading?: boolean;
     ariaLabel?: string;
+    gamepadActivateLabel?: string;
     focusKey?: string;
     itemRole?: "listitem" | "gridcell" | "article" | "none";
     class?: string;
@@ -92,6 +94,7 @@
   data-selected={selected ? "true" : undefined}
   data-focus-key={focusKey}
   data-ui-v2="media-card"
+  data-gamepad-group
 >
   {#if href}
     <a
@@ -99,6 +102,8 @@
       class="v2-media-card__primary"
       href={href}
       aria-label={ariaLabel}
+      data-gamepad-label={ariaLabel ?? title}
+      data-gamepad-activate={gamepadActivateLabel}
       aria-disabled={isDisabled ? "true" : undefined}
       aria-current={selected ? "true" : undefined}
       tabindex={isDisabled ? -1 : undefined}
@@ -110,6 +115,8 @@
       class="v2-media-card__primary"
       type="button"
       aria-label={ariaLabel}
+      data-gamepad-label={ariaLabel ?? title}
+      data-gamepad-activate={gamepadActivateLabel}
       aria-pressed={selected}
       disabled={isDisabled}
       onclick={onActivate}

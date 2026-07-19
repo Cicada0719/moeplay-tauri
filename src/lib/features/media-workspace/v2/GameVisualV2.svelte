@@ -85,6 +85,14 @@
     runAction(item, "select", onAction);
   }
 
+  function activateGame(item: MediaPresentationItem) {
+    if (item.id === featured?.id) {
+      runAction(item, "open", onAction);
+      return;
+    }
+    selectGame(item);
+  }
+
   function selectAdjacent(direction: StepDirection) {
     if (!featured || uniqueItems.length < 2) return;
     const item = adjacentItem(uniqueItems, featured.id, direction);
@@ -133,6 +141,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <section
   class="nd-stage"
+  data-gamepad-group
   class:nd-stage--folded={folded}
   class:nd-stage--shifting={shifting}
   class:nd-stage--previous={shiftDirection < 0}
@@ -230,7 +239,9 @@
                 class:active={entry.item.id === featured.id}
                 aria-current={entry.item.id === featured.id ? "true" : undefined}
                 data-directory-game={entry.item.id}
-                onclick={() => selectGame(entry.item)}
+                aria-label={entry.item.id === featured.id ? `打开 ${entry.item.title} 档案` : `切换到 ${entry.item.title}`}
+                data-gamepad-activate={entry.item.id === featured.id ? "打开档案" : "切换游戏"}
+                onclick={() => activateGame(entry.item)}
               >
                 <span>{String(entry.index + 1).padStart(3, "0")}</span>
                 <strong>{entry.item.title}</strong>
@@ -240,9 +251,9 @@
           </nav>
 
           <div class="nd-actions">
-            {#if launch}<button class="primary" type="button" onclick={() => runAction(featured, "launch", onAction)}>{launch.label}</button>{/if}
-            {#if open}<button type="button" onclick={() => runAction(featured, "open", onAction)}>打开档案</button>{/if}
-            {#if favorite}<button type="button" aria-pressed={favorite.active} onclick={() => runAction(featured, "toggle-favorite", onAction)}>{favorite.active ? "已收藏" : "收藏"}</button>{/if}
+            {#if launch}<button class="primary" type="button" data-gamepad-activate="启动游戏" onclick={() => runAction(featured, "launch", onAction)}>{launch.label}</button>{/if}
+            {#if open}<button type="button" data-gamepad-activate="打开档案" onclick={() => runAction(featured, "open", onAction)}>打开档案</button>{/if}
+            {#if favorite}<button type="button" data-gamepad-secondary-action data-gamepad-activate={favorite.active ? "取消收藏" : "收藏"} aria-pressed={favorite.active} onclick={() => runAction(featured, "toggle-favorite", onAction)}>{favorite.active ? "已收藏" : "收藏"}</button>{/if}
           </div>
           <span class="nd-face-label">FRONT RIGHT / DIRECTORY</span>
         </article>

@@ -15,6 +15,14 @@
     fullWidth = false,
     title,
     ariaLabel,
+    gamepadLabel,
+    gamepadActivate,
+    gamepadSecondaryAction = false,
+    gamepadSkip = false,
+    gamepadNavUp,
+    gamepadNavDown,
+    gamepadNavLeft,
+    gamepadNavRight,
     onclick,
     onClick,
     press,
@@ -29,6 +37,14 @@
     fullWidth?: boolean;
     title?: string;
     ariaLabel?: string;
+    gamepadLabel?: string;
+    gamepadActivate?: string;
+    gamepadSecondaryAction?: boolean;
+    gamepadSkip?: boolean;
+    gamepadNavUp?: string;
+    gamepadNavDown?: string;
+    gamepadNavLeft?: string;
+    gamepadNavRight?: string;
     onclick?: (event: MouseEvent) => void;
     onClick?: (event: MouseEvent) => void;
     press?: (event: MouseEvent) => void;
@@ -69,6 +85,14 @@
   {title}
   aria-label={ariaLabel}
   aria-busy={loading}
+  data-gamepad-label={gamepadLabel}
+  data-gamepad-activate={gamepadActivate}
+  data-gamepad-secondary-action={gamepadSecondaryAction ? "" : undefined}
+  data-gamepad-skip={gamepadSkip ? "true" : undefined}
+  data-gamepad-nav-up={gamepadNavUp}
+  data-gamepad-nav-down={gamepadNavDown}
+  data-gamepad-nav-left={gamepadNavLeft}
+  data-gamepad-nav-right={gamepadNavRight}
   use:clickAction={handleClick}
 >
   {#if loading}

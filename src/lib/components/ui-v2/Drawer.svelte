@@ -61,6 +61,7 @@
       class="v2-drawer__backdrop"
       type="button"
       tabindex="-1"
+      data-gamepad-skip="true"
       aria-label={`关闭${title}`}
       onclick={() => closeOnBackdrop && onClose()}
     ></button>
