@@ -19,9 +19,20 @@
   type HeroItem = { game: Game; session: HeroSession };
 
   const MAX_ITEMS = 5;
+  const COLLAPSED_STORAGE_KEY = "moeplay:continue-hero-collapsed";
+
+  function initialCollapsedState(): boolean {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem(COLLAPSED_STORAGE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  }
 
   let scroller = $state<HTMLDivElement>();
   let focusIndex = $state(0);
+  let collapsed = $state(initialCollapsedState());
 
   function sessionTime(value: string | null | undefined): number {
     return value ? new Date(value).getTime() || 0 : 0;
@@ -103,6 +114,15 @@
     move(event.deltaY > 0 || event.deltaX > 0 ? 1 : -1);
   }
 
+  function toggleCollapsed() {
+    collapsed = !collapsed;
+    try {
+      window.localStorage.setItem(COLLAPSED_STORAGE_KEY, String(collapsed));
+    } catch {
+      // Storage can be unavailable in private or restricted webviews; the UI still works for this session.
+    }
+  }
+
   function railInteraction(node: HTMLElement) {
     const wheel = (event: WheelEvent) => handleWheel(event);
     const keydown = (event: KeyboardEvent) => handleRailKeydown(event);
@@ -134,13 +154,32 @@
 </script>
 
 {#if items.length > 0}
-  <section class="continue-hero" aria-label={i18n.t("home.continue_hero.aria")} data-testid="continue-hero-rail">
+  <section
+    class="continue-hero"
+    class:continue-hero--collapsed={collapsed}
+    data-collapsed={collapsed}
+    aria-label={i18n.t("home.continue_hero.aria")}
+    data-testid="continue-hero-rail"
+  >
     <header class="continue-hero__head">
       <span class="continue-hero__kicker" aria-hidden="true">CONTINUE</span>
       <h2 class="continue-hero__title">{i18n.t("home.continue_hero.title")}</h2>
       <span class="continue-hero__count">{i18n.t("home.continue_hero.count", { count: items.length })}</span>
+      <button
+        type="button"
+        class="continue-hero__toggle"
+        aria-expanded={!collapsed}
+        aria-controls="continue-hero-content"
+        aria-label={collapsed ? "显示继续游玩" : "隐藏继续游玩"}
+        data-gamepad-activate={collapsed ? "显示继续游玩" : "隐藏继续游玩"}
+        onclick={toggleCollapsed}
+      >
+        <span>{collapsed ? "展开" : "收起"}</span>
+        <Icon name="chevronDown" size={14} />
+      </button>
     </header>
-    <div class="continue-hero__rail" role="list" bind:this={scroller} use:railInteraction>
+    {#if !collapsed}
+    <div id="continue-hero-content" class="continue-hero__rail" role="list" bind:this={scroller} use:railInteraction>
       {#each items as item, index (item.game.id)}
         {@const hero = heroImageOf(item.game)}
         {@const cover = coverOf(item.game)}
@@ -211,15 +250,22 @@
         </div>
       {/each}
     </div>
+    {/if}
   </section>
 {/if}
 
 <style>
   .continue-hero { display: grid; gap: 10px; padding: 14px 26px 10px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--bg-deep) 55%, transparent); }
-  .continue-hero__head { display: flex; align-items: baseline; gap: 12px; }
+  .continue-hero__head { display: flex; align-items: center; gap: 12px; min-height: 30px; }
   .continue-hero__kicker { color: var(--accent); font: 600 9px/1 var(--font-mono); letter-spacing: .18em; }
   .continue-hero__title { margin: 0; color: var(--text-primary); font-family: var(--font-display); font-size: 1.05rem; letter-spacing: -.02em; }
   .continue-hero__count { margin-left: auto; color: var(--text-muted); font: 600 10px/1 var(--font-mono); letter-spacing: .08em; }
+  .continue-hero__toggle { min-height: 30px; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px; border: 1px solid var(--border); background: color-mix(in srgb, var(--bg-elev) 82%, transparent); color: var(--text-secondary); font: 650 10px/1 var(--font-ui); cursor: pointer; }
+  .continue-hero__toggle :global(svg) { transition: transform .18s ease; }
+  .continue-hero__toggle[aria-expanded="true"] :global(svg) { transform: rotate(180deg); }
+  .continue-hero__toggle:hover { border-color: var(--border-hover); color: var(--text-primary); }
+  .continue-hero__toggle:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+  .continue-hero--collapsed { gap: 0; padding-top: 8px; padding-bottom: 8px; }
 
   .continue-hero__rail { display: flex; gap: 14px; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scrollbar-width: none; outline: none; }
   .continue-hero__rail::-webkit-scrollbar { display: none; }
@@ -259,6 +305,7 @@
     .hero-card { gap: 12px; min-height: 160px; padding: 14px; }
     .hero-card__cover { width: 84px; }
     .hero-card__meta { gap: 4px 10px; }
+    .continue-hero__toggle span { display: none; }
   }
 
   @media (prefers-reduced-motion: reduce) {

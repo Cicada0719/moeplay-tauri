@@ -13,7 +13,7 @@
   isolation: isolate;
   outline: none;
 }
-.nd-stage:focus-visible { box-shadow: inset 0 0 0 2px var(--media-accent, var(--accent)); }
+.nd-stage:focus-visible { outline: none; box-shadow: none; }
 .nd-ambient { position:absolute; inset:-7%; z-index:-3; opacity:.42; filter:blur(42px) saturate(.82) brightness(.55); transform:scale(1.08); pointer-events:none; }
 .nd-ambient::after { content:""; position:absolute; inset:0; background:color-mix(in srgb, var(--bg-deep) 58%, transparent); }
 .nd-register { position:absolute; z-index:20; inset:0 0 auto; height:46px; display:flex; align-items:center; justify-content:space-between; gap:20px; padding:0 18px; border-bottom:1px solid var(--nd-ink); background:var(--nd-paper); color:var(--nd-ink); font:650 8px/1 var(--font-mono); letter-spacing:.12em; }

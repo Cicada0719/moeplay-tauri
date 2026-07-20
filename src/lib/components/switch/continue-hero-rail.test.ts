@@ -86,6 +86,7 @@ function playedGame(id: string, name: string, startTime: string): Game {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.localStorage.clear();
   mocks.games = [];
 });
 
@@ -107,6 +108,9 @@ describe("ContinueHeroRail 静态契约", () => {
     const home = readFileSync(resolve("src/lib/components/switch/SwitchHome.svelte"), "utf8");
     expect(home).toContain('import ContinueHeroRail from "./ContinueHeroRail.svelte"');
     expect(home).toContain("<ContinueHeroRail />");
+
+    const appCss = readFileSync(resolve("src/app.css"), "utf8");
+    expect(appCss).toContain('.app-container[data-workspace-focus="true"][data-workspace-focus-view="home"] :is(.continue-hero');
   });
 });
 
@@ -139,7 +143,7 @@ describe("ContinueHeroRail 渲染行为", () => {
     const images = document.querySelectorAll('img[loading="lazy"]');
     expect(images.length).toBeGreaterThan(0);
 
-    await fireEvent.click(screen.getAllByRole("button", { name: /继续游玩/ })[0]);
+    await fireEvent.click(screen.getAllByRole("button", { name: /^继续游玩$/ })[0]);
     expect(mocks.launch).toHaveBeenCalledWith("game-new");
 
     await fireEvent.click(screen.getAllByRole("button", { name: "打开档案" })[0]);
@@ -147,6 +151,30 @@ describe("ContinueHeroRail 渲染行为", () => {
     expect(mocks.navigateTo).toHaveBeenCalledWith("game-detail", { entity: { kind: "game", id: "game-new" }, focus: "start" });
 
     expect(screen.getAllByRole("progressbar", { name: "成就进度 40%" })).toHaveLength(2);
+  });
+
+  it("可折叠继续游玩区域并跨重载保留选择", async () => {
+    mocks.games = [playedGame("game-1", "星海回声", "2026-07-15T12:00:00.000Z")];
+
+    const first = render(ContinueHeroRail);
+    const section = screen.getByTestId("continue-hero-rail");
+    const collapse = screen.getByRole("button", { name: "隐藏继续游玩" });
+    expect(collapse).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("list")).toBeInTheDocument();
+
+    await fireEvent.click(collapse);
+    expect(section).toHaveAttribute("data-collapsed", "true");
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    expect(window.localStorage.getItem("moeplay:continue-hero-collapsed")).toBe("true");
+    first.unmount();
+
+    render(ContinueHeroRail);
+    const expand = screen.getByRole("button", { name: "显示继续游玩" });
+    expect(screen.getByTestId("continue-hero-rail")).toHaveAttribute("data-collapsed", "true");
+    expect(expand).toHaveAttribute("aria-expanded", "false");
+    await fireEvent.click(expand);
+    expect(screen.getByRole("list")).toBeInTheDocument();
+    expect(window.localStorage.getItem("moeplay:continue-hero-collapsed")).toBe("false");
   });
 
   it("roving tabindex：左右方向键在主按钮间移动真实焦点", async () => {
@@ -157,7 +185,7 @@ describe("ContinueHeroRail 渲染行为", () => {
 
     render(ContinueHeroRail);
 
-    const primaryButtons = screen.getAllByRole("button", { name: /继续游玩/ });
+    const primaryButtons = screen.getAllByRole("button", { name: /^继续游玩$/ });
     expect(primaryButtons[0]).toHaveAttribute("tabindex", "0");
     expect(primaryButtons[1]).toHaveAttribute("tabindex", "-1");
 

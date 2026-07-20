@@ -784,12 +784,18 @@ button.ui-card:focus-visible {
   z-index: 3;
 }
 
+/* Controller surfaces receive programmatic route focus but should not look like a selected button. */
+:root[data-input-mode="gamepad"] [data-controller-surface]:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  z-index: auto !important;
+}
 
 /* Workspace focus mode: explicitly hide secondary chrome while preserving a global restore control. */
 .app-container[data-workspace-focus="true"][data-workspace-focus-view="home"] .mw-shell {
   grid-template-rows: minmax(0, 1fr) !important;
 }
-.app-container[data-workspace-focus="true"][data-workspace-focus-view="home"] :is(.mw-shell__topline, .mw-shell__director) {
+.app-container[data-workspace-focus="true"][data-workspace-focus-view="home"] :is(.continue-hero, .mw-shell__topline, .mw-shell__director) {
   display: none !important;
 }
 .app-container[data-workspace-focus="true"][data-workspace-focus-view="home"] [data-route-view="game-detail"] :is(.hero-contact-sheet, .body) {

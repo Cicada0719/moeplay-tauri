@@ -105,6 +105,8 @@ describe("GameCard UI-v2 contract", () => {
 
     const dialog = await screen.findByRole("alertdialog", { name: "从游戏库删除？" });
     expect(dialog).toBeInTheDocument();
+    const dialogRoot = screen.getByTestId("delete-dialog-game-1");
+    expect(dialogRoot.parentElement).toBe(document.body);
     const cancel = screen.getByRole("button", { name: "取消" });
     await waitFor(() => expect(cancel).toHaveFocus());
     expect(mocks.openOverlay).toHaveBeenCalled();

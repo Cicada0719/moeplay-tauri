@@ -141,6 +141,9 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <section
   class="nd-stage"
+  data-route-focus
+  data-controller-surface
+  data-focus-key="game-visual-stage"
   data-gamepad-group
   class:nd-stage--folded={folded}
   class:nd-stage--shifting={shifting}
@@ -163,14 +166,14 @@
       <div><span>MOEPLAY / GAME CUBE</span><strong>{String(activeGameIndex + 1).padStart(3, "0")} — {String(uniqueItems.length).padStart(3, "0")}</strong></div>
       <div class="nd-register-actions">
         <span>WHEEL / GAME</span><span>← → / MEDIA</span>
-        <button type="button" aria-pressed={folded} onclick={() => (folded = !folded)}>F / {folded ? "展开" : "折叠"}</button>
+        <button type="button" data-focus-key="game-visual-fold-toggle" data-gamepad-activate={folded ? "展开档案" : "折叠档案"} aria-pressed={folded} onclick={() => (folded = !folded)}>F / {folded ? "展开" : "折叠"}</button>
       </div>
     </header>
 
     <div class="nd-cube-wrap">
       <div class="nd-cube">
         <article class="nd-face nd-face--media" aria-label="当前游戏媒体">
-          <button class="nd-lead" type="button" onclick={() => runAction(featured, "open", onAction)} aria-label={`打开 ${featured.title}`}>
+          <button class="nd-lead" type="button" data-focus-key={`game-visual-lead-${featured.id}`} data-gamepad-activate="打开档案" onclick={() => runAction(featured, "open", onAction)} aria-label={`打开 ${featured.title}`}>
             {#if activeAsset}
               <MediaArtwork src={activeAsset.src} alt={activeAsset.alt} title={featured.title} eager />
             {:else}
@@ -186,6 +189,8 @@
                 type="button"
                 class:active={index === activeMediaIndex}
                 aria-current={index === activeMediaIndex ? "true" : undefined}
+                data-focus-key={`game-visual-media-${featured.id}-${asset.id}`}
+                data-gamepad-activate="切换媒体"
                 onclick={() => (activeMediaIndex = index)}
               >
                 <span>{String(index + 1).padStart(2, "0")}</span>
@@ -218,7 +223,7 @@
             {/if}
           </div>
           {#if featured.cover}
-            <button class="nd-cover-window" type="button" onclick={() => runAction(featured, "open", onAction)} aria-label={`打开 ${featured.title} 详情`}>
+            <button class="nd-cover-window" type="button" data-focus-key={`game-visual-cover-${featured.id}`} data-gamepad-activate="打开档案" onclick={() => runAction(featured, "open", onAction)} aria-label={`打开 ${featured.title} 详情`}>
               <MediaArtwork src={featured.cover.src} alt={featured.cover.alt} title={featured.title} eager />
               <span>COVER / {String(activeGameIndex + 1).padStart(3, "0")}</span>
             </button>
@@ -239,6 +244,7 @@
                 class:active={entry.item.id === featured.id}
                 aria-current={entry.item.id === featured.id ? "true" : undefined}
                 data-directory-game={entry.item.id}
+                data-focus-key={`game-visual-directory-${entry.item.id}`}
                 aria-label={entry.item.id === featured.id ? `打开 ${entry.item.title} 档案` : `切换到 ${entry.item.title}`}
                 data-gamepad-activate={entry.item.id === featured.id ? "打开档案" : "切换游戏"}
                 onclick={() => activateGame(entry.item)}
@@ -251,9 +257,9 @@
           </nav>
 
           <div class="nd-actions">
-            {#if launch}<button class="primary" type="button" data-gamepad-activate="启动游戏" onclick={() => runAction(featured, "launch", onAction)}>{launch.label}</button>{/if}
-            {#if open}<button type="button" data-gamepad-activate="打开档案" onclick={() => runAction(featured, "open", onAction)}>打开档案</button>{/if}
-            {#if favorite}<button type="button" data-gamepad-secondary-action data-gamepad-activate={favorite.active ? "取消收藏" : "收藏"} aria-pressed={favorite.active} onclick={() => runAction(featured, "toggle-favorite", onAction)}>{favorite.active ? "已收藏" : "收藏"}</button>{/if}
+            {#if launch}<button class="primary" type="button" data-focus-key={`game-visual-launch-${featured.id}`} data-gamepad-activate="启动游戏" onclick={() => runAction(featured, "launch", onAction)}>{launch.label}</button>{/if}
+            {#if open}<button type="button" data-focus-key={`game-visual-open-${featured.id}`} data-gamepad-activate="打开档案" onclick={() => runAction(featured, "open", onAction)}>打开档案</button>{/if}
+            {#if favorite}<button type="button" data-focus-key={`game-visual-favorite-${featured.id}`} data-gamepad-secondary-action data-gamepad-activate={favorite.active ? "取消收藏" : "收藏"} aria-pressed={favorite.active} onclick={() => runAction(featured, "toggle-favorite", onAction)}>{favorite.active ? "已收藏" : "收藏"}</button>{/if}
           </div>
           <span class="nd-face-label">FRONT RIGHT / DIRECTORY</span>
         </article>

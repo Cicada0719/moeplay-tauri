@@ -23,6 +23,80 @@ test.describe("game creative stage contract", () => {
     await expect(appPage).toHaveURL(/#game-detail\?id=visual-fixture-owner$/);
   });
 
+  test("cover-wall delete confirmation is centered against the viewport instead of a card cell", async ({ appPage }) => {
+    await appPage.locator('[data-media-mode="index"]').click();
+    const deleteButton = appPage.locator('button[aria-label^="删除 "]').first();
+    await expect(deleteButton).toBeVisible();
+    await deleteButton.click();
+
+    const root = appPage.locator('[data-testid^="delete-dialog-"]');
+    const dialog = root.getByRole("alertdialog");
+    await expect(dialog).toBeVisible();
+    const placement = await root.evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      const dialogRect = node.querySelector("dialog")!.getBoundingClientRect();
+      return {
+        parent: node.parentElement?.tagName,
+        root: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+        dialogCenter: { x: dialogRect.x + dialogRect.width / 2, y: dialogRect.y + dialogRect.height / 2 },
+        viewport: { width: innerWidth, height: innerHeight },
+      };
+    });
+
+    expect(placement.parent).toBe("BODY");
+    expect(Math.abs(placement.root.x)).toBeLessThan(1);
+    expect(Math.abs(placement.root.y)).toBeLessThan(1);
+    expect(Math.abs(placement.root.width - placement.viewport.width)).toBeLessThan(1);
+    expect(Math.abs(placement.root.height - placement.viewport.height)).toBeLessThan(1);
+    expect(Math.abs(placement.dialogCenter.x - placement.viewport.width / 2)).toBeLessThan(2);
+    expect(Math.abs(placement.dialogCenter.y - placement.viewport.height / 2)).toBeLessThan(2);
+
+    await dialog.getByRole("button", { name: "取消" }).click();
+    await expect(dialog).toHaveCount(0);
+  });
+
+  test("focus layout restores the archive control without framing the title or shifting the cover", async ({ appPage, gamepad }) => {
+    await appPage.locator('[data-media-mode="visual"]').click();
+    await gamepad.connect();
+    await appPage.waitForTimeout(120);
+
+    const shell = appPage.getByTestId("app-shell");
+    const stage = appPage.getByTestId("game-unified-stage");
+    const activeGame = appPage.locator('[data-directory-game="visual-fixture-owner"]');
+    const cover = appPage.locator(".nd-cover-window");
+
+    await gamepad.press("back", 90);
+    await appPage.waitForTimeout(120);
+    await expect(shell).toHaveAttribute("data-workspace-focus", "true");
+    await expect(stage).toHaveAttribute("data-controller-surface", "");
+    await activeGame.focus();
+    const before = await cover.boundingBox();
+    expect(before).not.toBeNull();
+
+    await gamepad.press("a", 90);
+    await appPage.waitForTimeout(120);
+    await expect(appPage.locator('[data-route-view="game-detail"]')).toBeVisible();
+    await gamepad.press("b", 90);
+    await appPage.waitForTimeout(120);
+    await expect(appPage.locator('[data-route-view="home"]')).toBeVisible();
+    await expect(activeGame).toBeFocused();
+    await expect(appPage.locator(".nd-title-block h1")).not.toHaveAttribute("tabindex");
+
+    const after = await cover.boundingBox();
+    expect(after).not.toBeNull();
+    expect(Math.abs(after!.x - before!.x)).toBeLessThan(2);
+    expect(Math.abs(after!.y - before!.y)).toBeLessThan(2);
+    expect(Math.abs(after!.width - before!.width)).toBeLessThan(2);
+    expect(Math.abs(after!.height - before!.height)).toBeLessThan(2);
+
+    await stage.focus();
+    await expect(stage).toBeFocused();
+    await expect.poll(() => stage.evaluate((node) => {
+      const style = getComputedStyle(node);
+      return { outline: style.outlineStyle, shadow: style.boxShadow };
+    })).toEqual({ outline: "none", shadow: "none" });
+  });
+
   test("Tao-inspired Scene renders one frame per unique game and switches selection", async ({ appPage }) => {
     await appPage.locator('[data-media-mode="scene"]').click();
     const scene = appPage.getByTestId("game-film-sequence");

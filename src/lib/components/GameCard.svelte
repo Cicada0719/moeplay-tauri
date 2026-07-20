@@ -14,6 +14,7 @@
     tagsOf,
   } from "../utils/game";
   import { focusTrap } from "../actions/a11y/focusTrap";
+  import { portal } from "../actions/portal";
   import { MediaCard } from "./ui-v2";
   import Icon from "./Icon.svelte";
 
@@ -243,7 +244,7 @@
   />
 
   {#if deleteOpen}
-    <div class="delete-dialog-root" data-testid={`delete-dialog-${game.id}`}>
+    <div class="delete-dialog-root" data-testid={`delete-dialog-${game.id}`} use:portal>
       <button class="delete-dialog-backdrop" type="button" tabindex="-1" data-gamepad-skip="true" aria-label="取消删除" onclick={closeDeleteDialog}></button>
       <dialog
         open

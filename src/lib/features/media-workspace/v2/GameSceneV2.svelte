@@ -110,6 +110,9 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <section
   class="fs-stage"
+  data-route-focus
+  data-controller-surface
+  data-focus-key="game-scene-stage"
   data-gamepad-group
   data-testid="game-film-sequence"
   data-active-owner={active?.id ?? ""}
