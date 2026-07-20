@@ -36,45 +36,46 @@
   let scope: GamepadAttachment | null = null;
 
   const continueAnime = $derived<MediaItem[]>(
-    animeStore.history.filter((h) => h.lastEpisode > 0).slice(0, 10).map((h) => ({
-      id: `anime-${h.key}`,
-      title: h.name,
-      cover: h.image ? animeStore.getImg(h.image) || h.image : null,
+    animeStore.history.filter((item) => item.lastEpisode > 0).slice(0, 10).map((item) => ({
+      id: `anime-${item.key}`,
+      title: item.name,
+      cover: item.image ? animeStore.getImg(item.image) || item.image : null,
       progress: undefined,
-      progressLabel: `第${h.lastEpisode}话`,
+      progressLabel: `第${item.lastEpisode}话`,
       type: "anime" as const,
-    }))
+    })),
   );
 
   const continueComics = $derived<MediaItem[]>(
-    comicStore.readHistory.slice(0, 10).map((h) => ({
-      id: `comic-${h.id || h.title}`,
-      title: h.title,
+    comicStore.readHistory.slice(0, 10).map((item) => ({
+      id: `comic-${item.id || item.title}`,
+      title: item.title,
       cover: null,
-      progressLabel: h.last_title || undefined,
+      progressLabel: item.last_title || undefined,
       type: "comic" as const,
-    }))
+    })),
   );
 
   const animeStart = $derived(0);
   const comicStart = $derived(continueAnime.length);
   const panelStart = $derived(continueAnime.length + continueComics.length);
   const itemCount = $derived(panelStart + 2);
+  const continueCount = $derived(continueAnime.length + continueComics.length);
 
   const rows = $derived.by(() => {
     const result: number[][] = [];
-    if (continueAnime.length) result.push(Array.from({ length: continueAnime.length }, (_, i) => animeStart + i));
-    if (continueComics.length) result.push(Array.from({ length: continueComics.length }, (_, i) => comicStart + i));
+    if (continueAnime.length) result.push(Array.from({ length: continueAnime.length }, (_, index) => animeStart + index));
+    if (continueComics.length) result.push(Array.from({ length: continueComics.length }, (_, index) => comicStart + index));
     result.push([panelStart, panelStart + 1]);
     return result;
   });
 
   function rowPosition(index: number) {
     for (let row = 0; row < rows.length; row += 1) {
-      const col = rows[row].indexOf(index);
-      if (col >= 0) return { row, col };
+      const column = rows[row].indexOf(index);
+      if (column >= 0) return { row, column };
     }
-    return { row: rows.length - 1, col: 0 };
+    return { row: rows.length - 1, column: 0 };
   }
 
   function setFocus(index: number) {
@@ -84,18 +85,18 @@
   }
 
   function moveHorizontal(delta: number) {
-    const { row, col } = rowPosition(focusIdx);
+    const { row, column } = rowPosition(focusIdx);
     const rowItems = rows[row];
-    setFocus(rowItems[Math.max(0, Math.min(rowItems.length - 1, col + delta))]);
+    setFocus(rowItems[Math.max(0, Math.min(rowItems.length - 1, column + delta))]);
   }
 
   function moveVertical(delta: number) {
-    const { row, col } = rowPosition(focusIdx);
+    const { row, column } = rowPosition(focusIdx);
     const targetRow = row + delta;
     if (targetRow < 0) { onMoveToTop(); return; }
     if (targetRow >= rows.length) return;
     const target = rows[targetRow];
-    setFocus(target[Math.min(col, target.length - 1)]);
+    setFocus(target[Math.min(column, target.length - 1)]);
   }
 
   function activateFocused() {
@@ -145,180 +146,190 @@
   role="region"
   aria-label="媒体内容"
 >
-  {#if continueAnime.length > 0}
-    <BPMediaRail
-      title="继续观看"
-      items={continueAnime}
-      startIndex={animeStart}
-      activeIndex={focusIdx}
-      zoneActive={active}
-      onfocusitem={setFocus}
-      onselect={onSelectMedia}
-    />
-  {/if}
-  {#if continueComics.length > 0}
-    <BPMediaRail
-      title="继续阅读"
-      items={continueComics}
-      startIndex={comicStart}
-      activeIndex={focusIdx}
-      zoneActive={active}
-      onfocusitem={setFocus}
-      onselect={onSelectMedia}
-    />
-  {/if}
-  <div class="bp-media-dual">
-    <button
-      class="bp-media-panel"
-      class:zone-focus={active && focusIdx === panelStart}
-      data-media-index={panelStart}
-      tabindex={active && focusIdx === panelStart ? 0 : -1}
-      onclick={() => onSelectMedia({ type: "anime" })}
-      onfocus={() => setFocus(panelStart)}
-    >
-      <div class="bp-media-panel-head">
-        <Icon name="film" size={20} />
-        <h2>动漫</h2>
-        <span class="bp-media-panel-badge">{animeStore.collection.length} 追番 · {animeStore.history.length} 历史</span>
-      </div>
-      <div class="bp-media-panel-body">
-        {#if animeStore.recTrending.length > 0}
-          <div class="bp-cover-rail">
-            {#each animeStore.recTrending.slice(0, 8) as sub (sub.id)}
-              <div class="bp-cover-thumb">
-                {#if animeStore.getImg(sub.image)}<img src={animeStore.getImg(sub.image)} alt={sub.name_cn || sub.name} />
-                {:else}<div class="bp-cover-placeholder"><Icon name="film" size={20} /></div>{/if}
-                {#if sub.rating > 0}<span class="bp-cover-score">{sub.rating.toFixed(1)}</span>{/if}
-              </div>
-            {/each}
-          </div>
-        {:else if animeStore.collection.length > 0}
-          <div class="bp-cover-rail">
-            {#each animeStore.collection.slice(0, 8) as item (item.key)}
-              <div class="bp-cover-thumb"><div class="bp-cover-placeholder"><Icon name="film" size={20} /></div></div>
-            {/each}
-          </div>
-        {:else}<p class="bp-media-panel-hint">浏览番剧推荐、管理追番和观看记录</p>{/if}
-      </div>
-      <div class="bp-media-panel-foot"><span>进入动漫</span><Icon name="chevronRight" size={14} /></div>
-    </button>
+  <header class="bp-media-intro">
+    <div>
+      <span class="bp-media-kicker">MEDIA LOUNGE</span>
+      <h1>继续你的故事</h1>
+      <p>番剧和漫画统一汇聚到客厅界面，保持进度，随时从上次的位置继续。</p>
+    </div>
+    <div class="bp-media-summary" aria-label={`共有 ${continueCount} 个继续项目`}>
+      <strong>{continueCount}</strong><span>待继续</span>
+      <i></i>
+      <strong>{animeStore.collection.length}</strong><span>追番</span>
+      <i></i>
+      <strong>{comicStore.favorites.length}</strong><span>漫画收藏</span>
+    </div>
+  </header>
 
-    <button
-      class="bp-media-panel"
-      class:zone-focus={active && focusIdx === panelStart + 1}
-      data-media-index={panelStart + 1}
-      tabindex={active && focusIdx === panelStart + 1 ? 0 : -1}
-      onclick={() => onSelectMedia({ type: "comic" })}
-      onfocus={() => setFocus(panelStart + 1)}
-    >
-      <div class="bp-media-panel-head">
-        <Icon name="book" size={20} />
-        <h2>漫画</h2>
-        {#if comicStore.isLoggedIn}<span class="bp-media-panel-badge">{comicStore.favorites.length} 收藏</span>{/if}
+  <div class="bp-media-scroll">
+    {#if continueAnime.length > 0}
+      <BPMediaRail
+        title="继续观看"
+        items={continueAnime}
+        startIndex={animeStart}
+        activeIndex={focusIdx}
+        zoneActive={active}
+        onfocusitem={setFocus}
+        onselect={onSelectMedia}
+      />
+    {/if}
+    {#if continueComics.length > 0}
+      <BPMediaRail
+        title="继续阅读"
+        items={continueComics}
+        startIndex={comicStart}
+        activeIndex={focusIdx}
+        zoneActive={active}
+        onfocusitem={setFocus}
+        onselect={onSelectMedia}
+      />
+    {/if}
+
+    <section class="bp-media-spaces" aria-label="媒体入口">
+      <div class="bp-media-section-heading">
+        <span>探索空间</span>
+        <small>选择一个内容世界</small>
       </div>
-      <div class="bp-media-panel-body">
-        {#if comicStore.isLoggedIn && comicStore.favorites.length > 0}
-          <div class="bp-cover-rail">
-            {#each comicStore.favorites.slice(0, 8) as fav (fav.id)}
-              <div class="bp-cover-thumb">
-                {#if fav.thumb_url}<img src={fav.thumb_url} alt={fav.title} />
-                {:else}<div class="bp-cover-placeholder"><Icon name="book" size={20} /></div>{/if}
-              </div>
-            {/each}
+      <div class="bp-media-dual">
+        <button
+          class="bp-media-panel bp-media-anime"
+          class:zone-focus={active && focusIdx === panelStart}
+          data-media-index={panelStart}
+          tabindex={active && focusIdx === panelStart ? 0 : -1}
+          onclick={() => onSelectMedia({ type: "anime" })}
+          onfocus={() => setFocus(panelStart)}
+        >
+          <div class="bp-media-panel-glow"></div>
+          <div class="bp-media-panel-head">
+            <span class="bp-media-panel-icon"><Icon name="film" size={28} /></span>
+            <div><small>ANIME</small><h2>番剧空间</h2></div>
+            <span class="bp-media-panel-badge">{animeStore.collection.length} 追番 · {animeStore.history.length} 历史</span>
           </div>
-        {:else if comicStore.isLoggedIn}<p class="bp-media-panel-hint">已登录哔咔，浏览漫画分类和排行</p>
-        {:else}<p class="bp-media-panel-hint">登录哔咔账号，浏览和收藏漫画</p>{/if}
+          <div class="bp-media-panel-body">
+            {#if animeStore.recTrending.length > 0}
+              <div class="bp-cover-rail">
+                {#each animeStore.recTrending.slice(0, 8) as subject (subject.id)}
+                  <div class="bp-cover-thumb">
+                    {#if animeStore.getImg(subject.image)}<img src={animeStore.getImg(subject.image)} alt={subject.name_cn || subject.name} />
+                    {:else}<div class="bp-cover-placeholder"><Icon name="film" size={20} /></div>{/if}
+                    {#if subject.rating > 0}<span class="bp-cover-score">{subject.rating.toFixed(1)}</span>{/if}
+                  </div>
+                {/each}
+              </div>
+            {:else if animeStore.collection.length > 0}
+              <div class="bp-cover-rail">
+                {#each animeStore.collection.slice(0, 8) as item (item.key)}
+                  <div class="bp-cover-thumb"><div class="bp-cover-placeholder"><Icon name="film" size={20} /></div></div>
+                {/each}
+              </div>
+            {:else}<p class="bp-media-panel-hint">浏览番剧推荐、管理追番和观看记录。</p>{/if}
+          </div>
+          <div class="bp-media-panel-foot"><span>进入番剧</span><Icon name="arrowRight" size={18} /></div>
+        </button>
+
+        <button
+          class="bp-media-panel bp-media-comic"
+          class:zone-focus={active && focusIdx === panelStart + 1}
+          data-media-index={panelStart + 1}
+          tabindex={active && focusIdx === panelStart + 1 ? 0 : -1}
+          onclick={() => onSelectMedia({ type: "comic" })}
+          onfocus={() => setFocus(panelStart + 1)}
+        >
+          <div class="bp-media-panel-glow"></div>
+          <div class="bp-media-panel-head">
+            <span class="bp-media-panel-icon"><Icon name="book" size={28} /></span>
+            <div><small>COMICS</small><h2>漫画空间</h2></div>
+            {#if comicStore.isLoggedIn}<span class="bp-media-panel-badge">{comicStore.favorites.length} 收藏</span>{/if}
+          </div>
+          <div class="bp-media-panel-body">
+            {#if comicStore.isLoggedIn && comicStore.favorites.length > 0}
+              <div class="bp-cover-rail">
+                {#each comicStore.favorites.slice(0, 8) as favorite (favorite.id)}
+                  <div class="bp-cover-thumb">
+                    {#if favorite.thumb_url}<img src={favorite.thumb_url} alt={favorite.title} />
+                    {:else}<div class="bp-cover-placeholder"><Icon name="book" size={20} /></div>{/if}
+                  </div>
+                {/each}
+              </div>
+            {:else if comicStore.isLoggedIn}<p class="bp-media-panel-hint">浏览漫画分类、排行和你的收藏。</p>
+            {:else}<p class="bp-media-panel-hint">登录漫画账号后，在大屏上继续阅读和管理收藏。</p>{/if}
+          </div>
+          <div class="bp-media-panel-foot"><span>{comicStore.isLoggedIn ? "进入漫画" : "前往登录"}</span><Icon name="arrowRight" size={18} /></div>
+        </button>
       </div>
-      <div class="bp-media-panel-foot"><span>{comicStore.isLoggedIn ? "进入漫画" : "前往登录"}</span><Icon name="chevronRight" size={14} /></div>
-    </button>
+    </section>
   </div>
 </div>
 
 <style>
   .bp-media {
-    flex: 1; min-height: 0;
-    display: flex; flex-direction: column;
-    padding: 28px 36px 12px;
-  }
-  .bp-media-dual {
-    flex: 1; min-height: 0;
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
+    grid-template-rows: auto minmax(0, 1fr);
+    height: 100%; min-height: 0;
+    padding: clamp(104px, 12vh, 142px) var(--bp-safe-x, 48px) 58px;
   }
+  .bp-media-intro { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; padding-bottom:clamp(18px,2.5vh,30px); }
+  .bp-media-kicker { color:var(--scene-accent); font:850 9px var(--font-mono); letter-spacing:.24em; }
+  .bp-media-intro h1 { max-width:10ch; margin:8px 0 6px; color:var(--scene-paper); font:900 clamp(42px,5.2vw,94px)/.9 var(--font-display); letter-spacing:-.065em; }
+  .bp-media-intro h1::first-letter { color:var(--scene-accent); }
+  .bp-media-intro p { max-width:54ch; margin:0; color:rgba(255,255,255,.52); font-size:clamp(10px,.74vw,13px); }
+  .bp-media-summary { display:grid; grid-template-columns:auto auto 1px auto auto 1px auto auto; align-items:baseline; gap:8px; padding:11px 0; border-top:1px solid rgba(255,255,255,.18); border-bottom:1px solid rgba(255,255,255,.1); color:rgba(255,255,255,.45); }
+  .bp-media-summary strong { color:var(--scene-paper); font:850 clamp(13px,1vw,18px) var(--font-mono); }
+  .bp-media-summary span { font-size:8px; white-space:nowrap; }
+  .bp-media-summary i { align-self:stretch; width:1px; background:rgba(255,255,255,.13); }
+
+  .bp-media-scroll { min-height:0; overflow-x:hidden; overflow-y:auto; padding:4px 7px 24px; margin-inline:-7px; scrollbar-width:none; }
+  .bp-media-scroll::-webkit-scrollbar { display:none; }
+  .bp-media-spaces { margin-top:4px; }
+  .bp-media-section-heading { display:flex; align-items:center; gap:12px; margin-bottom:10px; color:rgba(255,255,255,.5); }
+  .bp-media-section-heading::before { content:""; width:32px; height:1px; background:var(--scene-accent); }
+  .bp-media-section-heading span { color:var(--scene-paper); font:800 12px var(--font-ui); }
+  .bp-media-section-heading small { font:750 8px var(--font-mono); letter-spacing:.15em; }
+  .bp-media-dual { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:clamp(12px,1.2vw,22px); min-height:clamp(300px,48vh,520px); }
+
   .bp-media-panel {
-    display: flex; flex-direction: column;
-    background: rgba(10, 12, 20, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 20px;
-    backdrop-filter: blur(16px);
-    overflow: hidden;
-    cursor: pointer;
-    transition: border-color 0.22s ease, transform 0.22s ease;
-    outline: none;
+    position:relative; isolation:isolate; display:grid; grid-template-rows:auto minmax(0,1fr) auto;
+    min-width:0; overflow:hidden; padding:0; border:1px solid rgba(255,255,255,.14); border-radius:0;
+    color:white; background:#0b0e16; cursor:pointer; text-align:left; outline:none;
+    box-shadow:0 30px 100px -55px #000;
+    transition:transform 360ms cubic-bezier(.2,.8,.2,1),border-color 220ms ease,box-shadow 220ms ease;
   }
-  .bp-media-panel:hover, .bp-media-panel:focus-visible, .bp-media-panel.zone-focus {
-    border-color: var(--accent-ring, rgba(232,85,127,0.45));
-    transform: translateY(-2px);
+  .bp-media-panel::before { position:absolute; right:-.03em; bottom:-.15em; z-index:-1; color:rgba(255,255,255,.055); font:950 clamp(90px,12vw,230px)/.8 var(--font-display); letter-spacing:-.08em; }
+  .bp-media-anime::before { content:"映"; }
+  .bp-media-comic::before { content:"読"; }
+  .bp-media-panel::after { content:""; position:absolute; left:0; top:0; width:clamp(56px,5vw,96px); height:5px; background:var(--panel-accent); }
+  .bp-media-anime { --panel-accent:#738dff; background:linear-gradient(125deg,rgba(41,54,112,.82),rgba(8,11,18,.92) 62%); }
+  .bp-media-comic { --panel-accent:#ff72a4; background:linear-gradient(125deg,rgba(91,36,65,.78),rgba(8,11,18,.92) 62%); }
+  .bp-media-panel-glow { position:absolute; inset:0; z-index:-2; opacity:.5; pointer-events:none; }
+  .bp-media-anime .bp-media-panel-glow { background:radial-gradient(circle at 8% 4%,rgba(115,141,255,.5),transparent 43%); }
+  .bp-media-comic .bp-media-panel-glow { background:radial-gradient(circle at 8% 4%,rgba(255,114,164,.45),transparent 43%); }
+  .bp-media-panel:hover,.bp-media-panel:focus-visible,.bp-media-panel.zone-focus { transform:translateY(-5px); border-color:var(--panel-accent); outline:none !important; box-shadow:0 0 0 3px rgba(7,8,12,.92),0 0 0 6px var(--panel-accent),0 34px 90px -38px var(--panel-accent) !important; }
+
+  .bp-media-panel-head { display:flex; align-items:center; gap:14px; padding:clamp(24px,2vw,36px) clamp(24px,2.2vw,42px) 0; }
+  .bp-media-panel-icon { display:grid; place-items:center; width:clamp(48px,3.8vw,68px); aspect-ratio:1; border:1px solid rgba(255,255,255,.2); color:var(--panel-accent); background:rgba(7,8,12,.24); }
+  .bp-media-panel-head>div { display:flex; flex-direction:column; gap:3px; }
+  .bp-media-panel-head small { color:var(--panel-accent); font:850 8px var(--font-mono); letter-spacing:.22em; }
+  .bp-media-panel-head h2 { margin:0; color:white; font:900 clamp(25px,2vw,39px)/1 var(--font-display); letter-spacing:-.04em; }
+  .bp-media-panel-badge { margin-left:auto; color:rgba(255,255,255,.52); font:750 8px var(--font-mono); }
+  .bp-media-panel-body { display:flex; align-items:center; min-height:0; padding:clamp(16px,1.5vw,26px) clamp(24px,2.2vw,42px); }
+  .bp-media-panel-hint { max-width:36ch; margin:0; color:rgba(255,255,255,.58); font-size:clamp(11px,.78vw,14px); line-height:1.6; }
+  .bp-cover-rail { display:flex; align-items:flex-end; gap:clamp(7px,.65vw,11px); width:100%; overflow:hidden; }
+  .bp-cover-thumb { position:relative; flex:0 0 clamp(62px,5.4vw,104px); aspect-ratio:2/3; overflow:hidden; border:1px solid rgba(255,255,255,.12); border-radius:0; background:rgba(255,255,255,.045); box-shadow:0 14px 28px -18px #000; }
+  .bp-cover-thumb:nth-child(even) { transform:translateY(9px); }
+  .bp-cover-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+  .bp-cover-placeholder { display:grid; place-items:center; width:100%; height:100%; color:rgba(255,255,255,.38); background:linear-gradient(145deg,rgba(255,255,255,.08),transparent); }
+  .bp-cover-score { position:absolute; top:5px; right:5px; padding:3px 6px; color:#ffe084; background:rgba(0,0,0,.7); font:800 9px var(--font-mono); }
+  .bp-media-panel-foot { display:flex; align-items:center; justify-content:space-between; padding:15px clamp(24px,2.2vw,42px); border-top:1px solid rgba(255,255,255,.1); color:rgba(255,255,255,.78); font:800 10px var(--font-mono); letter-spacing:.08em; }
+
+  @media (max-width:1000px) { .bp-media-summary{display:none}.bp-media-dual{grid-template-columns:1fr}.bp-media-intro h1{font-size:clamp(34px,5vw,60px)} }
+  @media (max-height:800px) {
+    .bp-media { padding-top:78px; padding-bottom:44px; }
+    .bp-media-intro { padding-bottom:12px; }
+    .bp-media-intro p { display:none; }
+    .bp-media-intro h1 { margin:3px 0 0; font-size:clamp(28px,3.8vw,48px); }
+    .bp-media-dual { min-height:clamp(280px,48vh,360px); }
+    .bp-media-panel-body { padding-block:10px; }
   }
-  .bp-media-panel:focus-visible { box-shadow: var(--ring-switch); }
-  .bp-media-panel:active { transform: translateY(0) scale(0.995); }
-  .bp-media-panel-head {
-    display: flex; align-items: center; gap: 10px;
-    padding: 22px 24px 0;
-    color: var(--text-primary);
-  }
-  .bp-media-panel-head h2 {
-    font-size: 20px; font-weight: 800; margin: 0;
-    font-family: var(--font-display);
-  }
-  .bp-media-panel-badge {
-    margin-left: auto;
-    font-size: 12px; color: var(--text-muted);
-    font-family: var(--font-mono);
-  }
-  .bp-media-panel-body {
-    flex: 1; min-height: 0;
-    padding: 18px 24px;
-    display: flex; align-items: center;
-  }
-  .bp-media-panel-hint {
-    margin: 0; color: var(--text-muted); font-size: 14px; line-height: 1.6;
-  }
-  .bp-cover-rail {
-    display: flex; gap: 10px;
-    overflow: hidden;
-    width: 100%;
-  }
-  .bp-cover-thumb {
-    flex: 0 0 auto;
-    width: 90px; aspect-ratio: 3 / 4;
-    border-radius: var(--radius-md);
-    overflow: hidden;
-    background: rgba(255, 255, 255, 0.04);
-    position: relative;
-  }
-  .bp-cover-thumb img {
-    width: 100%; height: 100%; object-fit: cover; display: block;
-  }
-  .bp-cover-placeholder {
-    width: 100%; height: 100%;
-    display: grid; place-items: center;
-    color: var(--text-muted);
-  }
-  .bp-cover-score {
-    position: absolute; top: 4px; right: 4px;
-    font-size: 10px; font-weight: 700;
-    padding: 2px 5px; border-radius: 4px;
-    background: rgba(0, 0, 0, 0.65);
-    color: #fbbf24;
-    font-family: var(--font-mono);
-  }
-  .bp-media-panel-foot {
-    display: flex; align-items: center; justify-content: flex-end; gap: 6px;
-    padding: 14px 24px;
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
-    color: var(--accent);
-    font-size: 13px; font-weight: 650;
-  }
+  @media (prefers-reduced-motion:reduce) { .bp-media-panel{transition:none} }
+  :global([data-motion="reduce"]) .bp-media-panel { transition:none; }
 </style>

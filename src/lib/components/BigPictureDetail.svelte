@@ -287,13 +287,13 @@
 <style>
   .bp-detail {
     position: absolute; right: 0; top: 0; bottom: 0;
-    width: min(440px, 42vw);
+    width: clamp(400px, 36vw, 720px);
     display: flex; flex-direction: column;
     z-index: 5;
     border-radius: 0;
     border-left: 1px solid var(--border);
     border-top: 0; border-bottom: 0; border-right: 0;
-    background: var(--glass-bg);
+    background: rgba(7, 10, 17, .92);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
     box-shadow: -20px 0 60px -20px rgba(0, 0, 0, .6);
@@ -310,7 +310,7 @@
 
   .d-head {
     display: flex; align-items: center; gap: 14px;
-    padding: 16px 20px;
+    padding: clamp(15px, 1.3vw, 24px) clamp(18px, 1.8vw, 30px);
     border-bottom: 1px solid var(--border);
   }
   .d-close {
@@ -342,7 +342,7 @@
   .d-cover {
     width: 100%;
     aspect-ratio: 3 / 4;
-    max-height: 240px;
+    max-height: clamp(210px, 28vh, 340px);
     border-radius: var(--radius-lg);
     overflow: hidden;
     background: var(--bg-elev);
@@ -356,7 +356,7 @@
   }
 
   .d-title h2 {
-    margin: 0; font-size: 22px; font-weight: 820; line-height: 1.2;
+    margin: 0; font-size: clamp(22px, 1.45vw, 30px); font-weight: 820; line-height: 1.2;
     color: var(--text-primary);
   }
   .d-jp {
@@ -375,7 +375,7 @@
   .d-rating { display: flex; align-items: center; gap: 14px; }
   .d-rating-text { display: flex; flex-direction: column; }
   .d-rating-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
-  .d-rating-value { font-size: 22px; font-weight: 820; color: var(--accent); font-family: var(--font-mono); }
+  .d-rating-value { font-size: clamp(22px, 1.45vw, 30px); font-weight: 820; color: var(--accent); font-family: var(--font-mono); }
 
   .d-info-grid {
     display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 12px;
@@ -437,5 +437,13 @@
     width: 100%; min-width: 0;
     padding: 10px 8px; font-size: 12.5px;
     white-space: nowrap; overflow: hidden;
+  }
+  @media (max-width: 760px) {
+    .bp-detail { width: 100%; border-left: 0; }
+  }
+  @media (max-height: 700px) {
+    .d-cover { display: none; }
+    .d-body { gap: 12px; padding-block: 14px; }
+    .d-desc { -webkit-line-clamp: 3; line-clamp: 3; }
   }
 </style>

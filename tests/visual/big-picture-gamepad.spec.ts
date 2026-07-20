@@ -122,12 +122,12 @@ test.describe("Big Picture gamepad zone navigation", () => {
     await connectGamepad(gamepad, page);
 
     await expect((await expectRovingSelection(gameWheel))).toHaveAccessibleName("星海回声");
-    await pressGamepad(gamepad, page, "dpadDown");
+    await pressGamepad(gamepad, page, "dpadRight");
     const secondGame = await expectRovingSelection(gameWheel);
     await expect(secondGame).toHaveAccessibleName("夏日列车");
     await expect(secondGame).toHaveAttribute("aria-current", "true");
 
-    await pressGamepad(gamepad, page, "dpadRight");
+    await pressGamepad(gamepad, page, "dpadUp");
     await expect(root).toHaveAttribute("data-active-zone", "hero");
     const hero = page.locator('[data-focus-zone="hero"][data-active="true"]');
     const launchFromHero = hero.getByRole("button", { name: "开始游戏" });
@@ -166,7 +166,7 @@ test.describe("Big Picture gamepad zone navigation", () => {
     const root = bigPicture(page);
     const gameWheel = wheel(page);
     await connectGamepad(gamepad, page);
-    await pressGamepad(gamepad, page, "dpadDown");
+    await pressGamepad(gamepad, page, "dpadRight");
     await expect((await expectRovingSelection(gameWheel))).toHaveAccessibleName("夏日列车");
 
     await pressGamepad(gamepad, page, "rightBumper");
@@ -206,7 +206,7 @@ test.describe("Big Picture gamepad zone navigation", () => {
     const root = bigPicture(page);
     const gameWheel = wheel(page);
     await connectGamepad(gamepad, page);
-    await pressGamepad(gamepad, page, "dpadDown");
+    await pressGamepad(gamepad, page, "dpadRight");
     await expect((await expectRovingSelection(gameWheel))).toHaveAccessibleName("夏日列车");
 
     const searchDialog = await openSearchWithGamepad(page, gamepad);
@@ -261,4 +261,3 @@ test.describe("Big Picture gamepad zone navigation", () => {
     await expect(page.getByTestId("switch-home")).toBeVisible();
   });
 });
-

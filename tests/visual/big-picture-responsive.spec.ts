@@ -160,7 +160,7 @@ test.describe("Big Picture responsive matrix", () => {
     await expect.poll(() => page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
     await connectGamepad(gamepad, page);
 
-    await pressGamepad(gamepad, page, "dpadDown");
+    await pressGamepad(gamepad, page, "dpadRight");
     await expect(page.locator(".bp-bg-layer-prev")).toHaveCount(0);
     await expect(page.locator(".bp-bg-layer-current")).not.toHaveClass(/fade-in/);
     await expectNoRunningAnimations(page);
@@ -174,7 +174,7 @@ test.describe("Big Picture responsive matrix", () => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await expect.poll(() => page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
     await connectGamepad(gamepad, page);
-    await pressGamepad(gamepad, page, "dpadDown");
+    await pressGamepad(gamepad, page, "dpadRight");
     await pressGamepad(gamepad, page, "y");
 
     const detail = page.getByRole("dialog", { name: "夏日列车" });
