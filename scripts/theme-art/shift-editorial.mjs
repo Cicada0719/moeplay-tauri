@@ -1,5 +1,4 @@
 // shift-editorial「素纸编集」终稿构图(Wave T):纸面编辑美学 —— 米白纸底、发丝线、超大墨色衬线标题、单一信号红点睛、克制的不对称网格。
-// 唯一设计依据:plans/theme-specs/shift-editorial.md(色值严格取自其 token 表)。
 // 自包含 HTML:内联样式、零外部资源、仅系统字体栈、无脚本。
 
 const PAPER = "#f7f4ee"; // --bg-deep,壁纸纸底

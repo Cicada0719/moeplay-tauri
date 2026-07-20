@@ -1,4 +1,4 @@
-// astral-rail「星穹旅人」终稿构图(Wave T):唯一设计依据 plans/theme-specs/astral-rail.md。
+// Theme artwork source used by scripts/generate-theme-assets.mjs.
 // 色彩语言:深空靛紫 #090a1a + 星轨金线 #d8b45a + 银河星光 #8ea2ff。
 // 自包含 HTML:内联 <style>/内联 SVG、零外部资源、仅系统字体栈、无脚本。
 // 壁纸统一 viewBox 1920×1080,管线在 32×18 视口重渲染同一构图得到 blur 占位。

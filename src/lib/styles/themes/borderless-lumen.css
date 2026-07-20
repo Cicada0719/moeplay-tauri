@@ -1,4 +1,4 @@
-/* 无界流光 · 设计语言见 plans/theme-specs/borderless-lumen.md
+/* MoeGame 主题样式。
    全套换肤：c-*（scheme-c 消费面）+ 语义色 + 控件签名。
    选择器 html[data-theme-pack] 与 scheme-c 同特异性，靠 main.ts 末位导入取胜。 */
 html[data-theme-pack="borderless-lumen"] {

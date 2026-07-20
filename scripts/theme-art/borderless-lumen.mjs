@@ -1,5 +1,4 @@
 // borderless-lumen「无界流光」终稿构图(Wave T):teamLab Borderless 式黑底有机光场。
-// 唯一设计依据 plans/theme-specs/borderless-lumen.md;色彩全部取自 spec token 表/构图描述。
 // 自包含 HTML:内联 <style>、零外部资源、仅系统字体、无脚本。
 // 尺寸一律用 vw/vh 表示,保证 1920×1080 与 32×18(blur)两个视口下构图一致。
 

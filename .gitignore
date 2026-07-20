@@ -59,4 +59,8 @@ design-assets/
 # Playwright MCP session cache (temp, auto-recreated)
 .playwright-mcp/
 
-dist-concept/
+# Local release and generated platform output
+artifacts/
+installers/
+src-tauri/gen/
+plugins/**/android/build/

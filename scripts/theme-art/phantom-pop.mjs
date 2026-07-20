@@ -1,5 +1,4 @@
 // phantom-pop「魅影波普」终稿构图(Wave T):激进斜切 + 黑/红/白撞色 + halftone 网点 + 撕裂拼贴。
-// 设计语言与验收见 plans/theme-specs/phantom-pop.md(只取 P5 波普语言,无商标造型)。
 // 自包含 HTML:内联 <style>、零外部资源、仅系统字体栈、无脚本。
 // 尺寸说明:管线主渲染为 1920×1080,spec 的 px 参数统一换算为 vh
 // (12px = 1.111vh,8px = .741vh,24px = 2.222vh),使 32×18 的 blur 小视口重渲染保持同构图。

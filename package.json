@@ -1,7 +1,7 @@
 {
   "name": "moeplay",
   "private": true,
-  "version": "0.19.0",
+  "version": "0.19.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -34,11 +34,7 @@
     "test:visual:infra": "playwright test tests/visual/accessibility-infra.spec.ts",
     "test:live-sources": "node scripts/test-live-sources.mjs",
     "test:comic-memory-soak": "node scripts/test-comic-memory-soak.mjs",
-    "measure:tauri-startup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-tauri-startup.ps1",
-    "dev:concept": "vite",
-    "build:concept": "vite build --mode concept",
-    "test:concept": "playwright test -c tests/concept/playwright.config.ts",
-    "configure:android-signing": "node scripts/configure-android-signing.mjs"
+    "measure:tauri-startup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-tauri-startup.ps1"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",

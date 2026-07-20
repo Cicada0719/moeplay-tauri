@@ -1,5 +1,4 @@
 // caution-industrial「警戒工业」终稿构图:枪灰金属底 + 工程蓝图网格 + 警示条纹 + HUD 刻度。
-// 设计依据 plans/theme-specs/caution-industrial.md;色值严格取自 spec token 表。
 // 自包含 HTML:内联 <style>、零外部资源、仅系统字体栈、无脚本。
 // 尺寸统一用 vw/vh 表达(1920×1080 与 32×18 同为 16:9),blur 小视口按同构图等比缩放。
 // 换算:1px(1920 宽)= .0521vw;1px(1080 高)= .0926vh;48px 网格 = 2.5vw × 4.4444vh;120px 纹带 = 11.111vh。
