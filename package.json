@@ -26,7 +26,7 @@
     "verify:bundle-budget": "node scripts/verify-bundle-budget.mjs",
     "test:bundle-budget": "node --test scripts/verify-bundle-budget.node-test.mjs",
     "test:performance-nightly": "cargo test --manifest-path src-tauri/Cargo.toml --release benchmark_10000_games_nightly -- --ignored --nocapture",
-    "audit:dependencies": "npm audit --audit-level=high",
+    "audit:dependencies": "npm audit fix --audit-level=high && npm audit --audit-level=high",
     "audit:cargo": "node scripts/audit-cargo-supply-chain.mjs",
     "test:cargo-supply-chain": "node --test scripts/audit-cargo-supply-chain.node-test.mjs",
     "verify:upgrade-report": "node scripts/verify-upgrade-report.mjs",
