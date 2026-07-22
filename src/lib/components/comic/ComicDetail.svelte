@@ -283,7 +283,12 @@
 </DetailPanel>
 
 <style>
-  :global(.comic-detail-panel .v2-detail-panel__body) { padding: 0; }
+  :global(.comic-detail-panel .v2-detail-panel__body) {
+    padding: 0;
+    background:
+      radial-gradient(circle at 4% 8%, color-mix(in srgb, var(--v2-color-accent) 12%, transparent), transparent 24rem),
+      linear-gradient(145deg, var(--v2-color-surface), color-mix(in srgb, var(--v2-color-surface-subtle) 92%, var(--v2-color-accent)));
+  }
 
   .detail-layout {
     display: grid;
@@ -292,25 +297,29 @@
   }
 
   .detail-aside {
+    position: relative;
     display: flex;
     padding: var(--v2-space-5);
     flex-direction: column;
     gap: var(--v2-space-4);
     border-right: 1px solid var(--v2-color-border);
-    background: var(--v2-color-surface-subtle);
+    overflow: hidden;
+    background:
+      repeating-linear-gradient(125deg, transparent 0 36px, color-mix(in srgb, var(--v2-color-text) 3%, transparent) 36px 37px),
+      color-mix(in srgb, var(--v2-color-surface-subtle) 94%, var(--v2-color-accent));
   }
 
-  .detail-cover { width: 100%; aspect-ratio: 2 / 3; border-radius: var(--v2-radius-lg); object-fit: cover; background: var(--v2-color-surface); }
+  .detail-cover { position: relative; width: 100%; aspect-ratio: 2 / 3; border: 1px solid color-mix(in srgb, var(--v2-color-border) 75%, transparent); border-radius: var(--v2-radius-lg); object-fit: cover; background: var(--v2-color-surface); box-shadow: 0 .9rem 2rem color-mix(in srgb, #020617 22%, transparent); }
   .action-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--v2-space-2); }
   .detail-facts { display: grid; gap: var(--v2-space-2); margin: 0; }
   .detail-facts div { display: grid; grid-template-columns: 3.4rem minmax(0, 1fr); gap: var(--v2-space-2); padding-block: var(--v2-space-2); border-bottom: 1px solid var(--v2-color-border); }
   .detail-facts dt { color: var(--v2-color-text-secondary); font-size: var(--v2-text-xs); }
   .detail-facts dd { min-width: 0; margin: 0; overflow: hidden; color: var(--v2-color-text); font-size: var(--v2-text-xs); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 
-  .detail-content { min-width: 0; padding: var(--v2-space-5); }
+  .detail-content { min-width: 0; padding: clamp(var(--v2-space-4), 2.2vw, var(--v2-space-6)); }
   .detail-meta-row, .tags-row { display: flex; flex-wrap: wrap; gap: var(--v2-space-2); }
   .tags-row { margin-top: var(--v2-space-3); }
-  .description-block { margin-top: var(--v2-space-4); padding: var(--v2-space-4); border: 1px solid var(--v2-color-border); border-radius: var(--v2-radius-lg); background: var(--v2-color-surface-subtle); }
+  .description-block { margin-top: var(--v2-space-4); padding: var(--v2-space-4); border: 1px solid color-mix(in srgb, var(--v2-color-border) 82%, transparent); border-radius: var(--v2-radius-lg); background: color-mix(in srgb, var(--v2-color-surface) 74%, transparent); box-shadow: inset 3px 0 0 color-mix(in srgb, var(--v2-color-accent) 58%, transparent); }
   .description-block p { display: -webkit-box; margin: 0; overflow: hidden; color: var(--v2-color-text-secondary); font-size: var(--v2-text-sm); line-height: 1.65; -webkit-box-orient: vertical; -webkit-line-clamp: 4; line-clamp: 4; }
   .description-block p.expanded { display: block; }
   .description-block button { margin-top: var(--v2-space-2); padding: 0; border: 0; background: none; color: var(--v2-color-accent); font: inherit; cursor: pointer; }
@@ -323,8 +332,8 @@
   .detail-tabpanel { min-height: 16rem; padding-top: var(--v2-space-4); outline: none; }
 
   .chapters-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: var(--v2-space-2); }
-  .chapter-button { display: grid; grid-template-columns: 2.2rem minmax(0, 1fr) auto; align-items: center; gap: var(--v2-space-2); min-height: 3.25rem; padding: 0.65rem 0.8rem; border: 1px solid var(--v2-color-border); border-radius: var(--v2-radius-md); background: var(--v2-color-surface); color: var(--v2-color-text); text-align: left; cursor: pointer; }
-  .chapter-button:hover { border-color: var(--v2-color-accent); background: var(--v2-color-surface-subtle); }
+  .chapter-button { display: grid; grid-template-columns: 2.2rem minmax(0, 1fr) auto; align-items: center; gap: var(--v2-space-2); min-height: 3.25rem; padding: 0.65rem 0.8rem; border: 1px solid var(--v2-color-border); border-radius: var(--v2-radius-md); background: linear-gradient(145deg, var(--v2-color-surface), color-mix(in srgb, var(--v2-color-surface-subtle) 94%, var(--v2-color-accent))); color: var(--v2-color-text); text-align: left; cursor: pointer; transition: border-color var(--v2-motion-fast) var(--v2-ease-standard), transform var(--v2-motion-fast) var(--v2-ease-standard); }
+  .chapter-button:hover { border-color: var(--v2-color-accent); background: var(--v2-color-surface-subtle); transform: translateY(-1px); }
   .chapter-button:focus-visible { outline: none; box-shadow: var(--v2-focus-ring); }
   .chapter-order { display: grid; width: 2rem; height: 2rem; place-items: center; border-radius: var(--v2-radius-sm); background: var(--v2-color-surface-subtle); color: var(--v2-color-text-secondary); font-size: var(--v2-text-xs); }
   .chapter-copy { min-width: 0; }
@@ -354,6 +363,18 @@
     .detail-content { padding: var(--v2-space-3); }
     .chapters-grid { grid-template-columns: 1fr; }
     .comment-form { grid-template-columns: 1fr; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chapter-button { transition: none; }
+    .chapter-button:hover { transform: none; }
+  }
+
+  @media (prefers-contrast: more) {
+    :global(.comic-detail-panel .v2-detail-panel__body),
+    .detail-aside,
+    .description-block,
+    .chapter-button { background: var(--v2-color-surface); box-shadow: none; }
   }
 
   @media (max-height: 520px) and (orientation: landscape) {

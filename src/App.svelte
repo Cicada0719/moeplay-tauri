@@ -133,7 +133,7 @@
   function toggleWorkspaceFocus() {
     if (!workspaceFocusAvailable) return;
     const enabled = workspaceFocusStore.toggle(uiStore.currentView);
-    uiStore.notify(enabled ? "已隐藏辅助控件；按 View 或右下角按钮恢复" : "已显示全部控件", "info");
+    uiStore.notify(enabled ? "已进入专注模式；按 View 或右下角“退出专注”恢复" : "已退出专注模式", "info");
     requestAnimationFrame(() => {
       const active = document.activeElement;
       if (active instanceof HTMLElement && active.getClientRects().length === 0) {
@@ -285,6 +285,10 @@
     if (uiStore.currentView === "game-detail" && !gameStore.selectedGame && gameStore.games[0]) {
       gameStore.selectGame(gameStore.games[0].id);
     }
+  });
+
+  $effect(() => {
+    workspaceFocusStore.reconcile(uiStore.currentView);
   });
 
   async function toggleWindowFullscreen() {
@@ -466,6 +470,7 @@
   data-testid="app-shell"
   data-ui-ready={booted ? "true" : "false"}
   data-gamepad-connected={gamepadConnected ? "true" : "false"}
+  data-shell-mode={workspaceFocusEnabled ? "focus" : "standard"}
   data-workspace-focus={workspaceFocusEnabled ? "true" : undefined}
   data-workspace-focus-view={workspaceFocusEnabled ? (workspaceFocusStore.scopeFor(uiStore.currentView) ?? undefined) : undefined}
 >
@@ -659,11 +664,14 @@
 
 <style>
   .app-container {
+    --app-topbar-size: 64px;
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 64px minmax(0, 1fr);
-    width: 100vw;
-    height: 100dvh;
+    grid-template-rows: var(--app-topbar-size) minmax(0, 1fr);
+    inline-size: 100%;
+    max-inline-size: 100vw;
+    block-size: 100dvh;
+    min-block-size: 0;
     position: relative;
     overflow: hidden;
     background: var(--c-black, #050505);
@@ -673,8 +681,8 @@
   .app-container.mobile-shell .main-content { position: absolute; inset: calc(56px + env(safe-area-inset-top)) 0 calc(64px + env(safe-area-inset-bottom)); overflow: hidden; }
   .app-container.mobile-shell .view-wrapper { touch-action: pan-x pan-y; }
   .global-top-navigation { grid-column: 1; grid-row: 1; position: relative; z-index: 95; min-width: 0; }
-  .main-content { grid-column: 1; grid-row: 2; min-width: 0; min-height: 0; position: relative; z-index: 1; overflow: hidden; }
-  .view-wrapper { position: absolute; inset: 0; display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; outline: none; z-index: 1; }
+  .main-content { grid-column: 1; grid-row: 2; min-width: 0; min-height: 0; max-width: 100%; position: relative; z-index: 1; overflow: hidden; isolation: isolate; }
+  .view-wrapper { position: absolute; inset: 0; display: flex; min-width: 0; min-height: 0; max-width: 100%; flex-direction: column; overflow: hidden; outline: none; z-index: 1; }
 
   .tools-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--c-line, var(--border)); border-left: 1px solid var(--c-line, var(--border)); }
   .tool-cell { min-height: 94px; display: grid; grid-template-columns: 34px 1fr; align-items: center; gap: 12px; padding: 14px 16px; border: 0; border-right: 1px solid var(--c-line, var(--border)); border-bottom: 1px solid var(--c-line, var(--border)); border-radius: 0; background: transparent; color: var(--c-muted, var(--text-secondary)); text-align: left; cursor: pointer; transition: color 160ms ease, background 160ms ease; }
@@ -689,11 +697,12 @@
   }
 
   @media (max-width: 760px) {
-    .app-container { grid-template-columns: minmax(0, 1fr); grid-template-rows: 56px minmax(0, 1fr); }
+    .app-container { --app-topbar-size: 56px; grid-template-columns: minmax(0, 1fr); }
     .global-top-navigation { grid-column: 1; grid-row: 1; }
     .main-content { grid-column: 1; grid-row: 2; }
     .tools-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
+  @media (max-height: 560px) { .app-container { --app-topbar-size: 56px; } }
   @media (max-width: 520px) { .tools-grid { grid-template-columns: 1fr; } }
   @media (prefers-reduced-motion: reduce) { .tool-cell { transition: none; } }
 </style>

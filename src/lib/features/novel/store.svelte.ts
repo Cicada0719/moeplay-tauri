@@ -39,6 +39,7 @@ let _history = $state<NovelHistoryEntry[]>(loadHistory());
 let _view = $state<"home" | "detail" | "reader">("home");
 let _loading = $state(false);
 let _error = $state("");
+let _searchRequest = 0;
 
 export const novelStore = {
   get source() { return _source; },
@@ -51,22 +52,33 @@ export const novelStore = {
   get loading() { return _loading; },
   get error() { return _error; },
 
-  setSource(source: NovelSource) { _source = source; },
+  setSource(source: NovelSource) {
+    if (_source === source) return;
+    _source = source;
+    _searchRequest += 1;
+    _books = [];
+    _error = "";
+  },
 
   async search(query = _query) {
     const normalized = query.trim();
     if (!normalized) return;
+    const source = _source;
+    const request = ++_searchRequest;
     _query = normalized;
     _loading = true;
     _error = "";
     try {
-      _books = await searchNovels(_source, normalized);
+      const books = await searchNovels(source, normalized);
+      if (request !== _searchRequest || source !== _source) return;
+      _books = books;
       _view = "home";
     } catch (error) {
+      if (request !== _searchRequest || source !== _source) return;
       _books = [];
       _error = String(error);
     } finally {
-      _loading = false;
+      if (request === _searchRequest) _loading = false;
     }
   },
 

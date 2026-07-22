@@ -16,10 +16,20 @@
   let fontSize = $state(19);
   let lineHeight = $state(1.9);
   let readerTheme = $state<"dark" | "paper" | "sepia">("dark");
+  let selectedSource = $state<NovelSource>(novelStore.source);
   let progressFrame = 0;
+  let queuedSearchQuery = "";
+  let queuedSearchVersion = 0;
+  let completedSearchVersion = 0;
+  let searchLoop: Promise<void> | null = null;
 
   const sourceOptions = $derived<Array<{ id: NovelSource; label: string; hint: string }>>([
     { id: "all", label: i18n.t("novel.source_all"), hint: i18n.t("novel.source_all_hint") },
+    { id: "biquge", label: i18n.t("novel.source_biquge"), hint: i18n.t("novel.source_biquge_hint") },
+    { id: "x80", label: i18n.t("novel.source_x80"), hint: i18n.t("novel.source_x80_hint") },
+    { id: "internetarchive", label: i18n.t("novel.source_internetarchive"), hint: i18n.t("novel.source_internetarchive_hint") },
+    { id: "openlibrary", label: i18n.t("novel.source_openlibrary"), hint: i18n.t("novel.source_openlibrary_hint") },
+    { id: "standardebooks", label: i18n.t("novel.source_standardebooks"), hint: i18n.t("novel.source_standardebooks_hint") },
     { id: "gutenberg", label: i18n.t("novel.source_gutenberg"), hint: i18n.t("novel.source_gutenberg_hint") },
     { id: "wikisource", label: i18n.t("novel.source_wikisource"), hint: i18n.t("novel.source_wikisource_hint") },
   ]);
@@ -82,38 +92,91 @@
     localStorage.setItem(READER_PREFS_KEY, JSON.stringify({ fontSize, lineHeight, theme: readerTheme }));
   }
 
+  async function drainSearchQueue() {
+    while (completedSearchVersion < queuedSearchVersion) {
+      const version = queuedSearchVersion;
+      const query = queuedSearchQuery;
+      const source = selectedSource;
+      novelStore.setSource(source);
+      await novelStore.search(query);
+      completedSearchVersion = version;
+    }
+  }
+
+  function queueSearch(query: string, source = selectedSource) {
+    const normalized = query.trim();
+    if (!normalized) return Promise.resolve();
+    selectedSource = source;
+    queuedSearchQuery = normalized;
+    queuedSearchVersion += 1;
+    if (!searchLoop) {
+      searchLoop = drainSearchQueue().finally(() => {
+        searchLoop = null;
+      });
+    }
+    return searchLoop;
+  }
+
   async function submitSearch(event?: SubmitEvent) {
     event?.preventDefault();
-    const query = searchInput.trim();
-    if (!query) return;
-    await novelStore.search(query);
+    await queueSearch(searchInput);
   }
 
   function selectSource(source: NovelSource) {
-    novelStore.setSource(source);
-    if (searchInput.trim()) void novelStore.search(searchInput);
+    selectedSource = source;
+    if (searchInput.trim()) {
+      void queueSearch(searchInput, source);
+    } else {
+      novelStore.setSource(source);
+    }
   }
 
   function sourceLabel(source: NovelBook["source"]) {
-    return source === "gutenberg" ? i18n.t("novel.source_gutenberg_label") : i18n.t("novel.source_wikisource_label");
+    const labels: Record<NovelBook["source"], string> = {
+      biquge: "novel.source_biquge_label",
+      x80: "novel.source_x80_label",
+      internetarchive: "novel.source_internetarchive_label",
+      openlibrary: "novel.source_openlibrary_label",
+      standardebooks: "novel.source_standardebooks_label",
+      gutenberg: "novel.source_gutenberg_label",
+      wikisource: "novel.source_wikisource_label",
+    };
+    return i18n.t(labels[source]);
+  }
+
+  function sourceBadge(source: NovelBook["source"]) {
+    return { biquge: "BIQUGE", x80: "80XS", internetarchive: "ARCHIVE.ORG", openlibrary: "OPEN LIBRARY", standardebooks: "STANDARD EBOOKS", gutenberg: "GUTENBERG", wikisource: "WIKISOURCE" }[source];
+  }
+
+  function rightsKey(source: NovelBook["source"]) {
+    return { biquge: "novel.rights_biquge", x80: "novel.rights_x80", internetarchive: "novel.rights_internetarchive", openlibrary: "novel.rights_openlibrary", standardebooks: "novel.rights_standardebooks", gutenberg: "novel.rights_gutenberg", wikisource: "novel.rights_wikisource" }[source];
   }
 
   function formatDate(timestamp: number) {
     return new Intl.DateTimeFormat(i18n.locale, { month: "2-digit", day: "2-digit" }).format(new Date(timestamp));
   }
 
-  function sanitizeFilename(title: string) {
-    const cleaned = title.replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim();
-    return `${cleaned || "gutenberg-book"}.epub`;
+  function sanitizeFilename(title: string, format?: string) {
+    const extension = (format ?? "file").toLowerCase().replace(/[^a-z0-9]/g, "") || "file";
+    let base = title
+      .replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ")
+      .replace(/\s+/g, " ")
+      .replace(/[. ]+$/g, "")
+      .trim();
+    if (!base || /^\.+$/.test(base)) base = "public-book";
+    if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(base)) base = `_${base}`;
+    const maxBaseLength = Math.max(1, 160 - extension.length - 1);
+    base = Array.from(base).slice(0, maxBaseLength).join("").replace(/[. ]+$/g, "") || "public-book";
+    return `${base}.${extension}`;
   }
 
-  async function downloadEpub(book: NovelBook) {
+  async function downloadBook(book: NovelBook) {
     if (!book.downloadUrl) return;
     try {
-      await downloadStart(book.downloadUrl, sanitizeFilename(book.title));
-      uiStore.notify(i18n.t("novel.epub_started"), "success");
+      await downloadStart(book.downloadUrl, sanitizeFilename(book.title, book.downloadFormat));
+      uiStore.notify(i18n.t("novel.download_started", { format: book.downloadFormat ?? "FILE" }), "success");
     } catch (error) {
-      uiStore.notify(i18n.t("novel.epub_failed", { error: String(error) }), "error");
+      uiStore.notify(i18n.t("novel.download_failed", { error: String(error) }), "error");
     }
   }
 
@@ -248,21 +311,20 @@
                 </button>
               {/if}
               {#if novelStore.detail.book.downloadUrl}
-                <button type="button" data-gamepad-secondary-action data-gamepad-activate="下载 EPUB" onclick={() => downloadEpub(novelStore.detail!.book)}><Icon name="download" size={17} />{i18n.t("novel.download_epub")}</button>
+                <button type="button" data-gamepad-secondary-action data-gamepad-activate={i18n.t("novel.download_file", { format: novelStore.detail.book.downloadFormat ?? "FILE" })} onclick={() => downloadBook(novelStore.detail!.book)}><Icon name="download" size={17} />{i18n.t("novel.download_file", { format: novelStore.detail.book.downloadFormat ?? "FILE" })}</button>
               {/if}
               <button type="button" data-gamepad-activate="打开原文" onclick={() => openSource(novelStore.detail!.book)}><Icon name="externalLink" size={17} />{i18n.t("novel.view_source")}</button>
             </div>
-            {#if novelStore.detail.book.source === "gutenberg"}
-              <p class="rights-note">{i18n.t("novel.rights_gutenberg")}</p>
-            {:else}
-              <p class="rights-note">{i18n.t("novel.rights_wikisource")}</p>
-            {/if}
+            <p class="rights-note">{i18n.t(rightsKey(novelStore.detail.book.source))}</p>
           </div>
         </section>
 
         <section class="catalog-section">
           <div class="section-heading"><div><span>CONTENTS</span><h2>{i18n.t("novel.catalog_title")}</h2></div><p>{i18n.t("novel.chapter_count", { count: novelStore.detail.chapters.length })}</p></div>
           <div class="chapter-list">
+            {#if novelStore.detail.chapters.length === 0}
+              <div class="download-only"><Icon name="download" size={22} /><p>{i18n.t("novel.download_only")}</p></div>
+            {/if}
             {#each novelStore.detail.chapters as chapter, index (chapter.id)}
               <button type="button" data-gamepad-label={`阅读 ${chapter.title}`} data-gamepad-activate="开始阅读" disabled={novelStore.loading} onclick={() => readChapter(chapter)}>
                 <span class="chapter-number">{String(index + 1).padStart(3, "0")}</span>
@@ -297,7 +359,7 @@
 
         <div class="source-tabs" role="tablist" aria-label={i18n.t("novel.sources_aria")}>
           {#each sourceOptions as source (source.id)}
-            <button type="button" role="tab" id={`novel-source-tab-${source.id}`} tabindex={novelStore.source === source.id ? 0 : -1} data-gamepad-activate="切换来源" aria-selected={novelStore.source === source.id} class:active={novelStore.source === source.id} onclick={() => selectSource(source.id)}>
+            <button type="button" role="tab" id={`novel-source-tab-${source.id}`} tabindex={selectedSource === source.id ? 0 : -1} data-gamepad-activate="切换来源" aria-selected={selectedSource === source.id} class:active={selectedSource === source.id} onclick={() => selectSource(source.id)}>
               <strong>{source.label}</strong><span>{source.hint}</span>
             </button>
           {/each}
@@ -335,7 +397,7 @@
                 <button type="button" class="book-card" data-gamepad-activate="打开图书详情" onclick={() => novelStore.openBook(book)} aria-label={i18n.t("novel.view_book_aria", { title: book.title })}>
                   <span class="card-cover">
                     {#if book.coverUrl}<img src={book.coverUrl} alt="" loading="lazy" />{:else}<Icon name="collection" size={38} />{/if}
-                    <small>{book.source === "gutenberg" ? "GUTENBERG" : "WIKISOURCE"}</small>
+                    <small>{sourceBadge(book.source)}</small>
                   </span>
                   <span class="card-copy">
                     <strong>{book.title}</strong>
@@ -351,8 +413,13 @@
           <AsyncState state="no-results" title={i18n.t("novel.no_results_title")} description={i18n.t("novel.no_results_desc")} />
         {:else}
           <section class="source-intro">
-            <article><span>01</span><div><h2>Project Gutenberg</h2><p>{i18n.t("novel.intro_gutenberg_desc")}</p><small>{i18n.t("novel.intro_gutenberg_meta")}</small></div></article>
-            <article><span>02</span><div><h2>{i18n.t("novel.intro_wikisource_title")}</h2><p>{i18n.t("novel.intro_wikisource_desc")}</p><small>{i18n.t("novel.intro_wikisource_meta")}</small></div></article>
+            <article><span>01</span><div><h2>{i18n.t("novel.intro_biquge_title")}</h2><p>{i18n.t("novel.intro_biquge_desc")}</p><small>{i18n.t("novel.intro_biquge_meta")}</small></div></article>
+            <article><span>02</span><div><h2>{i18n.t("novel.intro_x80_title")}</h2><p>{i18n.t("novel.intro_x80_desc")}</p><small>{i18n.t("novel.intro_x80_meta")}</small></div></article>
+            <article><span>03</span><div><h2>Project Gutenberg</h2><p>{i18n.t("novel.intro_gutenberg_desc")}</p><small>{i18n.t("novel.intro_gutenberg_meta")}</small></div></article>
+            <article><span>04</span><div><h2>{i18n.t("novel.intro_wikisource_title")}</h2><p>{i18n.t("novel.intro_wikisource_desc")}</p><small>{i18n.t("novel.intro_wikisource_meta")}</small></div></article>
+            <article><span>05</span><div><h2>Internet Archive</h2><p>{i18n.t("novel.intro_internetarchive_desc")}</p><small>{i18n.t("novel.intro_internetarchive_meta")}</small></div></article>
+            <article><span>06</span><div><h2>Open Library</h2><p>{i18n.t("novel.intro_openlibrary_desc")}</p><small>{i18n.t("novel.intro_openlibrary_meta")}</small></div></article>
+            <article><span>07</span><div><h2>Standard Ebooks</h2><p>{i18n.t("novel.intro_standardebooks_desc")}</p><small>{i18n.t("novel.intro_standardebooks_meta")}</small></div></article>
             <aside><Icon name="shield" size={20} /><p>{i18n.t("novel.intro_legal")}</p></aside>
           </section>
         {/if}
@@ -390,7 +457,7 @@
   .novel-search button, .primary-action { min-height: 42px; padding: 0 20px; border: 1px solid #c69b7a; background: #c69b7a; color: #100d0b; font-weight: 750; cursor: pointer; }
   button:disabled { opacity: .38; cursor: not-allowed; }
 
-  .source-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 22px 0 clamp(30px, 5vw, 68px); border: 1px solid rgba(255,255,255,.14); }
+  .source-tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin: 22px 0 clamp(30px, 5vw, 68px); border: 1px solid rgba(255,255,255,.14); }
   .source-tabs button { min-height: 72px; display: grid; gap: 6px; padding: 14px 18px; border: 0; border-right: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.015); text-align: left; cursor: pointer; }
   .source-tabs button:last-child { border-right: 0; }
   .source-tabs button.active { background: rgba(198,155,122,.13); box-shadow: inset 0 -2px #c69b7a; }
@@ -425,7 +492,7 @@
   .card-copy > span { display: -webkit-box; margin-top: 18px; overflow: hidden; color: var(--text-muted); font-size: 11px; line-height: 1.65; line-clamp: 5; -webkit-line-clamp: 5; -webkit-box-orient: vertical; }
   .card-copy > i { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; padding-top: 16px; border-top: 1px solid rgba(255,255,255,.1); color: var(--text-secondary); font: normal 700 9px/1 var(--font-mono); }
 
-  .source-intro { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: rgba(255,255,255,.13); border: 1px solid rgba(255,255,255,.13); }
+  .source-intro { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: rgba(255,255,255,.13); border: 1px solid rgba(255,255,255,.13); }
   .source-intro article { min-height: 230px; display: grid; grid-template-columns: auto 1fr; gap: 24px; padding: clamp(24px, 3vw, 46px); background: #0d0c0b; }
   .source-intro article > span { color: #c69b7a; font: 700 11px/1 var(--font-mono); }
   .source-intro h2 { margin: 0 0 18px; font: 550 clamp(22px, 3vw, 40px)/1 var(--font-display); }
@@ -458,6 +525,8 @@
   .hero-actions .primary-action { border-color: #c69b7a; background: #c69b7a; }
   .rights-note { max-width: 70ch; margin: 16px 0 0; color: var(--text-muted); font-size: 10px; line-height: 1.6; }
   .catalog-section { padding: clamp(36px, 5vw, 72px) 0; }
+  .download-only { min-height: 120px; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 24px; color: var(--text-muted); text-align: center; }
+  .download-only p { margin: 0; max-width: 520px; line-height: 1.6; }
   .chapter-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid rgba(255,255,255,.15); }
   .chapter-list button { min-width: 0; min-height: 62px; display: grid; grid-template-columns: 46px minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 8px 14px 8px 0; border: 0; border-bottom: 1px solid rgba(255,255,255,.12); background: transparent; text-align: left; cursor: pointer; }
   .chapter-list button:nth-child(odd) { padding-right: 26px; border-right: 1px solid rgba(255,255,255,.12); }
@@ -519,7 +588,7 @@
   }
   @media (orientation: landscape) and (max-height: 600px) {
     .home-scroll, .detail-scroll { padding-top: max(12px, env(safe-area-inset-top)); padding-right: max(14px, env(safe-area-inset-right)); padding-bottom: max(14px, env(safe-area-inset-bottom)); }
-    .source-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 12px 0 24px; }
+    .source-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 12px 0 24px; }
     .source-tabs button { min-height: 54px; border-right: 1px solid rgba(255,255,255,.14); border-bottom: 0; }
     .source-tabs span { display: none; }
     .reader-toolbar { grid-template-columns: auto minmax(0, 1fr) auto; padding-top: max(6px, env(safe-area-inset-top)); }

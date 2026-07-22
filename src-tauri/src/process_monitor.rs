@@ -123,11 +123,52 @@ pub struct RunningGameInfo {
 }
 
 /// 后台等待子进程退出，退出时调用 monitor.on_exit()。
-pub fn spawn_exit_watcher(mut child: std::process::Child, app_handle: tauri::AppHandle) {
+///
+/// `launch_game` 是同步 Tauri 命令，Windows 上执行它的线程不保证位于 Tokio
+/// runtime 内。这里不能直接调用 `tokio::task::spawn_blocking`，否则会在游戏已经
+/// 启动后触发 "there is no reactor running" panic，并跨 Tauri 命令边界终止整个应用。
+pub fn spawn_exit_watcher(
+    mut child: std::process::Child,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
     let child_id = child.id();
-    tokio::task::spawn_blocking(move || {
-        let _ = child.wait();
+    spawn_wait_thread(format!("moeplay-game-wait-{child_id}"), move || {
+        if let Err(error) = child.wait() {
+            tracing::warn!(child_id, %error, "Failed to wait for game process");
+        }
         let monitor = app_handle.state::<ProcessMonitor>();
         monitor.on_exit(child_id, &app_handle);
-    });
+    })
+    .map_err(|error| format!("无法启动游戏进程监控线程: {error}"))
+}
+
+fn spawn_wait_thread(name: String, waiter: impl FnOnce() + Send + 'static) -> std::io::Result<()> {
+    std::thread::Builder::new()
+        .name(name)
+        .spawn(waiter)
+        .map(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::spawn_wait_thread;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    #[test]
+    fn process_wait_thread_does_not_require_a_tokio_runtime() {
+        let (sender, receiver) = mpsc::channel();
+
+        // This test intentionally runs as a plain Rust test without creating a Tokio runtime.
+        // The 0.19.2 implementation panicked here when it used tokio::task::spawn_blocking.
+        spawn_wait_thread(
+            "moeplay-process-monitor-regression".to_string(),
+            move || sender.send(()).unwrap(),
+        )
+        .expect("process monitor thread should start without a Tokio runtime");
+
+        receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("process monitor thread should run");
+    }
 }

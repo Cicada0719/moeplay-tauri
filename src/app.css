@@ -792,6 +792,9 @@ button.ui-card:focus-visible {
 }
 
 /* Workspace focus mode: explicitly hide secondary chrome while preserving a global restore control. */
+.app-container[data-shell-mode="focus"] {
+  --workspace-focus-active: 1;
+}
 .app-container[data-workspace-focus="true"][data-workspace-focus-view="home"] .mw-shell {
   grid-template-rows: minmax(0, 1fr) !important;
 }
@@ -802,7 +805,8 @@ button.ui-card:focus-visible {
   display: none !important;
 }
 .app-container[data-workspace-focus="true"][data-workspace-focus-view="home"] [data-route-view="game-detail"] .hero {
-  min-height: calc(100vh - 52px);
+  min-height: 100%;
+  max-width: 100%;
 }
 .app-container[data-workspace-focus="true"][data-workspace-focus-view="comic"] :is(.comic-v2-shell .v2-page-header, .comic-filter-bar, .category-chips, .ranking-periods) {
   display: none !important;

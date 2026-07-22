@@ -8,29 +8,7 @@ function scopeForView(view: string): WorkspaceFocusView | null {
   return SUPPORTED_VIEWS.has(view as WorkspaceFocusView) ? view as WorkspaceFocusView : null;
 }
 
-function readStoredModes(): Partial<Record<WorkspaceFocusView, boolean>> {
-  if (typeof localStorage === "undefined") return {};
-  try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
-    if (!parsed || typeof parsed !== "object") return {};
-    return Object.fromEntries(
-      Object.entries(parsed).filter(([key, value]) => SUPPORTED_VIEWS.has(key as WorkspaceFocusView) && typeof value === "boolean"),
-    ) as Partial<Record<WorkspaceFocusView, boolean>>;
-  } catch {
-    return {};
-  }
-}
-
-let modes = $state<Partial<Record<WorkspaceFocusView, boolean>>>(readStoredModes());
-
-function persist() {
-  if (typeof localStorage === "undefined") return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(modes));
-  } catch {
-    // Layout preferences are optional; unavailable storage must not break navigation.
-  }
-}
+let activeScope = $state<WorkspaceFocusView | null>(null);
 
 export const workspaceFocusStore = {
   supports(view: string) {
@@ -41,20 +19,33 @@ export const workspaceFocusStore = {
   },
   isEnabled(view: string) {
     const scope = scopeForView(view);
-    return scope ? Boolean(modes[scope]) : false;
+    return scope != null && activeScope === scope;
   },
   set(view: string, enabled: boolean) {
     const scope = scopeForView(view);
     if (!scope) return false;
-    modes = { ...modes, [scope]: Boolean(enabled) };
-    persist();
-    return Boolean(modes[scope]);
+    if (enabled) {
+      activeScope = scope;
+    } else if (activeScope === scope) {
+      activeScope = null;
+    }
+    return activeScope === scope;
   },
   toggle(view: string) {
     return this.set(view, !this.isEnabled(view));
   },
+  reconcile(view: string) {
+    const scope = scopeForView(view);
+    if (activeScope != null && activeScope !== scope) activeScope = null;
+    return activeScope;
+  },
   reset() {
-    modes = {};
-    persist();
+    activeScope = null;
+    if (typeof localStorage === "undefined") return;
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Removing the legacy preference is best-effort only.
+    }
   },
 };

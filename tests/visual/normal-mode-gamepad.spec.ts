@@ -115,26 +115,31 @@ test.describe("normal-mode controller navigation", () => {
     await expect(page.locator('[data-route-view="home"]')).toBeVisible();
   });
 
-  test("View toggles a persistent per-category focus layout and the HUD explains how to restore controls", async ({ appPage: page, gamepad }) => {
+  test("View toggles one transient focus mode and the HUD explains the recovery action", async ({ appPage: page, gamepad }) => {
     await connect(gamepad, page);
     const shell = page.getByTestId("app-shell");
 
     await press(gamepad, page, "back");
-    await expect(shell).toHaveAttribute("data-workspace-focus", "true");
+    await expect(shell).toHaveAttribute("data-shell-mode", "focus");
     await expect(shell).toHaveAttribute("data-workspace-focus-view", "home");
     await expect(page.locator(".mw-shell__topline")).toBeHidden();
     await expect(page.locator(".mw-shell__director")).toBeHidden();
-    await expect(page.getByTestId("gamepad-hints")).toContainText("显示控件");
+    await expect(page.getByTestId("gamepad-hints")).toContainText("退出专注");
 
     await press(gamepad, page, "rightBumper");
     await expect(page.locator('[data-route-view="records"]')).toBeVisible();
+    await expect(shell).toHaveAttribute("data-shell-mode", "standard");
     await expect(shell).not.toHaveAttribute("data-workspace-focus", "true");
+
     await press(gamepad, page, "leftBumper");
     await expect(page.locator('[data-route-view="home"]')).toBeVisible();
-    await expect(shell).toHaveAttribute("data-workspace-focus-view", "home");
+    await expect(shell).toHaveAttribute("data-shell-mode", "standard");
+    await expect(page.locator(".mw-shell__topline")).toBeVisible();
 
     await press(gamepad, page, "back");
-    await expect(shell).not.toHaveAttribute("data-workspace-focus", "true");
+    await expect(shell).toHaveAttribute("data-shell-mode", "focus");
+    await press(gamepad, page, "back");
+    await expect(shell).toHaveAttribute("data-shell-mode", "standard");
     await expect(page.locator(".mw-shell__topline")).toBeVisible();
   });
 
@@ -193,10 +198,10 @@ test.describe("normal-mode controller navigation", () => {
     const allSources = page.locator("#novel-source-tab-all");
     await expect(allSources).toBeFocused();
     await press(gamepad, page, "dpadRight");
-    const gutenberg = page.locator("#novel-source-tab-gutenberg");
-    await expect(gutenberg).toBeFocused();
+    const biquge = page.locator("#novel-source-tab-biquge");
+    await expect(biquge).toBeFocused();
     await press(gamepad, page, "a");
-    await expect(gutenberg).toHaveAttribute("aria-selected", "true");
+    await expect(biquge).toHaveAttribute("aria-selected", "true");
     await expect(page.getByTestId("gamepad-hints")).toContainText("切换来源");
   });
 

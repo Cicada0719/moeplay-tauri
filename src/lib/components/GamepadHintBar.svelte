@@ -65,7 +65,7 @@
         <span class="prompt"><kbd>B</kbd>返回</span>
         <span class="prompt"><kbd>X</kbd>搜索</span>
         <span class="prompt"><kbd>LB</kbd><kbd>RB</kbd>切换栏目</span>
-        {#if focusModeAvailable}<span class="prompt"><kbd>VIEW</kbd>{focusMode ? "显示控件" : "专注布局"}</span>{/if}
+        {#if focusModeAvailable}<span class="prompt"><kbd>VIEW</kbd>{focusMode ? "退出专注" : "进入专注"}</span>{/if}
         <span class="prompt"><kbd>START</kbd>大屏</span>
       </div>
     {:else}
@@ -95,7 +95,7 @@
   .connected-note strong { font-size:11px; letter-spacing:.06em; }
   .connected-note small { color:rgba(255,255,255,.56); font-size:10px; }
   .connected-dot { width:7px; height:7px; border-radius:50%; background:#79e6a7; box-shadow:0 0 12px rgba(121,230,167,.72); }
-  .gamepad-hints.active { left: 18px; display:grid; grid-template-columns:minmax(150px, .42fr) minmax(0, 1fr); }
+  .gamepad-hints.active { left: 18px; display:grid; grid-template-columns:minmax(120px, .34fr) minmax(0, 1fr); }
   .focus-context { min-width:0; display:grid; align-content:center; gap:3px; min-height:42px; padding:7px 12px; border-right:0; }
   .focus-context span { color:var(--accent, #e8557f); font:700 8px/1 var(--font-mono, monospace); letter-spacing:.14em; text-transform:uppercase; }
   .focus-context strong { overflow:hidden; font-size:11px; line-height:1.15; text-overflow:ellipsis; white-space:nowrap; }
@@ -105,12 +105,17 @@
   kbd { min-width:22px; height:22px; display:inline-grid; place-items:center; padding:0 5px; border:1px solid rgba(255,255,255,.28); border-radius:999px; background:rgba(255,255,255,.08); color:#fff; font:800 8px/1 var(--font-mono, monospace); box-shadow:inset 0 -1px rgba(255,255,255,.1); }
   .prompt--primary kbd { border-color:color-mix(in srgb, var(--accent, #e8557f) 75%, white); background:color-mix(in srgb, var(--accent, #e8557f) 72%, transparent); }
   @media (max-width: 980px) {
-    .gamepad-hints.active { grid-template-columns:minmax(130px,.35fr) 1fr; }
+    .gamepad-hints.active { grid-template-columns:minmax(104px,.28fr) minmax(0,1fr); }
     .prompt-list { justify-content:flex-start; overflow-x:auto; scrollbar-width:none; }
+    .prompt-list::-webkit-scrollbar { display:none; }
   }
   @media (max-width: 640px) {
     .gamepad-hints.active { left:8px; right:8px; bottom:8px; grid-template-columns:1fr; }
     .focus-context { display:none; }
+  }
+  @media (max-height:560px) and (min-width:641px) {
+    .gamepad-hints { right:10px; bottom:8px; }
+    .gamepad-hints.active { left:10px; }
   }
   @media (prefers-reduced-motion: reduce) { .connected-dot { box-shadow:none; } }
 </style>

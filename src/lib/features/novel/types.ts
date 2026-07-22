@@ -1,4 +1,12 @@
-export type NovelSource = "all" | "gutenberg" | "wikisource";
+export type NovelSource =
+  | "all"
+  | "biquge"
+  | "x80"
+  | "internetarchive"
+  | "openlibrary"
+  | "standardebooks"
+  | "gutenberg"
+  | "wikisource";
 
 export interface NovelBook {
   id: string;
@@ -12,6 +20,7 @@ export interface NovelBook {
   publicDomain: boolean;
   sourceUrl: string;
   downloadUrl?: string;
+  downloadFormat?: string;
 }
 
 export interface NovelChapter {

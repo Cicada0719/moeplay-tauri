@@ -32,7 +32,14 @@ describe("novel page ui-v2 migration contract", () => {
 		expect(novelSource).toContain("submitSearch");
 		expect(novelSource).toContain("selectSource");
 		expect(novelSource).toContain("saveReaderProgress");
-		expect(novelSource).toContain("downloadEpub");
+		expect(novelSource).toContain("downloadBook");
+		expect(novelSource).toContain('{ id: "x80"');
+		expect(novelSource).toContain('{ id: "internetarchive"');
+		expect(novelSource).toContain('{ id: "openlibrary"');
+		expect(novelSource).toContain('{ id: "standardebooks"');
+		expect(novelSource).toContain("drainSearchQueue");
+		expect(novelSource).toContain("selectedSource");
+		expect(novelSource).not.toContain('data-gamepad-activate="下载 EPUB"');
 		expect(novelSource).toContain("moveChapter");
 	});
 
@@ -50,6 +57,9 @@ describe("novel page ui-v2 migration contract", () => {
 		expect(i18nSource).toContain('"novel.title": "小说阅读"');
 		expect(i18nSource).toContain('"novel.title": "Novels"');
 		expect(i18nSource).toContain('"novel.source_all"');
+		expect(i18nSource).toContain('"novel.source_x80": "80小说网"');
+		expect(i18nSource).toContain('"novel.rights_x80"');
+		expect(i18nSource).toContain('"novel.intro_x80_title"');
 		expect(i18nSource).toContain('"novel.no_results_title"');
 		expect(i18nSource).toContain('"novel.epub_failed"');
 		expect(i18nSource).toContain('"novel.rights_gutenberg"');

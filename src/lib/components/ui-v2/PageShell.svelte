@@ -55,6 +55,9 @@
     min-width: 0;
     min-height: 0;
     width: 100%;
+    height: 100%;
+    max-width: 100%;
+    overflow-x: clip;
     color: var(--v2-color-text);
     font-family: var(--v2-font-sans);
     outline: none;
@@ -67,7 +70,9 @@
 
   .v2-page-shell__inner {
     width: 100%;
+    min-width: 0;
     min-height: 100%;
+    box-sizing: border-box;
     margin-inline: auto;
     padding: var(--v2-page-gutter);
   }
@@ -86,6 +91,12 @@
       max(var(--v2-space-8), env(safe-area-inset-right))
       max(var(--v2-space-6), env(safe-area-inset-bottom))
       max(var(--v2-space-8), env(safe-area-inset-left));
+  }
+
+  @container (max-width: 40rem) {
+    .v2-page-shell__inner {
+      padding-inline: clamp(var(--v2-space-3), 4cqi, var(--v2-page-gutter));
+    }
   }
 
 </style>

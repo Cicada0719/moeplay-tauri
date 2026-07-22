@@ -388,7 +388,11 @@ pub fn launch_game(
     let child_id = child.id();
 
     monitor.register(child_id, &session_id, &id);
-    process_monitor::spawn_exit_watcher(child, app_handle.clone());
+    if let Err(error) = process_monitor::spawn_exit_watcher(child, app_handle.clone()) {
+        monitor.unregister_by_session(&session_id);
+        let _ = db.end_play_session(&id, &session_id, 0);
+        return Err(error);
+    }
 
     if game.metadata.engine.is_none() {
         let _ = db.update_engine(&id, Some(engine_variant.clone()));

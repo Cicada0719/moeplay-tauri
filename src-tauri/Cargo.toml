@@ -1,6 +1,6 @@
 [package]
 name = "moeplay"
-version = "0.19.2"
+version = "0.19.3"
 description = "萌游 MoeGame — 游戏与番剧管理器"
 authors = ["MoeGame Dev"]
 edition = "2021"
@@ -9,7 +9,7 @@ default-run = "moeplay"
 
 [lib]
 name = "moeplay_lib"
-crate-type = ["lib", "cdylib", "staticlib"]
+crate-type = ["rlib", "cdylib", "staticlib"]
 
 [[bin]]
 name = "moeplay"

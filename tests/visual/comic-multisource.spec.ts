@@ -83,8 +83,29 @@ test("v0.12 comic auto mode renders isolated parallel source sections", async ({
     };
   }, { mockSettings: settings, baoziSearchHtml: baoziHtml, dm5SearchHtml: dm5Html, detail: baoziDetailHtml, chapter: baoziChapterHtml });
 
+  await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/?skip_wizard&platform=android");
   await page.getByRole("button", { name: "漫画" }).click();
+
+  const comicPage = page.getByTestId("comic-page");
+  const frame = comicPage.locator(".comic-page-frame").first();
+  await expect(frame).toBeVisible();
+  const wideLayout = await frame.evaluate((element) => {
+    const frameRect = element.getBoundingClientRect();
+    const pageRect = element.closest(".comic-page")!.getBoundingClientRect();
+    const pageStyle = getComputedStyle(element.closest(".comic-page")!);
+    return {
+      frameWidth: frameRect.width,
+      leftGutter: frameRect.left - pageRect.left,
+      rightGutter: pageRect.right - frameRect.right,
+      backgroundImage: pageStyle.backgroundImage,
+      horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+  expect(wideLayout.frameWidth).toBeLessThanOrEqual(1728);
+  expect(Math.abs(wideLayout.leftGutter - wideLayout.rightGutter)).toBeLessThanOrEqual(2);
+  expect(wideLayout.backgroundImage).toContain("gradient");
+  expect(wideLayout.horizontalOverflow).toBeLessThanOrEqual(1);
   const sourceTabs = page.getByRole("tablist", { name: "普通漫画源" });
   const autoTab = sourceTabs.getByRole("tab", { name: /自动/ });
   await autoTab.focus();
@@ -115,6 +136,12 @@ test("v0.12 comic auto mode renders isolated parallel source sections", async ({
   await baoziCard.dispatchEvent("click");
   await expect(page.getByRole("heading", { name: "包子测试漫画" })).toBeVisible();
   await expect(page.getByText("用于验收漫画详情和阅读器")).toBeVisible();
+  const detailVisuals = await page.locator(".comic-detail-panel .v2-detail-panel__body").evaluate((element) => ({
+    backgroundImage: getComputedStyle(element).backgroundImage,
+    coverShadow: getComputedStyle(element.querySelector(".detail-cover")!).boxShadow,
+  }));
+  expect(detailVisuals.backgroundImage).toContain("gradient");
+  expect(detailVisuals.coverShadow).not.toBe("none");
   const chapterButton = page.getByRole("button", { name: "第1话" });
   await chapterButton.click();
   const reader = page.getByRole("dialog", { name: "第1话" });
@@ -146,4 +173,15 @@ test("v0.12 comic auto mode renders isolated parallel source sections", async ({
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "包子测试漫画" })).toHaveCount(0);
   await expect(baoziCard).toBeFocused();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const narrowLayout = await frame.evaluate((element) => ({
+    borderWidth: getComputedStyle(element).borderTopWidth,
+    frameWidth: element.getBoundingClientRect().width,
+    viewportWidth: document.documentElement.clientWidth,
+    horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  }));
+  expect(narrowLayout.borderWidth).toBe("0px");
+  expect(narrowLayout.frameWidth).toBeLessThanOrEqual(narrowLayout.viewportWidth);
+  expect(narrowLayout.horizontalOverflow).toBeLessThanOrEqual(1);
 });

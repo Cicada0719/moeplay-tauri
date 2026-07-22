@@ -47,6 +47,25 @@
 <style>
   :global(.comic-media-card) {
     height: 100%;
+    background: linear-gradient(160deg, color-mix(in srgb, var(--v2-color-surface) 96%, transparent), color-mix(in srgb, var(--v2-color-accent) 4%, var(--v2-color-surface-subtle)));
+    box-shadow: 0 0.55rem 1.4rem color-mix(in srgb, #020617 9%, transparent);
+  }
+
+  :global(.comic-media-card .v2-media-card__media)::after {
+    position: absolute;
+    inset: auto 0 0;
+    height: 28%;
+    background: linear-gradient(to top, color-mix(in srgb, #020617 34%, transparent), transparent);
+    content: "";
+    pointer-events: none;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    :global(.comic-media-card:hover) {
+      border-color: color-mix(in srgb, var(--v2-color-accent) 46%, var(--v2-color-border));
+      box-shadow: 0 0.9rem 2.2rem color-mix(in srgb, #020617 16%, transparent);
+      transform: translateY(-0.18rem);
+    }
   }
 
   .comic-badge {
@@ -78,5 +97,14 @@
     color: var(--v2-color-text-tertiary, var(--v2-color-text-secondary));
     font-family: var(--v2-font-mono, var(--v2-font-sans));
     font-size: var(--v2-text-xs);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :global(.comic-media-card) { transform: none; }
+  }
+
+  @media (prefers-contrast: more) {
+    :global(.comic-media-card) { background: var(--v2-color-surface); box-shadow: none; }
+    :global(.comic-media-card .v2-media-card__media)::after { display: none; }
   }
 </style>
