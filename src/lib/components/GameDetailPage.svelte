@@ -6,7 +6,7 @@
   import { uiStore } from "../stores/ui.svelte";
   import { handleBackNavigation } from "../stores/router.svelte";
   import { platformStore } from "../platform";
-  import { formatPlayTime, updateGame } from "../api";
+  import { formatPlayTime, updateExePath, updateGameDescription, updateGameName, updateInstallDir } from "../api";
   import type { Game } from "../stores/games.svelte";
   import { fileSrc } from "../utils";
   import { Button, Card, Dialog, Input, Tag } from "./ui";
@@ -105,8 +105,12 @@
 
   async function handleLaunch() {
     if (!game) return;
-    await gameStore.launch(game.id);
-    uiStore.notify(`正在启动 ${game.name}...`, "info");
+    const launched = await gameStore.launchWithResult(game.id);
+    if (launched) {
+      uiStore.notify(`正在启动 ${game.name}...`, "info");
+    } else {
+      uiStore.notify(`启动失败，请检查 ${game.name} 的启动路径`, "error");
+    }
   }
 
   async function handleLaunchJP() {
@@ -143,14 +147,44 @@
     isEditing = true;
   }
 
+  function executableParent(path: string): string | null {
+    const value = path.trim();
+    const separator = Math.max(value.lastIndexOf("\\"), value.lastIndexOf("/"));
+    return separator > 0 ? value.slice(0, separator) : null;
+  }
+
   async function saveEdit() {
     if (!game || isSaving) return;
+    const nextName = editName.trim();
+    const nextDescription = editDesc.trim();
+    const nextExePath = editExePath.trim();
+    if (!nextName) {
+      uiStore.notify("游戏名称不能为空", "error");
+      return;
+    }
+    if (!nextExePath) {
+      uiStore.notify("启动路径不能为空", "error");
+      return;
+    }
+
     isSaving = true;
     try {
-      await updateGame({ ...game, name: editName, description: editDesc, exe_path: editExePath });
+      // Use field-level commands so an old detail snapshot cannot overwrite new
+      // play sessions, scrape metadata or other background updates.
+      if (nextName !== game.name) await updateGameName(game.id, nextName);
+      if (nextDescription !== (game.description ?? "").trim()) {
+        await updateGameDescription(game.id, nextDescription || null);
+      }
+      if (nextExePath !== game.exe_path) {
+        await updateExePath(game.id, nextExePath);
+        const nextInstallDir = executableParent(nextExePath);
+        if (nextInstallDir && nextInstallDir !== game.install_dir) {
+          await updateInstallDir(game.id, nextInstallDir);
+        }
+      }
       await gameStore.load();
       isEditing = false;
-      uiStore.notify("游戏信息已保存", "success");
+      uiStore.notify("游戏信息已保存，新的启动路径已生效", "success");
     } catch (e) {
       uiStore.notify(`保存失败：${e}`, "error");
     } finally {
@@ -487,11 +521,18 @@
   }
 
   .hero-title {
-    font-size: clamp(26px, 3.2vw, 42px);
+    display: -webkit-box;
+    max-width: min(100%, 42rem);
+    overflow: hidden;
+    font-size: clamp(24px, 3vw, 42px);
     font-weight: 800;
     line-height: 1.08;
     letter-spacing: -0.02em;
     color: var(--text-primary);
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
     margin: 0;
   }
 
@@ -552,7 +593,13 @@
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    margin-top: 18px;
+    margin-top: clamp(10px, 2vh, 18px);
+  }
+
+  @media (max-height: 680px) {
+    .hero-title { font-size: clamp(21px, 2.6vw, 32px); }
+    .tags { margin-top: 8px; max-height: 30px; overflow: hidden; }
+    .actions { margin-top: 10px; }
   }
 
   /* ── Hero rating ── */

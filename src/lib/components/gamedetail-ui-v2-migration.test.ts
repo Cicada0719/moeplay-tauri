@@ -28,6 +28,15 @@ describe("game detail page ui-v2 migration contract", () => {
 		expect(detailSource).toContain("openScrapeDialog");
 	});
 
+	it("persists launch edits without replacing the whole game and protects long titles", () => {
+		expect(detailSource).toContain("updateExePath(game.id, nextExePath)");
+		expect(detailSource).toContain("updateInstallDir(game.id, nextInstallDir)");
+		expect(detailSource).toContain("updateGameName(game.id, nextName)");
+		expect(detailSource).not.toContain("await updateGame({ ...game");
+		expect(detailSource).toContain("-webkit-line-clamp: 2");
+		expect(detailSource).toContain("overflow-wrap: anywhere");
+	});
+
 	it("wires page copy through the gamedetail i18n prefix", () => {
 		expect(detailSource).toContain('i18n.t("gamedetail.missing_title")');
 		expect(detailSource).toContain('i18n.t("gamedetail.launch")');

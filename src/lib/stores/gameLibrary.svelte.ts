@@ -347,12 +347,23 @@ export const libraryStore = {
   },
 
   // ---- game actions ----
-  async launch(id: string) {
+  async launch(id: string): Promise<void> {
     try {
       await launchGame(id);
     } catch (e) {
       console.error("Launch failed:", e);
       _loadError = userFacingErrorMessage(e);
+    }
+  },
+
+  async launchWithResult(id: string): Promise<boolean> {
+    try {
+      await launchGame(id);
+      return true;
+    } catch (e) {
+      console.error("Launch failed:", e);
+      _loadError = userFacingErrorMessage(e);
+      return false;
     }
   },
 

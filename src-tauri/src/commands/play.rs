@@ -300,17 +300,7 @@ pub fn launch_game(
 ) -> Result<LaunchResult, String> {
     let game = db.get_game(&id)?;
 
-    let protocol_uri = game
-        .launch_uri
-        .as_deref()
-        .filter(|uri| is_platform_launch_uri(uri))
-        .or_else(|| {
-            if is_platform_launch_uri(&game.exe_path) {
-                Some(game.exe_path.as_str())
-            } else {
-                None
-            }
-        });
+    let protocol_uri = resolve_platform_launch_uri(&game.exe_path, game.launch_uri.as_deref());
     if let Some(uri) = protocol_uri {
         let session_id = db.start_play_session(&id)?;
         if let Err(e) = open::that(uri) {
@@ -332,15 +322,12 @@ pub fn launch_game(
         });
     }
 
-    let install_dir = match game.install_dir.as_deref() {
-        Some(d) if !d.is_empty() => PathBuf::from(d),
-        _ => Path::new(&game.exe_path)
-            .parent()
-            .map(|p| p.to_path_buf())
-            .ok_or("无法确定游戏安装目录")?,
-    };
+    // Resolve the persisted executable first. Its parent is the authoritative
+    // engine-detection directory after an edit (for example a translated subdir).
+    let exe_path = resolve_launch_executable(&game.exe_path)?;
+    let engine_dir = resolve_engine_detection_dir(&exe_path, game.install_dir.as_deref())?;
 
-    let engine_config = locale::EngineLibrary::detect_engine(&install_dir);
+    let engine_config = locale::EngineLibrary::detect_engine(&engine_dir);
     let engine_name = engine_config
         .as_ref()
         .map(|c| c.name.clone())
@@ -356,16 +343,12 @@ pub fn launch_game(
         "Engine detected"
     );
 
-    let exe_path = if let Some(ref config) = engine_config {
-        locale::EngineLibrary::find_executable(&install_dir, config)
-            .unwrap_or_else(|| PathBuf::from(&game.exe_path))
-    } else {
-        PathBuf::from(&game.exe_path)
-    };
-
-    if !exe_path.exists() {
-        return Err(format!("可执行文件不存在: {}", exe_path.display()));
-    }
+    tracing::info!(
+        game_id = %id,
+        selected_exe = %exe_path.display(),
+        engine_dir = %engine_dir.display(),
+        "Using persisted game launch path and engine directory"
+    );
 
     let force_jp = force_locale_jp.unwrap_or(false);
     let locale_method = if force_jp {
@@ -398,10 +381,6 @@ pub fn launch_game(
         let _ = db.update_engine(&id, Some(engine_variant.clone()));
     }
 
-    if exe_path.to_string_lossy() != game.exe_path {
-        let _ = db.update_exe_path(&id, exe_path.to_string_lossy().to_string());
-    }
-
     let result = LaunchResult {
         session_id,
         engine: Some(engine_variant),
@@ -422,6 +401,58 @@ pub fn launch_game(
     Ok(result)
 }
 
+fn resolve_platform_launch_uri<'a>(
+    exe_path: &'a str,
+    launch_uri: Option<&'a str>,
+) -> Option<&'a str> {
+    let exe_path = exe_path.trim();
+    if is_platform_launch_uri(exe_path) {
+        return Some(exe_path);
+    }
+
+    // A non-empty local path is an explicit user choice and must take priority over
+    // stale platform metadata. Only fall back to launch_uri when no launch path was
+    // configured at all (legacy platform imports).
+    if !exe_path.is_empty() {
+        return None;
+    }
+
+    launch_uri
+        .map(str::trim)
+        .filter(|uri| is_platform_launch_uri(uri))
+}
+fn resolve_engine_detection_dir(
+    exe_path: &Path,
+    stored_install_dir: Option<&str>,
+) -> Result<PathBuf, String> {
+    if let Some(parent) = exe_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        return Ok(parent.to_path_buf());
+    }
+
+    if let Some(stored) = stored_install_dir
+        .map(str::trim)
+        .filter(|stored| !stored.is_empty())
+    {
+        return Ok(PathBuf::from(stored));
+    }
+
+    std::env::current_dir().map_err(|error| format!("无法确定游戏引擎检测目录: {error}"))
+}
+fn resolve_launch_executable(value: &str) -> Result<PathBuf, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err("未设置游戏启动路径".to_string());
+    }
+
+    let path = PathBuf::from(value);
+    if !path.is_file() {
+        return Err(format!("可执行文件不存在: {}", path.display()));
+    }
+    Ok(path)
+}
 pub(crate) fn is_platform_launch_uri(value: &str) -> bool {
     let lower = value.trim().to_ascii_lowercase();
     lower.starts_with("steam://")
@@ -429,4 +460,74 @@ pub(crate) fn is_platform_launch_uri(value: &str) -> bool {
         || lower.starts_with("uplay://")
         || lower.starts_with("origin://")
         || lower.starts_with("goggalaxy://")
+}
+
+#[cfg(test)]
+mod launch_path_tests {
+    use super::{
+        resolve_engine_detection_dir, resolve_launch_executable, resolve_platform_launch_uri,
+    };
+    use std::fs;
+
+    #[test]
+    fn edited_executable_parent_wins_over_stale_install_directory() {
+        let root = std::env::temp_dir().join(format!("moeplay-engine-dir-{}", std::process::id()));
+        let original_dir = root.join("original");
+        let translated_dir = root.join("translated");
+        fs::create_dir_all(&original_dir).unwrap();
+        fs::create_dir_all(&translated_dir).unwrap();
+        let translated_exe = translated_dir.join("translated.exe");
+        fs::write(&translated_exe, b"translated").unwrap();
+
+        let selected = resolve_engine_detection_dir(
+            &translated_exe,
+            Some(original_dir.to_string_lossy().as_ref()),
+        )
+        .unwrap();
+        assert_eq!(selected, translated_dir);
+        assert_ne!(selected, original_dir);
+
+        fs::remove_dir_all(root).ok();
+    }
+    #[test]
+    fn local_selected_path_wins_over_stale_platform_uri() {
+        let selected = resolve_platform_launch_uri(
+            r"D:\Games\Translated\translated.exe",
+            Some("steam://rungameid/123"),
+        );
+        assert_eq!(selected, None);
+    }
+
+    #[test]
+    fn platform_uri_in_exe_path_or_legacy_fallback_is_supported() {
+        assert_eq!(
+            resolve_platform_launch_uri("steam://rungameid/123", None),
+            Some("steam://rungameid/123")
+        );
+        assert_eq!(
+            resolve_platform_launch_uri("", Some("steam://rungameid/456")),
+            Some("steam://rungameid/456")
+        );
+    }
+    #[test]
+    fn selected_path_wins_over_other_executables_in_the_install_directory() {
+        let root = std::env::temp_dir().join(format!("moeplay-launch-path-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let original = root.join("original.exe");
+        let translated = root.join("translated.exe");
+        fs::write(&original, b"original").unwrap();
+        fs::write(&translated, b"translated").unwrap();
+
+        let selected = resolve_launch_executable(&translated.to_string_lossy()).unwrap();
+        assert_eq!(selected, translated);
+        assert_ne!(selected, original);
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn empty_or_missing_selected_path_is_rejected() {
+        assert!(resolve_launch_executable("  ").is_err());
+        assert!(resolve_launch_executable("this-file-does-not-exist.exe").is_err());
+    }
 }

@@ -25,7 +25,7 @@
   const paddingX = $derived(containerWidth <= 760 ? 16 : 28);
   const paddingTop = 24;
   const paddingBottom = 32;
-  const cardChrome = 98;
+  const cardChrome = $derived(isCompactMode ? 108 : 124);
   const columnCount = $derived(
     isListMode ? 1 : Math.max(1, Math.floor((containerWidth - paddingX * 2 + gap) / (minColumnWidth + gap))),
   );

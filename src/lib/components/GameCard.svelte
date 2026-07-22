@@ -287,6 +287,7 @@
   :global(.game-card.v2-media-card) {
     --v2-media-card-accent: var(--accent);
     height: 100%;
+    min-height: 0;
     background: color-mix(in srgb, var(--bg-elev) 92%, transparent);
     border-color: var(--border);
   }
@@ -297,17 +298,40 @@
   }
   :global(.game-card .v2-media-card__media) { aspect-ratio: 3 / 4; background: var(--bg-hover); }
   :global(.game-card .v2-media-card__media img) { object-fit: cover; }
-  :global(.game-card .v2-media-card__copy) { padding: 0.75rem 0.75rem 0.9rem; }
-  :global(.game-card .v2-media-card__copy h3) { font-size: 0.875rem; }
-  :global(.game-card .v2-media-card__subtitle) { min-height: 1rem; font-size: 0.75rem; }
-  :global(.game-card .v2-media-card__meta) { gap: 0.5rem; }
-  :global(.game-card .v2-media-card__actions) { top: 0.5rem; right: 0.5rem; }
+  :global(.game-card .v2-media-card__primary) { min-height: 0; }
+  :global(.game-card .v2-media-card__copy) {
+    min-height: 0;
+    padding: 0.75rem 0.75rem 0.65rem;
+  }
+  :global(.game-card .v2-media-card__copy h3) {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    font-size: 0.875rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  :global(.game-card .v2-media-card__subtitle) { min-width: 0; min-height: 1rem; overflow: hidden; font-size: 0.75rem; text-overflow: ellipsis; white-space: nowrap; }
+  :global(.game-card .v2-media-card__meta) { min-width: 0; gap: 0.5rem; overflow: hidden; }
+  :global(.game-card .v2-media-card__actions) {
+    position: static;
+    flex: 0 0 auto;
+    min-height: 2.75rem;
+    padding: 0 0.75rem 0.75rem;
+  }
 
   :global(.game-card--list.v2-media-card) { min-height: 6rem; display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); }
   :global(.game-card--list .v2-media-card__primary) { display: contents; }
   :global(.game-card--list .v2-media-card__media) { width: 4.5rem; height: 6rem; aspect-ratio: auto; }
   :global(.game-card--list .v2-media-card__copy) { align-self: center; padding: 0.75rem 3.5rem 0.75rem 1rem; }
-  :global(.game-card--list .v2-media-card__actions) { top: 50%; transform: translateY(-50%); }
+  :global(.game-card--list .v2-media-card__actions) {
+    position: absolute;
+    top: 50%;
+    right: 0.5rem;
+    min-height: 0;
+    padding: 0;
+    transform: translateY(-50%);
+  }
 
   :global(.game-card--blur .v2-media-card__media img) { filter: blur(18px); transform: scale(1.08); }
   :global(.game-card--hidden-cover .v2-media-card__media img) { visibility: hidden; }
@@ -362,6 +386,19 @@
 
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 
+  @media (max-width: 760px) {
+    :global(.game-card .v2-media-card__copy) { padding: 0.625rem 0.625rem 0.55rem; }
+    :global(.game-card .v2-media-card__copy h3) { font-size: 0.8125rem; }
+    :global(.game-card .v2-media-card__actions) {
+      min-height: 2.5rem;
+      flex-wrap: nowrap;
+      gap: 0.4rem;
+      padding: 0 0.625rem 0.625rem;
+    }
+    :global(.game-card--list .v2-media-card__copy) { padding: 0.625rem 3.25rem 0.625rem 0.75rem; }
+    :global(.game-card--list .v2-media-card__actions) { right: 0.375rem; padding: 0; }
+    .card-action { width: 1.875rem; min-height: 1.875rem; }
+  }
   @media (prefers-reduced-motion: reduce) {
     .card-action { transition: none; }
   }

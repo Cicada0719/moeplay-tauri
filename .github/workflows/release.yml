@@ -173,7 +173,9 @@ jobs:
         run: |
           $portable = Get-ChildItem src-tauri/target/release/bundle/portable/*.zip | Select-Object -First 1
           $version = "${{ github.ref_name }}".TrimStart("v")
-          $updater = Get-Item "src-tauri/target/release/bundle/nsis/MoeGame_${version}_x64-setup.exe"
+          $updaters = @(Get-ChildItem src-tauri/target/release/bundle/nsis -File | Where-Object { $_.Name -like "*_${version}_x64-setup.exe" })
+          if ($updaters.Count -ne 1) { throw "Expected exactly one NSIS updater for version $version, found $($updaters.Count)" }
+          $updater = $updaters[0]
           gh release upload "${{ github.ref_name }}" latest.json $updater.FullName "$($updater.FullName).sig" $portable.FullName src-tauri/target/release/bundle/release-manifest.json src-tauri/target/release/bundle/sbom.cdx.json src-tauri/target/release/bundle/build-metadata.json docs/screenshots/big-picture-release.png --clobber
 
       - name: Publish updater-ready release
