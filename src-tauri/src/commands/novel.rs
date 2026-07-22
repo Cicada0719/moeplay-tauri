@@ -18,6 +18,7 @@ const MAX_CHAPTERS: usize = 2_000;
 const MAX_CATALOG_PAGES: usize = 30;
 const MAX_CHAPTER_PAGES: usize = 24;
 const MAX_TEXT_BYTES: usize = 8 * 1024 * 1024;
+const SEARCH_TIMEOUT_SECS: u64 = 10;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -180,8 +181,9 @@ pub async fn novel_read_chapter(
 
 async fn search_biquge(query: &str) -> Result<Vec<NovelBook>, String> {
     let html = fetch_html_response(
-        novel_client(30)
+        novel_client()
             .post(format!("{BIQUGE_BASE}/search.html"))
+            .timeout(std::time::Duration::from_secs(SEARCH_TIMEOUT_SECS))
             .header("Content-Type", "application/x-www-form-urlencoded")
             .header("Referer", format!("{BIQUGE_BASE}/"))
             .body(format!("s={}", urlencoding::encode(query))),
@@ -311,7 +313,13 @@ async fn read_biquge(book_id: &str, chapter_id: &str) -> Result<NovelChapterCont
 }
 
 async fn fetch_html(url: &str, timeout_secs: u64, label: &str) -> Result<String, String> {
-    fetch_html_response(novel_client(timeout_secs).get(url), label).await
+    fetch_html_response(
+        novel_client()
+            .get(url)
+            .timeout(std::time::Duration::from_secs(timeout_secs)),
+        label,
+    )
+    .await
 }
 
 async fn fetch_html_response(
@@ -638,7 +646,7 @@ fn is_biquge_boilerplate(line: &str) -> bool {
 
 async fn search_x80(query: &str) -> Result<Vec<NovelBook>, String> {
     let url = format!("{X80_BASE}/search.php?q={}&p=1", urlencoding::encode(query));
-    let html = fetch_html(&url, 30, "80 小说网搜索").await?;
+    let html = fetch_html(&url, SEARCH_TIMEOUT_SECS, "80 小说网搜索").await?;
     let books = parse_x80_search(&html);
     if books.is_empty() {
         tracing::warn!(query, "80x search returned no parseable results");
@@ -705,12 +713,11 @@ async fn read_x80(book_id: &str, chapter_id: &str) -> Result<NovelChapterContent
     let book_id = validate_x80_book_id(book_id)?;
     let chapter_id = validate_x80_chapter_id(chapter_id)?;
     let mut next_chapter_id = chapter_id.clone();
-    let mut page_number = 1usize;
     let mut visited = HashSet::new();
     let mut parts = Vec::new();
     let mut chapter_title = String::new();
 
-    for _ in 0..MAX_CHAPTER_PAGES {
+    for page_number in (1usize..).take(MAX_CHAPTER_PAGES) {
         if !visited.insert(next_chapter_id.clone()) {
             break;
         }
@@ -732,7 +739,6 @@ async fn read_x80(book_id: &str, chapter_id: &str) -> Result<NovelChapterContent
             break;
         };
         next_chapter_id = candidate;
-        page_number += 1;
     }
 
     let content = normalize_text(&parts.join("\n\n"));
@@ -1038,7 +1044,7 @@ async fn search_internet_archive(query: &str) -> Result<Vec<NovelBook>, String> 
         "{INTERNET_ARCHIVE_API}?q={}&fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=creator&fl%5B%5D=description&fl%5B%5D=language&fl%5B%5D=subject&fl%5B%5D=licenseurl&fl%5B%5D=rights&rows=20&page=1&output=json",
         urlencoding::encode(&archive_query)
     );
-    let payload = fetch_json(&url, 35).await?;
+    let payload = fetch_json(&url, SEARCH_TIMEOUT_SECS).await?;
     Ok(parse_internet_archive_search(&payload))
 }
 
@@ -1094,7 +1100,7 @@ async fn search_open_library(query: &str) -> Result<Vec<NovelBook>, String> {
         "{OPEN_LIBRARY_BASE}/search.json?q={}&limit=20&fields=key,title,author_name,cover_i,language,subject,first_publish_year,public_scan_b,ia",
         urlencoding::encode(query)
     );
-    let payload = fetch_json(&url, 35).await?;
+    let payload = fetch_json(&url, SEARCH_TIMEOUT_SECS).await?;
     Ok(parse_open_library_search(&payload))
 }
 
@@ -1193,7 +1199,7 @@ async fn search_standard_ebooks(query: &str) -> Result<Vec<NovelBook>, String> {
         "{STANDARD_EBOOKS_BASE}/ebooks?query={}",
         urlencoding::encode(query)
     );
-    let html = fetch_html(&url, 35, "Standard Ebooks 搜索").await?;
+    let html = fetch_html(&url, SEARCH_TIMEOUT_SECS, "Standard Ebooks 搜索").await?;
     Ok(parse_standard_ebooks_search(&html))
 }
 
@@ -1415,8 +1421,9 @@ async fn read_archive_text(
         "{INTERNET_ARCHIVE_DOWNLOAD}/{archive_id}/{}",
         urlencoding::encode(&filename)
     );
-    let response = novel_client(60)
+    let response = novel_client()
         .get(&url)
+        .timeout(std::time::Duration::from_secs(60))
         .send()
         .await
         .map_err(|error| format!("Internet Archive 正文请求失败: {error}"))?;
@@ -1566,8 +1573,9 @@ async fn search_gutenberg(query: &str) -> Result<Vec<NovelBook>, String> {
         "{GUTENDEX_API}/books/?search={}&copyright=false",
         urlencoding::encode(query)
     );
-    let payload = novel_client(35)
+    let payload = novel_client()
         .get(url)
+        .timeout(std::time::Duration::from_secs(SEARCH_TIMEOUT_SECS))
         .send()
         .await
         .map_err(|error| format!("Gutendex 搜索失败: {error}"))?
@@ -1607,8 +1615,9 @@ async fn read_gutenberg(book_id: &str, chapter_id: &str) -> Result<NovelChapterC
     let book = fetch_gutenberg_book(id).await?;
     let (text_url, is_html) = preferred_gutenberg_text(&book.formats)
         .ok_or_else(|| "该书没有可读取的纯文本或 HTML 格式".to_string())?;
-    let bytes = novel_client(45)
+    let bytes = novel_client()
         .get(text_url)
+        .timeout(std::time::Duration::from_secs(45))
         .send()
         .await
         .map_err(|error| format!("正文下载失败: {error}"))?
@@ -1643,8 +1652,9 @@ async fn read_gutenberg(book_id: &str, chapter_id: &str) -> Result<NovelChapterC
 }
 
 async fn fetch_gutenberg_book(id: u64) -> Result<GutendexBook, String> {
-    novel_client(35)
+    novel_client()
         .get(format!("{GUTENDEX_API}/books/{id}"))
+        .timeout(std::time::Duration::from_secs(35))
         .send()
         .await
         .map_err(|error| format!("Gutendex 详情请求失败: {error}"))?
@@ -1704,7 +1714,7 @@ async fn search_wikisource(query: &str) -> Result<Vec<NovelBook>, String> {
         "{WIKISOURCE_API}?action=query&generator=search&gsrsearch={}&gsrnamespace=0&gsrlimit=20&prop=extracts%7Cpageimages&exintro=1&explaintext=1&piprop=thumbnail&pithumbsize=360&format=json&formatversion=2&origin=*",
         urlencoding::encode(query)
     );
-    let payload = fetch_json(&url, 30).await?;
+    let payload = fetch_json(&url, SEARCH_TIMEOUT_SECS).await?;
     let pages = payload
         .pointer("/query/pages")
         .and_then(Value::as_array)
@@ -1877,8 +1887,9 @@ fn wikisource_page_to_book(page: &Value) -> Option<NovelBook> {
 }
 
 async fn fetch_json(url: &str, timeout_secs: u64) -> Result<Value, String> {
-    novel_client(timeout_secs)
+    novel_client()
         .get(url)
+        .timeout(std::time::Duration::from_secs(timeout_secs))
         .send()
         .await
         .map_err(|error| format!("小说源请求失败: {error}"))?
@@ -1889,16 +1900,21 @@ async fn fetch_json(url: &str, timeout_secs: u64) -> Result<Value, String> {
         .map_err(|error| format!("小说源响应解析失败: {error}"))
 }
 
-fn novel_client(timeout_secs: u64) -> reqwest::Client {
+fn novel_client() -> reqwest::Client {
     // Some public Chinese web sources close rustls HTTP/2 handshakes before sending a
     // response. Use a browser-shaped UA and HTTP/1.1 without weakening certificate checks.
-    reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(timeout_secs))
-        .http1_only()
-        .user_agent(crate::http_client::browser_user_agent())
-        .danger_accept_invalid_certs(crate::http_client::insecure_tls_enabled())
-        .build()
-        .unwrap_or_default()
+    // 共享同一个 client 以复用 TCP/TLS 连接，避免每次请求重建握手（0.19.5 搜索提速）。
+    static SHARED_CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    SHARED_CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .http1_only()
+                .user_agent(crate::http_client::browser_user_agent())
+                .danger_accept_invalid_certs(crate::http_client::insecure_tls_enabled())
+                .build()
+                .unwrap_or_default()
+        })
+        .clone()
 }
 
 fn parse_numeric_id(value: &str) -> Result<u64, String> {

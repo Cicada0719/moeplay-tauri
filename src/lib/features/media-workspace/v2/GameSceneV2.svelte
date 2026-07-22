@@ -40,7 +40,7 @@
   });
 
   function preferredAsset(item: MediaPresentationItem): PresentationAsset | null {
-    return item.hero ?? item.screenshots[0] ?? item.cover ?? item.media[0] ?? null;
+    return item.cover ?? item.hero ?? item.screenshots[0] ?? item.media[0] ?? null;
   }
 
   function circularOffset(index: number): number {
@@ -128,14 +128,14 @@
 >
   {#if active}
     <header class="fs-header">
-      <div><span>MOEPLAY / FILM SEQUENCE</span><strong id="fs-title">游戏影像序列</strong></div>
+      <div><span>MOEPLAY / CONTINUE ROLL</span><strong id="fs-title">继续游玩</strong></div>
       <div><span>{String(activeIndex + 1).padStart(3, "0")} / {String(games.length).padStart(3, "0")}</span><span>SCROLL / DRAG / ARROWS</span></div>
     </header>
 
     <div class="fs-slash fs-slash--a" aria-hidden="true"></div>
     <div class="fs-slash fs-slash--b" aria-hidden="true"></div>
 
-    <div class="fs-film" aria-label="游戏胶片目录">
+    <div class="fs-film" aria-label="继续游玩封面滚筒">
       {#each games as item, index (item.id)}
         {@const offset = circularOffset(index)}
         {@const asset = preferredAsset(item)}
@@ -171,7 +171,7 @@
       <div class="fs-current-copy">
         <div class="fs-current-register"><span>CURRENT FRAME</span>{#if active.metadata.rating}<strong>{active.metadata.rating.toFixed(1)} / 10</strong>{/if}</div>
         <h2>{active.title}</h2>
-        <p>{active.description || "每款游戏只占据一个镜头，滚轮推动整条影像序列。"}</p>
+        <p>{active.description || "滚轮转动封面滚筒，回到你最近游玩的作品。"}</p>
         <div class="fs-current-meta" aria-label="游戏档案摘要">
           <span>{active.metadata.releaseYear || "----"}</span><span>{active.metadata.developer || active.metadata.publisher || "PRIVATE ARCHIVE"}</span><span>{statusLabel(active.metadata.completionStatus)}</span>
           {#each active.metadata.tags.slice(0, 2) as tag}<span>{tag}</span>{/each}
@@ -183,6 +183,6 @@
       </div>
     </footer>
   {:else}
-    <div class="mw-v2-empty fs-empty"><span>FILM 000</span><h1 id="fs-title">还没有游戏影像</h1><p>导入游戏后，每款作品会在这里形成一个独立镜头。</p>{#if onImport}<button class="mw-v2-action mw-v2-action--accent" onclick={() => void onImport?.()}><span>导入游戏</span><i aria-hidden="true"></i></button>{/if}</div>
+    <div class="mw-v2-empty fs-empty"><span>ROLL 000</span><h1 id="fs-title">还没有可继续的游戏</h1><p>导入或启动游戏后，最近游玩的作品会在这里排成可以滚动的封面滚筒。</p>{#if onImport}<button class="mw-v2-action mw-v2-action--accent" onclick={() => void onImport?.()}><span>导入游戏</span><i aria-hidden="true"></i></button>{/if}</div>
   {/if}
 </section>

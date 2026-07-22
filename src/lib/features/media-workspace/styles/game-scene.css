@@ -20,8 +20,11 @@
 .fs-slash { position:absolute; z-index:1; width:1px; height:145%; top:-20%; background:var(--border); transform:rotate(28deg); pointer-events:none; }
 .fs-slash--a { left:30%; }
 .fs-slash--b { left:71%; }
-.fs-film { position:absolute; z-index:4; inset:48px 0 132px; overflow:hidden; }
-.fs-frame { --offset:0; position:absolute; top:50%; left:50%; width:clamp(300px,42vw,680px); aspect-ratio:16/10; opacity:calc(1 - min(var(--distance),3) * .28); z-index:calc(12 - var(--distance)); transform:translate(-50%,-50%) translate(calc(var(--offset) * 31vw),calc(var(--offset) * 16vh)) rotate(-7deg) scale(calc(1 - min(var(--distance),3) * .14)); transform-origin:center; transition:transform 620ms cubic-bezier(.18,.78,.18,1),opacity 360ms ease,filter 360ms ease; filter:saturate(.68) brightness(calc(1 - min(var(--distance),3) * .12)); }
+.fs-film { --fs-r:clamp(300px,38vh,480px); position:absolute; z-index:4; inset:48px 0 132px; overflow:hidden; border-block:1px solid rgb(255 255 255 / .07); perspective:clamp(960px,105vw,1600px); perspective-origin:50% 30%; }
+.fs-film::before,.fs-film::after { content:""; position:absolute; z-index:20; right:0; left:0; height:22%; pointer-events:none; }
+.fs-film::before { top:0; border-bottom:1px solid rgb(255 255 255 / .09); background:linear-gradient(180deg,var(--bg-deep) 4%,color-mix(in srgb,var(--bg-deep) 84%,transparent) 46%,transparent); }
+.fs-film::after { bottom:0; border-top:1px solid rgb(255 255 255 / .09); background:linear-gradient(0deg,var(--bg-deep) 4%,color-mix(in srgb,var(--bg-deep) 84%,transparent) 46%,transparent); }
+.fs-frame { --offset:0; position:absolute; top:50%; left:50%; width:clamp(220px,22vw,360px); aspect-ratio:3/4; opacity:calc(1 - min(var(--distance),3) * .3); z-index:calc(12 - var(--distance)); transform:translate(-50%,-50%) translateZ(calc(-1 * var(--fs-r))) rotateX(calc(var(--offset) * -22deg)) translateZ(var(--fs-r)); transform-origin:center; transition:transform 620ms cubic-bezier(.18,.78,.18,1),opacity 360ms ease,filter 360ms ease; filter:saturate(.7) brightness(calc(1 - min(var(--distance),3) * .16)); }
 .fs-frame.hidden { opacity:0; pointer-events:none; }
 .fs-frame.active { opacity:1; filter:none; }
 .fs-frame button { position:relative; width:100%; height:100%; overflow:visible; padding:0; border:0; background:transparent; color:inherit; text-align:left; cursor:pointer; }
@@ -29,12 +32,12 @@
 .fs-frame-number { position:absolute; z-index:5; top:-20px; left:0; color:var(--text-secondary); font:700 9px/1 var(--font-mono); letter-spacing:.12em; }
 .fs-image { position:absolute; inset:0; overflow:hidden; border:1px solid var(--border-hover); background:var(--bg-card); box-shadow:0 30px 80px rgb(0 0 0 / .42); }
 .fs-image .mw-artwork { width:100%; height:100%; }
-.fs-image .mw-artwork img { transform:scale(1.02); transition:transform 700ms cubic-bezier(.18,.78,.18,1); }
+.fs-image .mw-artwork img { width:100%; height:100%; object-fit:cover; transform:scale(1.02); transition:transform 700ms cubic-bezier(.18,.78,.18,1); }
 .fs-frame.active .fs-image .mw-artwork img { transform:scale(1); }
 .fs-image>span { position:absolute; inset:0; background:linear-gradient(180deg,transparent 52%,rgb(4 5 7 / .84)); pointer-events:none; }
 .fs-image>i { position:absolute; inset:0; display:grid; place-items:center; color:rgb(240 239 233 / .1); font:700 clamp(10rem,24vw,24rem)/1 var(--font-display); font-style:normal; }
-.fs-caption { position:absolute; z-index:5; right:18px; bottom:16px; left:18px; display:grid; gap:6px; color:#fff; transform:rotate(0); }
-.fs-caption strong { overflow:hidden; font:650 clamp(1.35rem,2.7vw,3.4rem)/.88 var(--font-display); letter-spacing:-.055em; text-overflow:ellipsis; white-space:nowrap; }
+.fs-caption { position:absolute; z-index:5; right:14px; bottom:12px; left:14px; display:grid; gap:5px; color:#fff; transform:rotate(0); }
+.fs-caption strong { overflow:hidden; font:650 clamp(1rem,1.5vw,1.7rem)/.95 var(--font-display); letter-spacing:-.04em; text-overflow:ellipsis; white-space:nowrap; }
 .fs-caption small { color:rgb(255 255 255 / .62); font:650 8px/1 var(--font-mono); letter-spacing:.11em; }
 .fs-progress { position:absolute; z-index:25; top:70px; right:14px; bottom:146px; width:20px; display:flex; flex-direction:column; justify-content:center; gap:3px; }
 .fs-progress button { flex:1 1 0; max-height:16px; min-height:3px; padding:0; border:0; background:transparent; cursor:pointer; }
@@ -52,14 +55,15 @@
 .fs-actions button.primary { border-color:var(--media-accent, var(--accent)); background:var(--media-accent, var(--accent)); color:var(--media-on-accent, var(--bg-deep)); }
 .fs-empty { background:var(--bg-deep); }
 @media(max-width:900px){
-  .fs-frame { width:clamp(300px,60vw,560px); transform:translate(-50%,-50%) translate(calc(var(--offset) * 42vw),calc(var(--offset) * 14vh)) rotate(-6deg) scale(calc(1 - min(var(--distance),3) * .14)); }
+  .fs-film { --fs-r:clamp(250px,34vh,400px); }
+  .fs-frame { width:clamp(210px,34vw,320px); }
   .fs-header>div:last-child span:last-child { display:none; }
   .fs-footer { padding-right:42px; }
 }
 @media(max-width:640px){
   .fs-header { height:42px; }
-  .fs-film { inset:42px 0 150px; }
-  .fs-frame { width:78vw; transform:translate(-50%,-50%) translate(calc(var(--offset) * 58vw),calc(var(--offset) * 13vh)) rotate(-5deg) scale(calc(1 - min(var(--distance),3) * .16)); }
+  .fs-film { --fs-r:clamp(200px,30vh,320px); inset:42px 0 150px; }
+  .fs-frame { width:62vw; }
   .fs-footer { min-height:150px; grid-template-columns:1fr; gap:12px; padding:14px 42px 14px 14px; }
   .fs-footer p { display:none; }
   .fs-actions button { flex:1; }

@@ -18,10 +18,6 @@
   let readerTheme = $state<"dark" | "paper" | "sepia">("dark");
   let selectedSource = $state<NovelSource>(novelStore.source);
   let progressFrame = 0;
-  let queuedSearchQuery = "";
-  let queuedSearchVersion = 0;
-  let completedSearchVersion = 0;
-  let searchLoop: Promise<void> | null = null;
 
   const sourceOptions = $derived<Array<{ id: NovelSource; label: string; hint: string }>>([
     { id: "all", label: i18n.t("novel.source_all"), hint: i18n.t("novel.source_all_hint") },
@@ -92,43 +88,19 @@
     localStorage.setItem(READER_PREFS_KEY, JSON.stringify({ fontSize, lineHeight, theme: readerTheme }));
   }
 
-  async function drainSearchQueue() {
-    while (completedSearchVersion < queuedSearchVersion) {
-      const version = queuedSearchVersion;
-      const query = queuedSearchQuery;
-      const source = selectedSource;
-      novelStore.setSource(source);
-      await novelStore.search(query);
-      completedSearchVersion = version;
-    }
-  }
-
-  function queueSearch(query: string, source = selectedSource) {
-    const normalized = query.trim();
-    if (!normalized) return Promise.resolve();
-    selectedSource = source;
-    queuedSearchQuery = normalized;
-    queuedSearchVersion += 1;
-    if (!searchLoop) {
-      searchLoop = drainSearchQueue().finally(() => {
-        searchLoop = null;
-      });
-    }
-    return searchLoop;
-  }
-
   async function submitSearch(event?: SubmitEvent) {
     event?.preventDefault();
-    await queueSearch(searchInput);
+    const normalized = searchInput.trim();
+    if (!normalized) return;
+    novelStore.setSource(selectedSource);
+    await novelStore.search(normalized);
   }
 
   function selectSource(source: NovelSource) {
     selectedSource = source;
-    if (searchInput.trim()) {
-      void queueSearch(searchInput, source);
-    } else {
-      novelStore.setSource(source);
-    }
+    novelStore.setSource(source);
+    const normalized = searchInput.trim();
+    if (normalized) void novelStore.search(normalized);
   }
 
   function sourceLabel(source: NovelBook["source"]) {
@@ -353,7 +325,12 @@
           <form class="novel-search" onsubmit={submitSearch}>
             <Icon name="search" size={18} />
             <input type="search" bind:value={searchInput} placeholder={i18n.t("novel.search_placeholder")} aria-label={i18n.t("novel.search_aria")} data-search-scope="novel" data-gamepad-nav-down="#novel-source-tab-all" />
-            <button type="submit" disabled={!searchInput.trim() || novelStore.loading}>{novelStore.loading ? i18n.t("novel.searching") : i18n.t("novel.search_submit")}</button>
+            {#if novelStore.loading}
+              <button type="button" class="search-cancel" onclick={() => novelStore.cancel()}>{i18n.t("button.cancel")}</button>
+              <span class="search-progress" role="status">{#if novelStore.sourcesTotal > 0}{i18n.t("novel.search_progress", { done: novelStore.sourcesDone, total: novelStore.sourcesTotal })}{/if}</span>
+            {:else}
+              <button type="submit" disabled={!searchInput.trim()}>{i18n.t("novel.search_submit")}</button>
+            {/if}
           </form>
         </FilterBar>
 
@@ -455,6 +432,8 @@
   .novel-search :global(.icon) { color: #c69b7a; }
   .novel-search input { width: 100%; height: 44px; padding: 0 6px; border: 0; outline: 0; color: var(--text-primary); background: transparent; font-size: 15px; }
   .novel-search button, .primary-action { min-height: 42px; padding: 0 20px; border: 1px solid #c69b7a; background: #c69b7a; color: #100d0b; font-weight: 750; cursor: pointer; }
+  .novel-search .search-cancel { border-color: #8a7f76; background: transparent; color: var(--text-secondary); }
+  .novel-search .search-progress { grid-column: 1 / -1; padding: 0 6px 8px; color: var(--text-muted); font-size: 12px; }
   button:disabled { opacity: .38; cursor: not-allowed; }
 
   .source-tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin: 22px 0 clamp(30px, 5vw, 68px); border: 1px solid rgba(255,255,255,.14); }

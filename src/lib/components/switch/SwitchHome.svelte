@@ -19,7 +19,7 @@
   import LibraryHealthPanel from "../library/LibraryHealthPanel.svelte";
   import { readLibraryV2Flag } from "../library/feature-flag";
   import { KineticStage, kineticStageStore } from "../../features/kinetic";
-  import ContinueHeroRail from "./ContinueHeroRail.svelte";
+  // ContinueHeroRail 暂时从游戏库页移除（0.19.5），组件保留备用
 
   const quickFilters = [
     { id: "", label: "全部" },
@@ -241,7 +241,7 @@
       >
         {#snippet children()}
           <div class="home-stage">
-          <ContinueHeroRail />
+          <!-- ContinueHeroRail 已暂时移除（0.19.5） -->
           {#if showGrid}
             <div class="index-workbench" data-module-style="cinematic" data-testid="all-games-panel">
               <section class="index-toolbar" aria-labelledby="library-page-title">
@@ -301,7 +301,7 @@
   :global(.library-page-shell .library-async-state[data-state]:not([data-state="ready"])) { margin: 1.5rem; height: auto; }
   .workspace-view { width: 100%; height: 100%; min-height: 0; overflow: hidden; }
   .home-stage { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-  .home-stage > :global(.continue-hero) { flex: 0 0 auto; }
+  /* continue-hero 样式随组件一并暂时移除（0.19.5） */
   .home-stage > .index-workbench,
   .home-stage > .workspace-view { flex: 1 1 auto; height: auto; min-height: 0; }
   .index-workbench { height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); background: rgb(5 7 10 / .92); }

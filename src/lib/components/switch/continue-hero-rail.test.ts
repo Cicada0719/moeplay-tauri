@@ -105,10 +105,6 @@ describe("ContinueHeroRail 静态契约", () => {
     // 主题 token 消费：不允许出现硬编码 hex 调色
     expect(source).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
 
-    const home = readFileSync(resolve("src/lib/components/switch/SwitchHome.svelte"), "utf8");
-    expect(home).toContain('import ContinueHeroRail from "./ContinueHeroRail.svelte"');
-    expect(home).toContain("<ContinueHeroRail />");
-
     const appCss = readFileSync(resolve("src/app.css"), "utf8");
     expect(appCss).toContain('.app-container[data-workspace-focus="true"][data-workspace-focus-view="home"] :is(.continue-hero');
   });

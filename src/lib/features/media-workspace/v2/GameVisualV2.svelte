@@ -48,6 +48,7 @@
   const launch = $derived(featured ? findAction(featured, "launch") : undefined);
   const open = $derived(featured ? findAction(featured, "open") : undefined);
   const favorite = $derived(featured ? findAction(featured, "toggle-favorite") : undefined);
+  const titleLength = $derived(featured?.title.length ?? 0);
   const directoryItems = $derived.by(() => {
     if (uniqueItems.length <= 9) return uniqueItems.map((item, index) => ({ item, index }));
     const start = Math.max(0, Math.min(activeGameIndex - 4, uniqueItems.length - 9));
@@ -204,7 +205,7 @@
 
         <article class="nd-face nd-face--archive" aria-label="游戏档案与目录">
           <div class="nd-archive-head">
-          <div class="nd-title-block">
+          <div class="nd-title-block" class:nd-title-block--long={titleLength > 18} class:nd-title-block--xlong={titleLength > 34}>
             <div class="nd-title-register">
               <span id="nd-stage-title">GAME ARCHIVE / {statusLabel(featured.metadata.completionStatus)}</span>
               {#if featured.metadata.rating}

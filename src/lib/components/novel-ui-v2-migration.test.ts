@@ -37,7 +37,9 @@ describe("novel page ui-v2 migration contract", () => {
 		expect(novelSource).toContain('{ id: "internetarchive"');
 		expect(novelSource).toContain('{ id: "openlibrary"');
 		expect(novelSource).toContain('{ id: "standardebooks"');
-		expect(novelSource).toContain("drainSearchQueue");
+		expect(novelSource).toContain("novelStore.cancel");
+		expect(novelSource).toContain("novel.search_progress");
+		expect(novelSource).not.toContain("drainSearchQueue");
 		expect(novelSource).toContain("selectedSource");
 		expect(novelSource).not.toContain('data-gamepad-activate="下载 EPUB"');
 		expect(novelSource).toContain("moveChapter");

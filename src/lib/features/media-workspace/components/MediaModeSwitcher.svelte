@@ -21,7 +21,7 @@
   const modes: Array<{ id: MediaWorkspaceMode; label: string; hint: string }> = [
     { id: "visual", label: "立方舞台", hint: "双面媒体档案" },
     { id: "index", label: "完整索引", hint: "传统游戏库" },
-    { id: "scene", label: "影像序列", hint: "连续游戏胶片" },
+    { id: "scene", label: "继续游玩", hint: "滚动游戏胶卷" },
   ];
 
   function moveFocus(event: KeyboardEvent, current: number) {

@@ -10,6 +10,15 @@ import type {
 
 const HISTORY_KEY = "moeplay-novel-history-v1";
 const MAX_HISTORY = 60;
+const ALL_SEARCH_SOURCES: ReadonlyArray<Exclude<NovelSource, "all">> = [
+  "biquge",
+  "x80",
+  "internetarchive",
+  "openlibrary",
+  "standardebooks",
+  "gutenberg",
+  "wikisource",
+];
 
 function loadHistory(): NovelHistoryEntry[] {
   if (typeof localStorage === "undefined") return [];
@@ -40,6 +49,8 @@ let _view = $state<"home" | "detail" | "reader">("home");
 let _loading = $state(false);
 let _error = $state("");
 let _searchRequest = 0;
+let _sourcesTotal = $state(0);
+let _sourcesDone = $state(0);
 
 export const novelStore = {
   get source() { return _source; },
@@ -51,6 +62,8 @@ export const novelStore = {
   get view() { return _view; },
   get loading() { return _loading; },
   get error() { return _error; },
+  get sourcesTotal() { return _sourcesTotal; },
+  get sourcesDone() { return _sourcesDone; },
 
   setSource(source: NovelSource) {
     if (_source === source) return;
@@ -58,6 +71,9 @@ export const novelStore = {
     _searchRequest += 1;
     _books = [];
     _error = "";
+    _loading = false;
+    _sourcesTotal = 0;
+    _sourcesDone = 0;
   },
 
   async search(query = _query) {
@@ -68,18 +84,57 @@ export const novelStore = {
     _query = normalized;
     _loading = true;
     _error = "";
-    try {
-      const books = await searchNovels(source, normalized);
-      if (request !== _searchRequest || source !== _source) return;
-      _books = books;
-      _view = "home";
-    } catch (error) {
-      if (request !== _searchRequest || source !== _source) return;
-      _books = [];
-      _error = String(error);
-    } finally {
-      if (request === _searchRequest) _loading = false;
+    if (source !== "all") {
+      _sourcesTotal = 0;
+      _sourcesDone = 0;
+      try {
+        const books = await searchNovels(source, normalized);
+        if (request !== _searchRequest || source !== _source) return;
+        _books = books;
+        _view = "home";
+      } catch (error) {
+        if (request !== _searchRequest || source !== _source) return;
+        _books = [];
+        _error = String(error);
+      } finally {
+        if (request === _searchRequest) _loading = false;
+      }
+      return;
     }
+    // “全部”源改为逐源并发：哪个源先返回就先展示，慢源超时不再拖垮整体（0.19.5）。
+    _books = [];
+    _sourcesTotal = ALL_SEARCH_SOURCES.length;
+    _sourcesDone = 0;
+    _view = "home";
+    const seen = new Set<string>();
+    const errors: string[] = [];
+    await Promise.all(ALL_SEARCH_SOURCES.map(async (item) => {
+      try {
+        const books = await searchNovels(item, normalized);
+        if (request !== _searchRequest || _source !== "all") return;
+        const fresh = books.filter((book) => {
+          const key = `${book.source}:${book.id}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        if (fresh.length > 0) _books = [..._books, ...fresh];
+      } catch (error) {
+        errors.push(String(error));
+      } finally {
+        if (request === _searchRequest) _sourcesDone += 1;
+      }
+    }));
+    if (request !== _searchRequest || _source !== "all") return;
+    if (_books.length === 0 && errors.length > 0) _error = errors.join("；");
+    _loading = false;
+  },
+
+  cancel() {
+    if (!_loading) return;
+    _searchRequest += 1;
+    _loading = false;
+    _sourcesDone = _sourcesTotal;
   },
 
   async openBook(book: NovelBook) {
