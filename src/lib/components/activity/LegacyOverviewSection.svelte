@@ -16,7 +16,7 @@
     <section class="legacy-continue" aria-labelledby="legacy-continue-title"><header><h3 id="legacy-continue-title">最近继续</h3><span>{continueItems.length} 项</span></header><ContentGrid label="旧版最近继续" minItemWidth="18rem" gap="sm">
       {#each continueItems as item (item.id)}
         {#snippet meta()}<span>{item.subtitle} · {item.timeLabel}</span>{/snippet}
-        {#snippet badge()}<span class="legacy-badge">{item.kind === "game" ? "游戏" : item.kind === "anime" ? "番剧" : "漫画"}</span>{/snippet}
+        {#snippet badge()}<span class="legacy-badge">{item.kind === "game" ? "游戏" : item.kind === "anime" ? "番剧" : item.kind === "novel" ? "小说" : "漫画"}</span>{/snippet}
         <MediaRow title={item.title} imageSrc={item.imageSrc ?? undefined} ariaLabel={`继续 ${item.title}`} onActivate={() => onOpenActivity(item)} meta={meta} badge={badge} focusKey={`legacy-continue-${item.id}`} />
       {/each}
     </ContentGrid></section>

@@ -2,6 +2,8 @@
   import { onMount } from "svelte";
   import { animeStore, type AnimeHistory } from "../stores/anime.svelte";
   import { comicStore, type ReadRecord } from "../stores/comic.svelte";
+  import { novelStore } from "../features/novel/store.svelte";
+  import type { NovelHistoryEntry } from "../features/novel/types";
   import { gameStore } from "../stores/games.svelte";
   import { platformStore } from "../platform";
   import { uiStore } from "../stores/ui.svelte";
@@ -53,10 +55,10 @@
 
   const localSummary = $derived(buildLocalSummary(gameStore.allGames));
   const activeSummary = $derived(summary ?? localSummary);
-  const mediaActivities = $derived(buildMediaActivities(activeSummary.recent_sessions, animeStore.history, comicStore.readHistory, gameStore.allGames));
+  const mediaActivities = $derived(buildMediaActivities(activeSummary.recent_sessions, animeStore.history, comicStore.readHistory, novelStore.history, gameStore.allGames));
   const archiveActivities = $derived(uniqueArchiveActivities(mediaActivities));
   const continueItems = $derived(mediaActivities.slice(0, 5));
-  const hasRecords = $derived(activeSummary.session_count > 0 || activeSummary.total_seconds > 0 || animeStore.history.length > 0 || comicStore.readHistory.length > 0);
+  const hasRecords = $derived(activeSummary.session_count > 0 || activeSummary.total_seconds > 0 || animeStore.history.length > 0 || comicStore.readHistory.length > 0 || novelStore.history.length > 0);
   const canLaunchGames = $derived(platformStore.capabilities.gameLaunch);
   const canImportGames = $derived(platformStore.capabilities.localGameScan || platformStore.capabilities.steamIntegration);
   const dailyBars = $derived(fillDailyBars(activeSummary.daily, 14));
@@ -81,7 +83,8 @@
     { id: "playtime", label: "总游玩时长", value: formatPlayTime(activeSummary.total_seconds), detail: `${activeSummary.play_days} 个活跃日`, tone: "accent" },
     { id: "anime", label: "番剧历史", value: animeStore.history.length, detail: animeStore.history[0]?.lastEpisodeName ?? "开始观看后自动记录" },
     { id: "comic", label: "漫画历史", value: comicStore.readHistory.length, detail: comicStore.readHistory[0]?.last_title ?? "开始阅读后自动记录" },
-    { id: "recent", label: "近 14 天活动", value: recentActivityCount, detail: "游戏 / 番剧 / 漫画合计", tone: "success" },
+    { id: "novel", label: "小说历史", value: novelStore.history.length, detail: novelStore.history[0]?.book.title ?? "开始阅读后自动记录" },
+    { id: "recent", label: "近 14 天活动", value: recentActivityCount, detail: "游戏 / 番剧 / 漫画 / 小说合计", tone: "success" },
   ]);
 
   onMount(() => {
@@ -138,6 +141,7 @@
   async function openActivity(item: DashboardMediaActivity) {
     if (item.kind === "game") { openGame((item.payload as PlaySessionEntry).game_id); return; }
     if (item.kind === "anime") { uiStore.currentView = "anime"; await animeStore.resumeHistory(item.payload as AnimeHistory); return; }
+    if (item.kind === "novel") { uiStore.currentView = "novel"; await novelStore.resume(item.payload as NovelHistoryEntry); return; }
     uiStore.currentView = "comic"; await comicStore.resumeHistory(item.payload as ReadRecord);
   }
 

@@ -5,7 +5,7 @@
   import StatBlock from "./StatBlock.svelte";
   import type { DashboardChartPoint, DashboardMediaActivity, DashboardSession, DashboardTopGame } from "./dashboard-model";
 
-  let { hasRecords, dailyPoints = [], dailySummary, monthlyPoints = [], monthlySummary, activityPoints = [], activitySummary, mediaCounts, topGames = [], mediaActivities = [], recentSessions = [], onOpenGame, onOpenActivity }: { hasRecords: boolean; dailyPoints?: DashboardChartPoint[]; dailySummary: string; monthlyPoints?: DashboardChartPoint[]; monthlySummary: string; activityPoints?: DashboardChartPoint[]; activitySummary: string; mediaCounts: { game: number; anime: number; comic: number }; topGames?: DashboardTopGame[]; mediaActivities?: DashboardMediaActivity[]; recentSessions?: DashboardSession[]; onOpenGame: (id: string) => void; onOpenActivity: (item: DashboardMediaActivity) => void; } = $props();
+  let { hasRecords, dailyPoints = [], dailySummary, monthlyPoints = [], monthlySummary, activityPoints = [], activitySummary, mediaCounts, topGames = [], mediaActivities = [], recentSessions = [], onOpenGame, onOpenActivity }: { hasRecords: boolean; dailyPoints?: DashboardChartPoint[]; dailySummary: string; monthlyPoints?: DashboardChartPoint[]; monthlySummary: string; activityPoints?: DashboardChartPoint[]; activitySummary: string; mediaCounts: { game: number; anime: number; comic: number; novel: number }; topGames?: DashboardTopGame[]; mediaActivities?: DashboardMediaActivity[]; recentSessions?: DashboardSession[]; onOpenGame: (id: string) => void; onOpenActivity: (item: DashboardMediaActivity) => void; } = $props();
 </script>
 
 <AsyncSection title="趋势与历史" description="图表同时提供文本摘要，列表统一使用可键盘激活的 MediaRow。" state={hasRecords ? "ready" : "empty"} class="legacy-insights">
@@ -13,7 +13,7 @@
     <BarChart label="最近两周每日游玩时长" points={dailyPoints} summary={dailySummary} />
     <BarChart label="月度游玩节奏" points={monthlyPoints} summary={monthlySummary} orientation="horizontal" />
     <BarChart label="最近两周综合活跃度" points={activityPoints} summary={activitySummary} />
-    <section class="media-mix" aria-labelledby="media-mix-title"><header><h3 id="media-mix-title">媒体记录分布</h3><p>按活动条数统计，不代表实际时长。</p></header><ContentGrid label="媒体记录计数" minItemWidth="8rem" gap="sm"><StatBlock label="游戏" value={mediaCounts.game} /><StatBlock label="番剧" value={mediaCounts.anime} /><StatBlock label="漫画" value={mediaCounts.comic} /></ContentGrid></section>
+    <section class="media-mix" aria-labelledby="media-mix-title"><header><h3 id="media-mix-title">媒体记录分布</h3><p>按活动条数统计，不代表实际时长。</p></header><ContentGrid label="媒体记录计数" minItemWidth="8rem" gap="sm"><StatBlock label="游戏" value={mediaCounts.game} /><StatBlock label="番剧" value={mediaCounts.anime} /><StatBlock label="漫画" value={mediaCounts.comic} /><StatBlock label="小说" value={mediaCounts.novel} /></ContentGrid></section>
   </ContentGrid>
 
   <div class="legacy-lists"><ContentGrid label="记录明细" minItemWidth="24rem" gap="md">
@@ -25,7 +25,7 @@
 
     <section class="legacy-list" aria-labelledby="media-timeline-title"><header><h3 id="media-timeline-title">综合时间线</h3><span>{mediaActivities.length} 条</span></header><div role="list">{#each mediaActivities.slice(0, 10) as item (item.id)}
       {#snippet mediaMeta()}<span>{item.subtitle} · {item.timeLabel}</span>{/snippet}
-      {#snippet mediaBadge()}<span class="kind">{item.kind === "game" ? "游戏" : item.kind === "anime" ? "番剧" : "漫画"}</span>{/snippet}
+      {#snippet mediaBadge()}<span class="kind">{item.kind === "game" ? "游戏" : item.kind === "anime" ? "番剧" : item.kind === "novel" ? "小说" : "漫画"}</span>{/snippet}
       <MediaRow title={item.title} imageSrc={item.imageSrc ?? undefined} ariaLabel={`打开 ${item.title} 记录`} onActivate={() => onOpenActivity(item)} meta={mediaMeta} badge={mediaBadge} />
     {/each}</div></section>
 

@@ -1,6 +1,6 @@
 import type { PlaySessionEntry, PlaytimeSummary } from "../../api";
 
-export type DashboardMediaKind = "game" | "anime" | "comic";
+export type DashboardMediaKind = "game" | "anime" | "comic" | "novel";
 
 export interface DashboardMediaActivity {
   id: string;

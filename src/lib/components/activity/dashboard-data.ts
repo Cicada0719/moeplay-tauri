@@ -1,6 +1,7 @@
 import type { Game, PlaySessionEntry, PlaytimeSummary } from "../../api";
 import type { AnimeHistory } from "../../stores/anime.svelte";
 import type { ReadRecord } from "../../stores/comic.svelte";
+import type { NovelHistoryEntry } from "../../features/novel/types";
 import { fileSrc } from "../../utils";
 import { coverOf, gameLastPlayed, gameTotalSeconds } from "../../utils/game";
 import type { DashboardChartPoint, DashboardMediaActivity, DashboardSession, DashboardTopGame } from "./dashboard-model";
@@ -50,7 +51,7 @@ export function fillDailyBars(days: PlaytimeSummary["daily"], count: number, now
   return list;
 }
 
-export function buildMediaActivities(sessions: PlaySessionEntry[], animeHistory: AnimeHistory[], comicHistory: ReadRecord[], games: Game[]): DashboardMediaActivity[] {
+export function buildMediaActivities(sessions: PlaySessionEntry[], animeHistory: AnimeHistory[], comicHistory: ReadRecord[], novelHistory: NovelHistoryEntry[], games: Game[]): DashboardMediaActivity[] {
   const gameById = new Map(games.map((game) => [game.id, game]));
   const gameItems: DashboardMediaActivity[] = sessions.map((entry) => ({
     id: `game:${entry.game_id}:${entry.session.id}`,
@@ -64,7 +65,8 @@ export function buildMediaActivities(sessions: PlaySessionEntry[], animeHistory:
   }));
   const animeItems: DashboardMediaActivity[] = animeHistory.map((entry) => ({ id: `anime:${entry.key}`, kind: "anime", title: entry.name, subtitle: `看到 ${entry.lastEpisodeName || `第 ${entry.lastEpisode + 1} 集`}`, timeLabel: formatDateTime(entry.updatedAt), timestamp: toTimestamp(entry.updatedAt), imageSrc: entry.image || null, payload: entry }));
   const comicItems: DashboardMediaActivity[] = comicHistory.map((entry) => ({ id: `comic:${entry.id}`, kind: "comic", title: entry.title, subtitle: `读到 ${entry.last_title || `第 ${entry.last_order} 话`}`, timeLabel: formatDateTime(new Date(entry.ts).toISOString()), timestamp: entry.ts || 0, imageSrc: entry.thumb_url || null, payload: entry }));
-  return [...gameItems, ...animeItems, ...comicItems].filter((item) => item.timestamp > 0).sort((a, b) => b.timestamp - a.timestamp);
+  const novelItems: DashboardMediaActivity[] = novelHistory.map((entry) => ({ id: `novel:${entry.key}`, kind: "novel", title: entry.book.title, subtitle: `读到 ${entry.chapterTitle} · ${Math.round(entry.progress * 100)}%`, timeLabel: formatDateTime(new Date(entry.updatedAt).toISOString()), timestamp: entry.updatedAt || 0, imageSrc: entry.book.coverUrl ?? null, payload: entry }));
+  return [...gameItems, ...animeItems, ...comicItems, ...novelItems].filter((item) => item.timestamp > 0).sort((a, b) => b.timestamp - a.timestamp);
 }
 
 
@@ -81,6 +83,10 @@ export function archiveActivityIdentity(item: DashboardMediaActivity): string {
   if (item.kind === "comic") {
     const id = String(payload?.id ?? "").trim();
     if (id) return `comic:${id}`;
+  }
+  if (item.kind === "novel") {
+    const key = String(payload?.key ?? "").trim();
+    if (key) return `novel:${key}`;
   }
   return `${item.kind}:${item.title.trim().replace(/\s+/g, " ").toLocaleLowerCase("zh-CN")}`;
 }
@@ -119,7 +125,7 @@ export function countRecentActivities(items: DashboardMediaActivity[], days: num
 }
 
 export function countMediaKinds(items: DashboardMediaActivity[]) {
-  return items.reduce((counts, item) => { counts[item.kind] += 1; return counts; }, { game: 0, anime: 0, comic: 0 });
+  return items.reduce((counts, item) => { counts[item.kind] += 1; return counts; }, { game: 0, anime: 0, comic: 0, novel: 0 });
 }
 
 export function toDashboardTopGames(summary: PlaytimeSummary, games: Game[]): DashboardTopGame[] {

@@ -52,6 +52,16 @@
     return offset;
   }
 
+  // 海报墙格子：活动帧是居中的 2×2 大海报，其余按列对向左右两侧铺开（0.19.6）。
+  function frameCell(offset: number): { tx: number; ty: number } {
+    if (offset === 0) return { tx: 0, ty: 0 };
+    const abs = Math.abs(offset);
+    const column = Math.ceil(abs / 2);
+    const row = (abs - 1) % 2;
+    const x = offset > 0 ? 1 + column : -column;
+    return { tx: x - 0.5, ty: row - 0.5 };
+  }
+
   function selectIndex(index: number) {
     const item = games[index];
     if (!item || item.id === active?.id) return;
@@ -87,6 +97,8 @@
 
   function handlePointerDown(event: PointerEvent) {
     if (event.pointerType === "mouse" && event.button !== 0) return;
+    // 按钮等交互元素不进入拖拽：否则指针被 section 捕获后 click 永远无法落到按钮上（0.19.6 修复）。
+    if (event.target instanceof Element && event.target.closest("button, a, input, select, textarea, [contenteditable='true']")) return;
     pointerStartY = event.clientY;
     pointerId = event.pointerId;
     (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
@@ -135,16 +147,17 @@
     <div class="fs-slash fs-slash--a" aria-hidden="true"></div>
     <div class="fs-slash fs-slash--b" aria-hidden="true"></div>
 
-    <div class="fs-film" aria-label="继续游玩封面滚筒">
+    <div class="fs-film" aria-label="继续游玩海报墙">
       {#each games as item, index (item.id)}
         {@const offset = circularOffset(index)}
         {@const asset = preferredAsset(item)}
+        {@const cell = frameCell(offset)}
         <article
           class="fs-frame"
           class:active={index === activeIndex}
           class:near={Math.abs(offset) === 1}
-          class:hidden={Math.abs(offset) > 3}
-          style={`--offset:${offset};--distance:${Math.abs(offset)};--direction:${offset < 0 ? -1 : 1}`}
+          class:hidden={Math.abs(offset) > 6}
+          style={`--offset:${offset};--distance:${Math.abs(offset)};--direction:${offset < 0 ? -1 : 1};--tx:${cell.tx};--ty:${cell.ty}`}
           data-film-game={item.id}
           data-film-index={index}
           aria-hidden={Math.abs(offset) > 2 ? "true" : undefined}

@@ -51,22 +51,23 @@ describe("records dashboard model", () => {
       { id: "session-old", start_time: "2026-07-09T10:00:00Z", end_time: "2026-07-09T11:00:00Z", duration_seconds: 3600, notes: "" },
       { id: "session-new", start_time: "2026-07-10T10:00:00Z", end_time: "2026-07-10T11:30:00Z", duration_seconds: 5400, notes: "" },
     ];
-    const activities = buildMediaActivities(buildLocalSummary([source]).recent_sessions, [], [], [source]);
+    const activities = buildMediaActivities(buildLocalSummary([source]).recent_sessions, [], [], [], [source]);
     const archive = uniqueArchiveActivities(activities);
     expect(activities).toHaveLength(2);
     expect(archive).toHaveLength(1);
     expect(archive[0].id).toContain("session-new");
   });
 
-  it("keeps game/anime/comic activities in one ordered legacy fallback timeline", () => {
+  it("keeps game/anime/comic/novel activities in one ordered legacy fallback timeline", () => {
     const activities = buildMediaActivities(
       buildLocalSummary([game()]).recent_sessions,
       [{ key: "anime-1", name: "夏日动画", image: "https://example.test/anime.jpg", ruleName: "fixture", sourceUrl: "", lastRoad: 0, lastEpisode: 3, lastEpisodeName: "第 3 集", progressMs: 0, updatedAt: "2026-07-10T11:00:00Z" }],
       [{ id: "comic-1", title: "海边漫画", thumb_url: "https://example.test/comic.jpg", author: "作者", last_order: 8, last_title: "第 8 话", ts: new Date("2026-07-10T12:00:00Z").getTime() }],
+      [{ key: "biquge:novel-1:ch-1", book: { id: "novel-1", source: "biquge" as const, title: "山间小说", subjects: [], publicDomain: false, sourceUrl: "", coverUrl: "https://example.test/novel.jpg" }, chapterId: "ch-1", chapterTitle: "第 1 章", progress: 0.4, updatedAt: new Date("2026-07-10T12:30:00Z").getTime() }],
       [game()],
     );
-    expect(activities.map((item) => item.kind)).toEqual(["comic", "anime", "game"]);
+    expect(activities.map((item) => item.kind)).toEqual(["novel", "comic", "anime", "game"]);
     const activityBars = fillActivityBars(activities, 1, new Date("2026-07-10T13:00:00Z"));
-    expect(activityChartPoints(activityBars)[0]).toMatchObject({ value: 3, valueLabel: "3 次" });
+    expect(activityChartPoints(activityBars)[0]).toMatchObject({ value: 4, valueLabel: "4 次" });
   });
 });

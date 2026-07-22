@@ -28,11 +28,11 @@
   const maxMonthly = $derived(Math.max(1, ...monthlyPoints.map((item) => item.value)));
 
   function kindLabel(kind: DashboardMediaActivity["kind"]) {
-    return kind === "game" ? "GAME SESSION" : kind === "anime" ? "ANIME WATCH" : "COMIC READ";
+    return kind === "game" ? "GAME SESSION" : kind === "anime" ? "ANIME WATCH" : kind === "novel" ? "NOVEL READ" : "COMIC READ";
   }
 
   function kindCn(kind: DashboardMediaActivity["kind"]) {
-    return kind === "game" ? "游戏" : kind === "anime" ? "番剧" : "漫画";
+    return kind === "game" ? "游戏" : kind === "anime" ? "番剧" : kind === "novel" ? "小说" : "漫画";
   }
 
   function setActive(item: DashboardMediaActivity) {
@@ -47,7 +47,7 @@
       <span>{year} / ACTIVITY ARCHIVE</span>
     </div>
     <div class="cover-title">
-      <p>游戏、番剧与漫画构成的私人媒体年鉴</p>
+      <p>游戏、番剧、漫画与小说构成的私人媒体年鉴</p>
       <h1 id="archive-title"><span>ACTIVITY</span><span>ARCHIVE</span></h1>
     </div>
     <div class="cover-stats" aria-label="记录统计">
