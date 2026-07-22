@@ -44,6 +44,7 @@ jobs:
         run: npm run audit:dependencies
 
       - name: Push audit fixes back to repo
+        shell: bash
         run: |
           if ! git diff --exit-code package-lock.json; then
             git config user.name "github-actions[bot]"
