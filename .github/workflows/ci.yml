@@ -9,6 +9,8 @@ on:
 
 jobs:
   quality-gate:
+    permissions:
+      contents: write
     runs-on: windows-latest
 
     steps:
