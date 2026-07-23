@@ -186,6 +186,10 @@ export class GamepadFocusRuntime {
     }
   };
   private readonly onKeyboardInput = (event: Event) => {
+    // Only genuine user key presses may steal input mode. Programmatic key
+    // events (e.g. the controller-surface bridge forwarding stick directions
+    // as arrow keys) are untrusted and must not flip the mode back.
+    if (!event.isTrusted) return;
     const key = "key" in event && typeof event.key === "string" ? event.key : "";
     if (MODIFIER_KEYS.has(key)) return;
     this.takeOverWithKeyboard();

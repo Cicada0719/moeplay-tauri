@@ -277,7 +277,7 @@ describe("GamepadFocusRuntime input", () => {
   });
 
   it("lets keyboard take over and requires a held gamepad control to return neutral", () => {
-    const { runtime, pad, keyboardEvents } = createHarness();
+    const { runtime, pad } = createHarness();
     const left = vi.fn();
     const right = vi.fn();
     const modes: string[] = [];
@@ -290,7 +290,7 @@ describe("GamepadFocusRuntime input", () => {
     expect(runtime.getInputMode()).toBe("gamepad");
     expect(left).toHaveBeenCalledOnce();
 
-    keyboardEvents.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
+    runtime.takeOverWithKeyboard();
     expect(runtime.getInputMode()).toBe("keyboard");
     runtime.poll(2);
     expect(left).toHaveBeenCalledOnce();
@@ -302,6 +302,28 @@ describe("GamepadFocusRuntime input", () => {
     expect(right).toHaveBeenCalledOnce();
     expect(runtime.getInputMode()).toBe("gamepad");
     expect(modes).toEqual(["keyboard", "gamepad", "keyboard", "gamepad"]);
+  });
+
+  it("ignores untrusted keydown events so synthetic surface keys keep gamepad mode", () => {
+    const { runtime, pad, keyboardEvents } = createHarness();
+    const down = vi.fn();
+    runtime.registerScope({ down });
+    runtime.poll(0);
+
+    setButton(pad, 13, true);
+    runtime.poll(1);
+    expect(runtime.getInputMode()).toBe("gamepad");
+    expect(down).toHaveBeenCalledOnce();
+
+    keyboardEvents.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown" }));
+    expect(runtime.getInputMode()).toBe("gamepad");
+
+    setButton(pad, 13, false);
+    runtime.poll(2);
+    setButton(pad, 13, true);
+    runtime.poll(3);
+    expect(down).toHaveBeenCalledTimes(2);
+    expect(runtime.getInputMode()).toBe("gamepad");
   });
 
   it("does not blur the active element when the controller disconnects", () => {

@@ -126,6 +126,7 @@
   data-controller-surface
   data-focus-key="game-scene-stage"
   data-gamepad-group
+  data-gamepad-activate="打开档案"
   data-testid="game-film-sequence"
   data-active-owner={active?.id ?? ""}
   data-reduced-motion={reducedMotion}

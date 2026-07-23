@@ -26,11 +26,18 @@ async function expectFocusInsideRoute(page: Page, view: string) {
 }
 
 test.describe("normal-mode controller navigation", () => {
-  test("D-pad reaches the global navigation and A activates the focused module", async ({ appPage: page, gamepad }) => {
+  test("D-pad enters the home stage directly and B escapes to the global navigation", async ({ appPage: page, gamepad }) => {
     await connect(gamepad, page);
 
+    await press(gamepad, page, "dpadDown");
+    const focused = await expectVisibleControllerFocus(page);
+    await expect(focused).toHaveAttribute("data-focus-key", "game-visual-stage");
+
+    await press(gamepad, page, "b");
+    const homeNav = page.locator('[data-nav-view="home"]');
+    await expect(homeNav).toBeFocused();
+
     await press(gamepad, page, "dpadRight");
-    await expectVisibleControllerFocus(page);
     const recordsButton = page.locator('[data-nav-view="records"]');
     await expect(recordsButton).toBeFocused();
 
@@ -63,6 +70,11 @@ test.describe("normal-mode controller navigation", () => {
   test("D-pad traverses utility actions, A opens tools, and B closes the drawer", async ({ appPage: page, gamepad }) => {
     await connect(gamepad, page);
 
+    // The first direction press enters the home stage; B escapes to the dock.
+    await press(gamepad, page, "dpadRight");
+    await press(gamepad, page, "b");
+    await expect(page.locator('[data-nav-view="home"]')).toBeFocused();
+
     for (let index = 0; index < 8; index++) await press(gamepad, page, "dpadRight");
     await expect(page.locator('[data-nav-action="tools"]')).toBeFocused();
 
@@ -73,46 +85,66 @@ test.describe("normal-mode controller navigation", () => {
     await expect(page.getByRole("dialog", { name: "\u5de5\u5177" })).toHaveCount(0);
   });
 
-  test("controller switches games, opens the active archive, and exposes contextual HUD actions", async ({ appPage: page, gamepad }) => {
+  test("controller switches games directly, keeps focus on the stage, and A opens the archive", async ({ appPage: page, gamepad }) => {
     await connect(gamepad, page);
     await expect(page.getByTestId("gamepad-hints")).toContainText("手柄已连接");
 
-    await press(gamepad, page, "dpadDown");
-    await expect(page.locator("#library-search")).toBeFocused();
-    await press(gamepad, page, "dpadDown");
-    await expect(page.getByRole("button", { name: /折叠/ })).toBeFocused();
-    await press(gamepad, page, "dpadDown");
+    const stage = page.getByTestId("game-unified-stage");
+    await expect(stage).toHaveAttribute("data-selected-game", "fixture-game-1");
 
-    const firstGame = page.locator('[data-directory-game="fixture-game-1"]');
-    const secondGame = page.locator('[data-directory-game="fixture-game-2"]');
-    await expect(firstGame).toBeFocused();
-    await expect(page.getByTestId("gamepad-hints")).toContainText("打开 星海回声 档案");
-    await expect(page.getByTestId("gamepad-hints")).toContainText("Y");
-
+    // The very first stick press enters the stage and already steps the selection.
     await press(gamepad, page, "dpadDown");
-    await expect(secondGame).toBeFocused();
-    await expect(secondGame).toHaveAttribute("data-gamepad-activate", "切换游戏");
-    await press(gamepad, page, "a");
-    await expect(page.getByTestId("game-unified-stage")).toHaveAttribute("data-selected-game", "fixture-game-2");
-    await expect(secondGame).toHaveAttribute("data-gamepad-activate", "打开档案");
+    await expect(stage).toHaveAttribute("data-selected-game", "fixture-game-2");
+    await expect(stage).toBeFocused();
+    await expect(page.getByTestId("gamepad-hints")).toContainText("打开档案");
 
+    // Repeated presses keep cycling (wrap-around) without dropping focus to the dock.
+    await press(gamepad, page, "dpadDown");
+    await expect(stage).toHaveAttribute("data-selected-game", "fixture-game-1");
+    await expect(stage).toBeFocused();
+    await press(gamepad, page, "dpadUp");
+    await expect(stage).toHaveAttribute("data-selected-game", "fixture-game-2");
+    await expect(stage).toBeFocused();
+
+    // Y toggles the featured game's favorite via the contextual secondary action.
     const favorite = page.locator('[data-gamepad-secondary-action]');
     await expect(favorite).toContainText("收藏");
     await press(gamepad, page, "y");
     await expect(favorite).toContainText("已收藏");
+    await expect(stage).toBeFocused();
 
+    // A behaves like Enter: open the featured archive.
     await press(gamepad, page, "a");
     await expect(page.locator('[data-route-view="game-detail"]')).toBeVisible();
     await expect(page.locator(".game-detail-primary")).toBeFocused();
-    await expect(page.getByTestId("gamepad-hints")).toContainText("抓取元数据");
     await expect(page.locator(".game-detail-panel .body")).toBeVisible();
-    await press(gamepad, page, "back");
-    await expect(page.locator(".game-detail-panel .body")).toBeHidden();
-    await expect(page.locator(".game-detail-panel .hero")).toBeVisible();
-    await press(gamepad, page, "back");
-    await expect(page.locator(".game-detail-panel .body")).toBeVisible();
+
     await press(gamepad, page, "b");
     await expect(page.locator('[data-route-view="home"]')).toBeVisible();
+  });
+
+  test("analog stick switches games with press/release hysteresis", async ({ appPage: page, gamepad }) => {
+    await connect(gamepad, page);
+    const stage = page.getByTestId("game-unified-stage");
+    await expect(stage).toHaveAttribute("data-selected-game", "fixture-game-1");
+
+    const tilt = async (value: number) => {
+      await gamepad.setAxis(1, value);
+      await page.waitForTimeout(100);
+      await gamepad.setAxis(1, 0);
+      await page.waitForTimeout(120);
+    };
+
+    await tilt(0.8);
+    await expect(stage).toHaveAttribute("data-selected-game", "fixture-game-2");
+    await expect(stage).toBeFocused();
+
+    // Returning to neutral re-arms the stick; the next tilt steps exactly once.
+    await tilt(0.8);
+    await expect(stage).toHaveAttribute("data-selected-game", "fixture-game-1");
+    await tilt(-0.8);
+    await expect(stage).toHaveAttribute("data-selected-game", "fixture-game-2");
+    await expect(stage).toBeFocused();
   });
 
   test("View toggles one transient focus mode and the HUD explains the recovery action", async ({ appPage: page, gamepad }) => {

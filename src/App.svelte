@@ -23,6 +23,7 @@
   import { Drawer } from "./lib/components/ui-v2";
   import { attachGamepad } from "./lib/components/switch/useGamepad.svelte";
   import { activateGamepadFocus, activateGamepadSecondaryFocus, collectGamepadFocusable, focusGamepadSearch, moveGamepadFocus } from "./lib/actions/a11y/domGamepadNavigation";
+  import { controllerSurfaceFor, dispatchSurfaceDirection, dispatchSurfaceKey, findControllerSurface } from "./lib/actions/a11y/controllerSurface";
   import { adjustFocusedGamepadControl } from "./lib/actions/a11y/gamepadSemantics";
   import { getDefaultGamepadFocusRuntime, type GamepadInputMode } from "./lib/actions/a11y/gamepadFocus";
   import { DOCK_ITEMS, PRIMARY_CONTENT_VIEWS, TOOL_ITEMS, getViewLabel } from "./lib/nav";
@@ -172,9 +173,27 @@
   function moveNormalModeFocus(direction: "up" | "down" | "left" | "right") {
     if (adjustFocusedGamepadControl(direction)) return;
     const root = gamepadNavigationRoot();
-    const focusable = collectGamepadFocusable({ root });
     const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // Inside a controller surface (home visual/scene stage) the stick drives the
+    // stage directly: up/down switch the selected game, left/right step media.
+    // Focus is pinned to the stable surface root so per-game button re-keys can
+    // no longer drop the gamepad context back to the global dock.
+    const surface = controllerSurfaceFor(active);
+    if (surface) {
+      dispatchSurfaceDirection(surface, direction);
+      return;
+    }
+    const focusable = collectGamepadFocusable({ root });
     const hasUsableFocus = active != null && focusable.includes(active);
+    if (!hasUsableFocus) {
+      // First stick press enters a visible controller surface right away (and
+      // already steps the selection) instead of landing on the dock.
+      const entrySurface = findControllerSurface(root);
+      if (entrySurface) {
+        dispatchSurfaceDirection(entrySurface, direction);
+        return;
+      }
+    }
     const initial = hasUsableFocus ? active : visibleNavigationTarget(uiStore.currentView) ?? focusable[0] ?? null;
     if (!initial) return;
     if (!hasUsableFocus) initial.focus({ preventScroll: true });
@@ -182,7 +201,27 @@
   }
 
   function activateNormalModeFocus() {
+    const surface = controllerSurfaceFor(document.activeElement);
+    if (surface) {
+      // A on a home stage behaves like Enter: open the featured archive.
+      dispatchSurfaceKey(surface, "Enter");
+      return;
+    }
     activateGamepadFocus({ root: gamepadNavigationRoot() });
+  }
+
+  /** B while focused inside a home stage escapes back to the global dock. */
+  function escapeControllerSurface(): boolean {
+    const surface = controllerSurfaceFor(document.activeElement);
+    if (!surface) return false;
+    const target = visibleNavigationTarget(uiStore.currentView);
+    if (target) {
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ block: "nearest", inline: "nearest" });
+    } else {
+      (document.activeElement instanceof HTMLElement ? document.activeElement : null)?.blur();
+    }
+    return true;
   }
 
   function cyclePrimaryContent(delta: number) {
@@ -193,7 +232,11 @@
     const nextView = available[nextIndex];
     pickDock(nextView);
     requestAnimationFrame(() => {
-      const target = visibleNavigationTarget(nextView);
+      // Landing on a view with a controller surface (home stages) should hand
+      // focus straight to the stage so the next stick press switches games.
+      const root = gamepadNavigationRoot();
+      const surface = findControllerSurface(root);
+      const target = surface ?? visibleNavigationTarget(nextView);
       if (target) {
         target.focus({ preventScroll: true });
         target.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -395,7 +438,7 @@
         filter: () => { if (!isBigPicture) toggleWorkspaceFocus(); },
         pageLeft: () => { if (!isBigPicture) cyclePrimaryContent(-1); },
         pageRight: () => { if (!isBigPicture) cyclePrimaryContent(1); },
-        back: () => { void layeredBack(); },
+        back: () => { if (!escapeControllerSurface()) void layeredBack(); },
         start: () => {
           if (!isBigPicture) uiStore.setBigPicture(true);
         },

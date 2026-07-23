@@ -146,6 +146,7 @@
   data-controller-surface
   data-focus-key="game-visual-stage"
   data-gamepad-group
+  data-gamepad-activate="打开档案"
   class:nd-stage--folded={folded}
   class:nd-stage--shifting={shifting}
   class:nd-stage--previous={shiftDirection < 0}

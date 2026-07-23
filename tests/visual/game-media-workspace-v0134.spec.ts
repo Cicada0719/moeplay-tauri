@@ -79,7 +79,9 @@ test.describe("game creative stage contract", () => {
     await gamepad.press("b", 90);
     await appPage.waitForTimeout(120);
     await expect(appPage.locator('[data-route-view="home"]')).toBeVisible();
-    await expect(activeGame).toBeFocused();
+    // 0.19.7: the stage root is the stable gamepad focus anchor; per-game
+    // directory buttons are re-keyed on every selection change and never hold it.
+    await expect(stage).toBeFocused();
     await expect(appPage.locator(".nd-title-block h1")).not.toHaveAttribute("tabindex");
 
     const after = await cover.boundingBox();

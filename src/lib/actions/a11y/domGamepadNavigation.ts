@@ -100,7 +100,7 @@ export function moveGamepadFocus(direction: SpatialDirection, options: SpatialNa
       const delta = direction === "left" || direction === "up" ? -1 : 1;
       const target = tabs[(index + delta + tabs.length) % tabs.length];
       target.focus({ preventScroll: true });
-      target.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+      target.scrollIntoView({ block: "nearest", inline: "nearest" });
       return target;
     }
   }
@@ -116,7 +116,7 @@ export function moveGamepadFocus(direction: SpatialDirection, options: SpatialNa
     }
     if (override && collectGamepadFocusable({ ...options, root: override.parentNode ?? options.root }).includes(override)) {
       override.focus({ preventScroll: true });
-      override.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+      override.scrollIntoView({ block: "nearest", inline: "nearest" });
       return override;
     }
   }
@@ -135,7 +135,7 @@ export function moveGamepadFocus(direction: SpatialDirection, options: SpatialNa
 
   if (!winner) return active;
   winner.focus({ preventScroll: true });
-  winner.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+  winner.scrollIntoView({ block: "nearest", inline: "nearest" });
   return winner;
 }
 
