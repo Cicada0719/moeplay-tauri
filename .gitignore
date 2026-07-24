@@ -64,3 +64,14 @@ artifacts/
 installers/
 src-tauri/gen/
 plugins/**/android/build/
+
+# Built binaries (keep out of repo)
+萌游 MoeGame/
+
+# Tauri updater local artifacts
+latest.json
+.tauri-updater.conf.json
+
+# Temporary CI/release scripts
+scripts/_ci-*.mjs
+scripts/_release-*.mjs
