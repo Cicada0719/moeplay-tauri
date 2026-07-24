@@ -36,8 +36,10 @@ test("policy fails closed on the exception expiry date", () => {
 });
 
 test("policy rejects duplicate advisory IDs and invalid dates", () => {
+  // 钉住 now：不随真实日历变化——夹具的 expiresOn(2026-07-24) 一到当天，
+  // 不过期的前置校验会先抛"已过期"，永远测不到"重复 id"这条路径。
   assert.throws(
-    () => validatePolicy({ ...validPolicy, advisoryExceptions: [...validPolicy.advisoryExceptions, ...validPolicy.advisoryExceptions] }),
+    () => validatePolicy({ ...validPolicy, advisoryExceptions: [...validPolicy.advisoryExceptions, ...validPolicy.advisoryExceptions] }, new Date("2026-07-10T12:00:00Z")),
     /duplicate RustSec advisory exception/,
   );
   assert.throws(() => parseIsoDate("2026-02-30"), /valid calendar date/);
