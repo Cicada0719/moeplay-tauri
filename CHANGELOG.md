@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.19.9 - 2026-07-24
+
+### 窗口模式权限修复（0.19.8 未真正生效）
+
+- 修复"窗口模式"依然不生效的问题：窗口 ACL 权限清单缺少 `set-fullscreen` 等窗口写权限，前端所有全屏切换调用都被 Tauri 权限层拒绝并静默吞掉，窗口永远停留在原生全屏。现已在 capabilities 中显式补齐 `set-fullscreen`、`is-fullscreen`、`is-maximized`、`maximize`、`unmaximize`、`set-size`、`center`、`outer-position`、`outer-size`、`current-monitor` 十项权限。
+- 顺带修复：顶部导航手动全屏切换按钮此前因同一权限缺失完全失效，现已恢复。
+- 本修复经真机实测验证：窗口模式启动后为 1200×800 居中普通窗口，可拖拽边框调整大小。
+
 ## 0.19.8 - 2026-07-24
 
 ### 窗口启动模式修复
