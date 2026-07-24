@@ -42,6 +42,7 @@
   import { wallpaperStore } from "./lib/stores/wallpapers.svelte";
   import { workspaceFocusStore } from "./lib/stores/workspaceFocus.svelte";
   import { nativeFullscreenHealthy, reassertNativeFullscreen } from "./lib/utils/window-fullscreen";
+  import { applyStartupWindowMode } from "./lib/utils/startup-window-mode";
   import { isViewSupportedOnPlatform, orientationStore, platformStore } from "./lib/platform";
 
   const TOOLS_DRAWER_ID = "tools-drawer";
@@ -344,8 +345,8 @@
         await reassertNativeFullscreen(win, true);
         isWindowFullscreen = true;
       } else if (reportedFullscreen) {
-        await win.setFullscreen(false);
-        await win.maximize();
+        // 退出全屏时还原为可调整大小的窗口；最大化窗口无法拖拽边缘调整（与窗口模式修复同源）。
+        await applyStartupWindowMode("windowed", win);
         isWindowFullscreen = false;
       } else {
         await reassertNativeFullscreen(win, true);
@@ -479,16 +480,12 @@
       uiStore.setBigPicture(true);
     } else if (mode === "fullscreen") {
       // 已由 tauri.conf.json fullscreen:true 原生全屏，无需处理
-    } else if (mode === "windowed") {
-      if (!win) return;
-      import("@tauri-apps/api/dpi").then(({ LogicalSize }) => {
-        win.setFullscreen(false).then(() =>
-          win.setSize(new LogicalSize(1200, 800)).then(() => win.center())
-        ).catch(() => {});
-      });
     } else {
+      // windowed 及历史值（如 dashboard）：窗口按配置原生全屏启动，
+      // 这里带校验与重试地切回窗口/最大化——Windows 早期 setFullscreen
+      // 可能静默失败，单次调用不可靠。fire-and-forget，不阻塞启动。
       if (!win) return;
-      win.setFullscreen(false).then(() => win.maximize()).catch(() => {});
+      void applyStartupWindowMode(mode, win);
     }
   });
 

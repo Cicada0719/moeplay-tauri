@@ -23,6 +23,7 @@
   import { APP_VERSION } from "../app-version";
   import { orientationStore, platformStore, type OrientationMode } from "../platform";
   import { kineticStageStore } from "../features/kinetic";
+  import { applyStartupWindowMode } from "../utils/startup-window-mode";
 
   let showUpdateDialog = $state(false);
   const appVersion = APP_VERSION;
@@ -219,15 +220,12 @@
     if (settingsStore.settings.autostart_enabled) {
       try { await setAutostart(true, mode); } catch { /* ignore */ }
     }
-    // 立即对当前窗口应用，给即时反馈（dev/web 下 getCurrentWindow 会抛错，已 catch）
+    // 立即对当前窗口应用，给即时反馈（dev/web 下 getCurrentWindow 会抛错，已 catch）。
+    // 与启动路径共用 applyStartupWindowMode：windowed 还原成可调整大小的居中窗口，
+    // 而不是 maximize——最大化的窗口无法拖拽调整大小。
     try {
       const win = getCurrentWindow();
-      if (mode === "fullscreen" || mode === "big-picture") {
-        await win.setFullscreen(true);
-      } else {
-        await win.setFullscreen(false);
-        await win.maximize();
-      }
+      await applyStartupWindowMode(mode, win);
     } catch { /* 非 Tauri 环境忽略 */ }
     const label = startupModes.find((m) => m.id === mode)?.label ?? mode;
     uiStore.notify(
