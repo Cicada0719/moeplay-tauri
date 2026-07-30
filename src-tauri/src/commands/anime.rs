@@ -90,6 +90,67 @@ fn write_source_health(map: &HashMap<String, Vec<SourceHealthRecord>>) -> Result
     fs::write(path, json).map_err(|e| e.to_string())
 }
 
+/// 搜索源状态事件 payload（事件名 anime-search-source-status）
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchSourceStatus {
+    pub rule_name: String,
+    pub status: String, // "ok" | "empty" | "error"
+    pub count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+struct RuleSearchOutcome {
+    rule_name: String,
+    success: bool,
+    failure_kind: Option<String>,
+    elapsed_ms: u64,
+    items: Option<Vec<anime::SearchItem>>,
+}
+
+/// 搜索路径的健康度记录：与播放路径共用 anime_source_health.json
+fn record_search_health(
+    rule_name: &str,
+    success: bool,
+    failure_kind: Option<String>,
+    elapsed_ms: Option<u64>,
+) {
+    if rule_name.trim().is_empty() {
+        return;
+    }
+    let mut map = read_source_health();
+    let records = map.entry(rule_name.to_string()).or_default();
+    records.push(SourceHealthRecord {
+        success,
+        failure_kind,
+        elapsed_ms,
+        anime_name: None,
+        timestamp: now_millis(),
+    });
+    if records.len() > 20 {
+        let keep_from = records.len().saturating_sub(20);
+        records.drain(0..keep_from);
+    }
+    if let Err(e) = write_source_health(&map) {
+        eprintln!("[anime_search_all] 写入源健康记录失败: {}", e);
+    }
+}
+
+/// 按健康度排序搜索源：连续失败少的排前；稳定排序，无记录源保持原相对顺序
+fn sort_by_search_health<T>(
+    items: &mut [T],
+    health: &HashMap<String, Vec<SourceHealthRecord>>,
+    name_of: impl Fn(&T) -> &str,
+) {
+    items.sort_by_key(|item| {
+        health
+            .get(name_of(item))
+            .map(|records| records.iter().rev().take_while(|r| !r.success).count() as u32)
+            .unwrap_or(0)
+    });
+}
+
 // ── 规则管理 ─────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -197,10 +258,13 @@ pub async fn anime_search_all(
     state: State<'_, AnimeState>,
     keyword: String,
 ) -> Result<Vec<(String, Vec<anime::SearchItem>)>, String> {
-    let rules = {
+    let mut rules = {
         let store = state.rules.lock().map_err(|e| e.to_string())?;
         store.clone()
     };
+    // 健康度调度：连续失败多的源排后，健康的源先出结果（稳定排序，无记录源保持原顺序）
+    let health = read_source_health();
+    sort_by_search_health(&mut rules, &health, |r| r.name.as_str());
     let futures: Vec<_> = rules
         .iter()
         .map(|rule| {
@@ -209,24 +273,74 @@ pub async fn anime_search_all(
             let app = app.clone();
             async move {
                 // 每条规则独立硬超时；一出结果就「流式」推给前端 —— 边搜边显示，不等全部完成（Kazumi 式体验）
-                match tokio::time::timeout(
+                let started = std::time::Instant::now();
+                let result = tokio::time::timeout(
                     std::time::Duration::from_secs(10),
                     anime::search_anime(&rule, &kw),
                 )
-                .await
-                {
+                .await;
+                let elapsed_ms = started.elapsed().as_millis() as u64;
+                let (status, count, error, items) = match result {
                     Ok(Ok(items)) if !items.is_empty() => {
                         let _ = app.emit("anime-search-result", (rule.name.clone(), items.clone()));
-                        Some((rule.name.clone(), items))
+                        ("ok", items.len(), None, Some(items))
                     }
-                    _ => None,
+                    Ok(Ok(_)) => ("empty", 0, None, None),
+                    Ok(Err(e)) => ("error", 0, Some(e), None),
+                    Err(_) => ("error", 0, Some("搜索超时 (10s)".to_string()), None),
+                };
+                // 透传每个源的成败状态：前端据此区分「无匹配」与「源不可用」
+                let _ = app.emit(
+                    "anime-search-source-status",
+                    SearchSourceStatus {
+                        rule_name: rule.name.clone(),
+                        status: status.to_string(),
+                        count,
+                        error: error.clone(),
+                    },
+                );
+                let (success, failure_kind) = match status {
+                    "error" => (
+                        false,
+                        Some(if error.as_deref().is_some_and(|m| m.contains("超时")) {
+                            "timeout".to_string()
+                        } else {
+                            "error".to_string()
+                        }),
+                    ),
+                    // 空结果不算源故障：源可达只是无匹配，不计入连续失败
+                    _ => (true, None),
+                };
+                RuleSearchOutcome {
+                    rule_name: rule.name,
+                    success,
+                    failure_kind,
+                    elapsed_ms,
+                    items,
                 }
             }
         })
         .collect();
     let all = futures_util::future::join_all(futures).await;
+    // 搜索路径同样记录健康度（此前只有播放路径记录），供后续搜索调度使用
+    for outcome in &all {
+        record_search_health(
+            &outcome.rule_name,
+            outcome.success,
+            outcome.failure_kind.clone(),
+            Some(outcome.elapsed_ms),
+        );
+    }
     let _ = app.emit("anime-search-done", ());
-    Ok(all.into_iter().flatten().collect())
+    Ok(all
+        .into_iter()
+        .filter_map(|outcome| {
+            let RuleSearchOutcome {
+                rule_name, items, ..
+            } = outcome;
+            items.map(|items| (rule_name, items))
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -1057,5 +1171,54 @@ mod bangumi_secret_tests {
             serde_json::json!({ "username": "alice", "configured": true })
         );
         assert!(json.get("token").is_none());
+    }
+}
+
+#[cfg(test)]
+mod search_health_tests {
+    use super::*;
+
+    fn records(outcomes: &[bool]) -> Vec<SourceHealthRecord> {
+        outcomes
+            .iter()
+            .enumerate()
+            .map(|(i, ok)| SourceHealthRecord {
+                success: *ok,
+                failure_kind: if *ok { None } else { Some("error".into()) },
+                elapsed_ms: None,
+                anime_name: None,
+                timestamp: i as i64,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn healthier_sources_sort_first() {
+        let mut health = HashMap::new();
+        health.insert("dead".to_string(), records(&[false, false, false]));
+        health.insert("flaky".to_string(), records(&[true, false]));
+        health.insert("good".to_string(), records(&[true, true]));
+        let mut items = vec!["dead", "unknown", "flaky", "good"];
+        sort_by_search_health(&mut items, &health, |s| *s);
+        assert_eq!(items, vec!["unknown", "good", "flaky", "dead"]);
+    }
+
+    #[test]
+    fn unrecorded_sources_keep_their_relative_order() {
+        let health = HashMap::new();
+        let mut items = vec!["b", "a", "c"];
+        sort_by_search_health(&mut items, &health, |s| *s);
+        assert_eq!(items, vec!["b", "a", "c"]);
+    }
+
+    #[test]
+    fn a_success_after_failures_resets_the_consecutive_count() {
+        let mut health = HashMap::new();
+        health.insert("recovered".to_string(), records(&[false, false, true]));
+        health.insert("fresh".to_string(), records(&[true]));
+        let mut items = vec!["recovered", "fresh"];
+        sort_by_search_health(&mut items, &health, |s| *s);
+        // 两者连续失败数都是 0，稳定排序保持原顺序
+        assert_eq!(items, vec!["recovered", "fresh"]);
     }
 }

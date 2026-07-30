@@ -4,6 +4,7 @@
   import { onDestroy, onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { animeStore } from "../../stores/anime.svelte";
+  import { uiStore } from "../../stores/ui.svelte";
   import { settingsStore } from "../../stores/settings.svelte";
   import { reassertNativeFullscreen } from "../../utils/window-fullscreen";
   import Icon from "../Icon.svelte";
@@ -165,6 +166,64 @@
     revealPlayerChrome(event.clientY <= 120 ? 3200 : 2400);
   }
 
+  // ── 顶部导航沉浸隐藏：播放 20s 后隐藏，暂停/指针移到顶部唤回（仅本播放页生效） ──
+  const TOPNAV_HIDE_DELAY_MS = 20_000;
+  const TOPNAV_REVEAL_ZONE_PX = 64;
+  const TOPNAV_REHIDE_DELAY_MS = 3_000;
+  let topNavHideTimer: number | null = null;
+  let topNavPointerY = -1; // 最近一次 pointermove 的纵坐标，-1 = 未知
+
+  function clearTopNavTimer() {
+    if (topNavHideTimer === null) return;
+    window.clearTimeout(topNavHideTimer);
+    topNavHideTimer = null;
+  }
+
+  function showTopNav() {
+    clearTopNavTimer();
+    uiStore.topNavHidden = false;
+  }
+
+  function scheduleTopNavHide(delay = TOPNAV_HIDE_DELAY_MS) {
+    clearTopNavTimer();
+    topNavHideTimer = window.setTimeout(() => {
+      topNavHideTimer = null;
+      // 暂停中不隐藏（网页兜底无法感知暂停，除外）
+      if (mediaPaused && !useWebFallback) return;
+      // 指针还停在顶部导航区域时顺延，避免在用户眼前收起
+      if (topNavPointerY >= 0 && topNavPointerY <= TOPNAV_REVEAL_ZONE_PX) {
+        scheduleTopNavHide(TOPNAV_REHIDE_DELAY_MS);
+        return;
+      }
+      uiStore.topNavHidden = true;
+    }, delay);
+  }
+
+  function handleTopNavPointerMove(event: PointerEvent) {
+    topNavPointerY = event.clientY;
+    if (event.clientY <= TOPNAV_REVEAL_ZONE_PX) {
+      showTopNav();
+    } else if (!uiStore.topNavHidden && topNavHideTimer === null && (!mediaPaused || useWebFallback)) {
+      // 指针离开顶部且仍在播放：短延迟后重新隐藏
+      scheduleTopNavHide(TOPNAV_REHIDE_DELAY_MS);
+    }
+  }
+
+  function handleMediaPlay() {
+    mediaPaused = false;
+    scheduleTopNavHide();
+  }
+
+  function handleMediaPause() {
+    mediaPaused = true;
+    showTopNav();
+  }
+
+  // 网页兜底播放没有 video 事件可感知，进入即开始计时隐藏
+  $effect(() => {
+    if (useWebFallback) scheduleTopNavHide();
+  });
+
   function toggleEpisodePanel() {
     if (!showEpisodePanel) {
       pickerRoadIdx = roadIdx; // 打开时定位到当前线路
@@ -189,6 +248,7 @@
   onMount(() => {
     document.addEventListener('fullscreenchange', onFullscreenChange);
     document.addEventListener('keydown', onKeyDown);
+    window.addEventListener('pointermove', handleTopNavPointerMove, { passive: true });
     isPipSupported = !!document.pictureInPictureEnabled;
     if (platformStore.capabilities.desktopWindowControl) {
       hostWindowWasFullscreen = ["fullscreen", "big-picture"].includes(settingsStore.settings.startup_mode ?? "fullscreen");
@@ -204,10 +264,13 @@
   onDestroy(() => {
     document.removeEventListener('fullscreenchange', onFullscreenChange);
     document.removeEventListener('keydown', onKeyDown);
+    window.removeEventListener('pointermove', handleTopNavPointerMove);
     if (extractTimer) clearInterval(extractTimer);
     if (restoreFullscreenTimer) clearTimeout(restoreFullscreenTimer);
     if (fullscreenGuardTimer) clearInterval(fullscreenGuardTimer);
     clearPlayerChromeTimer();
+    clearTopNavTimer();
+    uiStore.topNavHidden = false;
     if (isFullscreen) void orientationStore.exitVideoFullscreen();
   });
 
@@ -1249,8 +1312,8 @@
           disablepictureinpicture={false}
           autoplay
           ontimeupdate={handleTimeUpdate}
-          onplay={() => (mediaPaused = false)}
-          onpause={() => (mediaPaused = true)}
+          onplay={handleMediaPlay}
+          onpause={handleMediaPause}
           ondurationchange={() => { if (videoEl) mediaDuration = Number.isFinite(videoEl.duration) ? videoEl.duration : 0; }}
           onvolumechange={() => { if (videoEl) mediaVolume = videoEl.volume; }}
         ></video>

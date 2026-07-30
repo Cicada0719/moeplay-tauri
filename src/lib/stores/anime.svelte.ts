@@ -79,6 +79,13 @@ export interface SearchItem {
   url: string;
 }
 
+/** 单个源的搜索状态（后端 anime-search-source-status 事件 payload） */
+export interface AnimeSourceStatus {
+  status: "ok" | "empty" | "error";
+  count: number;
+  error?: string;
+}
+
 export interface Episode {
   name: string;
   url: string;
@@ -242,6 +249,7 @@ const BANGUMI_USERNAME_KEY = "bangumi-username";
 const BANGUMI_SYNC_PRIORITY_KEY = "bangumi-sync-priority"; // 0=localFirst, 1=bangumiFirst
 const SOURCE_HEALTH_KEY = 'anime-source-health-v1';
 const RECOMMENDATION_CACHE_KEY = 'anime-recommendations-v1';
+const CATALOG_CACHE_KEY = 'anime-rules-catalog-v1';
 
 function loadJson<T>(key: string, fallback: T): T {
   if (typeof localStorage === "undefined") return fallback;
@@ -302,6 +310,9 @@ let _searchToken = 0; // 防止旧的流式监听污染新一次搜索
 // 搜索合并去重 + 封面补全（逻辑见 features/anime-search）
 let _mergedSearchResults = $state<MergedSearchEntry[]>([]);
 let _searchCovers = $state<Record<string, string>>({}); // 合并 key → Bangumi 封面原始 URL
+// 逐源搜索状态：源名 → ok/empty/error（区分「无匹配」与「源不可用」）
+let _searchSourceStatus = $state<Record<string, AnimeSourceStatus>>({});
+let _retryingSources = $state<Set<string>>(new Set());
 const _coverFetcher = createSearchCoverFetcher();
 const SEARCH_GRID_LIMIT = 24; // 搜索网格首屏展示数，其余"显示更多"展开
 let _playGeneration = 0; // playEpisode 代际计数器，防止旧提取事件污染状态
@@ -633,6 +644,8 @@ export const animeStore = {
   get searchResults() { return _searchResults; },
   get mergedSearchResults() { return _mergedSearchResults; },
   get searchCovers() { return _searchCovers; },
+  get searchSourceStatus() { return _searchSourceStatus; },
+  get retryingSources() { return _retryingSources; },
   /** 合并条目的封面 asset URL；未就绪时返回 ""，卡片保持文字形态 */
   getSearchCover(key: string): string {
     const raw = _searchCovers[key];
@@ -660,6 +673,13 @@ export const animeStore = {
   get catalogLoading() { return _catalogLoading; },
   get catalogError() { return _catalogError; },
   get installingRules() { return _installingRules; },
+  // 已安装且仓库中有新版本的规则
+  get updatableRules(): RuleCatalogItem[] {
+    return _catalog.filter((item) => {
+      const local = _rules.find((r) => r.name === item.name);
+      return !!local && local.version !== item.version;
+    });
+  },
   get calendar() { return _calendar; },
   get calendarLoading() { return _calendarLoading; },
   get calendarDay() { return _calendarDay; },
@@ -922,6 +942,9 @@ export const animeStore = {
     } else {
       console.warn("[anime-init] no rules in localStorage, skipping sync");
     }
+
+    // 启动时静默检查规则更新：失败不打扰用户，目录为空时回退本地缓存
+    void this.loadCatalog(true);
   },
 
   // ── 规则管理 ──────────────────────────────────────────────────────────
@@ -948,15 +971,26 @@ export const animeStore = {
 
   // ── GitHub 规则仓库 ──────────────────────────────────────────────────
 
-  async loadCatalog() {
-    _catalogLoading = true;
-    _catalogError = null;
+  // silent=true 用于后台自动检查更新：不显示加载态、失败不报错，仅在有缓存时回退展示
+  async loadCatalog(silent = false) {
+    if (!silent) {
+      _catalogLoading = true;
+      _catalogError = null;
+    }
     try {
-      _catalog = await invokeCmd<RuleCatalogItem[]>("anime_github_rules_index");
+      const items = await invokeCmd<RuleCatalogItem[]>("anime_github_rules_index");
+      _catalog = items;
+      saveJson(CATALOG_CACHE_KEY, { fetchedAt: Date.now(), items });
+      if (silent) _catalogError = null;
     } catch (e) {
-      _catalogError = String(e);
+      // 拉取失败：目录为空时回退到本地缓存，避免刷新失败即空白
+      if (_catalog.length === 0) {
+        const cached = loadJson<{ items?: RuleCatalogItem[] } | null>(CATALOG_CACHE_KEY, null);
+        if (cached?.items?.length) _catalog = cached.items;
+      }
+      if (!silent) _catalogError = String(e);
     } finally {
-      _catalogLoading = false;
+      if (!silent) _catalogLoading = false;
     }
   },
 
@@ -1002,6 +1036,13 @@ export const animeStore = {
       _error = String(e);
     } finally {
       _catalogLoading = false;
+    }
+  },
+
+  // 一键更新：只更新「已安装且仓库有新版本」的规则（区别于「全部安装」）
+  async updateAllRules() {
+    for (const item of this.updatableRules) {
+      await this.installRule(item.name);
     }
   },
 
@@ -1237,6 +1278,7 @@ export const animeStore = {
     _error = null;
     _searchResults = [];
     _mergedSearchResults = [];
+    _searchSourceStatus = {};
     _view = "search";
     const token = ++_searchToken;
 
@@ -1246,10 +1288,15 @@ export const animeStore = {
         const items = await invokeCmd<SearchItem[]>("anime_search", { ruleName: _selectedRule, keyword });
         if (token !== _searchToken) return;
         _searchResults = items.length > 0 ? [[_selectedRule, items]] : [];
+        _searchSourceStatus = {
+          [_selectedRule]: { status: items.length > 0 ? "ok" : "empty", count: items.length },
+        };
         this._refreshMergedSearch();
         if (_searchResults.length === 0) _error = "未找到结果";
       } catch (e) {
-        if (token === _searchToken) _error = String(e);
+        if (token !== _searchToken) return;
+        _searchSourceStatus = { [_selectedRule]: { status: "error", count: 0, error: String(e) } };
+        _error = String(e);
       } finally {
         if (token === _searchToken) _loading = false;
       }
@@ -1259,6 +1306,7 @@ export const animeStore = {
     // 全部来源：流式 —— 每条规则一出结果就追加，首批结果即隐藏 spinner（不再干等全部完成）
     const seen = new Set<string>();
     let unlisten: (() => void) | null = null;
+    let unlistenStatus: (() => void) | null = null;
     try {
       unlisten = await listen<[string, SearchItem[]]>("anime-search-result", (ev) => {
         if (token !== _searchToken) return;
@@ -1269,14 +1317,64 @@ export const animeStore = {
         this._refreshMergedSearch();
         _loading = false;
       });
+      unlistenStatus = await listen<{ ruleName: string } & AnimeSourceStatus>(
+        "anime-search-source-status",
+        (ev) => {
+          if (token !== _searchToken) return;
+          const { ruleName, status, count, error } = ev.payload;
+          if (!ruleName) return;
+          _searchSourceStatus = { ..._searchSourceStatus, [ruleName]: { status, count, error } };
+        },
+      );
       await invokeCmd("anime_search_all", { keyword });
       if (token !== _searchToken) return;
-      if (_searchResults.length === 0) _error = "未找到结果";
+      if (_searchResults.length === 0) {
+        const failedCount = Object.values(_searchSourceStatus).filter((s) => s.status === "error").length;
+        _error = failedCount > 0
+          ? `未找到结果（${failedCount} 个源检索失败，可到「规则」页更新规则）`
+          : "未找到结果";
+      }
     } catch (e) {
       if (token === _searchToken) _error = String(e);
     } finally {
       if (token === _searchToken) _loading = false;
       unlisten?.();
+      unlistenStatus?.();
+    }
+  },
+
+  /** 对上一次搜索中失败的源逐个重试（单源命令），成功则把结果补进合并列表 */
+  async retryFailedSources() {
+    if (!_searchKeyword.trim()) return;
+    const failed = Object.entries(_searchSourceStatus)
+      .filter(([, s]) => s.status === "error")
+      .map(([name]) => name)
+      .filter((name) => !_retryingSources.has(name));
+    if (failed.length === 0) return;
+    const token = _searchToken;
+    _retryingSources = new Set([..._retryingSources, ...failed]);
+    for (const name of failed) {
+      try {
+        const items = await invokeCmd<SearchItem[]>("anime_search", { ruleName: name, keyword: _searchKeyword });
+        if (token !== _searchToken) return;
+        _searchSourceStatus = {
+          ..._searchSourceStatus,
+          [name]: { status: items.length > 0 ? "ok" : "empty", count: items.length },
+        };
+        if (items.length > 0) {
+          // 去掉该源旧结果（若有）再追加，然后重新合并
+          _searchResults = [..._searchResults.filter(([src]) => src !== name), [name, items]];
+          this._refreshMergedSearch();
+          if (_error?.includes("未找到")) _error = null;
+        }
+      } catch (e) {
+        if (token !== _searchToken) return;
+        _searchSourceStatus = { ..._searchSourceStatus, [name]: { status: "error", count: 0, error: String(e) } };
+      } finally {
+        const next = new Set(_retryingSources);
+        next.delete(name);
+        _retryingSources = next;
+      }
     }
   },
 

@@ -507,6 +507,7 @@
   class="app-container"
   class:fullscreen={isBigPicture}
   class:mobile-shell={isAndroid}
+  class:topnav-hidden={uiStore.topNavHidden}
   data-testid="app-shell"
   data-ui-ready={booted ? "true" : "false"}
   data-gamepad-connected={gamepadConnected ? "true" : "false"}
@@ -717,10 +718,14 @@
     background: var(--c-black, #050505);
   }
   .app-container.fullscreen { display: block; background: #050914; }
+  /* 番剧播放页沉浸模式：播放 20s 后隐藏顶部导航（class 由 uiStore.topNavHidden 驱动） */
+  .app-container { transition: grid-template-rows 240ms ease; }
+  .app-container.topnav-hidden { grid-template-rows: 0px minmax(0, 1fr); }
+  .app-container.topnav-hidden .global-top-navigation { opacity: 0; pointer-events: none; }
   .app-container.mobile-shell { display: block; height: 100dvh; min-height: 100svh; }
   .app-container.mobile-shell .main-content { position: absolute; inset: calc(56px + env(safe-area-inset-top)) 0 calc(64px + env(safe-area-inset-bottom)); overflow: hidden; }
   .app-container.mobile-shell .view-wrapper { touch-action: pan-x pan-y; }
-  .global-top-navigation { grid-column: 1; grid-row: 1; position: relative; z-index: 95; min-width: 0; }
+  .global-top-navigation { grid-column: 1; grid-row: 1; position: relative; z-index: 95; min-width: 0; overflow: hidden; min-height: 0; transition: opacity 200ms ease; }
   .main-content { grid-column: 1; grid-row: 2; min-width: 0; min-height: 0; max-width: 100%; position: relative; z-index: 1; overflow: hidden; isolation: isolate; }
   .view-wrapper { position: absolute; inset: 0; display: flex; min-width: 0; min-height: 0; max-width: 100%; flex-direction: column; overflow: hidden; outline: none; z-index: 1; }
 

@@ -75,6 +75,21 @@
   const SEARCH_GRID_LIMIT = 24;
   let showAllResults = $state(false);
   const mergedResults = $derived(animeStore.mergedSearchResults);
+  const updatableCount = $derived(animeStore.updatableRules.length);
+  // 逐源搜索状态汇总（成功/无结果/失败）
+  const sourceStatusSummary = $derived.by(() => {
+    const values = Object.values(animeStore.searchSourceStatus);
+    return {
+      total: values.length,
+      ok: values.filter((s) => s.status === "ok").length,
+      empty: values.filter((s) => s.status === "empty").length,
+      error: values.filter((s) => s.status === "error").length,
+    };
+  });
+  const failedSourceDetails = $derived(
+    Object.entries(animeStore.searchSourceStatus).filter(([, s]) => s.status === "error"),
+  );
+  let showSourceFailures = $state(false);
   const visibleMergedResults = $derived(showAllResults ? mergedResults : mergedResults.slice(0, SEARCH_GRID_LIMIT));
   const hiddenResultCount = $derived(Math.max(0, mergedResults.length - SEARCH_GRID_LIMIT));
 
@@ -211,6 +226,9 @@
           >
             <Icon name={tab.icon} size={14} />
             {tab.label}
+            {#if tab.id === "rules" && updatableCount > 0}
+              <span class="tab-update-badge" title={`${updatableCount} 个规则可更新`}>{updatableCount}</span>
+            {/if}
           </button>
         {/each}
       {/if}
@@ -235,6 +253,30 @@
           primaryAction={animeStore.error ? { label: "重新搜索", onSelect: () => void animeStore.search(animeStore.searchKeyword) } : undefined}
           class="search-results-section"
         >
+          {#if sourceStatusSummary.total > 0}
+            <div class="source-status-bar" role="status">
+              <span class="source-status-ok">{sourceStatusSummary.ok} 源成功</span>
+              {#if sourceStatusSummary.empty > 0}
+                <span class="source-status-empty">· {sourceStatusSummary.empty} 源无结果</span>
+              {/if}
+              {#if sourceStatusSummary.error > 0}
+                <button type="button" class="source-status-error" onclick={() => (showSourceFailures = !showSourceFailures)}>
+                  · {sourceStatusSummary.error} 源失败 {showSourceFailures ? "▲" : "▼"}
+                </button>
+                <Button variant="ghost" size="sm" press={() => animeStore.retryFailedSources()}
+                  disabled={animeStore.retryingSources.size > 0}>
+                  {animeStore.retryingSources.size > 0 ? "重试中..." : "重试失败源"}
+                </Button>
+              {/if}
+            </div>
+            {#if showSourceFailures && failedSourceDetails.length > 0}
+              <ul class="source-failure-list">
+                {#each failedSourceDetails as [name, st] (name)}
+                  <li><span class="failure-source">{name}</span><span class="failure-reason">{st.error || "未知错误"}</span></li>
+                {/each}
+              </ul>
+            {/if}
+          {/if}
           <div class="search-grid" role="list" aria-label="跨源合并搜索结果">
             {#each visibleMergedResults as entry (entry.key)}
               {@const cover = animeStore.getSearchCover(entry.key)}
@@ -574,6 +616,12 @@
                   <Icon name="refresh" size={13} />
                   {animeStore.catalogLoading ? "加载中..." : "刷新"}
                 </Button>
+                {#if updatableCount > 0}
+                  <Button variant="primary" size="sm" press={() => animeStore.updateAllRules()}
+                    disabled={animeStore.catalogLoading}>
+                    全部更新 ({updatableCount})
+                  </Button>
+                {/if}
                 {#if animeStore.catalog.length > 0}
                   <Button variant="primary" size="sm" press={() => animeStore.installAllRules()}
                     disabled={animeStore.catalogLoading}>
@@ -789,6 +837,11 @@
   .tab-btn.active { background: #e8e3d8; color: #101112; }
   .tab-btn.active::after { content: ""; position: absolute; right: 0; bottom: 0; left: 0; height: 3px; background: #ef5b43; }
   .tab-btn:not(.active):hover, .tab-btn:focus-visible { color: #fff; outline: none; }
+  .tab-update-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 1.1rem; height: 1.1rem; padding: 0 .25rem; border-radius: 999px;
+    background: #ef5b43; color: #fff; font: 700 .6rem/1 var(--font-mono, monospace);
+  }
   .search-label { flex: 1; align-self: center; color: rgba(255,255,255,.64); font: 650 .7rem/1 var(--font-mono, monospace); letter-spacing: .08em; }
   .anime-content { flex: 1; min-height: 0; overflow-y: auto; padding: 0; display: flex; flex-direction: column; background: #090b0e; }
   .anime-content > :not(.rec-page) { margin: clamp(1rem, 3vw, 2.25rem); }
@@ -1054,6 +1107,22 @@
   .stats-bar.dropped { background: rgba(255,255,255,0.15); }
 
   /* ── Search results ────────────────────────────────────────── */
+  .source-status-bar {
+    display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; margin-bottom: .75rem;
+    font: 650 .68rem/1 var(--font-mono, monospace); letter-spacing: .04em; color: rgba(255,255,255,.55);
+  }
+  .source-status-ok { color: #34d399; }
+  .source-status-empty { color: rgba(255,255,255,.45); }
+  .source-status-error {
+    background: none; border: 0; padding: 0; font: inherit; cursor: pointer; color: #ef5b43;
+  }
+  .source-failure-list {
+    margin: -.25rem 0 .75rem; padding: .5rem .75rem; list-style: none;
+    border: 1px solid rgba(239,91,67,.3); border-radius: 8px; background: rgba(239,91,67,.06);
+  }
+  .source-failure-list li { display: flex; gap: .5rem; padding: .15rem 0; font: 600 .66rem/1.4 var(--font-mono, monospace); }
+  .failure-source { color: #ef5b43; flex-shrink: 0; }
+  .failure-reason { color: rgba(255,255,255,.55); word-break: break-all; }
   .search-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 14px; }
   .search-grid :global(.v2-media-card__media) { background: linear-gradient(135deg, rgba(255,255,255,0.07), rgba(255,255,255,0.02)); }
   .search-grid :global(.v2-media-card__media img) { animation: search-cover-fade 0.45s ease-out both; }

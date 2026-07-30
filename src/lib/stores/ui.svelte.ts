@@ -12,6 +12,8 @@ let _currentView = $state("home");
 let _viewMode = $state<"grid" | "list" | "compact">("grid");
 let _sortBy = $state("recent");
 let _sidebarCollapsed = $state(false);
+// 番剧播放页沉浸模式：播放 20s 后隐藏顶部导航（仅播放页置位，退出即复位）
+let _topNavHidden = $state(false);
 let _showFirstRunWizard = $state(false);
 let _showDetailPanel = $state(false);
 let _showScrapeDialog = $state(false);
@@ -51,6 +53,8 @@ export const uiStore = {
   set sortBy(v: string) { _sortBy = v; },
   get sidebarCollapsed() { return _sidebarCollapsed; },
   set sidebarCollapsed(v: boolean) { _sidebarCollapsed = v; },
+  get topNavHidden() { return _topNavHidden; },
+  set topNavHidden(v: boolean) { _topNavHidden = v; },
   get showFirstRunWizard() { return _showFirstRunWizard; },
   set showFirstRunWizard(v: boolean) { _showFirstRunWizard = v; },
   get showDetailPanel() { return _showDetailPanel; },
