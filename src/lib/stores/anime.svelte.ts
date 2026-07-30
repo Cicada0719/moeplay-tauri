@@ -979,6 +979,7 @@ export const animeStore = {
     }
     try {
       const items = await invokeCmd<RuleCatalogItem[]>("anime_github_rules_index");
+      if (!Array.isArray(items)) throw new Error("规则目录响应无效");
       _catalog = items;
       saveJson(CATALOG_CACHE_KEY, { fetchedAt: Date.now(), items });
       if (silent) _catalogError = null;
