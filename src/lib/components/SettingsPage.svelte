@@ -19,6 +19,7 @@
   import LibrarySection from "./settings/LibrarySection.svelte";
   import BangumiSection from "./settings/BangumiSection.svelte";
   import PlayerSection from "./settings/PlayerSection.svelte";
+  import SyncSettings from "./settings/SyncSettings.svelte";
   import "./settings/settings-shared.css";
   import { APP_VERSION } from "../app-version";
   import { orientationStore, platformStore, type OrientationMode } from "../platform";
@@ -364,11 +365,12 @@
 
         </Card>
 
-        <!-- 数据刮削 / 库与导入 / Bangumi / 播放器：拆分为 settings/ 子组件 -->
+        <!-- 数据刮削 / 库与导入 / Bangumi / 播放器 / 同步：拆分为 settings/ 子组件 -->
         <ScrapeSection />
         <LibrarySection />
         <BangumiSection />
         <PlayerSection />
+        <SyncSettings />
 
         <!-- 系统与实验功能 -->
         <span class="section-anchor" id="settings-advanced" aria-hidden="true"></span>

@@ -379,6 +379,12 @@ const COMMANDS: &[&str] = &[
     "rules_import",
     "rules_remove_custom",
     "rules_export",
+    // ---- 历史记录 WebDAV 同步（FR-09 / task-05）----
+    "sync_now",
+    "save_webdav_config",
+    "get_sync_config",
+    "get_sync_status",
+    "clear_webdav_config",
 ];
 
 fn main() {

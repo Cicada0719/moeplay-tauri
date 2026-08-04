@@ -389,7 +389,12 @@
     "allow-history-list",
     "allow-migration-restore-backup",
     "allow-migration-run",
-    "allow-migration-status"
+    "allow-migration-status",
+    "allow-sync-now",
+    "allow-save-webdav-config",
+    "allow-get-sync-config",
+    "allow-get-sync-status",
+    "allow-clear-webdav-config"
   ],
   "platforms": [
     "windows"

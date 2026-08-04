@@ -1,105 +1,16 @@
-// 萌游 MoeGame · 云存档（WebDAV / 本地备份）（M6）
+// 萌游 MoeGame · 云存档兼容层（M6 → task-05 兼容化改造）
 //
-// 支持：
-//   - WebDAV 上传/下载/列表
-//   - 本地文件夹备份（便携方案）
-//   - 冲突检测（修改时间 + 大小比对）
+// 历史记录 WebDAV 同步（FR-09）已重构至 `src-tauri/src/sync/` 模块
+// （`sync/{mod,webdav,merge,keyring_store}.rs`），凭据一律走 keyring，
+// 不在此保留任何明文凭据代码路径（spec task-05 §2 / §4.6 / DoD）。
+//
+// 本文件仅保留**本地文件夹备份**能力：`backup_to_local` 被
+// `commands/cloud.rs::backup_snapshot_local` 兼容转发调用，无网络/凭据依赖。
+// 旧的 WebDAV 快照上传/下载实现（`upload_snapshot_webdav` /
+// `download_snapshot_webdav`）为无调用方的死代码且携带明文密码参数，已删除。
 
-use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CloudFile {
-    pub name: String,
-    pub path: String,
-    pub size: u64,
-    pub modified: String,
-}
-
-/// 云同步结果
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CloudSyncResult {
-    pub uploaded: Vec<String>,
-    pub downloaded: Vec<String>,
-    pub conflicts: Vec<String>,
-    pub skipped: usize,
-    pub errors: Vec<String>,
-}
-
-/// 上传本地存档快照到 WebDAV 服务器。
-pub async fn upload_snapshot_webdav(
-    local_path: &Path,
-    server_url: &str,
-    username: &str,
-    password: &str,
-    remote_dir: &str,
-) -> Result<(), String> {
-    let filename = local_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("snapshot.zip");
-    let base = server_url.trim_end_matches('/');
-    let dir = remote_dir.trim_matches('/');
-    let remote_url = if dir.is_empty() {
-        format!("{}/{}", base, filename)
-    } else {
-        format!("{}/{}/{}", base, dir, filename)
-    };
-
-    let data = fs::read(local_path).map_err(|e| format!("读取本地文件失败: {}", e))?;
-
-    let client = reqwest::Client::new();
-    let resp = client
-        .put(&remote_url)
-        .basic_auth(username, Some(password))
-        .header("Content-Type", "application/octet-stream")
-        .body(data)
-        .send()
-        .await
-        .map_err(|e| format!("WebDAV 上传失败: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("WebDAV 返回 HTTP {}", resp.status()));
-    }
-
-    tracing::info!(file = filename, url = %remote_url, "Snapshot uploaded to WebDAV");
-    Ok(())
-}
-
-/// 从 WebDAV 下载存档快照到本地。
-pub async fn download_snapshot_webdav(
-    remote_filename: &str,
-    server_url: &str,
-    username: &str,
-    password: &str,
-    dest_dir: &Path,
-) -> Result<PathBuf, String> {
-    let remote_url = format!("{}/{}", server_url.trim_end_matches('/'), remote_filename);
-    let dest = dest_dir.join(remote_filename);
-
-    let client = reqwest::Client::new();
-    let resp = client
-        .get(&remote_url)
-        .basic_auth(username, Some(password))
-        .send()
-        .await
-        .map_err(|e| format!("WebDAV 下载失败: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("WebDAV 返回 HTTP {}", resp.status()));
-    }
-
-    let data = resp
-        .bytes()
-        .await
-        .map_err(|e| format!("读取响应失败: {}", e))?;
-    fs::create_dir_all(dest_dir).map_err(|e| e.to_string())?;
-    fs::write(&dest, &data).map_err(|e| format!("写入本地文件失败: {}", e))?;
-
-    tracing::info!(file = remote_filename, dest = %dest.display(), "Snapshot downloaded from WebDAV");
-    Ok(dest)
-}
 
 /// 本地文件夹备份：复制快照到备份目录。
 pub fn backup_to_local(
