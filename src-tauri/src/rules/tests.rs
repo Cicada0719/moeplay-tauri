@@ -1327,6 +1327,39 @@ async fn remove_custom_clears_yaml_and_prevents_resurrection() {
     assert!(after[0].error.is_some());
 }
 
+#[tokio::test]
+async fn remove_custom_rule_file_failure_keeps_registry_entry() {
+    use crate::commands::{remove_custom_rule, remove_custom_rule_files};
+
+    let engine = test_engine();
+    let dir = tempfile::tempdir().unwrap();
+
+    // 注册一条 Custom 规则（manifest 输入 → 内容 hash 稳定 id）
+    let loaded = engine
+        .load_rules(vec![RuleInput::Manifest {
+            manifest: make_manifest("顽固源", "function search(k,p){ return []; }"),
+            origin: RuleOrigin::Custom,
+        }])
+        .await;
+    let id = loaded[0].id.clone();
+    assert_eq!(loaded[0].status, RuleStatus::Ready);
+    assert!(engine.is_registered(&id));
+
+    // 同 stem 的 .json 位置放一个**目录**：`remove_file` 对目录删除失败 → 文件删除失败
+    std::fs::create_dir_all(dir.path().join(format!("{id}.json"))).unwrap();
+
+    // 文件删除失败 → 命令返回 Err，且注册表条目保留（先删文件后移除注册表，状态一致；
+    // 若先删注册表，残留文件会在下次重载时以同 stem id 复活）
+    assert!(remove_custom_rule(&engine, dir.path(), &id).is_err());
+    assert!(
+        engine.is_registered(&id),
+        "文件删除失败时注册表条目应保留（先删文件、后移除注册表）"
+    );
+
+    // 目录形式的 `{id}.json` 无法被 remove_file 删除，但同 stem 的 yaml/yml 不存在则跳过
+    remove_custom_rule_files(dir.path(), &id).unwrap_err();
+}
+
 // ── 辅助扩展 ────────────────────────────────────────────────────────────
 
 /// 扫描目录内全部规则文件为 File 输入（等价于 commands::rules::discover_rule_inputs）。

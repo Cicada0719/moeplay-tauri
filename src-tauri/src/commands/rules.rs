@@ -224,6 +224,20 @@ pub(crate) fn remove_custom_rule_files(dir: &Path, rule_id: &str) -> Result<(), 
     Ok(())
 }
 
+/// 删除自定义规则的核心流程（`dir` 为自定义规则落盘目录，可注入便于测试）。
+///
+/// 顺序契约（Kimi K3 复审第 5 项）：**先删文件、再移除注册表**。若先移除注册表而
+/// 文件删除失败，会留下「注册表已删、文件仍在」的状态不一致——残留文件会在下次
+/// `rules_load_all` 时以同 stem id 复活。文件删除失败时注册表条目保留，状态一致。
+pub(crate) fn remove_custom_rule(
+    engine: &RuleEngine,
+    dir: &Path,
+    rule_id: &str,
+) -> Result<(), String> {
+    remove_custom_rule_files(dir, rule_id)?;
+    engine.remove_rule(rule_id)
+}
+
 /// 删除自定义规则（内置规则拒绝删除）。同 stem 的 json/yaml/yml 文件一并清除。
 #[tauri::command]
 pub async fn rules_remove_custom(
@@ -231,8 +245,7 @@ pub async fn rules_remove_custom(
     rule_id: String,
 ) -> Result<(), String> {
     let engine = &state.0;
-    engine.remove_rule(&rule_id)?;
-    remove_custom_rule_files(&custom_rules_dir(), &rule_id)
+    remove_custom_rule(engine, &custom_rules_dir(), &rule_id)
 }
 
 /// 导出全部规则（内置 + 自定义）为 JSON 数组到指定路径。
