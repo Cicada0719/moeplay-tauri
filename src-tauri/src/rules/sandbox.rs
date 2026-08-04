@@ -286,12 +286,12 @@ impl Sandbox {
             })?;
             // 2. 取函数
             let globals = ctx.globals();
-            let f: Function = globals.get(fn_name).map_err(|e| {
-                RuleExecError::ScriptError {
+            let f: Function = globals
+                .get(fn_name)
+                .map_err(|e| RuleExecError::ScriptError {
                     message: format!("未找到函数 {fn_name}: {e}"),
                     line: None,
-                }
-            })?;
+                })?;
             // 3. 参数转换
             let js_args: Vec<Value> = args
                 .iter()
@@ -326,7 +326,10 @@ fn build_fetch_function<'js>(
 ) -> rquickjs::Result<Function<'js>> {
     Function::new(
         ctx,
-        move |ctx: Ctx<'js>, url: String, options: Opt<Object<'js>>| -> rquickjs::Result<Value<'js>> {
+        move |ctx: Ctx<'js>,
+              url: String,
+              options: Opt<Object<'js>>|
+              -> rquickjs::Result<Value<'js>> {
             let (method, headers, body) = parse_fetch_options(options)?;
             let bridge = FetchBridge {
                 http: http.clone(),
@@ -385,9 +388,7 @@ fn drive_promise<'js>(promise: Promise<'js>) -> Result<JsonValue, RuleExecError>
 type ParsedFetchOptions = (String, Vec<(String, String)>, Option<String>);
 
 /// 解析 fetch 的 options：method / headers / body。
-fn parse_fetch_options<'js>(
-    options: Opt<Object<'js>>,
-) -> rquickjs::Result<ParsedFetchOptions> {
+fn parse_fetch_options<'js>(options: Opt<Object<'js>>) -> rquickjs::Result<ParsedFetchOptions> {
     let mut method = "GET".to_string();
     let mut headers = Vec::new();
     let mut body = None;

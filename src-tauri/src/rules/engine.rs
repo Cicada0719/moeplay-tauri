@@ -113,10 +113,7 @@ pub enum RuleInput {
         origin: RuleOrigin,
     },
     /// .json/.yaml/.yml 按扩展名解析
-    File {
-        path: PathBuf,
-        origin: RuleOrigin,
-    },
+    File { path: PathBuf, origin: RuleOrigin },
 }
 
 /// 派发给 worker 的任务
@@ -369,7 +366,13 @@ impl RuleEngine {
     ) -> Result<Vec<SearchItem>, RuleExecError> {
         let manifest = self.get_manifest(rule_id)?;
         let value = self
-            .execute(rule_id, manifest.search, "search", vec![json!(keyword), json!(page)], token)
+            .execute(
+                rule_id,
+                manifest.search,
+                "search",
+                vec![json!(keyword), json!(page)],
+                token,
+            )
             .await?;
         serde_json::from_value(value)
             .map_err(|e| RuleExecError::BadReturn(format!("搜索返回结构不合法: {e}")))
@@ -399,7 +402,13 @@ impl RuleEngine {
     ) -> Result<Vec<Chapter>, RuleExecError> {
         let manifest = self.get_manifest(rule_id)?;
         let value = self
-            .execute(rule_id, manifest.chapter, "chapter", vec![json!(detail_url)], token)
+            .execute(
+                rule_id,
+                manifest.chapter,
+                "chapter",
+                vec![json!(detail_url)],
+                token,
+            )
             .await?;
         serde_json::from_value(value)
             .map_err(|e| RuleExecError::BadReturn(format!("章节返回结构不合法: {e}")))
@@ -414,7 +423,13 @@ impl RuleEngine {
     ) -> Result<ParseResult, RuleExecError> {
         let manifest = self.get_manifest(rule_id)?;
         let value = self
-            .execute(rule_id, manifest.parse, "parse", vec![json!(chapter_url)], token)
+            .execute(
+                rule_id,
+                manifest.parse,
+                "parse",
+                vec![json!(chapter_url)],
+                token,
+            )
             .await?;
         serde_json::from_value(value)
             .map_err(|e| RuleExecError::BadReturn(format!("解析返回结构不合法: {e}")))
@@ -450,9 +465,7 @@ impl RuleEngine {
     /// 删除规则：仅允许 Custom；内置规则拒绝。
     pub fn remove_rule(&self, rule_id: &str) -> Result<(), String> {
         let mut rules = self.rules.write().unwrap();
-        let rule = rules
-            .get(rule_id)
-            .ok_or_else(|| "规则不存在".to_string())?;
+        let rule = rules.get(rule_id).ok_or_else(|| "规则不存在".to_string())?;
         if rule.origin != RuleOrigin::Custom {
             return Err("内置规则不可删除".to_string());
         }
@@ -498,7 +511,11 @@ impl RuleEngine {
         let (tx, interrupt, runtime) = {
             // 每槽独立锁，仅克隆 tx/interrupt/runtime（短临界区，无 await）。
             let guard = self.workers[slot_idx].handle.lock().unwrap();
-            (guard.tx.clone(), guard.interrupt.clone(), guard.runtime.clone())
+            (
+                guard.tx.clone(),
+                guard.interrupt.clone(),
+                guard.runtime.clone(),
+            )
         };
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
         let task = TaskMsg {
@@ -609,7 +626,8 @@ impl RuleEngine {
     async fn wait_worker_exit(
         &self,
         slot_idx: usize,
-        result_fut: &mut (impl std::future::Future<Output = Result<serde_json::Value, RuleExecError>> + Unpin),
+        result_fut: &mut (impl std::future::Future<Output = Result<serde_json::Value, RuleExecError>>
+                  + Unpin),
     ) -> bool {
         if tokio::time::timeout(CANCEL_RECYCLE_TIMEOUT, result_fut)
             .await

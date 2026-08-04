@@ -14,7 +14,7 @@ use super::schema::{ContentType, RuleFileFormat, RuleManifest, RuleOrigin, RuleS
 
 fn test_http() -> reqwest::Client {
     reqwest::Client::builder()
-        .user_agent("moeplay/2.0")
+        .user_agent(concat!("moeplay/", env!("CARGO_PKG_VERSION")))
         .build()
         .unwrap()
 }
@@ -65,7 +65,10 @@ async fn load_rules_partial_failure() {
     let mut inputs = Vec::new();
     for i in 0..15 {
         inputs.push(RuleInput::Manifest {
-            manifest: make_manifest(&format!("正常源{i}"), "function search(k,p){ return [{title:k,url:'https://example.com/'+k}]; }"),
+            manifest: make_manifest(
+                &format!("正常源{i}"),
+                "function search(k,p){ return [{title:k,url:'https://example.com/'+k}]; }",
+            ),
             origin: RuleOrigin::Builtin,
         });
     }
@@ -83,8 +86,14 @@ async fn load_rules_partial_failure() {
     let loaded = engine.load_rules(inputs).await;
     let elapsed = started.elapsed();
     assert_eq!(loaded.len(), 20);
-    let ready = loaded.iter().filter(|r| r.status == RuleStatus::Ready).count();
-    let invalid = loaded.iter().filter(|r| r.status == RuleStatus::Invalid).count();
+    let ready = loaded
+        .iter()
+        .filter(|r| r.status == RuleStatus::Ready)
+        .count();
+    let invalid = loaded
+        .iter()
+        .filter(|r| r.status == RuleStatus::Invalid)
+        .count();
     assert_eq!(ready, 15, "15 条规则应可用");
     assert_eq!(invalid, 5, "5 条死循环规则应被标记无效");
     assert!(
@@ -145,12 +154,9 @@ async fn exec_timeout() {
     assert_eq!(loaded[0].status, RuleStatus::Ready);
     let id = loaded[0].id.clone();
     let token = CancellationToken::new();
-    let result = tokio::time::timeout(
-        Duration::from_secs(16),
-        engine.search(&id, "x", 1, token),
-    )
-    .await
-    .expect("执行超时应 ≤16s 返回");
+    let result = tokio::time::timeout(Duration::from_secs(16), engine.search(&id, "x", 1, token))
+        .await
+        .expect("执行超时应 ≤16s 返回");
     assert!(matches!(result, Err(RuleExecError::Timeout)));
 }
 
@@ -199,8 +205,11 @@ async fn exec_cancelled() {
     );
     let loaded = engine
         .load_rules(vec![RuleInput::Manifest {
-            manifest: make_manifest("取消源", "function search(k,p){ return [{title:k,url:'https://example.com/x'}]; }")
-                .with_parse(&parse_script),
+            manifest: make_manifest(
+                "取消源",
+                "function search(k,p){ return [{title:k,url:'https://example.com/x'}]; }",
+            )
+            .with_parse(&parse_script),
             origin: RuleOrigin::Builtin,
         }])
         .await;
@@ -241,7 +250,10 @@ async fn exec_cancelled() {
     let all_ok = tokio::time::timeout(Duration::from_secs(8), async {
         for _ in 0..4 {
             let token = CancellationToken::new();
-            let items = engine.search(&id, "x", 1, token).await.expect("worker 应被释放");
+            let items = engine
+                .search(&id, "x", 1, token)
+                .await
+                .expect("worker 应被释放");
             assert_eq!(items.len(), 1);
         }
     })
@@ -266,14 +278,22 @@ fn sandbox_no_fs_access() {
     let interrupt = Arc::new(AtomicBool::new(false));
     let sandbox = Sandbox::new(test_http(), interrupt).unwrap();
     let err = sandbox
-        .call("function search(k,p){ return std.open('/etc/passwd'); }", "search", vec![])
+        .call(
+            "function search(k,p){ return std.open('/etc/passwd'); }",
+            "search",
+            vec![],
+        )
         .unwrap_err();
     assert!(
         matches!(err, RuleExecError::ScriptError { .. }),
         "std 不应存在，应抛 ScriptError"
     );
     let err2 = sandbox
-        .call("function search(k,p){ return os.system('echo hi'); }", "search", vec![])
+        .call(
+            "function search(k,p){ return os.system('echo hi'); }",
+            "search",
+            vec![],
+        )
         .unwrap_err();
     assert!(
         matches!(err2, RuleExecError::ScriptError { .. }),
@@ -341,7 +361,9 @@ async fn inject_fetch_overwrites_preexisting() {
         let script = format!(
             "async function search(k,p) {{ const res = await fetch('{url}'); return {{ body: res.body }}; }}"
         );
-        let result = sandbox.call(&script, "search", vec![]).map_err(|e| format!("{e:?}"));
+        let result = sandbox
+            .call(&script, "search", vec![])
+            .map_err(|e| format!("{e:?}"));
         let _ = tx.send(result);
     });
     let result = rx
@@ -383,18 +405,21 @@ async fn fetch_bridge_audit() {
     assert_eq!(loaded[0].status, RuleStatus::Ready);
     let id = loaded[0].id.clone();
     let token = CancellationToken::new();
-    let items = engine.search(&id, "x", 1, token).await.expect("fetch 应成功");
+    let items = engine
+        .search(&id, "x", 1, token)
+        .await
+        .expect("fetch 应成功");
     assert_eq!(items[0].title, "hello-world");
     assert_eq!(items[0].url, "https://example.com/200");
 
-    // 审计：UA 必须是 moeplay/2.0
+    // 审计：UA 必须是 moeplay/<版本号>（由 CARGO_PKG_VERSION 派生）
     let requests = server.received_requests().await.unwrap();
     let ua = requests
         .iter()
         .find(|r| r.url.path() == "/hello")
         .and_then(|r| r.headers.get("user-agent"))
         .and_then(|v| v.to_str().ok());
-    assert_eq!(ua, Some("moeplay/2.0"));
+    assert_eq!(ua, Some(concat!("moeplay/", env!("CARGO_PKG_VERSION"))));
 }
 
 // ── 测试 12：返回结构不合法 ─────────────────────────────────────────────
@@ -424,8 +449,15 @@ async fn import_export_roundtrip() {
 
     // 自定义规则文件
     let custom_path = dir.path().join("custom_rule.json");
-    let manifest = make_manifest("自定义源", "function search(k,p){ return [{title:k,url:'https://example.com'}]; }");
-    std::fs::write(&custom_path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+    let manifest = make_manifest(
+        "自定义源",
+        "function search(k,p){ return [{title:k,url:'https://example.com'}]; }",
+    );
+    std::fs::write(
+        &custom_path,
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
 
     let loaded = engine
         .load_rules(vec![RuleInput::File {
@@ -501,7 +533,8 @@ async fn exec_cancel_recycles_fetch_blocked_worker() {
 
     let engine = test_engine();
     let slow_url = format!("{}/slow", server.uri());
-    let slow_script = format!("async function search(k,p) {{ await fetch('{slow_url}'); return []; }}");
+    let slow_script =
+        format!("async function search(k,p) {{ await fetch('{slow_url}'); return []; }}");
     let loaded = engine
         .load_rules(vec![RuleInput::Manifest {
             manifest: make_manifest("慢源", &slow_script),
@@ -569,7 +602,8 @@ async fn recycle_worker_slot_index_normalized() {
 
     let engine = test_engine();
     let slow_url = format!("{}/slow", server.uri());
-    let slow_script = format!("async function search(k,p) {{ await fetch('{slow_url}'); return []; }}");
+    let slow_script =
+        format!("async function search(k,p) {{ await fetch('{slow_url}'); return []; }}");
     let slow = engine
         .load_rules(vec![RuleInput::Manifest {
             manifest: make_manifest("慢源", &slow_script),
@@ -694,7 +728,10 @@ async fn custom_rule_id_stable_across_reloads() {
     // 首次加载（模拟导入后）
     let engine_a = test_engine();
     let first = engine_a
-        .load_rules(vec![RuleInput::File { path: file.clone(), origin: RuleOrigin::Custom }])
+        .load_rules(vec![RuleInput::File {
+            path: file.clone(),
+            origin: RuleOrigin::Custom,
+        }])
         .await;
     assert_eq!(first[0].status, RuleStatus::Ready);
     assert_eq!(first[0].id, "my_custom_rule", "文件规则 id = 文件名 stem");
@@ -702,7 +739,10 @@ async fn custom_rule_id_stable_across_reloads() {
     // 重启模拟：全新引擎重新加载同一文件 → 同一 id（禁止每次加载重新生成随机 id）
     let engine_b = test_engine();
     let second = engine_b
-        .load_rules(vec![RuleInput::File { path: file.clone(), origin: RuleOrigin::Custom }])
+        .load_rules(vec![RuleInput::File {
+            path: file.clone(),
+            origin: RuleOrigin::Custom,
+        }])
         .await;
     assert_eq!(second[0].id, "my_custom_rule", "重启后 id 必须保持稳定");
 
@@ -714,14 +754,20 @@ async fn custom_rule_id_stable_across_reloads() {
     std::fs::write(&file, serde_json::to_string_pretty(&edited).unwrap()).unwrap();
     let engine_d = test_engine();
     let edited_load = engine_d
-        .load_rules(vec![RuleInput::File { path: file.clone(), origin: RuleOrigin::Custom }])
+        .load_rules(vec![RuleInput::File {
+            path: file.clone(),
+            origin: RuleOrigin::Custom,
+        }])
         .await;
     assert_eq!(edited_load[0].id, "my_custom_rule", "内容编辑不应改变 id");
 
     // 删除链路：注册表按 id 移除 + 命令层定位文件 {id}.json 删除
     engine_b.remove_rule(&second[0].id).unwrap();
     assert!(
-        !engine_b.all_manifests().iter().any(|m| m.name == "稳定 id 源"),
+        !engine_b
+            .all_manifests()
+            .iter()
+            .any(|m| m.name == "稳定 id 源"),
         "删除后注册表应移除该规则"
     );
     // 等价于 commands::rules::rules_remove_custom 里 custom_rules_dir().join("{id}.json")
@@ -731,7 +777,10 @@ async fn custom_rule_id_stable_across_reloads() {
     // 文件已删除 → 重新加载不再出现 Ready 规则（删除链路完整，规则不「复活」）
     let engine_c = test_engine();
     let after_remove = engine_c
-        .load_rules(vec![RuleInput::File { path: file, origin: RuleOrigin::Custom }])
+        .load_rules(vec![RuleInput::File {
+            path: file,
+            origin: RuleOrigin::Custom,
+        }])
         .await;
     assert_eq!(
         after_remove[0].status,
@@ -750,11 +799,20 @@ async fn unparseable_custom_file_uses_file_stem_id() {
 
     let engine = test_engine();
     let loaded = engine
-        .load_rules(vec![RuleInput::File { path: file, origin: RuleOrigin::Custom }])
+        .load_rules(vec![RuleInput::File {
+            path: file,
+            origin: RuleOrigin::Custom,
+        }])
         .await;
     assert_eq!(loaded[0].status, RuleStatus::Invalid);
-    assert_eq!(loaded[0].id, "broken_rule", "解析失败的文件应以 stem 为稳定 id");
-    assert_eq!(loaded[0].manifest.name, "broken_rule", "占位 manifest 应以 stem 命名");
+    assert_eq!(
+        loaded[0].id, "broken_rule",
+        "解析失败的文件应以 stem 为稳定 id"
+    );
+    assert_eq!(
+        loaded[0].manifest.name, "broken_rule",
+        "占位 manifest 应以 stem 命名"
+    );
 }
 
 // ── 测试：Kimi K3 复审第 2 项——load_rules 按稳定 id upsert，注册表不累积 ──
@@ -766,7 +824,9 @@ async fn load_rules_upsert_does_not_accumulate() {
     for i in 0..3 {
         let m = make_manifest(
             &format!("upsert 源{i}"),
-            &format!("function search(k,p){{ return [{{title:k,url:'https://example.com/{i}'}}]; }}"),
+            &format!(
+                "function search(k,p){{ return [{{title:k,url:'https://example.com/{i}'}}]; }}"
+            ),
         );
         let file = dir.path().join(format!("rule_{i}.json"));
         std::fs::write(&file, serde_json::to_string_pretty(&m).unwrap()).unwrap();
@@ -817,7 +877,11 @@ async fn manifest_input_reload_upserts_same_id() {
         first[0].id, second[0].id,
         "同一 manifest 重复加载应得同一 id"
     );
-    assert_eq!(engine.all_manifests().len(), 1, "注册表应按稳定 id 覆盖，不累积");
+    assert_eq!(
+        engine.all_manifests().len(),
+        1,
+        "注册表应按稳定 id 覆盖，不累积"
+    );
 }
 
 // ── 测试：Kimi K3 复审项——硬中断迟到安装不污染下一任务 ────────────────────

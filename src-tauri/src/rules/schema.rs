@@ -63,7 +63,12 @@ pub struct LoadedRule {
 
 impl LoadedRule {
     /// 构造一条无效规则（用于加载/校验失败）
-    pub fn invalid(id: String, manifest: RuleManifest, origin: RuleOrigin, error: RuleLoadError) -> Self {
+    pub fn invalid(
+        id: String,
+        manifest: RuleManifest,
+        origin: RuleOrigin,
+        error: RuleLoadError,
+    ) -> Self {
         Self {
             id,
             manifest,

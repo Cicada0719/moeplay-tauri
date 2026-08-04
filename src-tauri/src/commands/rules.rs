@@ -5,9 +5,7 @@ use std::path::PathBuf;
 use tauri::Manager;
 use tauri::State;
 
-use crate::rules::engine::{
-    Detail, ParseResult, RuleExecError, RuleInput, SearchItem, Chapter,
-};
+use crate::rules::engine::{Chapter, Detail, ParseResult, RuleExecError, RuleInput, SearchItem};
 use crate::rules::schema::{
     file_stem_id, validate_manifest, LoadedRule, RuleFileFormat, RuleLoadError, RuleManifest,
     RuleOrigin, RuleStatus,
@@ -200,10 +198,7 @@ pub async fn rules_remove_custom(
 
 /// 导出全部规则（内置 + 自定义）为 JSON 数组到指定路径。
 #[tauri::command]
-pub async fn rules_export(
-    state: State<'_, RuleEngineState>,
-    path: String,
-) -> Result<u32, String> {
+pub async fn rules_export(state: State<'_, RuleEngineState>, path: String) -> Result<u32, String> {
     let manifests = state.0.all_manifests();
     let json = serde_json::to_string_pretty(&manifests).map_err(|e| e.to_string())?;
     // 目标父目录不存在时先创建，避免导出静默失败（DeepSeek 审核建议）。

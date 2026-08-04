@@ -214,7 +214,7 @@ pub fn run() {
     // 规则引擎（FR-01）：kazumi 兼容的沙箱化规则执行引擎，worker 线程池在 new 时派生。
     let rule_engine = rules::RuleEngine::new(
         reqwest::Client::builder()
-            .user_agent("moeplay/2.0")
+            .user_agent(concat!("moeplay/", env!("CARGO_PKG_VERSION")))
             .build()
             .expect("failed to build rule engine http client"),
     );
