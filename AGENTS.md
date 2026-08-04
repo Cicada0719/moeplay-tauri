@@ -6,6 +6,7 @@
 
 1. 开发前必须完整阅读 `docs/PRD.md` 和 `specs/task-*.md` 中分配给你的 spec。
 2. **只修改自己任务声明的 modules（目录/文件）**，绝不越界修改其他任务的模块。spec 中的「禁止修改清单」为最高优先级。
+2b. **`specs/` 与 `docs/` 目录严禁修改**（PRD/spec 是流水线契约）。发现 spec 与实现冲突时：在 PR 描述和 PR 评论中说明偏差与理由，绝不直接改 spec 文件。
 3. 每个任务在独立分支 `feat/issue-<编号>` 上开发，绝不在 master 上直接提交。
 4. 提交信息规范：`feat: #<issue编号> <一句话说明>`。
 5. 必须为新增功能编写测试并本地跑通（`cargo test` / `npm run test:unit` / `npm run test:visual`）。
