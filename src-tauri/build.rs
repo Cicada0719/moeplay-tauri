@@ -357,6 +357,15 @@ const COMMANDS: &[&str] = &[
     "ai_changes_preview",
     "ai_changes_apply",
     "ai_changes_undo",
+    "rules_load_all",
+    "rules_search",
+    "rules_detail",
+    "rules_chapters",
+    "rules_parse",
+    "rules_cancel_scope",
+    "rules_import",
+    "rules_remove_custom",
+    "rules_export",
 ];
 
 fn main() {

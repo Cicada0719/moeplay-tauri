@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rules-remove-custom"
+description = "Enables the rules_remove_custom command without any pre-configured scope."
+commands.allow = ["rules_remove_custom"]
+
+[[permission]]
+identifier = "deny-rules-remove-custom"
+description = "Denies the rules_remove_custom command without any pre-configured scope."
+commands.deny = ["rules_remove_custom"]

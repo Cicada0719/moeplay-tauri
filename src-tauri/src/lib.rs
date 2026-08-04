@@ -51,6 +51,7 @@ pub mod utils;
 pub mod anime_download;
 pub mod extension_index;
 pub mod external_player;
+pub mod rules;
 pub mod source_center;
 pub mod source_selection;
 pub mod video_extractor;
@@ -210,9 +211,18 @@ pub fn run() {
     let ai_v2_state = commands::AiV2State::try_new(database.sqlite_arc())
         .expect("AI v2 runtime initialization failed");
 
+    // 规则引擎（FR-01）：kazumi 兼容的沙箱化规则执行引擎，worker 线程池在 new 时派生。
+    let rule_engine = rules::RuleEngine::new(
+        reqwest::Client::builder()
+            .user_agent("moeplay/2.0")
+            .build()
+            .expect("failed to build rule engine http client"),
+    );
+
     crash_log("Building Tauri app...");
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_orientation::init());
 
     #[cfg(desktop)]
@@ -254,7 +264,8 @@ pub fn run() {
         .manage(task_queue)
         .manage(extension_index::ExtensionIndexService::default())
         .manage(ai_changes_service)
-        .manage(ai_v2_state);
+        .manage(ai_v2_state)
+        .manage(rules::RuleEngineState(rule_engine));
 
     #[cfg(desktop)]
     let builder = builder
@@ -669,6 +680,16 @@ pub fn run() {
             commands::ai_changes_preview,
             commands::ai_changes_apply,
             commands::ai_changes_undo,
+            // ---- 规则引擎（FR-01/FR-02/FR-05）----
+            commands::rules_load_all,
+            commands::rules_search,
+            commands::rules_detail,
+            commands::rules_chapters,
+            commands::rules_parse,
+            commands::rules_cancel_scope,
+            commands::rules_import,
+            commands::rules_remove_custom,
+            commands::rules_export,
         ])
         .setup(move |app| {
             crash_log("setup() ENTER");

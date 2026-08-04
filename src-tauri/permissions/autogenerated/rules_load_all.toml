@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rules-load-all"
+description = "Enables the rules_load_all command without any pre-configured scope."
+commands.allow = ["rules_load_all"]
+
+[[permission]]
+identifier = "deny-rules-load-all"
+description = "Denies the rules_load_all command without any pre-configured scope."
+commands.deny = ["rules_load_all"]

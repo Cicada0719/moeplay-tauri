@@ -374,7 +374,17 @@
     "allow-ai-changes-apply",
     "allow-ai-changes-undo",
     "allow-merge-sync-envelopes",
-    "allow-get-sync-snapshot-path"
+    "allow-get-sync-snapshot-path",
+    "dialog:default",
+    "allow-rules-load-all",
+    "allow-rules-search",
+    "allow-rules-detail",
+    "allow-rules-chapters",
+    "allow-rules-parse",
+    "allow-rules-cancel-scope",
+    "allow-rules-import",
+    "allow-rules-remove-custom",
+    "allow-rules-export"
   ],
   "platforms": [
     "windows"
