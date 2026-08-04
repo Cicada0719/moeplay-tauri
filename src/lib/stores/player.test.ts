@@ -2,7 +2,6 @@ import { get } from "svelte/store";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   clearPlayerError,
-  controlsIdleClass,
   controlsVisible,
   openMenuCount,
   playerError,
@@ -83,23 +82,5 @@ describe("player store", () => {
     expect(shouldPauseIdleTimer({ openMenuCount: 0, isFullscreen: false, hasPlayerError: false })).toBe(true);
     expect(shouldPauseIdleTimer({ openMenuCount: 0, isFullscreen: true, hasPlayerError: true })).toBe(true);
     expect(shouldPauseIdleTimer({ openMenuCount: 0, isFullscreen: true, hasPlayerError: false })).toBe(false);
-  });
-
-  it("controlsIdleClass：controlsVisible 变化时同步切换容器 idle class，destroy 后停止", () => {
-    const node = document.createElement("div");
-    document.body.append(node);
-    const action = controlsIdleClass(node);
-
-    expect(node.classList.contains("idle")).toBe(false);
-    controlsVisible.set(false);
-    expect(node.classList.contains("idle")).toBe(true);
-    controlsVisible.set(true);
-    expect(node.classList.contains("idle")).toBe(false);
-
-    action.destroy();
-    controlsVisible.set(false);
-    expect(node.classList.contains("idle")).toBe(false);
-
-    node.remove();
   });
 });

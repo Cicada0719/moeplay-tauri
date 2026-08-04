@@ -25,10 +25,11 @@ describe("player idle chrome contract", () => {
     expect(player).toContain("use:idleTimer={idleTimerOptions}");
     expect(player).not.toContain("use:idleTimer={{");
 
-    // spec §3.2：controlsVisible → 容器 idle class 由 store 提供的 controlsIdleClass action 驱动，
-    // 模板不再散落 class:idle / class:chrome-hidden 手动绑定
-    expect(player).toContain("use:controlsIdleClass");
-    expect(player).not.toMatch(/class:idle=\{!?\$controlsVisible\}/);
+    // spec §3.2：controlsVisible → 容器 idle class 由模板单一绑定 class:idle={$controlsVisible === false}
+    // 驱动；不再挂载重复的 controlsIdleClass action（单一职责：idleTimer 只管计时，
+    // controlsVisible 为单一事实源，模板直接由此派生 .idle）
+    expect(player).not.toContain("use:controlsIdleClass");
+    expect(player).toMatch(/class:idle=\{\s*\$controlsVisible\s*===\s*false\s*\}/);
     expect(player).not.toContain("class:chrome-hidden={");
 
     // 旧实现中的散落隐藏逻辑必须被移除（根因注释允许提及旧名，故按定义判定）
@@ -56,7 +57,7 @@ describe("player idle chrome contract", () => {
     expect(Math.max(...durations)).toBeLessThanOrEqual(200);
   });
 
-  it("controlsIdleClass 驱动的 .idle 下 Controls 隐藏过渡 ≤ 200ms（spec §3.2）", () => {
+  it("class:idle 绑定的 .player-overlay.idle 下 Controls 隐藏过渡 ≤ 200ms（spec §3.2）", () => {
     const player = source("src/lib/components/anime/AnimePlayer.svelte");
     expect(player).toContain(".player-overlay.idle");
     expect(player).toContain("cursor: none");

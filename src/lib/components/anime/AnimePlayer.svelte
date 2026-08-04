@@ -29,7 +29,6 @@
   import { idleTimer } from "../../actions/idleTimer";
   import {
     clearPlayerError,
-    controlsIdleClass,
     controlsVisible,
     openMenuCount,
     playerError,
@@ -1203,6 +1202,7 @@
 <div
   class="player-overlay"
   class:fullscreen={isFullscreen}
+  class:idle={$controlsVisible === false}
   role="dialog"
   aria-modal="true"
   aria-labelledby="anime-player-title"
@@ -1210,7 +1210,6 @@
   tabindex="-1"
   bind:this={overlayEl}
   use:idleTimer={idleTimerOptions}
-  use:controlsIdleClass
   use:focusTrap={{
     initialFocus: '[data-player-close]',
     returnFocus: false,
@@ -1717,9 +1716,11 @@
     flex-direction: column;
     overflow: hidden;
   }
-  /* 空闲态（spec §3.2）：controlsVisible=false 时由 store 提供的 controlsIdleClass
-     给容器加 .idle —— 隐藏鼠标指针与自定义增强控制栏。shell 顶部栏（context/toolbar）
-     的隐藏由 AnimePlaybackShell 自带的 chromeVisible 属性驱动（anime-player.css 内
+  /* 空闲态（spec §3.2）：根容器 `class:idle={$controlsVisible === false}` 单一绑定——
+     控制栏隐藏时加 .idle 隐藏鼠标指针与自定义增强控制栏；不再挂载重复的
+     controlsIdleClass action（单一职责：idleTimer 只管计时，controlsVisible 为
+     单一事实源，模板直接由此派生 .idle）。shell 顶部栏（context/toolbar）的隐藏由
+     AnimePlaybackShell 自带的 chromeVisible 属性驱动（anime-player.css 内
      --chrome-hidden 规则），本组件不再用 :global 侵入其内部 class。 */
   :global(.player-overlay.idle) {
     cursor: none;
