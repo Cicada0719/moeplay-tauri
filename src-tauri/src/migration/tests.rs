@@ -846,6 +846,208 @@ fn test_history_gate_refresh_after_completion() {
 }
 
 // ---------------------------------------------------------------------------
+// 第 3 轮 DeepSeek 审核修复的回归测试
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_count_validation_with_pre_existing_rows() {
+    // 条数校验口径（item 3）：只统计“本次迁移写入的新行”（staging `kind='inserted'`）
+    // + 迁移前基线，不含迁移前已存在的其他来源/设备记录（spec §4.2.d“含本批次前
+    // 已有数据需换算”）。旧实现 `COUNT(*) WHERE device_id=?` 会把同设备手动 upsert /
+    // 他设备记录误算，导致合法迁移被误判失败；此处锁定新口径行为。
+    let dir = temp_app_dir();
+    let db = HistoryDb::open(dir.path()).unwrap();
+    let seed = |id: &str, content_id: &str, device_id: &str, updated_at: i64| HistoryRecord {
+        id: id.into(),
+        content_id: content_id.into(),
+        content_type: ContentType::Anime,
+        title: "Pre".into(),
+        cover: None,
+        source_id: "src".into(),
+        chapter_id: None,
+        chapter_title: None,
+        page_index: 0,
+        position_sec: 0.0,
+        scroll_pct: 0.0,
+        updated_at,
+        device_id: device_id.into(),
+        deleted: false,
+    };
+    // 迁移前已存在的行：
+    //  - manual-1：同设备手动 upsert、merge key 不在 v1 中；
+    //  - other-dev：他设备、merge key 与 v1 的 c1 相同（会被 REPLACE 覆盖）；
+    //  - pre-1：同设备、merge key 不在 v1 中。
+    db.upsert(&seed("manual-1", "manual", "dev", 100)).unwrap();
+    db.upsert(&seed("other-dev", "c1", "other-device", 100)).unwrap();
+    db.upsert(&seed("pre-1", "pre1", "dev", 1_000)).unwrap();
+
+    write_v1(
+        dir.path(),
+        &[
+            v1("c1", "anime", "New", map!("source_id" => "src", "updated_at" => 2_000)),
+            v1("c2", "anime", "Fresh", map!("source_id" => "src", "updated_at" => 3_000)),
+        ],
+    );
+    let migrator = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
+    let report = migrator.run().unwrap();
+    assert_eq!(report.status, MigrationStatus::Completed);
+    // 最终 4 行：manual-1、pre-1 未动，other-dev 被 c1 REPLACE（merge key 匹配不看
+    // device），c2 新插入。基线 3 + 本次插入 1 = 4。
+    assert_eq!(history_rows(&db).len(), 4);
+    assert_no_duplicates(&db);
+}
+
+#[test]
+fn test_rollback_insert_then_replace_across_batches() {
+    // 回滚边界（item 1）：同一批次内“先 INSERT 后又被 UPDATE”的链，跨批次
+    // （崩溃→续迁）也必须以首次登记的 origin（'inserted'）为准——回滚 DELETE 该行，
+    // 而不是用中间态快照还原成残留行。
+    let dir = temp_app_dir();
+    // entries[0]=c1 在 batch 1 INSERT；entries[500]=c1 在 batch 2 再次覆盖（REPLACE）。
+    let mut entries = vec![v1(
+        "c1",
+        "anime",
+        "Old",
+        map!("source_id" => "src", "updated_at" => 1_000),
+    )];
+    for i in 1..500 {
+        entries.push(v1(
+            &format!("f{i}"),
+            "anime",
+            &format!("F{i}"),
+            map!("source_id" => "src", "updated_at" => 1_600_000_000_i64 + i),
+        ));
+    }
+    entries.push(v1(
+        "c1",
+        "anime",
+        "New",
+        map!("source_id" => "src", "updated_at" => 2_000),
+    ));
+    assert_eq!(entries.len(), 501, "batch 1 = 500 条，c1@New 必须落在 batch 2");
+    write_v1(dir.path(), &entries);
+
+    let db = HistoryDb::open(dir.path()).unwrap();
+    // 第一次运行：batch 1 提交后崩溃（c1 已 INSERT 并登记 staging 'inserted'）。
+    let mut migrator = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
+    migrator.set_batch_hook(Some(Arc::new(|batch| {
+        if batch == 1 {
+            panic!("injected crash after batch 1");
+        }
+        Ok(())
+    })));
+    let handle = std::thread::spawn(move || migrator.run());
+    assert!(handle.join().is_err(), "run should have panicked");
+
+    // 断点续迁：batch 2 覆盖 c1（staging 保持 'inserted' origin），随后注入失败触发回滚。
+    let mut migrator2 = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
+    migrator2.set_batch_hook(Some(Arc::new(|batch| {
+        if batch == 1 {
+            Err(MigrationError::Migration("injected failure".into()))
+        } else {
+            Ok(())
+        }
+    })));
+    let error = migrator2.run().unwrap_err();
+    assert!(error.to_string().contains("injected failure"), "got: {error}");
+
+    // 回滚：所有行都是迁移创建（'inserted'），全部删除，不能残留 c1 的中间态快照行。
+    assert_eq!(
+        history_rows(&db).len(),
+        0,
+        "inserted-then-replaced row must be deleted on rollback, not restored"
+    );
+    let conn = db.conn();
+    let guard = conn.lock().unwrap();
+    let staging: i64 = guard
+        .query_row("SELECT COUNT(*) FROM migration_staging", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(staging, 0);
+    drop(guard);
+}
+
+#[test]
+fn test_concurrent_runs_serialized() {
+    // 并发防护（item 2）：setup 的 spawn_blocking 迁移与 migration_run 命令共享同一把
+    // `run_lock`（Migrator 克隆共享 Arc）。第一个 run 持有锁期间，第二个 run 必须阻塞
+    // 等待，不能两个 run 并发交错写库 / 更新 migration_state / 推送进度。
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::mpsc;
+    use std::sync::{Condvar, Mutex};
+    use std::time::Duration;
+
+    let dir = temp_app_dir();
+    let entries: Vec<Value> = (0..600)
+        .map(|i| v1(&format!("c{i}"), "anime", &format!("T{i}"), map!()))
+        .collect();
+    write_v1(dir.path(), &entries);
+
+    let db = HistoryDb::open(dir.path()).unwrap();
+    let migrator = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
+
+    // run1 在 batch 1 提交后通过 hook 阻塞，模拟“迁移仍在进行中且持有 run_lock”。
+    let started = Arc::new(AtomicUsize::new(0));
+    let release = Arc::new((Mutex::new(false), Condvar::new()));
+    let mut m1 = migrator.clone();
+    let started_hook = Arc::clone(&started);
+    let release_hook = Arc::clone(&release);
+    m1.set_batch_hook(Some(Arc::new(move |batch| {
+        if batch == 1 {
+            started_hook.store(1, Ordering::SeqCst);
+            let (lock, cvar) = &*release_hook;
+            let mut released = lock.lock().unwrap();
+            while !*released {
+                released = cvar.wait(released).unwrap();
+            }
+        }
+        Ok(())
+    })));
+
+    let m2 = migrator.clone();
+    let (run2_done_tx, run2_done_rx) = mpsc::channel::<()>();
+    let handle1 = std::thread::spawn(move || m1.run());
+    // 等 run1 进入批处理（batch 1 已提交、hook 阻塞中、持有 run_lock）。
+    let mut spins = 0;
+    while started.load(Ordering::SeqCst) == 0 {
+        std::thread::sleep(Duration::from_millis(5));
+        spins += 1;
+        assert!(spins < 1000, "run1 should reach the batch hook");
+    }
+    let handle2 = std::thread::spawn(move || {
+        let result = m2.run();
+        let _ = run2_done_tx.send(());
+        result
+    });
+
+    // run2 与 run1 共享 run_lock；run1 未放行前 run2 必须阻塞（不能提前完成）。
+    assert!(
+        run2_done_rx
+            .recv_timeout(Duration::from_millis(150))
+            .is_err(),
+        "concurrent run must block until the first run finishes"
+    );
+
+    // 放行 run1，两个 run 依次完成，最终状态一致、无重复。
+    {
+        let (lock, cvar) = &*release;
+        *lock.lock().unwrap() = true;
+        cvar.notify_all();
+    }
+    let r1 = handle1.join().unwrap().unwrap();
+    assert_eq!(r1.status, MigrationStatus::Completed);
+    assert_eq!(r1.total, 600);
+
+    run2_done_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("second run completes after first releases the lock");
+    let r2 = handle2.join().unwrap().unwrap();
+    // 第一个 run 已完成 → 第二个 run 幂等返回 NotNeeded。
+    assert_eq!(r2.status, MigrationStatus::NotNeeded);
+    assert_eq!(history_rows(&db).len(), 600);
+    assert_no_duplicates(&db);
+}
+
+// ---------------------------------------------------------------------------
 // 性能路径（`cargo test -- --ignored` 单独跑）
 // ---------------------------------------------------------------------------
 

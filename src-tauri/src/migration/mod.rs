@@ -222,6 +222,12 @@ pub struct Migrator {
     device_id: String,
     progress_sink: ProgressSink,
     batch_hook: Option<BatchHook>,
+    /// 迁移互斥锁：`run` / `restore_from_backup` 串行执行。
+    ///
+    /// setup 钩子的 `spawn_blocking` 迁移与 `migration_run` / `migration_restore_backup`
+    /// 命令克隆共享同一个 `Arc`，两个 run 并发时后到的一方阻塞等待，避免交错写库 /
+    /// 更新 `migration_state` / 推送进度（第 3 轮 DeepSeek 审核 item 2）。
+    run_lock: Arc<Mutex<()>>,
 }
 
 impl Migrator {
@@ -235,6 +241,7 @@ impl Migrator {
             device_id,
             progress_sink: Arc::new(|_| {}),
             batch_hook: None,
+            run_lock: Arc::new(Mutex::new(())),
         })
     }
 
@@ -292,16 +299,30 @@ impl Migrator {
     ///
     /// 内部流程：备份 → 分批事务写入 → 校验条数 → 标记 completed。
     /// 任何步骤失败 → 自动回滚（清空本次写入 + `status='rolled_back'`）并返回错误。
+    ///
+    /// 并发安全：持有 `run_lock`，与 setup 的 `spawn_blocking` 迁移、
+    /// `migration_run` / `migration_restore_backup` 命令互斥（同一 `Migrator`
+    /// 的克隆共享同一把锁）。
     pub fn run(&self) -> Result<MigrationReport, MigrationError> {
+        let _guard = self
+            .run_lock
+            .lock()
+            .map_err(|_| MigrationError::Migration("migration run lock poisoned".to_string()))?;
         let source = self.app_data_dir.join(V1_HISTORY_FILE);
         self.run_with_source(&source)
     }
 
     /// “从备份恢复”入口（R4 应对）：将备份 JSON 作为 v1 数据源重新迁移。
+    ///
+    /// 与 `run` 共享 `run_lock`，避免与并发迁移交错执行。
     pub fn restore_from_backup(&self, backup_path: &Path) -> Result<MigrationReport, MigrationError> {
         if !backup_path.exists() {
             return Err(MigrationError::BackupNotFound(backup_path.to_path_buf()));
         }
+        let _guard = self
+            .run_lock
+            .lock()
+            .map_err(|_| MigrationError::Migration("migration run lock poisoned".to_string()))?;
         self.reset_state_for_restore(backup_path)?;
         self.run_with_source(backup_path)
     }
@@ -378,6 +399,24 @@ impl Migrator {
             let guard = lock_conn(&conn)?;
             guard.execute("DELETE FROM migration_staging", [])?;
         }
+
+        // ---- 2. 条数校验基线（spec §4.2.d“含本批次前已有数据需换算”）----
+        // 基线 = 迁移开始前已存在的 history 行数（含其他来源/设备或手动 upsert 的记录）。
+        // 非续迁场景 staging 刚清空，基线即当前行数；断点续迁时 staging 保留了此前批次
+        // INSERT 的 id，减去后得到真正的迁移前基线。最终校验只统计“本次迁移新写入的行”
+        // （staging `kind='inserted'`）+ 基线，避免把迁移前已存在的记录误判为本次写入
+        // （第 3 轮 DeepSeek 审核 item 3）。
+        let baseline = {
+            let guard = lock_conn(&conn)?;
+            let current: i64 =
+                guard.query_row("SELECT COUNT(*) FROM history", [], |row| row.get(0))?;
+            let staged_inserted: i64 = guard.query_row(
+                "SELECT COUNT(*) FROM migration_staging WHERE kind = 'inserted'",
+                [],
+                |row| row.get(0),
+            )?;
+            current - staged_inserted
+        };
 
         // ---- 2. 标记 in_progress ----
         {
@@ -556,14 +595,31 @@ impl Migrator {
             // ---- 5. 条数校验 + 完成标记（同一事务：校验失败回滚、崩溃后状态与 staging 一致）----
             let mut guard = lock_conn(&conn)?;
             let tx = guard.transaction()?;
-            let actual: i64 = tx.query_row(
-                "SELECT COUNT(*) FROM history WHERE device_id = ?1",
-                rusqlite::params![self.device_id],
+            // 只统计本次迁移写入的新行（staging `kind='inserted'`），加上迁移前基线，
+            // 与最终 history 行数比对。迁移前已存在的其他来源/设备记录计入基线，不被误算。
+            let inserted_staged: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM migration_staging WHERE kind = 'inserted'",
+                [],
                 |row| row.get(0),
             )?;
-            if actual != expected_unique {
+            let final_count: i64 =
+                tx.query_row("SELECT COUNT(*) FROM history", [], |row| row.get(0))?;
+            if final_count != baseline + inserted_staged {
                 let message = format!(
-                    "history row count mismatch: expected {expected_unique}, found {actual}"
+                    "history row count mismatch: baseline {baseline} + this-migration inserts {inserted_staged}, found {final_count}"
+                );
+                return Err(MigrationError::Migration(message));
+            }
+            // 防呆：staging 登记的写入行数不得超过 v1 去重后的 merge key 数，
+            // 否则说明同一 merge key 被写了多行（重复记录）。
+            let staged_total: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM migration_staging",
+                [],
+                |row| row.get(0),
+            )?;
+            if staged_total > expected_unique {
+                let message = format!(
+                    "migration staged {staged_total} rows, exceeding {expected_unique} unique merge keys"
                 );
                 return Err(MigrationError::Migration(message));
             }
@@ -634,7 +690,12 @@ impl Migrator {
 
         // 按 staging 表还原：本次 INSERT 的行删除；本次 UPDATE（Replaced）覆盖的
         // 原行按快照还原。
-        let mut inserted_ids: Vec<String> = Vec::new();
+        //
+        // 同批次内“先 INSERT 后又被 UPDATE”的链：staging 登记时已通过
+        // `ON CONFLICT(id) DO NOTHING` 保留首次 origin，这里再加一道保险——
+        // 即便同 id 同时登记了 'inserted' 与 'replaced'，也以 'inserted' 为准：
+        // 该行由迁移创建，回滚必须 DELETE，而不是用中间态快照还原成残留行。
+        let mut inserted_ids: HashSet<String> = HashSet::new();
         let mut replaced: Vec<(String, HistoryRecord)> = Vec::new();
         {
             let mut stmt = tx.prepare("SELECT id, kind, snapshot_json FROM migration_staging")?;
@@ -648,7 +709,9 @@ impl Migrator {
             for row in rows {
                 let (id, kind, snapshot_json) = row?;
                 match kind.as_str() {
-                    "inserted" => inserted_ids.push(id),
+                    "inserted" => {
+                        inserted_ids.insert(id);
+                    }
                     "replaced" => {
                         let json = snapshot_json.ok_or_else(|| {
                             MigrationError::Rollback(format!(
@@ -667,11 +730,14 @@ impl Migrator {
                 }
             }
         }
+        // 只还原未被登记为 'inserted' 的快照：insert-then-replace 链的行由迁移创建，
+        // 必须删除而非还原，否则会残留中间态快照对应的多余行。
+        replaced.retain(|(id, _)| !inserted_ids.contains(id));
 
-        for id in inserted_ids {
+        for id in &inserted_ids {
             tx.execute("DELETE FROM history WHERE id = ?1", rusqlite::params![id])?;
         }
-        for (id, old) in replaced {
+        for (id, old) in &replaced {
             tx.execute(
                 "UPDATE history SET
                     content_id=?1, content_type=?2, title=?3, cover=?4, source_id=?5,
