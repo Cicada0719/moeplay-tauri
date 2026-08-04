@@ -131,6 +131,14 @@ struct WorkerHandle {
     interrupt: Arc<AtomicBool>,
 }
 
+/// 单 worker 槽位：句柄的读取（派发）与替换（回收）用**每槽独立 Mutex** 保护，
+/// 而非全局池锁。任何临界区都不含 `.await`（只做 `tx`/`interrupt` 克隆或句柄替换），
+/// 因此 `wait_worker_exit` 期间 `recycle_worker` 替换句柄不会与派发路径发生
+/// 锁顺序死锁（DeepSeek 审核第 3 项）。
+struct WorkerSlot {
+    handle: Mutex<WorkerHandle>,
+}
+
 /// 规则引擎
 pub struct RuleEngine {
     http: reqwest::Client,
@@ -138,8 +146,8 @@ pub struct RuleEngine {
     rules: Arc<RwLock<HashMap<String, LoadedRule>>>,
     /// scope → CancellationToken
     scopes: Arc<Mutex<HashMap<String, CancellationToken>>>,
-    /// worker 句柄池（Mutex：取消/超时后可回收重建卡死的 worker）。
-    workers: Mutex<Vec<WorkerHandle>>,
+    /// worker 槽位池（定长，取消/超时后仅替换槽内句柄；每槽独立锁，无全局池锁）。
+    workers: Vec<WorkerSlot>,
     next_worker: AtomicUsize,
 }
 
@@ -176,7 +184,11 @@ fn spawn_worker(http: reqwest::Client) -> WorkerHandle {
 impl RuleEngine {
     /// 创建引擎（会立刻派生 4 个常驻 worker 线程）。
     pub fn new(http: reqwest::Client) -> Self {
-        let workers = Mutex::new((0..WORKER_COUNT).map(|_| spawn_worker(http.clone())).collect());
+        let workers = (0..WORKER_COUNT)
+            .map(|_| WorkerSlot {
+                handle: Mutex::new(spawn_worker(http.clone())),
+            })
+            .collect();
         Self {
             http,
             rules: Arc::new(RwLock::new(HashMap::new())),
@@ -434,10 +446,13 @@ impl RuleEngine {
         token: CancellationToken,
     ) -> Result<serde_json::Value, RuleExecError> {
         let worker_idx = self.next_worker.fetch_add(1, Ordering::Relaxed);
+        // 归一化到槽位：round-robin 计数器会超过槽数，回收路径必须使用**同一**槽位索引，
+        // 否则会因 idx≥len 而错误跳过回收（曾导致卡死 worker 不被重建、后续任务堆积）。
+        let slot_idx = worker_idx % self.workers.len();
         let (tx, interrupt) = {
-            let workers = self.workers.lock().unwrap();
-            let worker = &workers[worker_idx % workers.len()];
-            (worker.tx.clone(), worker.interrupt.clone())
+            // 每槽独立锁，仅克隆 tx/interrupt（短临界区，无 await）。
+            let guard = self.workers[slot_idx].handle.lock().unwrap();
+            (guard.tx.clone(), guard.interrupt.clone())
         };
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
         let task = TaskMsg {
@@ -480,41 +495,44 @@ impl RuleEngine {
             ExecOutcome::Cancelled => {
                 // 竞态取消：置中断位中断 worker 的 JS，并等待其真正退出，避免后续任务堆积。
                 interrupt.store(true, Ordering::Relaxed);
-                self.wait_worker_exit(worker_idx, &mut result_fut).await;
+                self.wait_worker_exit(slot_idx, &mut result_fut).await;
                 Err(RuleExecError::Cancelled)
             }
             ExecOutcome::Timeout => {
                 interrupt.store(true, Ordering::Relaxed);
-                self.wait_worker_exit(worker_idx, &mut result_fut).await;
+                self.wait_worker_exit(slot_idx, &mut result_fut).await;
                 Err(RuleExecError::Timeout)
             }
         }
     }
 
     /// 等待被中断的 worker 真正退出当前任务；宽限期内未退出则回收重建该 worker。
+    ///
+    /// 锁设计：等待期间**不持有**任何槽位锁（`result_fut` 只是 oneshot receiver），
+    /// 超时后才短时持有 `slot_idx` 槽位的独立锁做句柄替换，与派发路径互不阻塞。
     async fn wait_worker_exit(
         &self,
-        worker_idx: usize,
+        slot_idx: usize,
         result_fut: &mut (impl std::future::Future<Output = Result<serde_json::Value, RuleExecError>> + Unpin),
     ) {
         if tokio::time::timeout(CANCEL_RECYCLE_TIMEOUT, result_fut)
             .await
             .is_err()
         {
-            self.recycle_worker(worker_idx);
+            self.recycle_worker(slot_idx);
         }
     }
 
-    /// 回收重建指定 worker：旧 worker 置中断位 + 通道关闭后自行退出，新 worker 立即接管。
-    fn recycle_worker(&self, worker_idx: usize) {
-        let mut workers = self.workers.lock().unwrap();
-        if worker_idx >= workers.len() {
+    /// 回收重建指定槽位的 worker：旧 worker 置中断位 + 通道关闭后自行退出，新 worker 立即接管。
+    fn recycle_worker(&self, slot_idx: usize) {
+        if slot_idx >= self.workers.len() {
             return;
         }
-        workers[worker_idx].interrupt.store(true, Ordering::Relaxed);
+        let mut guard = self.workers[slot_idx].handle.lock().unwrap();
+        guard.interrupt.store(true, Ordering::Relaxed);
         let fresh = spawn_worker(self.http.clone());
-        tracing::warn!("规则 worker 中断后未在宽限期内退出，已回收重建 (index={worker_idx})");
-        workers[worker_idx] = fresh;
+        tracing::warn!("规则 worker 中断后未在宽限期内退出，已回收重建 (slot={slot_idx})");
+        *guard = fresh;
     }
 }
 

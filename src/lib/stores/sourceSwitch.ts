@@ -46,12 +46,16 @@ export interface SourceSwitchState {
   /** "play:{contentId}" */
   currentScope: string | null;
   lastError: string | null;
+  /** 最近一次已落地的切换结果（ok/fallback/failed 均含结构化数据），供播放器
+   *  容器（任务 3 接线）消费；取消/竞态丢弃时为 null。 */
+  lastResult: SwitchResult | null;
 }
 
 export const sourceSwitchState: Writable<SourceSwitchState> = writable({
   switching: false,
   currentScope: null,
   lastError: null,
+  lastResult: null,
 });
 
 /** 递增调用序号：用于丢弃被新调用取代的旧结果（Rust 层之外的 JS 双保险） */
@@ -76,12 +80,42 @@ export function normalizeTitle(s: string): string {
     .replace(/\s+/g, " ");
 }
 
-const EMPTY_FAILED: SwitchResult = {
-  status: "failed",
-  chapters: [],
-  targetChapter: null,
-  resumeSec: 0,
-};
+/** 构造一个全新的 failed 结果（每次返回新对象，避免共享引用被外部修改）。 */
+function emptyFailed(message?: string): SwitchResult {
+  return {
+    status: "failed",
+    chapters: [],
+    targetChapter: null,
+    resumeSec: 0,
+    ...(message ? { message } : {}),
+  };
+}
+
+/**
+ * 将 `SwitchResult` 映射为播放器容器可直接消费的载荷（spec Step 10「结果透传至
+ * 播放器容器」的稳定契约，任务 3 接线用）：
+ * - `ok` / `fallback`：`url` + `headers` + `kind` 交给 `<video>`，`resumeSec` 用于 seek；
+ * - `failed`：`url = null`，由播放器错误 UI（任务 3）读取 `message`。
+ */
+export function switchResultToPlayback(result: SwitchResult): {
+  url: string | null;
+  headers: Record<string, string> | null;
+  kind: string | null;
+  resumeSec: number;
+  chapterIndex: number | null;
+  status: SwitchStatus;
+  message?: string;
+} {
+  return {
+    url: result.parseResult?.urls?.[0] ?? null,
+    headers: result.parseResult?.headers ?? null,
+    kind: result.parseResult?.kind ?? null,
+    resumeSec: result.resumeSec,
+    chapterIndex: result.targetChapter?.index ?? null,
+    status: result.status,
+    ...(result.message ? { message: result.message } : {}),
+  };
+}
 
 /**
  * 切换源并保持上下文。并发调用时仅最后一次生效。
@@ -94,7 +128,7 @@ export async function switchSource(
   const scope = `play:${ctx.contentId}`;
   const seq = ++callSeq;
 
-  sourceSwitchState.set({ switching: true, currentScope: scope, lastError: null });
+  sourceSwitchState.set({ switching: true, currentScope: scope, lastError: null, lastResult: null });
 
   try {
     // 1. 取消前序任务（FR-02 竞态取消）
@@ -132,14 +166,9 @@ export async function switchSource(
     const parseResult = await parse(targetRuleId, target.url, scope);
 
     // 双保险：已被更新的调用取代则静默丢弃
-    if (seq !== callSeq) return EMPTY_FAILED;
+    if (seq !== callSeq) return emptyFailed();
 
-    sourceSwitchState.set({
-      switching: false,
-      currentScope: scope,
-      lastError: null,
-    });
-    return {
+    const result: SwitchResult = {
       status,
       chapters: chapterList,
       targetChapter: target,
@@ -147,27 +176,36 @@ export async function switchSource(
       resumeSec,
       message,
     };
+    sourceSwitchState.set({
+      switching: false,
+      currentScope: scope,
+      lastError: null,
+      lastResult: result,
+    });
+    return result;
   } catch (err) {
-    // 取消 → 静默丢弃（不更新错误状态）
+    // 取消 → 静默丢弃（不更新错误状态，lastResult 保持 null）
     if (isCancelledError(err)) {
       if (seq === callSeq) {
         sourceSwitchState.set({
           switching: false,
           currentScope: scope,
           lastError: null,
+          lastResult: null,
         });
       }
-      return EMPTY_FAILED;
+      return emptyFailed();
     }
 
-    if (seq !== callSeq) return EMPTY_FAILED;
+    if (seq !== callSeq) return emptyFailed();
 
     const lastError = err instanceof Error ? err.message : String(err);
     sourceSwitchState.set({
       switching: false,
       currentScope: scope,
       lastError,
+      lastResult: emptyFailed(lastError),
     });
-    return { ...EMPTY_FAILED, message: lastError };
+    return emptyFailed(lastError);
   }
 }

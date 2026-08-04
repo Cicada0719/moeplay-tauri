@@ -204,6 +204,83 @@ fn sandbox_no_fs_access() {
     );
 }
 
+// ── 测试：沙箱全局暴露面最小化（WebView/JSContext 对象一概不暴露）─────────
+
+#[test]
+fn sandbox_global_surface_is_minimal() {
+    let interrupt = Arc::new(AtomicBool::new(false));
+    let sandbox = Sandbox::new(test_http(), interrupt).unwrap();
+    let result = sandbox
+        .call(
+            r#"function search(k,p) {
+                // WebView/JSContext / 宿主全局对象必须不存在；QuickJS 也未加载 std/os
+                const dangerous = ['window','navigator','document','process','require','global','Deno','Buffer','std','os','__TAURI__'];
+                const present = dangerous.filter(g => typeof globalThis[g] !== 'undefined');
+                return {
+                    present,
+                    hasFetch: typeof fetch === 'function',
+                    hasConsole: typeof console === 'object',
+                    hasPromise: typeof Promise === 'function',
+                    hasJson: typeof JSON === 'object',
+                };
+            }"#,
+            "search",
+            vec![],
+        )
+        .expect("脚本应正常执行");
+    let obj = result.as_object().expect("应返回对象");
+    assert_eq!(
+        obj.get("present"),
+        Some(&serde_json::json!([])),
+        "不应暴露任何宿主/WebView 全局对象: {:?}",
+        obj.get("present")
+    );
+    assert_eq!(obj.get("hasFetch"), Some(&serde_json::json!(true)));
+    assert_eq!(obj.get("hasConsole"), Some(&serde_json::json!(true)));
+    // Promise/JSON 是规则运行必需（async/await、结构化解析），显式注入
+    assert_eq!(obj.get("hasPromise"), Some(&serde_json::json!(true)));
+    assert_eq!(obj.get("hasJson"), Some(&serde_json::json!(true)));
+}
+
+// ── 测试：注入前已存在全局 fetch → 强制覆盖为 reqwest 桥接（DeepSeek 审核第 2 项）─
+
+#[tokio::test]
+async fn inject_fetch_overwrites_preexisting() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/bridge"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("bridge-body"))
+        .mount(&server)
+        .await;
+
+    let url = format!("{}/bridge", server.uri());
+    let interrupt = Arc::new(AtomicBool::new(false));
+    // 沙箱内 fetch 走 FetchBridge::block_on（Rust current-thread runtime），不能在 tokio
+    // 测试线程上直接执行（会触发「runtime 内建 runtime」）。沙箱 QuickJS 运行时不可跨
+    // 线程，因此在独立 std 线程内**就地构建**沙箱并调用——与 worker 线程真实环境一致。
+    let (tx, rx) = std::sync::mpsc::channel::<Result<serde_json::Value, String>>();
+    std::thread::spawn(move || {
+        let sandbox = Sandbox::new_with_preexisting_fetch(test_http(), interrupt).unwrap();
+        let script = format!(
+            "async function search(k,p) {{ const res = await fetch('{url}'); return {{ body: res.body }}; }}"
+        );
+        let result = sandbox.call(&script, "search", vec![]).map_err(|e| format!("{e:?}"));
+        let _ = tx.send(result);
+    });
+    let result = rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("沙箱调用应在超时内完成")
+        .expect("桥接 fetch 应生效");
+    let obj = result.as_object().expect("应返回对象");
+    // 若伪造 fetch 未被覆盖，这里会是 "fake" 且服务端收不到请求
+    assert_eq!(obj.get("body"), Some(&serde_json::json!("bridge-body")));
+    let requests = server.received_requests().await.unwrap();
+    assert!(
+        requests.iter().any(|r| r.url.path() == "/bridge"),
+        "网络请求必须经由 reqwest 桥接到达服务端"
+    );
+}
+
 // ── 测试 11：fetch 桥接 + UA 审计 ───────────────────────────────────────
 
 #[tokio::test]
@@ -395,6 +472,79 @@ async fn exec_cancel_recycles_fetch_blocked_worker() {
     })
     .await;
     assert!(all_ok.is_ok(), "被回收的 worker 不应拖慢后续任务");
+}
+
+// ── 测试：回收路径按「槽位索引」归一化（round-robin 计数超过槽数后仍正确回收）──
+
+#[tokio::test]
+async fn recycle_worker_slot_index_normalized() {
+    // 端点延迟 10s：让槽位 0 的 worker 阻塞在 Rust block_on（中断 handler 不生效）
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/slow"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(Duration::from_secs(10))
+                .set_body_string("late"),
+        )
+        .mount(&server)
+        .await;
+
+    let engine = test_engine();
+    let slow_url = format!("{}/slow", server.uri());
+    let slow_script = format!("async function search(k,p) {{ await fetch('{slow_url}'); return []; }}");
+    let slow = engine
+        .load_rules(vec![RuleInput::Manifest {
+            manifest: make_manifest("慢源", &slow_script),
+            origin: RuleOrigin::Builtin,
+        }])
+        .await;
+    assert_eq!(slow[0].status, RuleStatus::Ready);
+    let slow_id = slow[0].id.clone();
+
+    let fast = engine
+        .load_rules(vec![RuleInput::Manifest {
+            manifest: make_manifest(
+                "快源",
+                "function search(k,p){ return [{title:k,url:'https://example.com/x'}]; }",
+            ),
+            origin: RuleOrigin::Builtin,
+        }])
+        .await;
+    let fast_id = fast[0].id.clone();
+
+    // 先把 round-robin 计数器推进到 ≥4（占用槽位 0..3），让下一次派发落到槽位 0
+    // 时 worker_idx = 4。旧实现 recycle_worker(4) 因 4 ≥ len(4) 会静默跳过回收，
+    // 导致槽位 0 卡死；新实现按 slot_idx = 4 % 4 = 0 归一化，正确回收。
+    for _ in 0..4 {
+        let token = CancellationToken::new();
+        engine.search(&fast_id, "x", 1, token).await.unwrap();
+    }
+
+    let token = engine.new_scope_token("recycle:normalize");
+    let search_fut = engine.search(&slow_id, "x", 1, token.clone());
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    engine.cancel_scope("recycle:normalize");
+
+    let cancelled = tokio::time::timeout(Duration::from_secs(5), search_fut).await;
+    assert!(
+        matches!(cancelled, Ok(Err(RuleExecError::Cancelled))),
+        "取消应快速返回 Cancelled（含回收宽限），实际 {cancelled:?}"
+    );
+
+    // 4 次派发（第 4 次回落槽位 0）都应快速完成：证明槽位 0 已被重建而非仍卡在 fetch 上
+    let all_ok = tokio::time::timeout(Duration::from_secs(4), async {
+        for _ in 0..4 {
+            let token = CancellationToken::new();
+            let items = engine
+                .search(&fast_id, "x", 1, token)
+                .await
+                .expect("worker 应已释放");
+            assert_eq!(items.len(), 1);
+        }
+    })
+    .await;
+    assert!(all_ok.is_ok(), "回收后槽位 0 不应拖慢后续任务");
 }
 
 // ── 测试：超大/非有限 float 不静默丢弃为 null ─────────────────────────────

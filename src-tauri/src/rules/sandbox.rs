@@ -1,16 +1,31 @@
 //! QuickJS 沙箱：规则脚本在隔离环境中执行。
 //!
-//! 沙箱使用 `Context::full` 创建（注册 Eval/Promise/JSON 等标准内在函数），但
-//! **不链接任何 `std`/`os` 模块**（QuickJS 的 `std`/`os` 属于独立 C 模块，
-//! rquickjs 默认不引入，因此无文件系统/进程能力），仅注入两个全局：`fetch`
-//! （走统一 reqwest 出口，带审计日志）与 `console.log/warn/error`（转发到
-//! `tracing`）。单条规则脚本异常只影响其自身调用，不影响应用主体。
+//! 沙箱基于 `Context::builder` **显式选择内在函数**（DeepSeek 审核第 1 项）：
+//! 相比 `Context::full`（注册 Date/Eval/RegExp/JSON/Proxy/MapSet/TypedArrays/
+//! Promise/BigInt/WeakRef/Performance 全部全局面），这里只注入规则运行所需的
+//! 最小子集，并**刻意排除** `BigInt`/`WeakRef`/`Performance` 等非必要全局面，
+//! 缩小攻击面。
+//!
+//! ## 全局暴露面评估（WebView/JSContext 全局对象）
+//!
+//! 沙箱运行在 **Rust 内嵌的 QuickJS** 中，**不经过 Tauri WebView**，因此
+//! WebView/JSContext 的全局对象（`window`/`navigator`/`document`/`process`/
+//! `require`/`__TAURI__` 等）一概不存在（`sandbox_global_surface_is_minimal`
+//! 测试锁定该不变量）。`std`/`os` 属 QuickJS 独立 C 模块，rquickjs 默认不引入，
+//! 故无文件系统/进程能力。`Eval` 内在函数是 `ctx.eval` 编译脚本所必需，因此
+//! 显式包含（`eval`/`new Function` 仅在同一沙箱内有效，无法越界）。
+//!
+//! 注入的全局仅有：`fetch`（统一 reqwest 出口 + 审计日志；DeepSeek 审核第 2 项
+//! 要求在注入前检查是否已存在同名全局，存在则强制覆盖以确保所有网络请求
+//! 仍走桥接）与 `console.log/warn/error`（转发到 `tracing`）。单条规则脚本异常
+//! 只影响其自身调用，不影响应用主体。
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use rquickjs::context::intrinsic;
 use rquickjs::function::Opt;
 use rquickjs::{Array, Context, Ctx, Exception, Function, Object, Promise, Runtime, Value};
 use serde_json::{Map as JsonMap, Value as JsonValue};
@@ -109,15 +124,7 @@ pub struct Sandbox {
 impl Sandbox {
     /// 创建沙箱：配置内存/栈上限，注册中断处理器，注入全局 `fetch`/`console`。
     pub fn new(http: reqwest::Client, interrupt: Arc<AtomicBool>) -> Result<Self, String> {
-        let runtime = Runtime::new().map_err(|e| e.to_string())?;
-        runtime.set_memory_limit(MEMORY_LIMIT);
-        runtime.set_max_stack_size(MAX_STACK);
-        let intr = interrupt.clone();
-        runtime.set_interrupt_handler(Some(Box::new(move || intr.load(Ordering::Relaxed))));
-        // `full` 注册标准内在函数（Eval/Promise/JSON/RegExp…），`base` 不含 Eval，
-        // 会导致 `ctx.eval` 报 "eval is not supported"。`full` 不引入 std/os 模块，
-        // 沙箱无文件系统/进程访问能力（见 `sandbox_no_fs_access` 测试）。
-        let context = Context::full(&runtime).map_err(|e| e.to_string())?;
+        let (runtime, context) = Self::build_context(interrupt.clone())?;
         let sandbox = Self {
             runtime,
             context,
@@ -126,6 +133,60 @@ impl Sandbox {
         };
         sandbox.inject_globals(http).map_err(|e| e.to_string())?;
         Ok(sandbox)
+    }
+
+    /// 测试专用（DeepSeek 审核第 2 项回归）：在注入桥接 `fetch` 之前，先往全局塞一个
+    /// 伪造的 `fetch`，验证 `inject_globals` 会检测到同名全局并**强制覆盖**，确保
+    /// 规则内网络请求仍走 reqwest 统一出口。
+    #[cfg(test)]
+    pub(crate) fn new_with_preexisting_fetch(
+        http: reqwest::Client,
+        interrupt: Arc<AtomicBool>,
+    ) -> Result<Self, String> {
+        let (runtime, context) = Self::build_context(interrupt.clone())?;
+        context
+            .with(|ctx| {
+                let fake = Function::new(ctx.clone(), || "fake")?;
+                ctx.globals().set("fetch", fake)?;
+                Ok::<(), rquickjs::Error>(())
+            })
+            .map_err(|e| e.to_string())?;
+        let sandbox = Self {
+            runtime,
+            context,
+            interrupt,
+            rule_id: Arc::new(Mutex::new(String::new())),
+        };
+        sandbox.inject_globals(http).map_err(|e| e.to_string())?;
+        Ok(sandbox)
+    }
+
+    /// 构建运行时与上下文：配置中断/内存/栈上限，并**显式选择**规则所需的最小内在函数集合。
+    ///
+    /// 安全基线（PRD §4.2 / DeepSeek 审核第 1 项）：
+    /// - 不使用 `Context::full`（其注册 BigInt/WeakRef/Performance 等非必要全局面）；
+    /// - `Eval` 是 `ctx.eval` 编译脚本所必需，显式包含（`sandbox_global_surface_is_minimal` 测试
+    ///   锁定最终全局面）；
+    /// - 不引入任何 `std`/`os` 模块 → 无文件系统/进程能力。
+    fn build_context(interrupt: Arc<AtomicBool>) -> Result<(Runtime, Context), String> {
+        let runtime = Runtime::new().map_err(|e| e.to_string())?;
+        runtime.set_memory_limit(MEMORY_LIMIT);
+        runtime.set_max_stack_size(MAX_STACK);
+        let intr = interrupt.clone();
+        runtime.set_interrupt_handler(Some(Box::new(move || intr.load(Ordering::Relaxed))));
+        let context = Context::builder()
+            .with::<intrinsic::Eval>() // ctx.eval 编译脚本必需（并非把控制权交给外部）
+            .with::<intrinsic::Promise>() // async function / await / Promise.finish
+            .with::<intrinsic::Json>()
+            .with::<intrinsic::RegExpCompiler>()
+            .with::<intrinsic::RegExp>()
+            .with::<intrinsic::Date>()
+            .with::<intrinsic::MapSet>()
+            .with::<intrinsic::Proxy>()
+            .with::<intrinsic::TypedArrays>()
+            .build(&runtime)
+            .map_err(|e| e.to_string())?;
+        Ok((runtime, context))
     }
 
     /// 更新审计日志使用的 rule_id（worker 在每次任务前调用）。
@@ -162,9 +223,17 @@ impl Sandbox {
             ctx.globals().set("console", console)?;
 
             // ── fetch 桥接（统一 reqwest 出口 + 审计日志）────────────────
+            // 安全约束（PRD §4.2 / DeepSeek 审核第 2 项）：注入前先检查全局是否已存在
+            // `fetch`。QuickJS 最小上下文不提供原生 fetch，但防御任何未来的同名人全局
+            // （例如某内在函数/模块注入）——存在则**强制覆盖**为桥接实现并告警，确保
+            // 规则内所有网络请求仍经 reqwest 统一出口 + 审计日志，绝不允许绕过。
+            let globals = ctx.globals();
+            if globals.contains_key("fetch")? {
+                tracing::warn!("规则沙箱全局已存在 fetch，强制覆盖为 reqwest 桥接实现");
+            }
             let rule_id = self.rule_id.clone();
             let fetch_fn = build_fetch_function(ctx.clone(), http, rule_id)?;
-            ctx.globals().set("fetch", fetch_fn)?;
+            globals.set("fetch", fetch_fn)?;
             Ok(())
         })
     }

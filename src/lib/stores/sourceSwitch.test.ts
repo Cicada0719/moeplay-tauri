@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   normalizeTitle,
   sourceSwitchState,
+  switchResultToPlayback,
   switchSource,
   type SwitchContext,
 } from "./sourceSwitch";
@@ -88,7 +89,7 @@ const CTX: SwitchContext = {
 beforeEach(() => {
   vi.clearAllMocks();
   cancel.reset();
-  sourceSwitchState.set({ switching: false, currentScope: null, lastError: null });
+  sourceSwitchState.set({ switching: false, currentScope: null, lastError: null, lastResult: null });
 });
 
 describe("switchSource", () => {
@@ -106,9 +107,44 @@ describe("switchSource", () => {
     expect(result.targetChapter?.index).toBe(5);
     expect(result.parseResult?.urls[0]).toBe("https://cdn.example.com/v.m3u8");
 
-    const state = { switching: false, currentScope: null, lastError: null };
-    sourceSwitchState.subscribe((s) => Object.assign(state, s))();
+    // 结果透传至 store：播放器容器可直接消费 lastResult
+    let state: { switching: boolean; currentScope: string | null; lastError: string | null; lastResult: typeof result | null } =
+      { switching: true, currentScope: null, lastError: null, lastResult: null };
+    const unsub = sourceSwitchState.subscribe((s) => Object.assign(state, s));
+    unsub();
     expect(state.lastError).toBeNull();
+    expect(state.lastResult?.status).toBe("ok");
+    expect(state.lastResult?.resumeSec).toBe(750);
+    expect(state.lastResult?.targetChapter?.index).toBe(5);
+  });
+
+  it("switch_result_to_playback: 把 SwitchResult 映射为播放器容器可消费的载荷", () => {
+    const playback = switchResultToPlayback({
+      status: "ok",
+      chapters: CHAPTERS_5,
+      targetChapter: CHAPTERS_5[0],
+      parseResult: PARSE_OK,
+      resumeSec: 750,
+    });
+    expect(playback.url).toBe("https://cdn.example.com/v.m3u8");
+    expect(playback.kind).toBe("video");
+    expect(playback.headers).toEqual({ Referer: "https://example.com" });
+    expect(playback.resumeSec).toBe(750);
+    expect(playback.chapterIndex).toBe(5);
+    expect(playback.status).toBe("ok");
+    expect(playback.message).toBeUndefined();
+
+    // failed：url 为空，错误文案走 message
+    const failed = switchResultToPlayback({
+      status: "failed",
+      chapters: [],
+      targetChapter: null,
+      resumeSec: 0,
+      message: "新源未找到该条目",
+    });
+    expect(failed.url).toBeNull();
+    expect(failed.message).toBe("新源未找到该条目");
+    expect(failed.chapterIndex).toBeNull();
   });
 
   it("switch_fallback_to_latest: 目标集不存在时跳转最新一集并提示", async () => {
@@ -174,13 +210,17 @@ describe("switchSource", () => {
     }
 
     expect(result.status).toBe("failed");
-    let state: { lastError: string | null } = { lastError: null };
+    let state: { lastError: string | null; lastResult: { status: string } | null } = {
+      lastError: null,
+      lastResult: null,
+    };
     const unsub = sourceSwitchState.subscribe((s) => {
       state = s;
     });
     await new Promise((r) => setTimeout(r, 0));
     unsub();
     expect(state.lastError).toBeTruthy();
+    expect(state.lastResult?.status).toBe("failed");
   });
 });
 

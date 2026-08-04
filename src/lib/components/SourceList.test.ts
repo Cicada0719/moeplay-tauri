@@ -45,7 +45,7 @@ const READY_MANIFEST = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  sourceSwitchState.set({ switching: false, currentScope: null, lastError: null });
+  sourceSwitchState.set({ switching: false, currentScope: null, lastError: null, lastResult: null });
 });
 
 describe("SourceList", () => {
@@ -81,7 +81,7 @@ describe("SourceList", () => {
       id: "ready-1",
       manifest: { ...READY_MANIFEST, name: "正常源" },
     });
-    sourceSwitchState.set({ switching: true, currentScope: "play:c1", lastError: null });
+    sourceSwitchState.set({ switching: true, currentScope: "play:c1", lastError: null, lastResult: null });
     render(SourceList, { props: { rules: [ready], activeRuleId: null } });
 
     expect(screen.getByTestId("switching-overlay")).toBeInTheDocument();
