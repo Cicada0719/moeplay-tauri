@@ -79,20 +79,20 @@ pub async fn rules_load_all(
 
 /// 搜索。
 ///
-/// 并发 scope 契约（Kimi K3 复审第 3 项）：spec §3.4 的 `rules_search` 签名不含 `scope`
-/// 参数，本命令用 `per_call_token` 生成一个**仅覆盖单次调用生命周期**的取消 token
-/// （不注册进 scope 表）——同一规则上的并发 search（翻页 page=1 与 page=2）互不取消。
-/// 前端若需取消整套源切换，通过 `rules_parse` 传入的 `play:{contentId}` 作用域 +
-/// `rules_cancel_scope` 实现——搜索/详情/章节属过程性子操作，随其所属的 play 作用域
-/// 一起被取消（switchSource 的 `cancelScope(scope)` 会先取消 play 作用域）。
+/// `invocation` 契约（Kimi K3 复审第 7 项）：`switchSource` 每次调用生成**独立** invocation
+/// scope（如 `play:{contentId}:{seq}`），search/chapters/parse 全程绑定该 scope——新调用通过
+/// `cancel_scope(旧 invocation)` 把旧调用整体作废；旧调用迟到的 parse 因 scope 唯一无法取消
+/// 最新调用的 token。`invocation` 为空（翻页等非换源场景）时退化为 per-call token，同规则
+/// 并发调用（page=1 与 page=2）互不取消。
 #[tauri::command]
 pub async fn rules_search(
     state: State<'_, RuleEngineState>,
     rule_id: String,
     keyword: String,
     page: u32,
+    invocation: String,
 ) -> Result<Vec<SearchItem>, RuleExecError> {
-    let token = state.0.per_call_token();
+    let token = state.0.invocation_token(&invocation);
     state.0.search(&rule_id, &keyword, page, token).await
 }
 
@@ -107,18 +107,21 @@ pub async fn rules_detail(
     state.0.detail(&rule_id, &url, token).await
 }
 
-/// 章节列表。scope 契约同 `rules_search`（每次调用独立 token，不取消同规则其他调用）。
+/// 章节列表。`invocation` 契约同 `rules_search`（绑定 switchSource 调用级 scope）。
 #[tauri::command]
 pub async fn rules_chapters(
     state: State<'_, RuleEngineState>,
     rule_id: String,
     detail_url: String,
+    invocation: String,
 ) -> Result<Vec<Chapter>, RuleExecError> {
-    let token = state.0.per_call_token();
+    let token = state.0.invocation_token(&invocation);
     state.0.chapters(&rule_id, &detail_url, token).await
 }
 
-/// 解析播放地址。`scope` 由前端传入（如 "play:{contentId}"），实现 FR-02 取消语义。
+/// 解析播放地址。`scope` 由前端传入：`switchSource` 传入本次调用的 invocation scope
+/// （如 "play:{contentId}:{seq}"），实现 FR-02「仅末次调用生效」——scope 按调用唯一，
+/// 旧调用迟到的 parse 不会取消最新调用已注册的 token（Kimi K3 复审第 7 项）。
 #[tauri::command]
 pub async fn rules_parse(
     state: State<'_, RuleEngineState>,

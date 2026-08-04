@@ -476,9 +476,15 @@ impl RuleEngine {
     }
 
     /// 取消指定 scope（如 "play:{contentId}"）下所有未完成任务。
+    ///
+    /// 取消后把该 scope 条目从表内移除（Kimi K3 复审第 7 项）：换源竞态修复后每次调用
+    /// 生成**独立** invocation scope（`play:{contentId}:{seq}`），若不移除，每次换源都会在
+    /// `scopes` 表残留一个已取消的 token 条目，长会话无界增长。`new_scope_token` 对已移除
+    /// 的 scope 会创建全新 token（旧调用迟到的操作可重新注册，但被前端 seq 校验丢弃），
+    /// 不影响「仅末次调用生效」的正确性。
     pub fn cancel_scope(&self, scope: &str) {
-        let scopes = self.scopes.lock().unwrap();
-        if let Some(token) = scopes.get(scope) {
+        let mut scopes = self.scopes.lock().unwrap();
+        if let Some(token) = scopes.remove(scope) {
             token.cancel();
         }
     }
@@ -544,6 +550,21 @@ impl RuleEngine {
     /// 用于 FR-02 源切换竞态）才用 `new_scope_token` 注册进 scope 表。
     pub fn per_call_token(&self) -> CancellationToken {
         CancellationToken::new()
+    }
+
+    /// 为一次调用生成取消 token：`invocation` 非空时注册进 scope 表（换源竞态契约），
+    /// 为空时退化为 per-call token（互不取消）。
+    ///
+    /// 换源并发契约（Kimi K3 复审第 7 项）：每次 `switchSource` 调用生成**独立** invocation
+    /// scope（如 `play:{contentId}:{seq}`），search/chapters/parse 全程绑定该 scope。scope
+    /// 按调用唯一 → 旧调用迟到的 `new_scope_token` 不会取消最新调用已注册的 token；新调用
+    /// 通过 `cancel_scope(旧 invocation)` 把旧调用的 search/chapters/parse 整体作废。
+    pub fn invocation_token(&self, invocation: &str) -> CancellationToken {
+        if invocation.is_empty() {
+            self.per_call_token()
+        } else {
+            self.new_scope_token(invocation)
+        }
     }
 
     fn get_manifest(&self, rule_id: &str) -> Result<RuleManifest, RuleExecError> {

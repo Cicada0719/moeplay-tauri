@@ -1100,6 +1100,88 @@ async fn per_call_token_does_not_cancel_siblings() {
     assert!(!t2.is_cancelled());
 }
 
+// ── 测试：Kimi K3 复审第 7 项——独立 invocation scope 隔离（换源竞态）─────────────
+//
+// 竞态：switchSource A（旧）与 B（最新）并发。B 的 parse 先注册 scope token；A 的 parse
+// 迟到，若 A 用与 B 相同的共享 scope（play:c1）注册，会通过 new_scope_token「自动取消旧
+// token」把 B 的最新 token 取消，违反 FR-02「仅末次调用生效」。修复：每次调用生成独立
+// invocation scope（play:c1:{seq}），A 迟到的 parse 只能动自己的 scope，B 不受影响。
+
+#[test]
+fn invocation_scope_old_parse_cannot_cancel_latest() {
+    let engine = test_engine();
+    // 最新调用的 parse 先注册 token（scope 唯一：play:c1:2）
+    let latest = engine.new_scope_token("play:c1:2");
+    // 旧调用迟到的 parse：用旧 invocation scope 注册，绝不能取消最新调用的 token
+    let _old = engine.new_scope_token("play:c1:1");
+    assert!(
+        !latest.is_cancelled(),
+        "旧 invocation 迟到的 parse 不得取消最新调用的 token"
+    );
+    // 新调用启动时 cancel_scope(旧 invocation) 整体作废旧调用，同样不影响最新调用
+    engine.cancel_scope("play:c1:1");
+    assert!(!latest.is_cancelled(), "作废旧 invocation 不应影响最新调用");
+    // 取消最新调用本身 → 生效
+    engine.cancel_scope("play:c1:2");
+    assert!(latest.is_cancelled(), "取消最新调用应生效");
+}
+
+#[test]
+fn invocation_token_binds_scope_and_empty_falls_back_per_call() {
+    let engine = test_engine();
+    // 空 invocation → per-call token（不注册 scope，cancel_scope 够不到）
+    let per_call = engine.invocation_token("");
+    engine.cancel_scope("switch:empty");
+    assert!(
+        !per_call.is_cancelled(),
+        "空 invocation 应为 per-call token，cancel_scope 不能取消它"
+    );
+    // 非空 invocation → 注册进 scope 表，cancel_scope 可整体作废
+    let bound = engine.invocation_token("play:c1:9");
+    engine.cancel_scope("play:c1:9");
+    assert!(
+        bound.is_cancelled(),
+        "invocation scope 应可被 cancel_scope 整体作废"
+    );
+}
+
+// ── 测试：Kimi K3 复审第 7 项——旧调用迟到 parse 在真实执行路径上不取消最新调用 ──
+
+#[tokio::test]
+async fn late_old_invocation_parse_does_not_cancel_latest() {
+    let engine = test_engine();
+    let loaded = engine
+        .load_rules(vec![RuleInput::Manifest {
+            manifest: make_manifest(
+                "换源源",
+                "function search(k,p){ return [{title:k,url:'https://example.com/d'}]; }",
+            ),
+            origin: RuleOrigin::Builtin,
+        }])
+        .await;
+    assert_eq!(loaded[0].status, RuleStatus::Ready);
+    let id = loaded[0].id.clone();
+
+    // 最新调用 B：parse 用唯一 invocation scope 注册 token 并开始执行
+    let token_b = engine.new_scope_token("play:c1:2");
+    let parse_b = engine.parse(&id, "https://example.com/1", token_b.clone());
+    tokio::pin!(parse_b);
+
+    // 旧调用 A 迟到的 parse：用旧 invocation scope 注册——不得取消 B 的 token
+    let _token_a = engine.new_scope_token("play:c1:1");
+    assert!(
+        !token_b.is_cancelled(),
+        "旧调用 A 迟到的 parse 不得取消最新调用 B 的 token"
+    );
+
+    // B 的 parse 正常完成（未被 A 迟到注册影响）
+    let result = tokio::time::timeout(Duration::from_secs(5), parse_b)
+        .await
+        .expect("B 的 parse 应在超时内完成")
+        .expect("B 的 parse 应成功");
+    assert!(result.urls.is_empty());
+}
+
 // ── 测试：Kimi K3 复审项——硬中断迟到安装不污染下一任务 ────────────────────
 //
 // 复现竞态：取消任务 A 时 `hard_interrupt_js` 用 spawn_blocking 分离安装恒 true 处理器；

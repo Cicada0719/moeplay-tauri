@@ -1,10 +1,11 @@
 // 萌游 MoeGame · 源切换状态保持 store（对应 spec §3.5）
 //
 // 核心入口 `switchSource` 实现 FR-02：
-// 1. 取消前序 scope（rules_cancel_scope）
+// 1. 作废前序 invocation（rules_cancel_scope）
 // 2. 新源搜索 → 章节列表 → 按 chapterIndex 定位（fallback 到最新一集）
 // 3. 解析播放地址，返回结构化 SwitchResult
-// 竞态：callSeq 计数器保证并发调用仅最后一次生效（前序结果静默丢弃）。
+// 竞态：callSeq 计数器 + 独立 invocation scope 双保险，保证并发调用仅最后一次生效
+// （前序结果静默丢弃）。
 
 import { writable, type Writable } from "svelte/store";
 import {
@@ -63,6 +64,10 @@ export const sourceSwitchState: Writable<SourceSwitchState> = writable({
 
 /** 递增调用序号：用于丢弃被新调用取代的旧结果（Rust 层之外的 JS 双保险） */
 let callSeq = 0;
+
+/** 最近一次 switchSource 的 invocation scope（"play:{contentId}:{seq}"）。新调用用它
+ *  作废旧调用的 search/chapters/parse（Kimi K3 复审第 7 项）。 */
+let activeInvocation: string | null = null;
 
 /**
  * 标题归一化：trim、小写、全角转半角、去标点、压缩空白。
@@ -149,25 +154,32 @@ export function switchResultToPlayback(result: SwitchResult): {
 /**
  * 切换源并保持上下文。并发调用时仅最后一次生效。
  * 全程 try/catch，绝不向上抛未捕获异常（防白屏）。
+ *
+ * 并发契约（Kimi K3 复审第 7 项）：每次调用生成**独立** invocation scope
+ * （`play:{contentId}:{seq}`），search/chapters/parse 全程绑定该 scope。scope 按调用唯一 →
+ * 旧调用迟到的 parse 不会取消最新调用已注册的 token；新调用通过 `cancelScope(旧 invocation)`
+ * 把旧调用整体作废（而非 parse 单独注册共享 play scope）。
  */
 export async function switchSource(
   targetRuleId: string,
   ctx: SwitchContext,
 ): Promise<SwitchResult> {
-  const scope = `play:${ctx.contentId}`;
   const seq = ++callSeq;
+  const invocation = `play:${ctx.contentId}:${seq}`;
+  const prevInvocation = activeInvocation;
+  activeInvocation = invocation;
 
-  sourceSwitchState.set({ switching: true, currentScope: scope, lastError: null, lastResult: null });
+  sourceSwitchState.set({ switching: true, currentScope: invocation, lastError: null, lastResult: null });
 
   try {
-    // 1. 取消前序任务（FR-02 竞态取消）
-    await cancelScope(scope);
+    // 1. 作废旧 invocation（其 search/chapters/parse 一起取消）。首次调用无前序，跳过。
+    if (prevInvocation) await cancelScope(prevInvocation);
 
     // 2. 搜索匹配条目（spec §3.5 第 2 步）。
     //    §3.6 的置灰在 UI 层拦截禁用源（primary guard）；这里仍处理运行期错误路径：
     //    搜索无结果（notFound）与规则被禁用/不存在（RuleNotFound，由 describeSwitchError
     //    转可读文案），两层并存不冲突。（DeepSeek 复审第 2 项）
-    const items = await search(targetRuleId, ctx.title, 1);
+    const items = await search(targetRuleId, ctx.title, 1, invocation);
     if (items.length === 0) {
       throw Object.assign(new Error("新源未找到该条目，请检查关键词或稍后重试"), {
         kind: "notFound",
@@ -180,7 +192,7 @@ export async function switchSource(
     const detailUrl = (matched ?? items[0]).url;
 
     // 3. 章节列表
-    const chapterList = await chapters(targetRuleId, detailUrl);
+    const chapterList = await chapters(targetRuleId, detailUrl, invocation);
     if (chapterList.length === 0) {
       throw Object.assign(new Error("新源未解析到剧集"), { kind: "noChapters" });
     }
@@ -198,8 +210,8 @@ export async function switchSource(
       message = `当前源暂无第 ${ctx.chapterIndex} 集，已跳转至最新一集`;
     }
 
-    // 5. 解析播放地址
-    const parseResult = await parse(targetRuleId, target.url, scope);
+    // 5. 解析播放地址（绑定本次 invocation scope，旧调用无法取消）
+    const parseResult = await parse(targetRuleId, target.url, invocation);
 
     // 双保险：已被更新的调用取代则静默丢弃（discarded 标记 + 文案，区别于真实失败）
     if (seq !== callSeq) return emptyFailed(SWITCH_SUPERSEDED_MESSAGE, true);
@@ -214,7 +226,7 @@ export async function switchSource(
     };
     sourceSwitchState.set({
       switching: false,
-      currentScope: scope,
+      currentScope: invocation,
       lastError: null,
       lastResult: result,
     });
@@ -228,7 +240,7 @@ export async function switchSource(
       if (seq === callSeq) {
         sourceSwitchState.set({
           switching: false,
-          currentScope: scope,
+          currentScope: invocation,
           lastError: null,
           lastResult: null,
         });
@@ -243,10 +255,13 @@ export async function switchSource(
     const lastError = describeSwitchError(err);
     sourceSwitchState.set({
       switching: false,
-      currentScope: scope,
+      currentScope: invocation,
       lastError,
       lastResult: emptyFailed(lastError),
     });
     return emptyFailed(lastError);
+  } finally {
+    // 仅当自己是当前 invocation 时清理；被新调用取代的旧调用不碰该状态。
+    if (activeInvocation === invocation) activeInvocation = null;
   }
 }

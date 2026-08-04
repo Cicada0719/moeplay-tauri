@@ -118,16 +118,21 @@ export function search(
   ruleId: string,
   keyword: string,
   page = 1,
+  invocation = "",
 ): Promise<SearchItem[]> {
-  return invokeCmd<SearchItem[]>("rules_search", { ruleId, keyword, page });
+  return invokeCmd<SearchItem[]>("rules_search", { ruleId, keyword, page, invocation });
 }
 
 export function detail(ruleId: string, url: string): Promise<Detail> {
   return invokeCmd<Detail>("rules_detail", { ruleId, url });
 }
 
-export function chapters(ruleId: string, detailUrl: string): Promise<Chapter[]> {
-  return invokeCmd<Chapter[]>("rules_chapters", { ruleId, detailUrl });
+export function chapters(
+  ruleId: string,
+  detailUrl: string,
+  invocation = "",
+): Promise<Chapter[]> {
+  return invokeCmd<Chapter[]>("rules_chapters", { ruleId, detailUrl, invocation });
 }
 
 export function parse(
@@ -143,11 +148,19 @@ export function cancelScope(scope: string): Promise<void> {
 }
 
 export function importRule(path: string): Promise<LoadedRule> {
-  return invokeCmd<LoadedRule>("rules_import", { path });
+  // 导入成功即失效规则列表缓存并后台重载（Kimi K3 复审第 7 项）：换源面板
+  // `getLoadedRules()` 下次访问时拿到最新列表，无需等用户手动刷新。
+  return invokeCmd<LoadedRule>("rules_import", { path }).then((rule) => {
+    void refreshLoadedRules().catch(() => {});
+    return rule;
+  });
 }
 
 export function removeCustomRule(ruleId: string): Promise<void> {
-  return invokeCmd<void>("rules_remove_custom", { ruleId });
+  // 删除成功同 importRule：失效缓存并后台重载，避免刚删除的源仍在快速换源面板出现。
+  return invokeCmd<void>("rules_remove_custom", { ruleId }).then(() => {
+    void refreshLoadedRules().catch(() => {});
+  });
 }
 
 export function exportRules(path: string): Promise<number> {

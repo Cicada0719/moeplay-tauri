@@ -102,7 +102,8 @@ describe("switchSource", () => {
 
     const result = await switchSource("rule-b", CTX);
 
-    expect(mocks.cancelScope).toHaveBeenCalledWith("play:c1");
+    // 首次调用无前序 invocation：无需 cancelScope（Kimi K3 复审第 7 项 per-invocation 设计）
+    expect(mocks.cancelScope).not.toHaveBeenCalled();
     expect(result.status).toBe("ok");
     expect(result.resumeSec).toBe(750);
     expect(result.targetChapter?.index).toBe(5);
@@ -184,10 +185,11 @@ describe("switchSource", () => {
 
     const result = await switchSource("rule-b", CTX);
 
-    // 必须取归一化匹配的 detail_url，而非盲目用 items[0]
+    // 必须取归一化匹配的 detail_url，而非盲目用 items[0]；chapters 绑定本次 invocation scope
     expect(mocks.chapters).toHaveBeenCalledWith(
       "rule-b",
       "https://example.com/detail/right",
+      expect.stringMatching(/^play:c1:\d+$/),
     );
     expect(result.status).toBe("ok");
   });
@@ -221,8 +223,9 @@ describe("switchSource", () => {
       switchSource("rule-b", CTX),
     ]);
 
-    // cancelScope 被调用 3 次
-    expect(mocks.cancelScope).toHaveBeenCalledTimes(3);
+    // cancelScope 仅用于作废旧 invocation：3 次并发调用中第 2/3 次各作废前一次
+    // （Kimi K3 复审第 7 项；首次调用无前序，不触发）。
+    expect(mocks.cancelScope).toHaveBeenCalledTimes(2);
     // 前两次为取消/竞态静默丢弃（status failed + discarded 标记 + 文案，不污染 lastError）
     expect(results[0].status).toBe("failed");
     expect(results[0].discarded).toBe(true);
@@ -243,7 +246,114 @@ describe("switchSource", () => {
     unsub();
     expect(state.switching).toBe(false);
     expect(state.lastError).toBeNull();
-    expect(state.currentScope).toBe("play:c1");
+    // currentScope 是最后一次调用（第三次）的 invocation scope；callSeq 为模块级计数器，
+    // 跨用例累积，无法断言具体数字，只断言其唯一性与格式。
+    expect(state.currentScope).toMatch(/^play:c1:\d+$/);
+  });
+
+  it("switch_race_cancels_only_prev_invocation: 新调用只作废旧 invocation，不影响自身", async () => {
+    // 按 invocation scope 隔离的取消模型（模拟 Rust 侧 scope 表）：cancelScope(inv) 只取消
+    // 该 invocation 已注册的 token，其他 invocation 完全不受影响（Kimi K3 复审第 7 项）。
+    const invTokens = new Map<string, Set<() => void>>();
+    const track = (inv: string, reject: () => void) => {
+      if (!invTokens.has(inv)) invTokens.set(inv, new Set());
+      invTokens.get(inv)!.add(reject);
+      return () => invTokens.get(inv)?.delete(reject);
+    };
+    const cancelInv = (inv: string) => {
+      for (const r of invTokens.get(inv) ?? []) r();
+      invTokens.delete(inv);
+    };
+    const cancellableInv = <T>(inv: string, value: T, delayMs: number): Promise<T> =>
+      new Promise<T>((resolve, reject) => {
+        const done = track(inv, () => reject(cancelledError()));
+        setTimeout(() => {
+          done();
+          resolve(value);
+        }, delayMs);
+      });
+
+    mocks.cancelScope.mockImplementation(async (scope: string) => {
+      cancelInv(scope);
+    });
+    mocks.search.mockImplementation((_r: string, _k: string, _p: number, inv: string) =>
+      cancellableInv(inv, [OK_ITEM], 5),
+    );
+    mocks.chapters.mockImplementation((_r: string, _u: string, inv: string) =>
+      cancellableInv(inv, CHAPTERS_5, 5),
+    );
+    mocks.parse.mockImplementation((_r: string, _u: string, inv: string) =>
+      cancellableInv(inv, PARSE_OK, 5),
+    );
+
+    const results = await Promise.all([
+      switchSource("rule-b", CTX),
+      switchSource("rule-b", CTX),
+    ]);
+
+    // A（旧）被 B 整体作废：search 收到 Cancelled → 静默丢弃
+    expect(results[0].status).toBe("failed");
+    expect(results[0].discarded).toBe(true);
+    // B（最新）自身未被自己的 cancelScope 影响：正常 ok
+    expect(results[1].status).toBe("ok");
+    expect(results[1].parseResult?.urls[0]).toBe("https://cdn.example.com/v.m3u8");
+  });
+
+  it("switch_race_late_parse_does_not_cancel_latest: 旧调用迟到的 parse 不得取消最新调用（Kimi K3 复审第 7 项）", async () => {
+    // 复现竞态窗口：旧调用 A 的 search 已在取消信号到达前越过取消点（worker 已完成 JS），
+    // 因此 A 继续走到 parse——A 的 parse 使用**独立** invocation scope，绝不能取消最新
+    // 调用 B 已注册的 parse token。旧实现（parse 共享 "play:{contentId}" scope）下，
+    // A 迟到的 parse 会通过 new_scope_token 把 B 的 token 取消，B 被误杀 → 两次切换全失败。
+    const invTokens = new Map<string, Set<() => void>>();
+    const track = (inv: string, reject: () => void) => {
+      if (!invTokens.has(inv)) invTokens.set(inv, new Set());
+      invTokens.get(inv)!.add(reject);
+      return () => invTokens.get(inv)?.delete(reject);
+    };
+    const cancelInv = (inv: string) => {
+      for (const r of invTokens.get(inv) ?? []) r();
+      invTokens.delete(inv);
+    };
+    const cancellableInv = <T>(inv: string, value: T, delayMs: number): Promise<T> =>
+      new Promise<T>((resolve, reject) => {
+        const done = track(inv, () => reject(cancelledError()));
+        setTimeout(() => {
+          done();
+          resolve(value);
+        }, delayMs);
+      });
+    // 已越过取消点的操作：无视 cancelScope，照常完成（模拟 worker 内 JS 已结束/已注册新 token）
+    const delayed = <T>(value: T, delayMs: number): Promise<T> =>
+      new Promise<T>((resolve) => setTimeout(() => resolve(value), delayMs));
+
+    mocks.cancelScope.mockImplementation(async (scope: string) => {
+      cancelInv(scope);
+    });
+    let searchCalls = 0;
+    mocks.search.mockImplementation((_r: string, _k: string, _p: number, inv: string) => {
+      searchCalls += 1;
+      // 第一次（旧调用 A）search 极慢且已越过取消点；最新调用 B 的 search 极快
+      return searchCalls === 1 ? delayed([OK_ITEM], 40) : cancellableInv(inv, [OK_ITEM], 1);
+    });
+    mocks.chapters.mockImplementation((_r: string, _u: string, inv: string) =>
+      cancellableInv(inv, CHAPTERS_5, 1),
+    );
+    mocks.parse.mockImplementation((_r: string, _u: string, inv: string) =>
+      cancellableInv(inv, PARSE_OK, 1),
+    );
+
+    const results = await Promise.all([
+      switchSource("rule-b", CTX),
+      switchSource("rule-b", CTX),
+    ]);
+
+    // B（最新调用）的 parse 未被 A 迟到的 parse 取消：必须 ok
+    expect(results[1].status).toBe("ok");
+    expect(results[1].parseResult?.urls[0]).toBe("https://cdn.example.com/v.m3u8");
+    expect(results[1].discarded).toBeUndefined();
+    // A（旧调用）即便走完全程，也因 seq 校验被静默丢弃
+    expect(results[0].status).toBe("failed");
+    expect(results[0].discarded).toBe(true);
   });
 
   it("switch_failed_always_carries_message: 任何 failed 结果都有 message（spec §5 契约）", async () => {
