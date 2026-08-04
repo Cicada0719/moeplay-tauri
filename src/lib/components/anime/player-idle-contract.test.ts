@@ -36,6 +36,13 @@ describe("player idle chrome contract", () => {
     expect(player).not.toContain("playerChromeTimer = window.setTimeout");
   });
 
+  it("shell 顶部栏隐藏由 chromeVisible 属性驱动，不再 :global 侵入 anime-playback-shell 内部 class", () => {
+    const player = source("src/lib/components/anime/AnimePlayer.svelte");
+    // 空闲隐藏交给 shell 自带的 chromeVisible prop（--chrome-hidden 规则在 anime-player.css 内）
+    expect(player).toContain("chromeVisible={$controlsVisible}");
+    expect(player).not.toContain(":global(.anime-playback-shell__");
+  });
+
   it("控制栏隐藏/复现过渡耗时 ≤ 200ms（shell CSS）", () => {
     const css = source("src/lib/styles/anime-player.css");
     const block =

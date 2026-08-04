@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildErrorLog, classifyPlaybackError } from "./errorMap";
+import { buildErrorLog, classifyPlaybackError, formatFailureRecord, mergeFailureContext } from "./errorMap";
 
 describe("classifyPlaybackError", () => {
   it("HTTP 401/403 → HTTP_FORBIDDEN", () => {
@@ -61,5 +61,51 @@ describe("buildErrorLog", () => {
     expect(log).toContain("httpStatus: 403");
     expect(log).toContain("detail: Request failed with status 403");
     expect(log).toContain("url: https://example.com/play");
+  });
+});
+
+describe("formatFailureRecord", () => {
+  it("渲染失败链路行：attempt / why / raw / httpStatus", () => {
+    expect(
+      formatFailureRecord({ why: "hls network", raw: "Request failed with status 403", httpStatus: 403, attempt: 1 }),
+    ).toBe("[尝试 1] hls network: Request failed with status 403 (HTTP 403)");
+    expect(
+      formatFailureRecord({ why: "video error", raw: { code: 2, message: "MEDIA_ERR_NETWORK" }, attempt: 2 }),
+    ).toBe("[尝试 2] video error: MEDIA_ERR_NETWORK");
+    // raw 缺省时省略冒号后的详情
+    expect(formatFailureRecord({ why: "timeout", attempt: 1 })).toBe("[尝试 1] timeout");
+  });
+});
+
+describe("mergeFailureContext", () => {
+  it("单次失败保持 classifyPlaybackError 原始 detail（不包装成多行）", () => {
+    const final = classifyPlaybackError(new Error("boom"), 403);
+    const merged = mergeFailureContext(final, [{ why: "hls network", raw: new Error("boom"), httpStatus: 403, attempt: 1 }]);
+    expect(merged).toEqual(final);
+  });
+
+  it("多次失败合并完整链路：kind/httpStatus 取最终失败，detail 携带全部中间失败", () => {
+    const final = classifyPlaybackError({ code: 2, message: "MEDIA_ERR_NETWORK" }, undefined);
+    const merged = mergeFailureContext(final, [
+      { why: "hls network", raw: "Request failed with status 403", httpStatus: 403, attempt: 1 },
+      { why: "video error", raw: { code: 2, message: "MEDIA_ERR_NETWORK" }, attempt: 2 },
+    ]);
+    expect(merged.kind).toBe("NETWORK");
+    expect(merged.httpStatus).toBeUndefined();
+    expect(merged.detail).toContain("[尝试 1] hls network: Request failed with status 403 (HTTP 403)");
+    expect(merged.detail).toContain("[尝试 2] video error: MEDIA_ERR_NETWORK");
+  });
+
+  it("合并结果可被 buildErrorLog 携带（复制日志含完整链路）", () => {
+    const final = classifyPlaybackError("denied", 403);
+    const merged = mergeFailureContext(final, [
+      { why: "hls network", raw: "fetch aborted", attempt: 1 },
+      { why: "hls network", raw: "Request failed with status 403", httpStatus: 403, attempt: 2 },
+    ]);
+    const log = buildErrorLog(merged);
+    expect(log).toContain("kind: HTTP_FORBIDDEN");
+    expect(log).toContain("httpStatus: 403");
+    expect(log).toContain("detail: [尝试 1] hls network: fetch aborted");
+    expect(log).toContain("[尝试 2] hls network: Request failed with status 403 (HTTP 403)");
   });
 });

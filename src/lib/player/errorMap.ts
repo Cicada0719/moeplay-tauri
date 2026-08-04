@@ -92,6 +92,31 @@ export function classifyPlaybackError(raw: unknown, httpStatus?: number): Player
   return { kind: "HTTP_ERROR", message: httpErrorMessage(status), detail, httpStatus: status, occurredAt };
 }
 
+/** 单次播放失败上下文：供错误详情/复制日志记录中间失败（FR-07 增强） */
+export interface PlaybackFailureRecord {
+  why: string; // 失败原因标签（如 'hls network' / 'timeout' / 'video error'）
+  raw?: unknown; // 原始错误对象/字符串
+  httpStatus?: number; // HTTP 状态码（若有）
+  attempt: number; // 第几次加载尝试（1 起）
+}
+
+/** 把单次失败渲染为日志行：`[尝试 N] <why>: <raw>`（raw 缺省时省略） */
+export function formatFailureRecord(record: PlaybackFailureRecord): string {
+  const status = typeof record.httpStatus === "number" ? ` (HTTP ${record.httpStatus})` : "";
+  const rawDetail = record.raw === undefined ? "" : `: ${describeRaw(record.raw)}`;
+  return `[尝试 ${record.attempt}] ${record.why}${rawDetail}${status}`;
+}
+
+/**
+ * 合并多次失败上下文到最终错误：kind/httpStatus/message 取最终失败，detail 携带全部
+ * 中间失败。仅当存在多次失败时合并；单次失败保持 `classifyPlaybackError` 原始 detail，
+ * 避免把单个错误包装成多行日志。用于「每次失败都记录，最终成功不误报」的上报策略。
+ */
+export function mergeFailureContext(final: PlayerError, records: PlaybackFailureRecord[]): PlayerError {
+  if (records.length <= 1) return final;
+  return { ...final, detail: records.map(formatFailureRecord).join("\n") };
+}
+
 /** 复制日志：error.detail + 环境信息，供「复制日志」按钮写入剪贴板 */
 export function buildErrorLog(error: PlayerError): string {
   const lines: Array<string | null> = [

@@ -41,7 +41,7 @@
     showSourceSuggest,
     type PlayerQuality,
   } from "../../stores/player";
-  import { buildErrorLog, classifyPlaybackError } from "../../player/errorMap";
+  import { buildErrorLog, classifyPlaybackError, mergeFailureContext, type PlaybackFailureRecord } from "../../player/errorMap";
   import {
     setSourceProvider,
     setSourceSwitchHandler,
@@ -505,6 +505,10 @@
     let settled = false;    // 已成功加载到元数据 或 已最终判 error —— 之后不再做初次兜底
     let watchdog: number | null = null;
     let playbackWatchdog: number | null = null;
+    // FR-07：记录本次加载过程中的每一次失败上下文（含中间尝试失败）。最终成功
+    // （succeed）时不误报；最终失败时通过 mergeFailureContext 合并进错误 detail，供
+    // ErrorOverlay 展示 / 复制日志携带完整链路。
+    const failureContext: PlaybackFailureRecord[] = [];
     const nativeHls = v.canPlayType("application/vnd.apple.mpegurl") !== "";
     // 首选方式：能用 hls.js 且看着像 m3u8 就先 hls，否则先原生
     const firstIsHls = m3u8 && !nativeHls && Hls.isSupported();
@@ -554,6 +558,8 @@
       clearWatchdog();
       clearPlaybackWatchdog();
       if (hls) { try { hls.destroy(); } catch {} hls = null; activeHls = null; }
+      // 每次失败都记录（含可兜底的中间失败）；最终上报时合并，成功路径不误报
+      failureContext.push({ why, raw, httpStatus, attempt });
       const canTryAlternate = attempt < 2 && (!settled || (v.currentTime === 0 && v.readyState < 3));
       if (canTryAlternate) {
         console.warn(`[播放器] 第${attempt}次加载失败(${why})，自动切换播放方式兜底`);
@@ -582,9 +588,12 @@
           invokeCmd('frontend_log', { level: 'info', message: '[播放器] 无可用备用源，自动切换网页播放兜底' }).catch(() => {});
           switchToWebFallback();
         } else {
-          // FR-07：播放失败（网络/403/解码等）→ 上报结构化错误，ErrorOverlay 提供重试/换源/复制日志
+          // FR-07：播放失败（网络/403/解码等）→ 上报结构化错误，ErrorOverlay 提供重试/换源/复制日志。
+          // 本次加载若存在中间失败（如尝试 1 hls 失败后兜底尝试 2 再失败），用 mergeFailureContext
+          // 把完整失败链路合并进 error.detail，供 ErrorOverlay 展示 / 复制日志携带；单次失败不包装。
           if (!$playerError) {
-            reportPlayerError(classifyPlaybackError(raw ?? why, httpStatus));
+            const finalError = classifyPlaybackError(raw ?? why, httpStatus);
+            reportPlayerError(mergeFailureContext(finalError, failureContext));
           }
         }
       }
@@ -1206,6 +1215,7 @@
     {nextEpisodeTitle}
     aspectRatio={mediaAspectRatio}
     fullscreen={isFullscreen}
+    chromeVisible={$controlsVisible}
     panelOpen={showCommentsPanel || showEpisodePanel}
     variant="classic"
     stageLabel={`${animeStore.detailName} ${epName || "播放器"} 播放区域`}
@@ -1693,25 +1703,16 @@
     overflow: hidden;
   }
   /* 空闲态（spec §3.2）：controlsVisible=false 时由 store 提供的 controlsIdleClass
-     给容器加 .idle —— 隐藏鼠标指针、自定义增强控制栏与 shell 顶部栏（Controls 透明度 0）。
-     由于 .idle 由 JS action 动态追加，这里用 :global 匹配。 */
+     给容器加 .idle —— 隐藏鼠标指针与自定义增强控制栏。shell 顶部栏（context/toolbar）
+     的隐藏由 AnimePlaybackShell 自带的 chromeVisible 属性驱动（anime-player.css 内
+     --chrome-hidden 规则），本组件不再用 :global 侵入其内部 class。 */
   :global(.player-overlay.idle) {
     cursor: none;
   }
   :global(.player-overlay.idle) .enhanced-media-controls {
     opacity: 0;
     pointer-events: none;
-  }
-  :global(.player-overlay.idle) :global(.anime-playback-shell__context),
-  :global(.player-overlay.idle) :global(.anime-playback-shell__toolbar) {
-    opacity: 0;
-    visibility: hidden;
-    transform: translateY(-12px);
-    pointer-events: none;
-    transition:
-      opacity 160ms ease,
-      transform 200ms ease,
-      visibility 0s linear 200ms;
+    transform: translateY(8px);
   }
   .player-overlay.fullscreen {
     position: fixed;
@@ -2308,6 +2309,7 @@
     background: rgba(4,7,10,.82);
     box-shadow: 0 12px 38px rgba(0,0,0,.42);
     backdrop-filter: blur(16px);
+    transition: opacity 160ms ease, transform 200ms ease;
   }
   .enhanced-media-controls button {
     width: 32px;
