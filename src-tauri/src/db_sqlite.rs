@@ -3187,8 +3187,7 @@ impl HistoryRepo for HistoryDb {
              ORDER BY updated_at DESC"
         ))?;
         let rows = stmt.query_map(params![content_id, source_id], read_history_row)?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(DbError::from)
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
     }
 
     fn list(
@@ -3199,9 +3198,7 @@ impl HistoryRepo for HistoryDb {
         offset: u32,
     ) -> Result<Vec<HistoryRecord>, DbError> {
         let guard = self.lock_conn()?;
-        let mut sql = format!(
-            "SELECT {HISTORY_COLUMNS} FROM history WHERE deleted = 0"
-        );
+        let mut sql = format!("SELECT {HISTORY_COLUMNS} FROM history WHERE deleted = 0");
         let mut args: Vec<rusqlite::types::Value> = Vec::new();
         if let Some(ct) = content_type {
             sql.push_str(" AND content_type = ?");
@@ -3217,8 +3214,7 @@ impl HistoryRepo for HistoryDb {
 
         let mut stmt = guard.prepare(&sql)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), read_history_row)?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(DbError::from)
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
     }
 
     fn count(&self, content_type: Option<ContentType>) -> Result<i64, DbError> {
@@ -3253,8 +3249,7 @@ impl HistoryRepo for HistoryDb {
              ORDER BY updated_at DESC"
         ))?;
         let rows = stmt.query_map(params![since_ms], read_history_row)?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(DbError::from)
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
     }
 }
 
@@ -3268,7 +3263,10 @@ fn read_history_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<HistoryRecord> 
         rusqlite::Error::FromSqlConversionFailure(
             2,
             rusqlite::types::Type::Text,
-            Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, message)),
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                message,
+            )),
         )
     })?;
     Ok(HistoryRecord {

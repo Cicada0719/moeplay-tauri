@@ -70,7 +70,10 @@ fn assert_no_duplicates(db: &HistoryDb) {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(dup, 0, "merge key (content_id, source_id, chapter_id) must be unique");
+    assert_eq!(
+        dup, 0,
+        "merge key (content_id, source_id, chapter_id) must be unique"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -225,7 +228,8 @@ fn test_history_repo_list_filter_search_pagination() {
         .unwrap();
     }
 
-    let manga = <HistoryDb as HistoryRepo>::list(&db, Some(ContentType::Manga), None, 100, 0).unwrap();
+    let manga =
+        <HistoryDb as HistoryRepo>::list(&db, Some(ContentType::Manga), None, 100, 0).unwrap();
     assert!(!manga.is_empty());
     assert!(manga.iter().all(|r| r.content_type == ContentType::Manga));
 
@@ -265,12 +269,19 @@ fn test_tombstone_and_list_exclusion() {
     assert_eq!(history_rows(&db).len(), 1);
 
     db.tombstone("r1").unwrap();
-    assert_eq!(history_rows(&db).len(), 0, "tombstoned row must be hidden from list");
+    assert_eq!(
+        history_rows(&db).len(),
+        0,
+        "tombstoned row must be hidden from list"
+    );
 
     let tombstones = <HistoryDb as HistoryRepo>::list_tombstones_since(&db, 0).unwrap();
     assert_eq!(tombstones.len(), 1);
     assert!(tombstones[0].deleted);
-    assert!(tombstones[0].updated_at > 1_000, "updated_at must be refreshed on tombstone");
+    assert!(
+        tombstones[0].updated_at > 1_000,
+        "updated_at must be refreshed on tombstone"
+    );
 
     let fetched = db.get("r1").unwrap().unwrap();
     assert!(fetched.deleted);
@@ -346,7 +357,10 @@ fn test_migrate_failure_rollback() {
         }
     })));
     let error = migrator.run().unwrap_err();
-    assert!(error.to_string().contains("injected failure"), "got: {error}");
+    assert!(
+        error.to_string().contains("injected failure"),
+        "got: {error}"
+    );
 
     let conn = db.conn();
     let guard = conn.lock().unwrap();
@@ -361,7 +375,9 @@ fn test_migrate_failure_rollback() {
         .unwrap();
     assert_eq!(history_count, 0, "all this-run writes must be cleared");
     let staging: i64 = guard
-        .query_row("SELECT COUNT(*) FROM migration_staging", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM migration_staging", [], |row| {
+            row.get(0)
+        })
         .unwrap();
     assert_eq!(staging, 0);
     drop(guard);
@@ -371,7 +387,11 @@ fn test_migrate_failure_rollback() {
     assert!(!dir.path().join("history.json.migrated").exists());
 
     let backups = migrator.list_backups().unwrap();
-    assert_eq!(backups.len(), 1, "backup file must be retained after rollback");
+    assert_eq!(
+        backups.len(),
+        1,
+        "backup file must be retained after rollback"
+    );
 }
 
 #[test]
@@ -396,15 +416,27 @@ fn test_rollback_restores_replaced_rows() {
         device_id: "dev".into(),
         deleted: false,
     };
-    db.upsert(&seed("pre-1", "c1", "Old Title 1", 1_000)).unwrap();
-    db.upsert(&seed("pre-2", "c2", "Old Title 2", 1_000)).unwrap();
+    db.upsert(&seed("pre-1", "c1", "Old Title 1", 1_000))
+        .unwrap();
+    db.upsert(&seed("pre-2", "c2", "Old Title 2", 1_000))
+        .unwrap();
 
     // v1 数据：同一 merge key，updated_at 更新 → 迁移会触发 UPDATE。
     write_v1(
         dir.path(),
         &[
-            v1("c1", "anime", "New Title 1", map!("source_id" => "src", "updated_at" => 2_000)),
-            v1("c2", "anime", "New Title 2", map!("source_id" => "src", "updated_at" => 2_000)),
+            v1(
+                "c1",
+                "anime",
+                "New Title 1",
+                map!("source_id" => "src", "updated_at" => 2_000),
+            ),
+            v1(
+                "c2",
+                "anime",
+                "New Title 2",
+                map!("source_id" => "src", "updated_at" => 2_000),
+            ),
         ],
     );
 
@@ -506,7 +538,11 @@ fn test_corrupted_v1_json() {
     );
 
     let backups = migrator.list_backups().unwrap();
-    assert_eq!(backups.len(), 1, "backup must be generated even for corrupted v1");
+    assert_eq!(
+        backups.len(),
+        1,
+        "backup must be generated even for corrupted v1"
+    );
 
     let conn = db.conn();
     let guard = conn.lock().unwrap();
@@ -581,7 +617,12 @@ fn test_missing_fields_defaults() {
     let dir = temp_app_dir();
     write_v1(
         dir.path(),
-        &[v1("c1", "anime", "Title", map!("updated_at" => 1_600_000_000_i64))],
+        &[v1(
+            "c1",
+            "anime",
+            "Title",
+            map!("updated_at" => 1_600_000_000_i64),
+        )],
     );
     let (db, migrator) = open_migrator(dir.path());
     migrator.run().unwrap();
@@ -614,12 +655,25 @@ fn test_device_id_stable() {
 fn test_updated_at_unit_normalization() {
     // 秒级 → 毫秒
     let entry_seconds = v1("s1", "anime", "S", map!("updated_at" => 1_600_000_000_i64));
-    let rec = map_v1_to_v2(&serde_json::from_value::<V1HistoryEntry>(entry_seconds).unwrap(), "dev").unwrap();
+    let rec = map_v1_to_v2(
+        &serde_json::from_value::<V1HistoryEntry>(entry_seconds).unwrap(),
+        "dev",
+    )
+    .unwrap();
     assert_eq!(rec.updated_at, 1_600_000_000_000);
 
     // 毫秒级 → 不重复放大
-    let entry_millis = v1("m1", "anime", "M", map!("updated_at" => 1_600_000_000_000_i64));
-    let rec2 = map_v1_to_v2(&serde_json::from_value::<V1HistoryEntry>(entry_millis).unwrap(), "dev").unwrap();
+    let entry_millis = v1(
+        "m1",
+        "anime",
+        "M",
+        map!("updated_at" => 1_600_000_000_000_i64),
+    );
+    let rec2 = map_v1_to_v2(
+        &serde_json::from_value::<V1HistoryEntry>(entry_millis).unwrap(),
+        "dev",
+    )
+    .unwrap();
     assert_eq!(rec2.updated_at, 1_600_000_000_000);
 }
 
@@ -676,9 +730,10 @@ fn test_final_progress_sink_emits_completed() {
         "last progress event must be Completed, got {:?}",
         all.last().unwrap().status
     );
-    assert!(all
-        .iter()
-        .all(|r| matches!(r.status, MigrationStatus::InProgress | MigrationStatus::Completed)));
+    assert!(all.iter().all(|r| matches!(
+        r.status,
+        MigrationStatus::InProgress | MigrationStatus::Completed
+    )));
 }
 
 #[test]
@@ -688,8 +743,18 @@ fn test_merge_key_null_chapter_semantics() {
     write_v1(
         dir.path(),
         &[
-            v1("c1", "anime", "Old", map!("source_id" => "src", "updated_at" => 1_600_000_000_000_i64)),
-            v1("c1", "anime", "New", map!("source_id" => "src", "updated_at" => 1_600_000_000_001_i64)),
+            v1(
+                "c1",
+                "anime",
+                "Old",
+                map!("source_id" => "src", "updated_at" => 1_600_000_000_000_i64),
+            ),
+            v1(
+                "c1",
+                "anime",
+                "New",
+                map!("source_id" => "src", "updated_at" => 1_600_000_000_001_i64),
+            ),
         ],
     );
     let (db, migrator) = open_migrator(dir.path());
@@ -719,7 +784,11 @@ fn test_merge_key_null_chapter_semantics() {
     let report2 = migrator2.run().unwrap();
     assert_eq!(report2.status, MigrationStatus::Completed);
     let rows2 = history_rows(&db2);
-    assert_eq!(rows2.len(), 2, "chapter_id NULL 与具体值必须是不同 merge key");
+    assert_eq!(
+        rows2.len(),
+        2,
+        "chapter_id NULL 与具体值必须是不同 merge key"
+    );
     assert_no_duplicates(&db2);
 }
 
@@ -732,8 +801,18 @@ fn test_rollback_deletes_row_inserted_then_replaced() {
     write_v1(
         dir.path(),
         &[
-            v1("c1", "anime", "Old", map!("source_id" => "src", "updated_at" => 1_000)),
-            v1("c1", "anime", "New", map!("source_id" => "src", "updated_at" => 2_000)),
+            v1(
+                "c1",
+                "anime",
+                "Old",
+                map!("source_id" => "src", "updated_at" => 1_000),
+            ),
+            v1(
+                "c1",
+                "anime",
+                "New",
+                map!("source_id" => "src", "updated_at" => 2_000),
+            ),
         ],
     );
     let db = HistoryDb::open(dir.path()).unwrap();
@@ -742,7 +821,10 @@ fn test_rollback_deletes_row_inserted_then_replaced() {
         Err(MigrationError::Migration("injected failure".into()))
     })));
     let error = migrator.run().unwrap_err();
-    assert!(error.to_string().contains("injected failure"), "got: {error}");
+    assert!(
+        error.to_string().contains("injected failure"),
+        "got: {error}"
+    );
     assert_eq!(
         history_rows(&db).len(),
         0,
@@ -805,7 +887,11 @@ fn test_crash_resume_keeps_original_replaced_snapshot() {
         "New2",
         map!("source_id" => "src", "updated_at" => 3_000),
     ));
-    assert_eq!(entries.len(), 502, "batch 1 = 500 条，New2 必须落在 batch 2");
+    assert_eq!(
+        entries.len(),
+        502,
+        "batch 1 = 500 条，New2 必须落在 batch 2"
+    );
     write_v1(dir.path(), &entries);
 
     // 第一次运行：batch 1 提交后崩溃（panic）。
@@ -825,12 +911,19 @@ fn test_crash_resume_keeps_original_replaced_snapshot() {
         Err(MigrationError::Migration("injected failure".into()))
     })));
     let error = migrator2.run().unwrap_err();
-    assert!(error.to_string().contains("injected failure"), "got: {error}");
+    assert!(
+        error.to_string().contains("injected failure"),
+        "got: {error}"
+    );
 
     // 回滚必须还原到 pre-migration 原始值（title=Original, updated_at=1000），
     // 而非 batch 1 的中间态（New1 @ 2000）。
     let rows = history_rows(&db);
-    assert_eq!(rows.len(), 1, "only the pre-existing row may survive rollback");
+    assert_eq!(
+        rows.len(),
+        1,
+        "only the pre-existing row may survive rollback"
+    );
     assert_eq!(rows[0].id, "pre-1");
     assert_eq!(rows[0].title, "Original");
     assert_eq!(rows[0].updated_at, 1_000);
@@ -855,7 +948,10 @@ fn test_history_gate_refresh_after_completion() {
 
     let status = super::commands::gate_history(&state).unwrap();
     assert_eq!(status, MigrationStatus::NotNeeded);
-    assert_eq!(*state.migration_status.read().unwrap(), MigrationStatus::NotNeeded);
+    assert_eq!(
+        *state.migration_status.read().unwrap(),
+        MigrationStatus::NotNeeded
+    );
     assert!(ensure_history_available(&status).is_ok());
 }
 
@@ -892,14 +988,25 @@ fn test_count_validation_with_pre_existing_rows() {
     //  - other-dev：他设备、merge key 与 v1 的 c1 相同（会被 REPLACE 覆盖）；
     //  - pre-1：同设备、merge key 不在 v1 中。
     db.upsert(&seed("manual-1", "manual", "dev", 100)).unwrap();
-    db.upsert(&seed("other-dev", "c1", "other-device", 100)).unwrap();
+    db.upsert(&seed("other-dev", "c1", "other-device", 100))
+        .unwrap();
     db.upsert(&seed("pre-1", "pre1", "dev", 1_000)).unwrap();
 
     write_v1(
         dir.path(),
         &[
-            v1("c1", "anime", "New", map!("source_id" => "src", "updated_at" => 2_000)),
-            v1("c2", "anime", "Fresh", map!("source_id" => "src", "updated_at" => 3_000)),
+            v1(
+                "c1",
+                "anime",
+                "New",
+                map!("source_id" => "src", "updated_at" => 2_000),
+            ),
+            v1(
+                "c2",
+                "anime",
+                "Fresh",
+                map!("source_id" => "src", "updated_at" => 3_000),
+            ),
         ],
     );
     let migrator = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
@@ -938,7 +1045,11 @@ fn test_rollback_insert_then_replace_across_batches() {
         "New",
         map!("source_id" => "src", "updated_at" => 2_000),
     ));
-    assert_eq!(entries.len(), 501, "batch 1 = 500 条，c1@New 必须落在 batch 2");
+    assert_eq!(
+        entries.len(),
+        501,
+        "batch 1 = 500 条，c1@New 必须落在 batch 2"
+    );
     write_v1(dir.path(), &entries);
 
     let db = HistoryDb::open(dir.path()).unwrap();
@@ -963,7 +1074,10 @@ fn test_rollback_insert_then_replace_across_batches() {
         }
     })));
     let error = migrator2.run().unwrap_err();
-    assert!(error.to_string().contains("injected failure"), "got: {error}");
+    assert!(
+        error.to_string().contains("injected failure"),
+        "got: {error}"
+    );
 
     // 回滚：所有行都是迁移创建（'inserted'），全部删除，不能残留 c1 的中间态快照行。
     assert_eq!(
@@ -974,7 +1088,9 @@ fn test_rollback_insert_then_replace_across_batches() {
     let conn = db.conn();
     let guard = conn.lock().unwrap();
     let staging: i64 = guard
-        .query_row("SELECT COUNT(*) FROM migration_staging", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM migration_staging", [], |row| {
+            row.get(0)
+        })
         .unwrap();
     assert_eq!(staging, 0);
     drop(guard);
@@ -1146,9 +1262,11 @@ fn test_rollback_preserves_backup_path() {
         .unwrap();
     assert_eq!(status, "rolled_back");
     let backup_path: Option<String> = guard
-        .query_row("SELECT backup_path FROM migration_state WHERE id=1", [], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT backup_path FROM migration_state WHERE id=1",
+            [],
+            |row| row.get(0),
+        )
         .unwrap();
     drop(guard);
     assert!(
@@ -1248,7 +1366,11 @@ fn test_source_missing_after_interruption_unblocks_gate() {
     );
 
     // 崩溃前已提交的批次数据保留（不因放弃迁移而丢失）；staging 清空。
-    assert_eq!(history_rows(&db).len(), 500, "committed batch must be retained");
+    assert_eq!(
+        history_rows(&db).len(),
+        500,
+        "committed batch must be retained"
+    );
     let conn = db.conn();
     let guard = conn.lock().unwrap();
     let status: String = guard
@@ -1264,9 +1386,11 @@ fn test_source_missing_after_interruption_unblocks_gate() {
         .unwrap();
     assert_eq!(staging, 0, "staging must be cleared when abandoning");
     let backup_path: Option<String> = guard
-        .query_row("SELECT backup_path FROM migration_state WHERE id=1", [], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT backup_path FROM migration_state WHERE id=1",
+            [],
+            |row| row.get(0),
+        )
         .unwrap();
     drop(guard);
     assert!(
@@ -1355,12 +1479,22 @@ fn test_migrate_10k_records_perf() {
     let started = Instant::now();
     let report = migrator.run().unwrap();
     let elapsed = started.elapsed();
-    assert!(elapsed < Duration::from_secs(10), "migration took {elapsed:?}");
+    assert!(
+        elapsed < Duration::from_secs(10),
+        "migration took {elapsed:?}"
+    );
     assert_eq!(report.total, 10_000);
-    assert_eq!(<HistoryDb as HistoryRepo>::count(&db, None).unwrap(), 10_000);
+    assert_eq!(
+        <HistoryDb as HistoryRepo>::count(&db, None).unwrap(),
+        10_000
+    );
 
     let t0 = Instant::now();
     let page = <HistoryDb as HistoryRepo>::list(&db, None, None, 50, 0).unwrap();
     assert_eq!(page.len(), 50);
-    assert!(t0.elapsed() < Duration::from_millis(50), "list took {:?}", t0.elapsed());
+    assert!(
+        t0.elapsed() < Duration::from_millis(50),
+        "list took {:?}",
+        t0.elapsed()
+    );
 }

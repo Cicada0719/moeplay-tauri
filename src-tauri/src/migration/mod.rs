@@ -132,9 +132,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 pub mod commands;
-pub mod v1_to_v2;
 #[cfg(test)]
 mod tests;
+pub mod v1_to_v2;
 
 /// v1 历史 JSON 文件名。
 pub const V1_HISTORY_FILE: &str = "history.json";
@@ -302,7 +302,9 @@ impl Migrator {
             Ok(guard) => guard,
             Err(std::sync::TryLockError::WouldBlock) => return Ok(None),
             Err(std::sync::TryLockError::Poisoned(_)) => {
-                return Err(MigrationError::Migration("history db lock poisoned".to_string()));
+                return Err(MigrationError::Migration(
+                    "history db lock poisoned".to_string(),
+                ));
             }
         };
         Ok(Some(status_from_state(&guard, &self.app_data_dir)?))
@@ -332,7 +334,10 @@ impl Migrator {
     /// 恢复成功后会把备份内容**写回 v1 路径**（`<app_data_dir>/history.json`，
     /// 第 4 轮 DeepSeek 审核 item 4）：迁移状态虽已 `completed`，但用户能直接看到
     /// v1 数据文件"回来了"，避免误以为恢复失败。
-    pub fn restore_from_backup(&self, backup_path: &Path) -> Result<MigrationReport, MigrationError> {
+    pub fn restore_from_backup(
+        &self,
+        backup_path: &Path,
+    ) -> Result<MigrationReport, MigrationError> {
         if !backup_path.exists() {
             return Err(MigrationError::BackupNotFound(backup_path.to_path_buf()));
         }
@@ -507,7 +512,8 @@ impl Migrator {
         }
 
         // ---- 3. 备份（断点/恢复场景复用已有 backup_path）----
-        let backup_path = if let Some(existing) = prior.as_ref().and_then(|row| row.backup_path.clone())
+        let backup_path = if let Some(existing) =
+            prior.as_ref().and_then(|row| row.backup_path.clone())
         {
             PathBuf::from(existing)
         } else {
@@ -680,11 +686,10 @@ impl Migrator {
             }
             // 防呆：staging 登记的写入行数不得超过 v1 去重后的 merge key 数，
             // 否则说明同一 merge key 被写了多行（重复记录）。
-            let staged_total: i64 = tx.query_row(
-                "SELECT COUNT(*) FROM migration_staging",
-                [],
-                |row| row.get(0),
-            )?;
+            let staged_total: i64 =
+                tx.query_row("SELECT COUNT(*) FROM migration_staging", [], |row| {
+                    row.get(0)
+                })?;
             if staged_total > expected_unique {
                 let message = format!(
                     "migration staged {staged_total} rows, exceeding {expected_unique} unique merge keys"

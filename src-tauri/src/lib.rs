@@ -70,8 +70,8 @@ use process_monitor::ProcessMonitor;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use task_queue::TaskQueue;
-use tauri::Manager;
 use tauri::Emitter;
+use tauri::Manager;
 #[cfg(desktop)]
 use tauri::{
     menu::{Menu, MenuItem},

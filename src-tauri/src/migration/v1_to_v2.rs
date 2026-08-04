@@ -95,19 +95,31 @@ pub fn map_v1_to_v2(entry: &V1HistoryEntry, device_id: &str) -> Result<HistoryRe
         .ok_or(MapError::MissingContentId)?
         .trim()
         .to_string();
-    let title = first_non_empty(&[entry.title.as_deref(), entry.name_cn.as_deref(), entry.name.as_deref()])
-        .ok_or(MapError::MissingTitle)?
-        .trim()
-        .to_string();
+    let title = first_non_empty(&[
+        entry.title.as_deref(),
+        entry.name_cn.as_deref(),
+        entry.name.as_deref(),
+    ])
+    .ok_or(MapError::MissingTitle)?
+    .trim()
+    .to_string();
 
     let content_type = match entry.content_type.as_deref() {
-        Some(raw) => ContentType::from_str(raw)
-            .map_err(|_| MapError::UnknownContentType(raw.to_string()))?,
+        Some(raw) => {
+            ContentType::from_str(raw).map_err(|_| MapError::UnknownContentType(raw.to_string()))?
+        }
         // 早期番剧历史形状没有 content_type，但带番剧专属字段 → 视为 anime
-        None if entry.last_episode.is_some() || entry.progress_ms.is_some() || entry.rule_name.is_some() => {
+        None if entry.last_episode.is_some()
+            || entry.progress_ms.is_some()
+            || entry.rule_name.is_some() =>
+        {
             ContentType::Anime
         }
-        None => return Err(MapError::UnknownContentType("missing content_type".to_string())),
+        None => {
+            return Err(MapError::UnknownContentType(
+                "missing content_type".to_string(),
+            ))
+        }
     };
 
     let source_id = first_non_empty(&[
@@ -123,7 +135,11 @@ pub fn map_v1_to_v2(entry: &V1HistoryEntry, device_id: &str) -> Result<HistoryRe
     let chapter_id = entry
         .chapter_id
         .clone()
-        .or_else(|| entry.last_episode.map(|episode| format!("episode-{episode}")))
+        .or_else(|| {
+            entry
+                .last_episode
+                .map(|episode| format!("episode-{episode}"))
+        })
         .filter(|value| !value.trim().is_empty());
     let chapter_title = entry
         .chapter_title
@@ -138,8 +154,7 @@ pub fn map_v1_to_v2(entry: &V1HistoryEntry, device_id: &str) -> Result<HistoryRe
         .or_else(|| entry.progress_ms.map(|ms| ms as f64 / 1000.0))
         .unwrap_or(0.0);
     let scroll_pct = entry.scroll_pct.unwrap_or(0.0);
-    let updated_at = normalize_updated_at(entry.updated_at.as_ref())
-        .unwrap_or_else(now_ms);
+    let updated_at = normalize_updated_at(entry.updated_at.as_ref()).unwrap_or_else(now_ms);
     let deleted = entry.deleted.unwrap_or(false);
 
     Ok(HistoryRecord {
@@ -384,7 +399,15 @@ mod tests {
 
     #[test]
     fn defaults_and_skips() {
-        let rec = map_v1_to_v2(&entry_json(&[("content_id", "c1".into()), ("content_type", "novel".into()), ("title", "T".into())]), "d").unwrap();
+        let rec = map_v1_to_v2(
+            &entry_json(&[
+                ("content_id", "c1".into()),
+                ("content_type", "novel".into()),
+                ("title", "T".into()),
+            ]),
+            "d",
+        )
+        .unwrap();
         assert_eq!(rec.source_id, "unknown");
         assert_eq!(rec.cover, None);
         assert_eq!(rec.chapter_id, None);
@@ -394,15 +417,31 @@ mod tests {
         assert!(!rec.deleted);
 
         assert_eq!(
-            map_v1_to_v2(&entry_json(&[("content_type", "anime".into()), ("title", "T".into())]), "d"),
+            map_v1_to_v2(
+                &entry_json(&[("content_type", "anime".into()), ("title", "T".into())]),
+                "d"
+            ),
             Err(MapError::MissingContentId)
         );
         assert_eq!(
-            map_v1_to_v2(&entry_json(&[("content_id", "c1".into()), ("content_type", "anime".into())]), "d"),
+            map_v1_to_v2(
+                &entry_json(&[
+                    ("content_id", "c1".into()),
+                    ("content_type", "anime".into())
+                ]),
+                "d"
+            ),
             Err(MapError::MissingTitle)
         );
         assert_eq!(
-            map_v1_to_v2(&entry_json(&[("content_id", "c1".into()), ("content_type", "game".into()), ("title", "T".into())]), "d"),
+            map_v1_to_v2(
+                &entry_json(&[
+                    ("content_id", "c1".into()),
+                    ("content_type", "game".into()),
+                    ("title", "T".into())
+                ]),
+                "d"
+            ),
             Err(MapError::UnknownContentType("game".into()))
         );
     }
@@ -410,14 +449,24 @@ mod tests {
     #[test]
     fn timestamp_units_normalized_once() {
         let seconds = map_v1_to_v2(
-            &entry_json(&[("content_id", "c1".into()), ("content_type", "anime".into()), ("title", "T".into()), ("updated_at", 1_600_000_000.into())]),
+            &entry_json(&[
+                ("content_id", "c1".into()),
+                ("content_type", "anime".into()),
+                ("title", "T".into()),
+                ("updated_at", 1_600_000_000.into()),
+            ]),
             "d",
         )
         .unwrap();
         assert_eq!(seconds.updated_at, 1_600_000_000_000);
 
         let millis = map_v1_to_v2(
-            &entry_json(&[("content_id", "c1".into()), ("content_type", "anime".into()), ("title", "T".into()), ("updated_at", 1_600_000_000_000_i64.into())]),
+            &entry_json(&[
+                ("content_id", "c1".into()),
+                ("content_type", "anime".into()),
+                ("title", "T".into()),
+                ("updated_at", 1_600_000_000_000_i64.into()),
+            ]),
             "d",
         )
         .unwrap();

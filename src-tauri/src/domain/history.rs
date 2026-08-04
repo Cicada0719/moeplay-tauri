@@ -176,7 +176,10 @@ mod tests {
         assert_eq!(value["contentType"], "anime");
         assert_eq!(value["updatedAt"].as_i64(), Some(1_600_000_000_000));
         assert_eq!(value["positionSec"], 12.5);
-        assert_eq!(value["progress"], 12.5, "serialized JSON must contain progress");
+        assert_eq!(
+            value["progress"], 12.5,
+            "serialized JSON must contain progress"
+        );
         assert_eq!(record.progress(), 12.5);
     }
 

@@ -24,7 +24,10 @@ pub struct AppState {
 
 /// 迁移门控：非 `Completed | NotNeeded` 时拒绝历史读写。
 pub(super) fn ensure_history_available(status: &MigrationStatus) -> Result<(), String> {
-    if matches!(status, MigrationStatus::Completed | MigrationStatus::NotNeeded) {
+    if matches!(
+        status,
+        MigrationStatus::Completed | MigrationStatus::NotNeeded
+    ) {
         Ok(())
     } else {
         Err("MIGRATION_PENDING".to_string())
