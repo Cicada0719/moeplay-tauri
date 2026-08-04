@@ -820,6 +820,103 @@ async fn manifest_input_reload_upserts_same_id() {
     assert_eq!(engine.all_manifests().len(), 1, "注册表应按稳定 id 覆盖，不累积");
 }
 
+// ── 测试：Kimi K3 复审项——硬中断迟到安装不污染下一任务 ────────────────────
+//
+// 复现竞态：取消任务 A 时 `hard_interrupt_js` 用 spawn_blocking 分离安装恒 true 处理器；
+// 若该安装延迟到 worker 已为下一任务 `rearm_interrupt` 之后才执行，会把 always-true 中断
+// 装到下一任务上，令其被无条件中断。本测试注入 600ms 安装延迟（`with_hard_interrupt_delay`），
+// 让迟到的硬中断落在任务 B 执行期间安装，断言任务 B 不受影响（仍在运行、可被正常取消），
+// 任务 A 正常返回 Cancelled。
+
+#[tokio::test]
+async fn hard_interrupt_late_install_does_not_poison_next_task() {
+    let engine = Arc::new(test_engine().with_hard_interrupt_delay(Duration::from_millis(600)));
+
+    // 阻塞规则：while(true) 死循环，用于被取消（任务 A）与检测污染（任务 B）
+    let block = engine
+        .load_rules(vec![RuleInput::Manifest {
+            manifest: make_manifest("阻塞源", "function search(k,p){ while(true){} }"),
+            origin: RuleOrigin::Builtin,
+        }])
+        .await;
+    assert_eq!(block[0].status, RuleStatus::Ready);
+    let block_id = block[0].id.clone();
+
+    // 快速规则：推进 round-robin，使任务 B 回落同一槽位（0）
+    let fast = engine
+        .load_rules(vec![RuleInput::Manifest {
+            manifest: make_manifest(
+                "快源",
+                "function search(k,p){ return [{title:k,url:'https://example.com/x'}]; }",
+            ),
+            origin: RuleOrigin::Builtin,
+        }])
+        .await;
+    let fast_id = fast[0].id.clone();
+
+    // 任务 A → 槽位 0（round-robin 计数器 0）
+    let token_a = engine.new_scope_token("race:a");
+    let handle_a = {
+        let engine = Arc::clone(&engine);
+        let id = block_id.clone();
+        tokio::spawn(async move { engine.search(&id, "x", 1, token_a.clone()).await })
+    };
+    tokio::time::sleep(Duration::from_millis(100)).await; // 等任务 A 开始执行
+    engine.cancel_scope("race:a"); // 触发硬中断（600ms 后安装，注入延迟）
+
+    // 推进 round-robin：3 个快速任务占槽位 1/2/3，使下一次派发回落槽位 0
+    for _ in 0..3 {
+        let token = CancellationToken::new();
+        engine
+            .search(&fast_id, "x", 1, token)
+            .await
+            .expect("快速任务应成功");
+    }
+
+    // 任务 B → 槽位 0：worker 完成任务 A 并 rearm 后开始执行
+    let token_b = engine.new_scope_token("race:b");
+    let mut handle_b = {
+        let engine = Arc::clone(&engine);
+        let id = block_id.clone();
+        tokio::spawn(async move { engine.search(&id, "x", 1, token_b.clone()).await })
+    };
+    tokio::time::sleep(Duration::from_millis(100)).await; // 等任务 B 开始执行
+
+    // 越过硬中断安装延迟：迟到的硬中断现在落在任务 B 执行期间安装
+    tokio::time::sleep(Duration::from_millis(700)).await;
+
+    // 任务 B 不应被污染：短超时探测其是否仍在运行（未被异常中断而提前 resolve）
+    let still_running = tokio::time::timeout(Duration::from_millis(80), async {
+        loop {
+            tokio::select! {
+                r = &mut handle_b => return r,
+                _ = tokio::time::sleep(Duration::from_millis(5)) => {}
+            }
+        }
+    })
+    .await;
+    if let Ok(res) = still_running {
+        panic!("任务 B 被迟到的硬中断污染: {res:?}");
+    }
+
+    // 任务 A 应正常返回 Cancelled
+    let err_a = tokio::time::timeout(Duration::from_secs(5), handle_a)
+        .await
+        .expect("任务 A 取消应在超时内返回")
+        .expect("任务 A 不应 panic")
+        .unwrap_err();
+    assert!(matches!(err_a, RuleExecError::Cancelled));
+
+    // 任务 B 取消后应正常返回 Cancelled（证明未被污染、仍受取消控制）
+    engine.cancel_scope("race:b");
+    let err_b = tokio::time::timeout(Duration::from_secs(5), handle_b)
+        .await
+        .expect("任务 B 取消应在超时内返回")
+        .expect("任务 B 不应 panic")
+        .unwrap_err();
+    assert!(matches!(err_b, RuleExecError::Cancelled));
+}
+
 // ── 辅助扩展 ────────────────────────────────────────────────────────────
 
 /// 扫描目录内全部规则文件为 File 输入（等价于 commands::rules::discover_rule_inputs）。

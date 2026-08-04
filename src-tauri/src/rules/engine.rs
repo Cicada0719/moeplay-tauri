@@ -30,6 +30,12 @@ const WORKER_COUNT: usize = 4;
 /// 避免其永久占用导致后续任务堆积（DeepSeek 审核项 1）。
 const CANCEL_RECYCLE_TIMEOUT: Duration = Duration::from_secs(1);
 
+/// 硬中断安装的同步宽限：worker 正常退出后等待 `hard_interrupt_js` 的 spawn_blocking
+/// 完成安装的上限。worker 退出即 runtime 内部锁空闲，安装应在微秒级完成；此上限仅是
+/// 防御性边界，超时则 detach（flag 处理器保证迟到安装也绝不污染下一任务，见
+/// `hard_interrupt_js` 的竞态修复说明）。
+const HARD_INTERRUPT_JOIN_TIMEOUT: Duration = Duration::from_millis(200);
+
 /// 搜索结果条目
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -153,6 +159,9 @@ pub struct RuleEngine {
     /// worker 槽位池（定长，取消/超时后仅替换槽内句柄；每槽独立锁，无全局池锁）。
     workers: Vec<WorkerSlot>,
     next_worker: AtomicUsize,
+    /// 测试专用：硬中断安装延迟（模拟「迟到至下一任务已 rearm」的竞态窗口）；生产恒 0。
+    #[cfg(test)]
+    hard_interrupt_delay: Duration,
 }
 
 fn spawn_worker(http: reqwest::Client) -> WorkerHandle {
@@ -216,7 +225,17 @@ impl RuleEngine {
             scopes: Arc::new(Mutex::new(HashMap::new())),
             workers,
             next_worker: AtomicUsize::new(0),
+            #[cfg(test)]
+            hard_interrupt_delay: Duration::ZERO,
         }
+    }
+
+    /// 测试专用：注入硬中断安装延迟，复现「取消后硬中断迟到执行」的竞态
+    /// （Kimi K3 复审项，见 `hard_interrupt_late_install_does_not_poison_next_task`）。
+    #[cfg(test)]
+    pub(crate) fn with_hard_interrupt_delay(mut self, delay: Duration) -> Self {
+        self.hard_interrupt_delay = delay;
+        self
     }
 
     /// 并行加载一批规则；每条独立计时 10s，超时/失败仅影响该条。
@@ -523,15 +542,25 @@ impl RuleEngine {
                 // 竞态取消：置中断位中断 worker 的 JS，并等待其真正退出，避免后续任务堆积。
                 interrupt.store(true, Ordering::Relaxed);
                 // spec §3.3：真正调用 runtime.set_interrupt_handler 发 JS 中断（不只看标志位）。
-                self.hard_interrupt_js(&runtime);
-                self.wait_worker_exit(slot_idx, &mut result_fut).await;
+                let hard_join = self.hard_interrupt_js(&runtime, &interrupt);
+                let recycled = self.wait_worker_exit(slot_idx, &mut result_fut).await;
+                // Kimi K3 复审项：worker 正常退出后 runtime 内部锁已空闲，这里有界
+                // join/await 硬中断安装完成再返回，保证硬中断不晚于 worker 下一次 rearm；
+                // 超时则 detach（flag 处理器保证迟到安装也绝不污染下一任务）。回收分支
+                // 跳过等待——旧 worker 可能仍被 fetch 阻塞持有锁，等待会拖慢取消路径。
+                if !recycled {
+                    let _ = tokio::time::timeout(HARD_INTERRUPT_JOIN_TIMEOUT, hard_join).await;
+                }
                 Err(RuleExecError::Cancelled)
             }
             ExecOutcome::Timeout => {
                 interrupt.store(true, Ordering::Relaxed);
                 // spec §3.3：同上，超时同样安装硬中断处理器兜底。
-                self.hard_interrupt_js(&runtime);
-                self.wait_worker_exit(slot_idx, &mut result_fut).await;
+                let hard_join = self.hard_interrupt_js(&runtime, &interrupt);
+                let recycled = self.wait_worker_exit(slot_idx, &mut result_fut).await;
+                if !recycled {
+                    let _ = tokio::time::timeout(HARD_INTERRUPT_JOIN_TIMEOUT, hard_join).await;
+                }
                 Err(RuleExecError::Timeout)
             }
         }
@@ -543,17 +572,37 @@ impl RuleEngine {
     /// `await fetch(...)`（Rust `block_on`）阻塞，锁会被长时间占用，同步调用会阻塞当前
     /// async 取消路径。因此放进 `tokio::task::spawn_blocking` 异步执行：锁空闲时立即
     /// 生效，被占用时等锁释放后生效（AtomicBool 中断已先行触发 JS 中止并释放锁）。
-    /// worker 每轮取任务前的 `Sandbox::rearm_interrupt` 会把它换回 AtomicBool 处理器，
-    /// 避免硬中断残留影响下一次执行。
-    fn hard_interrupt_js(&self, runtime: &Runtime) {
+    ///
+    /// 竞态修复（Kimi K3 复审）：安装的是 **flag 驱动**处理器而非恒 `true`。恒 `true`
+    /// 处理器若延迟到 worker 已为下一任务 `rearm_interrupt`（复位 flag 并重装处理器）
+    /// 之后才安装，会把 always-true 中断装到下一任务上，令其被无条件中断。flag 处理器
+    /// 在 rearm 复位后读到 `false`，迟到安装只会覆盖成与 rearm 相同的处理器，绝无残留
+    /// 中断——同时它对「正在被取消的当前任务」仍照常触发（取消路径总是先置 flag）。
+    /// 调用方在 worker 正常退出后对该 JoinHandle 做有界 join/await（见 `execute`），
+    /// 把硬中断安装同步到下一次 rearm 之前。
+    fn hard_interrupt_js(
+        &self,
+        runtime: &Runtime,
+        interrupt: &Arc<AtomicBool>,
+    ) -> tokio::task::JoinHandle<()> {
         let hard_rt = runtime.clone();
-        // drop 掉 JoinHandle 即「detach」：后台线程设置硬中断处理器，调用方不等待。
-        drop(tokio::task::spawn_blocking(move || {
-            hard_rt.set_interrupt_handler(Some(Box::new(|| true)));
-        }));
+        let intr = interrupt.clone();
+        #[cfg(test)]
+        let install_delay = self.hard_interrupt_delay;
+        #[cfg(not(test))]
+        let install_delay = Duration::ZERO;
+        tokio::task::spawn_blocking(move || {
+            if !install_delay.is_zero() {
+                std::thread::sleep(install_delay);
+            }
+            hard_rt.set_interrupt_handler(Some(Box::new(move || intr.load(Ordering::Relaxed))));
+        })
     }
 
     /// 等待被中断的 worker 真正退出当前任务；宽限期内未退出则回收重建该 worker。
+    ///
+    /// 返回是否发生了回收：回收后旧 runtime 可能仍被旧 worker 的 fetch 阻塞持有，
+    /// 调用方不应等待旧 runtime 上的硬中断安装（见 `execute` 的 join 分支）。
     ///
     /// 锁设计：等待期间**不持有**任何槽位锁（`result_fut` 只是 oneshot receiver），
     /// 超时后才短时持有 `slot_idx` 槽位的独立锁做句柄替换，与派发路径互不阻塞。
@@ -561,12 +610,15 @@ impl RuleEngine {
         &self,
         slot_idx: usize,
         result_fut: &mut (impl std::future::Future<Output = Result<serde_json::Value, RuleExecError>> + Unpin),
-    ) {
+    ) -> bool {
         if tokio::time::timeout(CANCEL_RECYCLE_TIMEOUT, result_fut)
             .await
             .is_err()
         {
             self.recycle_worker(slot_idx);
+            true
+        } else {
+            false
         }
     }
 
