@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-webdav-config"
+description = "Enables the save_webdav_config command without any pre-configured scope."
+commands.allow = ["save_webdav_config"]
+
+[[permission]]
+identifier = "deny-save-webdav-config"
+description = "Denies the save_webdav_config command without any pre-configured scope."
+commands.deny = ["save_webdav_config"]

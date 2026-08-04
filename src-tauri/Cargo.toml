@@ -68,6 +68,8 @@ hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
 keyring = { version = "=4.1.4", default-features = false, features = ["v1"] }
+# WebDAV Basic 认证头手动拼 base64（spec §3.4 / task-05）
+base64 = "0.22"
 scraper = "0.22"
 # 规则包热更新（spec task-02 §2.2）：ed25519 签名校验 / 版本比较 / 签名 base64 编码。
 ed25519-dalek = "2"

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-sync-config"
+description = "Enables the get_sync_config command without any pre-configured scope."
+commands.allow = ["get_sync_config"]
+
+[[permission]]
+identifier = "deny-get-sync-config"
+description = "Denies the get_sync_config command without any pre-configured scope."
+commands.deny = ["get_sync_config"]

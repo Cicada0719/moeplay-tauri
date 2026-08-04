@@ -70,6 +70,7 @@ use migration::{MigrationReport, MigrationStatus, Migrator, MIGRATION_PROGRESS_E
 use process_monitor::ProcessMonitor;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
+use sync::{SyncMode, SyncState};
 use task_queue::TaskQueue;
 use tauri::Emitter;
 use tauri::Manager;
@@ -568,8 +569,14 @@ pub fn run() {
             commands::sync_steam_achievements,
             // ---- M6 云存档 + 诊断 ----
             commands::backup_snapshot_local,
-            commands::test_webdav_connection,
             commands::export_diagnostics_zip,
+            // ---- 历史记录 WebDAV 同步（FR-09 / task-05）----
+            sync::sync_now,
+            sync::test_webdav_connection,
+            sync::save_webdav_config,
+            sync::get_sync_config,
+            sync::get_sync_status,
+            sync::clear_webdav_config,
             // ---- M6 自动入库刮削 ----
             commands::run_auto_scrape_pipeline,
             // ---- M6 Steam 身份认证 + Web API ----
@@ -843,9 +850,10 @@ pub fn run() {
                                 }
                                 app.manage(AppState {
                                     migrator: Some(migrator),
-                                    history: Some(history_db),
+                                    history: Some(history_db.clone()),
                                     migration_status: status_arc,
                                 });
+                                app.manage(SyncState::new(Some(history_db)));
                                 crash_log("history v2 initialized");
                             }
                             Err(error) => {
@@ -855,13 +863,14 @@ pub fn run() {
                                 );
                                 app.manage(AppState {
                                     migrator: None,
-                                    history: Some(history_db),
+                                    history: Some(history_db.clone()),
                                     migration_status: Arc::new(RwLock::new(
                                         MigrationStatus::Failed(format!(
                                             "failed to initialize history migration: {error}"
                                         )),
                                     )),
                                 });
+                                app.manage(SyncState::new(Some(history_db)));
                                 crash_log("history v2 init failed: device id");
                             }
                         }
@@ -875,6 +884,7 @@ pub fn run() {
                                 format!("failed to open history database: {error}"),
                             ))),
                         });
+                        app.manage(SyncState::new(None));
                     }
                 }
             }
@@ -904,6 +914,36 @@ pub fn run() {
                     loop {
                         interval.tick().await;
                         let _ = rules::health::probe_all_from_app(&app_handle).await;
+                    }
+                });
+            }
+
+            // 历史记录 WebDAV 自动同步（FR-09 / task-05）：Auto 模式下启动即触发
+            // 一次（interval 首 tick 立即触发），之后每 30 分钟一次；Manual 模式不触发。
+            // 全局单实例互斥由 `run_sync` 内的 try_lock 保证，自动/手动不同步并发。
+            {
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let mut interval =
+                        tokio::time::interval(std::time::Duration::from_secs(30 * 60));
+                    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                    loop {
+                        interval.tick().await;
+                        let state = app_handle.state::<SyncState>();
+                        let auto = state
+                            .config()
+                            .map(|config| {
+                                config.is_some_and(|cfg| matches!(cfg.mode, SyncMode::Auto))
+                            })
+                            .unwrap_or(false);
+                        if auto {
+                            if let Err(error) = sync::run_sync(&state).await {
+                                tracing::warn!(
+                                    error = %error,
+                                    "auto WebDAV history sync failed"
+                                );
+                            }
+                        }
                     }
                 });
             }

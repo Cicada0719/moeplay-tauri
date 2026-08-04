@@ -13,6 +13,7 @@ use crate::models::{
     AppDatabase, CompletionStatus, Game, GameAlias, GameMetadata, GamePlatform, PlaySession,
     PlayTracker, SaveBackup, SaveData, Settings, StoreLink, Tag,
 };
+use crate::sync::merge::SyncRecord;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -3251,6 +3252,152 @@ impl HistoryRepo for HistoryDb {
         let rows = stmt.query_map(params![since_ms], read_history_row)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
     }
+}
+
+/// 子任务 5（WebDAV 同步）补充的数据访问函数（spec §4.2 step 11）。
+///
+/// 全部为**新增函数**，不改动既有 `HistoryRepo` 方法签名；供 `sync` 模块调用。
+impl HistoryDb {
+    /// 拉取全部历史记录（含墓碑）——同步合并上传用。
+    pub fn list_all_with_deleted(&self) -> Result<Vec<HistoryRecord>, DbError> {
+        let guard = self.lock_conn()?;
+        let mut stmt = guard.prepare(&format!(
+            "SELECT {HISTORY_COLUMNS} FROM history ORDER BY updated_at DESC"
+        ))?;
+        let rows = stmt.query_map([], read_history_row)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+    }
+
+    /// 单事务批量 upsert 同步结果（spec §4.2 step 11）。
+    ///
+    /// 仅在 `updated_at` 更新（`excluded.updated_at >= history.updated_at`）或记录
+    /// 不存在时覆盖，防止本地更新的数据被旧同步结果回写。
+    pub fn upsert_from_sync(&self, records: &[SyncRecord]) -> Result<usize, DbError> {
+        let mut guard = self.lock_conn()?;
+        let tx = guard.transaction()?;
+        let written = upsert_records_tx(&tx, records)?;
+        tx.commit()?;
+        Ok(written)
+    }
+
+    /// 物理清理过期墓碑（`deleted=1` 且 `updated_at < older_than_ms`）。
+    pub fn purge_tombstones_db(&self, older_than_ms: i64) -> Result<u32, DbError> {
+        let guard = self.lock_conn()?;
+        let removed = guard.execute(
+            "DELETE FROM history WHERE deleted = 1 AND updated_at < ?1",
+            params![older_than_ms],
+        )?;
+        Ok(removed as u32)
+    }
+
+    /// 原子地把本地库收敛到合并一致集（spec §6.3 双设备验收：B 本地只留第 8 集）。
+    ///
+    /// 单事务内完成：(1) upsert 胜出记录（`updated_at` 守卫）、(2) 删除"同键败方"
+    /// 旧记录（合并键在 merged 但 id 不在 merged 的行）、(3) 清理过期墓碑。
+    /// 返回 `(写入数, 删除败方数, 清理墓碑数)`。
+    pub fn apply_merged_set(
+        &self,
+        merged: &[SyncRecord],
+        older_than_ms: i64,
+    ) -> Result<(usize, u32, u32), DbError> {
+        let mut guard = self.lock_conn()?;
+        let tx = guard.transaction()?;
+        let written = upsert_records_tx(&tx, merged)?;
+        let stale_deleted = delete_loser_rows_tx(&tx, merged)?;
+        let tombstones_purged = tx.execute(
+            "DELETE FROM history WHERE deleted = 1 AND updated_at < ?1",
+            params![older_than_ms],
+        )? as u32;
+        tx.commit()?;
+        Ok((written, stale_deleted, tombstones_purged))
+    }
+}
+
+/// 事务内逐条 upsert 同步记录（`excluded.updated_at >= history.updated_at` 守卫）。
+/// `content_type` 非法（不应出现）的记录跳过并记 warn，不阻断整批落库。
+fn upsert_records_tx(tx: &Connection, records: &[SyncRecord]) -> Result<usize, DbError> {
+    let mut written = 0usize;
+    for record in records {
+        let content_type = match ContentType::from_str(&record.content_type) {
+            Ok(content_type) => content_type,
+            Err(_) => {
+                tracing::warn!(
+                    id = %record.id,
+                    content_type = %record.content_type,
+                    "sync: skipping record with unsupported content_type"
+                );
+                continue;
+            }
+        };
+        tx.execute(
+            "INSERT INTO history
+                (id, content_id, content_type, title, cover, source_id, chapter_id, chapter_title,
+                 page_index, position_sec, scroll_pct, updated_at, device_id, deleted)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
+             ON CONFLICT(id) DO UPDATE SET
+                content_id=excluded.content_id, content_type=excluded.content_type, title=excluded.title,
+                cover=excluded.cover, source_id=excluded.source_id, chapter_id=excluded.chapter_id,
+                chapter_title=excluded.chapter_title, page_index=excluded.page_index,
+                position_sec=excluded.position_sec, scroll_pct=excluded.scroll_pct,
+                updated_at=excluded.updated_at, device_id=excluded.device_id, deleted=excluded.deleted
+             WHERE excluded.updated_at >= history.updated_at",
+            params![
+                record.id,
+                record.content_id,
+                content_type.as_str(),
+                record.title,
+                record.cover,
+                record.source_id,
+                record.chapter_id,
+                record.chapter_title,
+                record.page_index,
+                record.position_sec,
+                record.scroll_pct,
+                // 传输秒 → DB 毫秒
+                record.updated_at * 1000,
+                record.device_id,
+                i64::from(record.deleted),
+            ],
+        )?;
+        written += 1;
+    }
+    Ok(written)
+}
+
+/// 事务内删除合并一致集中已不存在的同键败方旧记录。
+///
+/// 仅删除"其 `(content_id, source_id)` 键存在于 merged 且 `id` 不在 merged"的行，
+/// 避免误删同步期间新增的本地记录。
+fn delete_loser_rows_tx(tx: &Connection, merged: &[SyncRecord]) -> Result<u32, DbError> {
+    let merged_keys: std::collections::HashSet<(String, String)> = merged
+        .iter()
+        .map(|record| (record.content_id.clone(), record.source_id.clone()))
+        .collect();
+    let merged_ids: std::collections::HashSet<String> =
+        merged.iter().map(|record| record.id.clone()).collect();
+
+    let mut stmt = tx.prepare("SELECT id, content_id, source_id FROM history")?;
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+        ))
+    })?;
+    let mut to_delete = Vec::new();
+    for row in rows {
+        let (id, content_id, source_id) = row?;
+        if merged_keys.contains(&(content_id, source_id)) && !merged_ids.contains(&id) {
+            to_delete.push(id);
+        }
+    }
+    drop(stmt);
+    let mut deleted = 0u32;
+    for id in to_delete {
+        tx.execute("DELETE FROM history WHERE id = ?1", params![id])?;
+        deleted += 1;
+    }
+    Ok(deleted)
 }
 
 const HISTORY_COLUMNS: &str = "id, content_id, content_type, title, cover, source_id, chapter_id, \

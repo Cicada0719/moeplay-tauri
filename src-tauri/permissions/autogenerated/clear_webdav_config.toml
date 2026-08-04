@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-clear-webdav-config"
+description = "Enables the clear_webdav_config command without any pre-configured scope."
+commands.allow = ["clear_webdav_config"]
+
+[[permission]]
+identifier = "deny-clear-webdav-config"
+description = "Denies the clear_webdav_config command without any pre-configured scope."
+commands.deny = ["clear_webdav_config"]
