@@ -59,7 +59,7 @@ impl FromStr for ContentType {
 /// `pageIndex→page_index`、`progress`（由 [`HistoryRecord::progress`] 按类型
 /// 输出 `position_sec` / `page_index` / `scroll_pct`）、`sourceId→source_id`、
 /// `updatedAt→updated_at`、`deviceId→device_id`。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryRecord {
     /// uuid v4
@@ -99,6 +99,36 @@ impl HistoryRecord {
             ContentType::Manga => self.page_index as f64,
             ContentType::Novel => self.scroll_pct,
         }
+    }
+}
+
+/// 手动 `Serialize`：在派生字段之外补输出 `progress`（按 `content_type` 由
+/// [`HistoryRecord::progress`] 计算），满足 FR-08 / DoD 对 `history_list` 返回
+/// camelCase JSON 含 `progress` 键的要求（spec §3.1：progress 在序列化层映射，
+/// 存储层不新增冗余列）。
+///
+/// 反序列化仍走派生 `Deserialize`（`rename_all = "camelCase"`）；多余键
+/// `progress` 在反序列化时被忽略，故快照 round-trip 不受影响。
+impl serde::Serialize for HistoryRecord {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("HistoryRecord", 15)?;
+        state.serialize_field("id", &self.id)?;
+        state.serialize_field("contentId", &self.content_id)?;
+        state.serialize_field("contentType", &self.content_type)?;
+        state.serialize_field("title", &self.title)?;
+        state.serialize_field("cover", &self.cover)?;
+        state.serialize_field("sourceId", &self.source_id)?;
+        state.serialize_field("chapterId", &self.chapter_id)?;
+        state.serialize_field("chapterTitle", &self.chapter_title)?;
+        state.serialize_field("pageIndex", &self.page_index)?;
+        state.serialize_field("positionSec", &self.position_sec)?;
+        state.serialize_field("scrollPct", &self.scroll_pct)?;
+        state.serialize_field("progress", &self.progress())?;
+        state.serialize_field("updatedAt", &self.updated_at)?;
+        state.serialize_field("deviceId", &self.device_id)?;
+        state.serialize_field("deleted", &self.deleted)?;
+        state.end()
     }
 }
 
@@ -146,6 +176,50 @@ mod tests {
         assert_eq!(value["contentType"], "anime");
         assert_eq!(value["updatedAt"].as_i64(), Some(1_600_000_000_000));
         assert_eq!(value["positionSec"], 12.5);
+        assert_eq!(value["progress"], 12.5, "serialized JSON must contain progress");
         assert_eq!(record.progress(), 12.5);
+    }
+
+    #[test]
+    fn progress_is_serialized_per_content_type() {
+        let base = |content_type: ContentType,
+                    page_index: i64,
+                    position_sec: f64,
+                    scroll_pct: f64| HistoryRecord {
+            id: "id".into(),
+            content_id: "cid".into(),
+            content_type,
+            title: "Title".into(),
+            cover: None,
+            source_id: "src".into(),
+            chapter_id: None,
+            chapter_title: None,
+            page_index,
+            position_sec,
+            scroll_pct,
+            updated_at: 1_600_000_000_000,
+            device_id: "dev".into(),
+            deleted: false,
+        };
+
+        // 番剧 → position_sec（播放秒数）
+        let anime = base(ContentType::Anime, 0, 123.5, 0.0);
+        let value = serde_json::to_value(&anime).unwrap();
+        assert_eq!(value["progress"], 123.5);
+
+        // 漫画 → page_index（当前单页）
+        let manga = base(ContentType::Manga, 42, 0.0, 0.0);
+        let value = serde_json::to_value(&manga).unwrap();
+        assert_eq!(value["progress"], 42.0);
+
+        // 小说 → scroll_pct（滚动百分比）
+        let novel = base(ContentType::Novel, 0, 0.0, 67.5);
+        let value = serde_json::to_value(&novel).unwrap();
+        assert_eq!(value["progress"], 67.5);
+
+        // 反序列化 round-trip：多余键 progress 被忽略，字段值不丢。
+        let back: HistoryRecord = serde_json::from_value(value).unwrap();
+        assert_eq!(back.content_type, ContentType::Novel);
+        assert_eq!(back.scroll_pct, 67.5);
     }
 }

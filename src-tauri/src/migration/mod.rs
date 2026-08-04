@@ -386,11 +386,47 @@ impl Migrator {
     /// 迁移主体（`run` 与 `restore_from_backup` 共用）。
     fn run_with_source(&self, source: &Path) -> Result<MigrationReport, MigrationError> {
         if !source.exists() {
+            // 边界（Kimi K3 复审 item 2）：迁移中断（in_progress）/ 失败（rolled_back 等）
+            // 后 v1 源文件被外部删除或移动。此时续迁或重试都不可能完成，若不清理陈旧
+            // 状态，`check()` 会因落盘 `migration_state` 恒返回 InProgress / Pending，
+            // 门控永久卡死、`history_*` 命令永远 `MIGRATION_PENDING` 且无恢复入口。
+            // 这里把非终态收敛为 `completed(total=0)` → `check()` 返回 `NotNeeded`，
+            // 门控放行；同时保留既有 `backup_path`，用户仍可经 `list_backups` +
+            // `restore_from_backup` 从备份恢复。
+            let conn = self.db.conn();
+            let guard = lock_conn(&conn)?;
+            let preserved_backup = match load_state(&guard)? {
+                Some(row) if row.status != "completed" => {
+                    tracing::warn!(
+                        v1 = %source.display(),
+                        status = row.status,
+                        "v1 source missing with non-terminal migration state; abandoning migration to unblock gate"
+                    );
+                    save_state(
+                        &guard,
+                        &MigrationStateRow {
+                            status: "completed".to_string(),
+                            total_count: 0,
+                            migrated_count: 0,
+                            last_offset: 0,
+                            backup_path: row.backup_path.clone(),
+                            error_message: None,
+                            started_at: row.started_at,
+                            finished_at: Some(now_ms()),
+                        },
+                    )?;
+                    // 清空残留 staging：已提交批次的历史行保留为迁移成果，但不再与
+                    // 任何未来迁移/回滚关联，避免 restore/重试时按陈旧 staging 误回滚。
+                    guard.execute("DELETE FROM migration_staging", [])?;
+                    row.backup_path
+                }
+                _ => None,
+            };
             return Ok(MigrationReport {
                 status: MigrationStatus::NotNeeded,
                 total: 0,
                 migrated: 0,
-                backup_path: None,
+                backup_path: preserved_backup,
             });
         }
 

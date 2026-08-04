@@ -1202,6 +1202,129 @@ fn test_check_after_rollback_pending_and_retry_reuses_backup() {
 }
 
 // ---------------------------------------------------------------------------
+// Kimi K3 复审修复的回归测试
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_source_missing_after_interruption_unblocks_gate() {
+    // item 2：迁移中断（migration_state='in_progress'）后 v1 文件被外部删除。
+    // run() 必须把陈旧状态收敛为 NotNeeded，避免 check() 恒返回 InProgress、
+    // 门控永久卡死且 history_* 命令永远 MIGRATION_PENDING（无恢复入口）。
+    let dir = temp_app_dir();
+    let entries: Vec<Value> = (0..600)
+        .map(|i| v1(&format!("c{i}"), "anime", &format!("T{i}"), map!()))
+        .collect();
+    write_v1(dir.path(), &entries);
+
+    let db = HistoryDb::open(dir.path()).unwrap();
+    let mut migrator = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
+    migrator.set_batch_hook(Some(Arc::new(|batch| {
+        if batch == 1 {
+            panic!("injected crash after batch 1");
+        }
+        Ok(())
+    })));
+    let handle = std::thread::spawn(move || migrator.run());
+    assert!(handle.join().is_err(), "run should have panicked");
+
+    // 落盘状态停在 in_progress（断点续迁待命）。
+    let migrator2 = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
+    assert_eq!(
+        migrator2.check().unwrap(),
+        MigrationStatus::InProgress,
+        "interrupted migration must report InProgress before source removal"
+    );
+
+    // 外部删除 v1 源文件（模拟用户/同步工具移动或删除）。
+    std::fs::remove_file(dir.path().join("history.json")).unwrap();
+
+    // run() 收敛陈旧状态：不再卡 InProgress，返回 NotNeeded。
+    let report = migrator2.run().unwrap();
+    assert_eq!(report.status, MigrationStatus::NotNeeded);
+    assert_eq!(
+        migrator2.check().unwrap(),
+        MigrationStatus::NotNeeded,
+        "check() must not stay InProgress after source vanishes"
+    );
+
+    // 崩溃前已提交的批次数据保留（不因放弃迁移而丢失）；staging 清空。
+    assert_eq!(history_rows(&db).len(), 500, "committed batch must be retained");
+    let conn = db.conn();
+    let guard = conn.lock().unwrap();
+    let status: String = guard
+        .query_row("SELECT status FROM migration_state WHERE id=1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(status, "completed");
+    let staging: i64 = guard
+        .query_row("SELECT COUNT(*) FROM migration_staging", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(staging, 0, "staging must be cleared when abandoning");
+    let backup_path: Option<String> = guard
+        .query_row("SELECT backup_path FROM migration_state WHERE id=1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    drop(guard);
+    assert!(
+        backup_path.is_some(),
+        "backup must be preserved as a recovery entry, got {backup_path:?}"
+    );
+    assert!(Path::new(backup_path.as_deref().unwrap()).exists());
+
+    // 门控放行：check() 结果可直接喂给 history 命令的门控。
+    let status = migrator2.check().unwrap();
+    assert!(
+        ensure_history_available(&status).is_ok(),
+        "gate must be unblocked after abandoning a missing-source migration"
+    );
+}
+
+#[test]
+fn test_source_missing_after_rollback_unblocks_gate() {
+    // item 2 同类边界：迁移失败（rolled_back）后 v1 文件被外部删除。
+    // run() 同样要把状态收敛为 NotNeeded，避免 check() 恒返回 Pending 卡死门控。
+    let dir = temp_app_dir();
+    let entries: Vec<Value> = (0..600)
+        .map(|i| v1(&format!("c{i}"), "anime", &format!("T{i}"), map!()))
+        .collect();
+    write_v1(dir.path(), &entries);
+
+    let db = HistoryDb::open(dir.path()).unwrap();
+    let mut migrator = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
+    migrator.set_batch_hook(Some(Arc::new(|batch| {
+        if batch == 1 {
+            Err(MigrationError::Migration("injected".into()))
+        } else {
+            Ok(())
+        }
+    })));
+    assert!(migrator.run().is_err());
+    assert_eq!(
+        migrator.check().unwrap(),
+        MigrationStatus::Pending,
+        "rolled_back must report Pending before source removal"
+    );
+
+    std::fs::remove_file(dir.path().join("history.json")).unwrap();
+
+    let report = migrator.run().unwrap();
+    assert_eq!(report.status, MigrationStatus::NotNeeded);
+    assert_eq!(
+        migrator.check().unwrap(),
+        MigrationStatus::NotNeeded,
+        "check() must not stay Pending after source vanishes"
+    );
+    assert!(
+        ensure_history_available(&migrator.check().unwrap()).is_ok(),
+        "gate must be unblocked"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // 性能路径（`cargo test -- --ignored` 单独跑）
 // ---------------------------------------------------------------------------
 

@@ -69,10 +69,11 @@ impl std::error::Error for MapError {}
 
 /// 幂等写入结果。`Inserted` 携带新写入行的 `id`；`Replaced` 携带被覆盖行的
 /// `id` 与**更新前快照**（迁移框架据此登记 staging 表，回滚时还原原行）。
+/// 快照以 `Box` 包装避免 `HistoryRecord` 内联进枚举（`clippy::large_enum_variant`）。
 #[derive(Debug, Clone, PartialEq)]
 pub enum UpsertOutcome {
     Inserted(String),
-    Replaced(String, HistoryRecord),
+    Replaced(String, Box<HistoryRecord>),
     Skipped,
 }
 
@@ -250,7 +251,7 @@ pub fn upsert_idempotent(
                 existing_id,
             ],
         )?;
-        return Ok(UpsertOutcome::Replaced(existing_id, snapshot));
+        return Ok(UpsertOutcome::Replaced(existing_id, Box::new(snapshot)));
     }
 
     tx.execute(
