@@ -694,11 +694,13 @@ async fn invalid_rules_are_registered_in_map() {
     assert_eq!(loaded[0].status, RuleStatus::Invalid);
     let id = loaded[0].id.clone();
 
-    // Invalid 规则已注册 → all_manifests 可见（供前端置灰/导出）
+    // Invalid 规则已注册进内部 map（供列表/置灰/删除），但不参与导出：
+    // `all_manifests` 只含 Ready 规则（Kimi K3 复审第 2 项——占位 manifest 不得导出，
+    // 否则导出后再导入条数不一致）。
     let manifests = engine.all_manifests();
     assert!(
-        manifests.iter().any(|m| m.name == "坏语法源"),
-        "Invalid 规则应出现在 all_manifests"
+        !manifests.iter().any(|m| m.name == "坏语法源"),
+        "Invalid 规则不应出现在 all_manifests（导出必须排除占位 manifest）"
     );
 
     // 执行层保持「仅 Ready 可执行」不变量
@@ -706,7 +708,7 @@ async fn invalid_rules_are_registered_in_map() {
     let err = engine.search(&id, "x", 1, token).await.unwrap_err();
     assert!(matches!(err, RuleExecError::RuleNotFound(_)));
 
-    // 自定义 Invalid 规则可按 id 删除
+    // 自定义 Invalid 规则仍可按 id 删除（删除链路依赖 map 内注册）
     engine.remove_rule(&id).unwrap();
     let manifests = engine.all_manifests();
     assert!(!manifests.iter().any(|m| m.name == "坏语法源"));
@@ -882,6 +884,117 @@ async fn manifest_input_reload_upserts_same_id() {
         1,
         "注册表应按稳定 id 覆盖，不累积"
     );
+}
+
+// ── 测试：Kimi K3 复审第 2 项——导出排除 Invalid 占位 manifest，往返条数一致 ──
+
+#[tokio::test]
+async fn export_excludes_invalid_placeholder_manifests() {
+    let engine = test_engine();
+    let dir = tempfile::tempdir().unwrap();
+
+    // 一条合法自定义规则（可导出）
+    let good_path = dir.path().join("good_rule.json");
+    let good = make_manifest(
+        "好规则",
+        "function search(k,p){ return [{title:k,url:'https://example.com'}]; }",
+    );
+    std::fs::write(&good_path, serde_json::to_string_pretty(&good).unwrap()).unwrap();
+    let good_loaded = engine
+        .load_rules(vec![RuleInput::File {
+            path: good_path,
+            origin: RuleOrigin::Custom,
+        }])
+        .await;
+    assert_eq!(good_loaded[0].status, RuleStatus::Ready);
+
+    // 一条解析失败文件（→ Invalid 占位 manifest：空 baseUrl/search 等，不可导出）
+    let bad_path = dir.path().join("broken_rule.json");
+    std::fs::write(&bad_path, "not json {").unwrap();
+    let bad_loaded = engine
+        .load_rules(vec![RuleInput::File {
+            path: bad_path,
+            origin: RuleOrigin::Custom,
+        }])
+        .await;
+    assert_eq!(bad_loaded[0].status, RuleStatus::Invalid);
+
+    // all_manifests 只含 Ready 规则（占位 manifest 不得导出）
+    let manifests = engine.all_manifests();
+    assert_eq!(
+        manifests.len(),
+        1,
+        "导出清单应排除 Invalid 占位 manifest，实际含: {:?}",
+        manifests.iter().map(|m| m.name.clone()).collect::<Vec<_>>()
+    );
+    assert_eq!(manifests[0].name, "好规则");
+
+    // 往返：导出 JSON → 重新加载 → Ready 条数一致（spec §6.1 测试 13）
+    let exported = serde_json::to_string_pretty(&manifests).unwrap();
+    let parsed: Vec<RuleManifest> = serde_json::from_str(&exported).unwrap();
+    let reloaded = engine
+        .load_rules(
+            parsed
+                .into_iter()
+                .map(|manifest| RuleInput::Manifest {
+                    manifest,
+                    origin: RuleOrigin::Custom,
+                })
+                .collect(),
+        )
+        .await;
+    let ready = reloaded
+        .iter()
+        .filter(|r| r.status == RuleStatus::Ready)
+        .count();
+    assert_eq!(
+        ready,
+        manifests.len(),
+        "导出后再导入 Ready 条数应一致（占位条目不得破坏往返计数）"
+    );
+}
+
+// ── 测试：Kimi K3 复审第 3 项——per-call token 不取消同规则其他并发调用 ──
+
+#[tokio::test]
+async fn per_call_token_does_not_cancel_siblings() {
+    let engine = test_engine();
+
+    // 两个独立 per-call token：互不取消，cancel_scope 也够不到（未注册进 scope 表）
+    let t1 = engine.per_call_token();
+    let t2 = engine.per_call_token();
+    assert!(!t1.is_cancelled(), "per-call token 不应被其他调用取消");
+    assert!(!t2.is_cancelled(), "per-call token 不应被其他调用取消");
+
+    // 同一规则上的并发 search（模拟翻页 page=1 / page=2）：两个 token 独立，均可完成
+    let loaded = engine
+        .load_rules(vec![RuleInput::Manifest {
+            manifest: make_manifest(
+                "翻页源",
+                "function search(k,p){ return [{title:k,url:'https://example.com/'+p}]; }",
+            ),
+            origin: RuleOrigin::Builtin,
+        }])
+        .await;
+    assert_eq!(loaded[0].status, RuleStatus::Ready);
+    let id = loaded[0].id.clone();
+
+    let (r1, r2) = tokio::join!(
+        engine.search(&id, "x", 1, t1.clone()),
+        engine.search(&id, "x", 2, t2.clone()),
+    );
+    let ok1 = r1.expect("page=1 search 应成功（不被并发 page=2 取消）");
+    let ok2 = r2.expect("page=2 search 应成功（不被并发 page=1 取消）");
+    assert_eq!(ok1[0].url, "https://example.com/1");
+    assert_eq!(ok2[0].url, "https://example.com/2");
+
+    // per-call token 未注册进 scope 表：cancel_scope 同名 scope 不影响它们
+    engine.cancel_scope("search:翻页源");
+    assert!(
+        !t1.is_cancelled(),
+        "cancel_scope 不应取消未注册的 per-call token"
+    );
+    assert!(!t2.is_cancelled());
 }
 
 // ── 测试：Kimi K3 复审项——硬中断迟到安装不污染下一任务 ────────────────────

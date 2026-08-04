@@ -100,7 +100,7 @@ function emptyFailed(message?: string): SwitchResult {
 function describeSwitchError(err: unknown): string {
   const e = err as { kind?: string; message?: string } | null;
   const kind = e?.kind?.toLowerCase();
-  if (kind === "ruleNotFound") return "该源当前不可用或已被禁用，请选择其他源";
+  if (kind === "rulenotfound") return "该源当前不可用或已被禁用，请选择其他源";
   return err instanceof Error ? err.message : String(err);
 }
 

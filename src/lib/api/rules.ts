@@ -86,6 +86,34 @@ export function loadAllRules(): Promise<LoadedRule[]> {
   return invokeCmd<LoadedRule[]>("rules_load_all");
 }
 
+// ── 规则列表缓存 ─────────────────────────────────────────────────────────
+//
+// Kimi K3 复审第 1 项：`rules_load_all` 每次都会重扫规则目录并逐条 `compile_check`
+// （每条最多 10s），不能在任何一次点击中都重新调用。这里做模块级缓存：加载命令只在
+// 首次访问或显式刷新时触发，换源面板/源列表读取缓存即可。
+
+let cachedRules: LoadedRule[] | null = null;
+let rulesLoadPromise: Promise<LoadedRule[]> | null = null;
+
+/** 获取已加载规则（带缓存）。仅在缓存未命中时触发 `rules_load_all`。 */
+export function getLoadedRules(): Promise<LoadedRule[]> {
+  if (cachedRules) return Promise.resolve(cachedRules);
+  if (!rulesLoadPromise) {
+    rulesLoadPromise = loadAllRules().then((rules) => {
+      cachedRules = rules;
+      return rules;
+    });
+  }
+  return rulesLoadPromise;
+}
+
+/** 显式刷新规则缓存（如导入/删除自定义规则后由调用方触发）。 */
+export function refreshLoadedRules(): Promise<LoadedRule[]> {
+  cachedRules = null;
+  rulesLoadPromise = null;
+  return getLoadedRules();
+}
+
 export function search(
   ruleId: string,
   keyword: string,

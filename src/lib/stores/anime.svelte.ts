@@ -53,7 +53,8 @@ export type PlayerFailureKind =
   | 'extractEncrypted'
   | 'proxyHttp'
   | 'iframeBlocked'
-  | 'userCancelled';
+  | 'userCancelled'
+  | 'switchFailed';
 
 export interface SourceHealthEvent {
   success: boolean;
@@ -516,6 +517,7 @@ function failureMessage(kind: PlayerFailureKind, e?: unknown): string {
     case 'proxyHttp': return '本地代理或源站请求失败';
     case 'iframeBlocked': return '源站禁止嵌入播放，请使用浏览器打开';
     case 'userCancelled': return '已取消当前提取';
+    case 'switchFailed': return '换源失败，请重试或选择其他源';
     case 'roadEmpty': return '该源未解析到播放线路';
     case 'parseEmpty': return '未能从源站页面解析到可播放内容';
     default: return detail || '网络请求失败';
@@ -715,6 +717,26 @@ export const animeStore = {
     _playerFailureMessage = message || failureMessage(kind);
     if (_playerExtractStatus === 'extracting') _playerExtractStatus = 'error';
     if (_playerRuleName) recordSourceHealth(_playerRuleName, { success: false, failureKind: kind, animeName: _detailName });
+  },
+
+  /** 任务 1 接线：把新规则引擎 `switchSource` 解析出的播放源直接注入播放器
+   *  （spec §4 Step 10 的 ok/fallback 消费路径；`headers` 透传 Referer 等防盗链头）。
+   *  不经过旧引擎的页面提取流程——新引擎的 `parse` 已返回可直接播放的资源地址。 */
+  playDirectVideoSource(
+    url: string,
+    headers: Record<string, string> | null | undefined,
+    kind: string | null,
+    seekMs: number,
+  ) {
+    _playerVideoSrc = url;
+    _playerIsM3u8 = kind === 'video' && url.toLowerCase().includes('.m3u8');
+    _playerExtractStatus = 'found';
+    _playerFailureKind = null;
+    _playerFailureMessage = '';
+    _playerReferer = headers?.Referer || headers?.referer || url;
+    _pendingSeekMs = Math.max(0, Math.floor(seekMs));
+    _sourceSheetOpen = false;
+    _view = "player";
   },
 
   /** 播放已经开始后发生黑屏、断流或媒体错误时，保留进度自动尝试备用源。 */

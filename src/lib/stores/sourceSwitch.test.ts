@@ -242,6 +242,26 @@ describe("switchSource", () => {
     expect(state.lastError).toBeTruthy();
     expect(state.lastResult?.status).toBe("failed");
   });
+
+  it("switch_rule_not_found_shows_friendly_message: RuleNotFound 转为可读文案（Kimi K3 非阻塞项）", async () => {
+    mocks.cancelScope.mockResolvedValue(undefined);
+    // Rust 侧 RuleExecError 的 kind tag 为 "ruleNotFound"（serde camelCase）；
+    // describeSwitchError 必须归一化后匹配，不能因大小写漏判而落到原始 message。
+    mocks.search.mockRejectedValue(
+      Object.assign(new Error("规则不存在或无效: xxx"), { kind: "ruleNotFound" }),
+    );
+
+    const result = await switchSource("rule-b", CTX);
+
+    expect(result.status).toBe("failed");
+    let state: { lastError: string | null } = { lastError: null };
+    const unsub = sourceSwitchState.subscribe((s) => {
+      state = s;
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    unsub();
+    expect(state.lastError).toBe("该源当前不可用或已被禁用，请选择其他源");
+  });
 });
 
 describe("normalizeTitle", () => {

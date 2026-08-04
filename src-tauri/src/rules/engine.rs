@@ -473,14 +473,29 @@ impl RuleEngine {
         Ok(())
     }
 
-    /// 导出全部已加载规则的 manifest（内置 + 自定义，含 Invalid，供前端列表/导出展示）。
+    /// 导出全部**可执行（Ready）**规则的 manifest（内置 + 自定义）。
+    ///
+    /// Invalid 规则（含解析失败生成的占位 manifest）不参与导出：其脚本字段为空/残缺，
+    /// 导出后再导入会因 schema 校验失败，破坏「导出后导入条数一致」的往返契约
+    /// （Kimi K3 复审项；spec §6.1 测试 13）。
     pub fn all_manifests(&self) -> Vec<RuleManifest> {
         self.rules
             .read()
             .unwrap()
             .values()
+            .filter(|r| r.status == RuleStatus::Ready)
             .map(|r| r.manifest.clone())
             .collect()
+    }
+
+    /// 生成一个**仅覆盖单次调用生命周期**的取消 token（不注册进 scope 表）。
+    ///
+    /// 并发 scope 修复（Kimi K3 复审项）：`rules_search`/`rules_detail`/`rules_chapters`
+    /// 是过程性子操作（翻页/详情/章节），同一规则上的并发调用（如翻页 page=1 与 page=2）
+    /// 不应互相取消。只有真正需要按 scope 取消的任务（如 `rules_parse` 的 `play:{contentId}`，
+    /// 用于 FR-02 源切换竞态）才用 `new_scope_token` 注册进 scope 表。
+    pub fn per_call_token(&self) -> CancellationToken {
+        CancellationToken::new()
     }
 
     fn get_manifest(&self, rule_id: &str) -> Result<RuleManifest, RuleExecError> {

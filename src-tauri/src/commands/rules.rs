@@ -79,10 +79,10 @@ pub async fn rules_load_all(
 
 /// 搜索。
 ///
-/// 契约说明（DeepSeek 复审第 5 项）：spec §3.4 的 `rules_search` 签名不含 `scope`
-/// 参数，因此这里按 spec **内部生成** `search:{rule_id}` 作用域并调用
-/// `new_scope_token` 自动取消同一 rule 上一次搜索（保持 FR-02 取消语义）。前端若需
-/// 取消整套源切换，通过 `rules_parse` 传入的 `play:{contentId}` 作用域 +
+/// 并发 scope 契约（Kimi K3 复审第 3 项）：spec §3.4 的 `rules_search` 签名不含 `scope`
+/// 参数，本命令用 `per_call_token` 生成一个**仅覆盖单次调用生命周期**的取消 token
+/// （不注册进 scope 表）——同一规则上的并发 search（翻页 page=1 与 page=2）互不取消。
+/// 前端若需取消整套源切换，通过 `rules_parse` 传入的 `play:{contentId}` 作用域 +
 /// `rules_cancel_scope` 实现——搜索/详情/章节属过程性子操作，随其所属的 play 作用域
 /// 一起被取消（switchSource 的 `cancelScope(scope)` 会先取消 play 作用域）。
 #[tauri::command]
@@ -92,32 +92,29 @@ pub async fn rules_search(
     keyword: String,
     page: u32,
 ) -> Result<Vec<SearchItem>, RuleExecError> {
-    let scope = format!("search:{rule_id}");
-    let token = state.0.new_scope_token(&scope);
+    let token = state.0.per_call_token();
     state.0.search(&rule_id, &keyword, page, token).await
 }
 
-/// 详情。scope 契约同 `rules_search`（内部生成 `detail:{rule_id}`）。
+/// 详情。scope 契约同 `rules_search`（每次调用独立 token，不取消同规则其他调用）。
 #[tauri::command]
 pub async fn rules_detail(
     state: State<'_, RuleEngineState>,
     rule_id: String,
     url: String,
 ) -> Result<Detail, RuleExecError> {
-    let scope = format!("detail:{rule_id}");
-    let token = state.0.new_scope_token(&scope);
+    let token = state.0.per_call_token();
     state.0.detail(&rule_id, &url, token).await
 }
 
-/// 章节列表。scope 契约同 `rules_search`（内部生成 `chapters:{rule_id}`）。
+/// 章节列表。scope 契约同 `rules_search`（每次调用独立 token，不取消同规则其他调用）。
 #[tauri::command]
 pub async fn rules_chapters(
     state: State<'_, RuleEngineState>,
     rule_id: String,
     detail_url: String,
 ) -> Result<Vec<Chapter>, RuleExecError> {
-    let scope = format!("chapters:{rule_id}");
-    let token = state.0.new_scope_token(&scope);
+    let token = state.0.per_call_token();
     state.0.chapters(&rule_id, &detail_url, token).await
 }
 

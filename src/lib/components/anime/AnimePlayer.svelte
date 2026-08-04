@@ -18,8 +18,13 @@
   import VideoEnhancementCanvas from "./VideoEnhancementCanvas.svelte";
   import type { VideoEnhancementMode, VideoEnhancementStatus } from "../../features/anime-player/localVideoEnhancement";
   import { orientationStore, platformStore } from "../../platform";
-  import { loadAllRules } from "../../api/rules";
-  import { switchSource as switchSourceRule } from "../../stores/sourceSwitch";
+  import { getLoadedRules, type LoadedRule } from "../../api/rules";
+  import {
+    sourceSwitchState,
+    switchSource as switchSourceRule,
+    switchResultToPlayback,
+    type SwitchResult,
+  } from "../../stores/sourceSwitch";
 
   const status = $derived(animeStore.playerExtractStatus); // extracting | found | timeout | error
   const videoSrc = $derived(animeStore.playerVideoSrc);
@@ -92,6 +97,13 @@
   let commentsPanelTab = $state<'comments' | 'danmaku'>('comments');
   let downloading = $state(false);
   let downloadMsg = $state('');
+
+  // ── 任务 1 §4 Step 10 快速换源接线（Kimi K3 复审修复）──────────────────
+  // 规则候选来自 getLoadedRules() 缓存（不在每次点击时重扫目录 + compile_check）；
+  // 只列出除当前源外的 Ready 规则（禁止以当前源自身为 target 的自切换）。
+  let quickSwitchOpen = $state(false);
+  let quickSwitchRules = $state<LoadedRule[]>([]);
+  let quickSwitchBusy = $state(false);
 
   // 提取进度反馈
   let extractElapsed = $state(0);
@@ -764,31 +776,70 @@
   }
 
   async function switchSource() {
+    // 退出全屏，保证换源面板可交互
     await setPlayerFullscreen(false);
-    animeStore.closePlayer();
-    animeStore.openSourceSheet();
 
-    // ── 任务 1 §4 Step 10 最小接线（DeepSeek 复审第 1 项）──────────────
-    // 在播放页现有「换源」点击处调用新规则引擎的 `switchSource` 契约：当前播放源若在
-    // 新引擎登记为 Ready，则以它为 target 调用 `switchSource(ruleId, ctx)`，结果写入
-    // `sourceSwitchState.lastResult`（任务 3 的播放器容器据此消费）。这是新引擎（并行
-    // 体系）的契约级接线，不替换现有选源面板；新引擎未就绪/无匹配规则时静默回落旧流程。
+    // ── 任务 1 §4 Step 10 最小接线（Kimi K3 复审修复版）──────────────
+    // 新引擎「快速换源」：规则列表来自 `getLoadedRules()` 缓存（加载命令只在首次
+    // 调用或显式刷新时触发，不在每次点击时重扫目录 + compile_check）；只列出
+    // `status === "ready"` 且不等于当前源的候选，禁止以当前源自身为 target 的自切换。
+    // 用户从候选里选一个不同源 → `switchSource(ruleId, ctx)` → 按 Step 10 消费结果。
     try {
-      const rules = await loadAllRules();
+      const rules = await getLoadedRules();
       const currentRuleName = animeStore.playerRuleName || animeStore.detailRuleName;
-      const match = currentRuleName
-        ? rules.find((r) => r.status === "ready" && r.manifest.name === currentRuleName)
-        : undefined;
-      if (match) {
-        void switchSourceRule(match.id, {
-          contentId: animeStore.playerUrl || pageUrl || `anime:${animeStore.detailName}`,
-          title: animeStore.detailName,
-          chapterIndex: animeStore.playerEpisodeIdx + 1,
-          positionSec: Math.floor(currentTime),
-        });
+      const candidates = rules.filter(
+        (r) => r.status === "ready" && r.manifest.name !== currentRuleName,
+      );
+      if (candidates.length > 0) {
+        quickSwitchRules = candidates;
+        quickSwitchOpen = true;
+        return;
       }
     } catch (e) {
-      debugLog("[换源] 规则引擎接线跳过:", e);
+      debugLog("[换源] 规则缓存加载失败，回退旧选源面板:", e);
+    }
+
+    // 无其他可用规则 / 加载失败 → 回退旧选源面板（关闭播放器 → 打开 SourceSheet）
+    animeStore.closePlayer();
+    animeStore.openSourceSheet();
+  }
+
+  /** 用户从快速换源面板选中一个不同源 → switchSource + 消费 SwitchResult。 */
+  async function onQuickSwitch(rule: LoadedRule) {
+    if (quickSwitchBusy) return;
+    quickSwitchBusy = true;
+    quickSwitchOpen = false;
+    try {
+      const result = await switchSourceRule(rule.id, {
+        contentId: animeStore.playerUrl || pageUrl || `anime:${animeStore.detailName}`,
+        title: animeStore.detailName,
+        chapterIndex: animeStore.playerEpisodeIdx + 1,
+        positionSec: Math.floor(currentTime),
+      });
+      applySwitchResult(result);
+    } finally {
+      quickSwitchBusy = false;
+    }
+  }
+
+  /** spec §4 Step 10：消费 SwitchResult（ok/fallback/failed）并做最小 UI 反馈。 */
+  function applySwitchResult(result: SwitchResult) {
+    const playback = switchResultToPlayback(result);
+    if (playback.status === "failed") {
+      animeStore.playerExtractStatus = "error";
+      animeStore.markPlayerFailure("switchFailed", playback.message || "换源失败，请重试或选择其他源");
+      return;
+    }
+    if (playback.url) {
+      animeStore.playDirectVideoSource(
+        playback.url,
+        playback.headers,
+        playback.kind,
+        playback.resumeSec,
+      );
+    }
+    if (playback.status === "fallback" && playback.message) {
+      uiStore.toast(playback.message, "info");
     }
   }
 
@@ -1516,6 +1567,62 @@
   {/if}
     {/snippet}
   </AnimePlaybackShell>
+
+  {#if quickSwitchOpen}
+    <div class="quick-switch" role="dialog" aria-modal="true" aria-label="快速换源">
+      <div class="quick-switch__panel">
+        <div class="quick-switch__header">
+          <h3 class="quick-switch__title">快速换源</h3>
+          <button
+            class="quick-switch__close"
+            type="button"
+            aria-label="关闭换源面板"
+            onclick={() => (quickSwitchOpen = false)}
+          >
+            <Icon name="x" size={14} />
+          </button>
+        </div>
+        {#if quickSwitchRules.length === 0}
+          <p class="quick-switch__empty">没有其他可用源，可打开完整源列表搜索更多来源。</p>
+        {:else}
+          <ul class="quick-switch__list">
+            {#each quickSwitchRules as rule (rule.id)}
+              <li>
+                <button
+                  class="quick-switch__item"
+                  type="button"
+                  disabled={quickSwitchBusy || $sourceSwitchState.switching}
+                  onclick={() => void onQuickSwitch(rule)}
+                  title={rule.manifest.baseUrl}
+                >
+                  <span class="quick-switch__name">{rule.manifest.name}</span>
+                  {#if rule.origin === "custom"}
+                    <span class="quick-switch__badge">自定义</span>
+                  {/if}
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        <div class="quick-switch__footer">
+          {#if quickSwitchBusy || $sourceSwitchState.switching}
+            <span class="quick-switch__busy">正在切换源…</span>
+          {/if}
+          <button
+            class="quick-switch__more"
+            type="button"
+            onclick={() => {
+              quickSwitchOpen = false;
+              animeStore.closePlayer();
+              animeStore.openSourceSheet();
+            }}
+          >
+            打开完整源列表
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -2173,5 +2280,136 @@
   @media (max-width: 760px) {
     .enhanced-volume, .enhanced-media-controls > :global(svg), .enhanced-badge { display: none; }
     .enhanced-media-controls { right: 8px; bottom: 8px; left: 8px; gap: 6px; }
+  }
+
+  /* 快速换源面板（任务 1 §4 Step 10 接线） */
+  .quick-switch {
+    position: absolute;
+    inset: 0;
+    z-index: 60;
+    display: grid;
+    place-items: center;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(2px);
+    padding: 24px;
+  }
+  .quick-switch__panel {
+    width: min(24rem, 100%);
+    max-height: min(70vh, 30rem);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    background: rgba(16, 18, 24, 0.98);
+    box-shadow: 0 16px 44px rgba(0, 0, 0, 0.45);
+    animation: fade-in 0.15s ease;
+  }
+  .quick-switch__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .quick-switch__title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 650;
+    color: var(--text-primary);
+  }
+  .quick-switch__close {
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    border: none;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .quick-switch__close:hover {
+    background: rgba(232, 85, 127, 0.15);
+    color: var(--accent);
+  }
+  .quick-switch__empty {
+    margin: 0;
+    padding: 12px;
+    color: var(--text-muted);
+    font-size: 12.5px;
+    text-align: center;
+  }
+  .quick-switch__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    overflow-y: auto;
+  }
+  .quick-switch__item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-primary);
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .quick-switch__item:hover:not(:disabled) {
+    border-color: var(--accent-ring, rgba(232, 85, 127, 0.4));
+    background: rgba(232, 85, 127, 0.08);
+  }
+  .quick-switch__item:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .quick-switch__name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .quick-switch__badge {
+    flex-shrink: 0;
+    font-size: 0.7rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 999px;
+    background: rgba(96, 165, 250, 0.2);
+    color: #60a5fa;
+  }
+  .quick-switch__footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    padding-top: 10px;
+  }
+  .quick-switch__busy {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .quick-switch__more {
+    margin-left: auto;
+    padding: 6px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .quick-switch__more:hover {
+    border-color: var(--accent);
+    color: var(--accent);
   }
 </style>
