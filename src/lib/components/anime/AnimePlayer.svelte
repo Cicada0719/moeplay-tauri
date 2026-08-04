@@ -825,6 +825,8 @@
   /** spec §4 Step 10：消费 SwitchResult（ok/fallback/failed）并做最小 UI 反馈。 */
   function applySwitchResult(result: SwitchResult) {
     const playback = switchResultToPlayback(result);
+    // 竞态被取代 / 已取消的静默丢弃结果：不驱动任何 UI（与真实失败区分，避免误报换源失败）
+    if (playback.discarded) return;
     if (playback.status === "failed") {
       animeStore.playerExtractStatus = "error";
       animeStore.markPlayerFailure("switchFailed", playback.message || "换源失败，请重试或选择其他源");

@@ -1,6 +1,6 @@
 //! Tauri commands：规则引擎薄封装（对应 spec §3.4）。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tauri::Manager;
 use tauri::State;
@@ -10,7 +10,7 @@ use crate::rules::schema::{
     file_stem_id, validate_manifest, LoadedRule, RuleFileFormat, RuleLoadError, RuleManifest,
     RuleOrigin, RuleStatus,
 };
-use crate::rules::RuleEngineState;
+use crate::rules::{RuleEngine, RuleEngineState};
 
 /// 内置规则目录：优先资源目录，其次源码 resources/rules，最后创建空目录。
 fn builtin_rules_dir(app: &tauri::AppHandle) -> PathBuf {
@@ -140,28 +140,48 @@ pub async fn rules_cancel_scope(
     Ok(())
 }
 
-/// 导入本地规则文件（前端弹文件对话框拿到路径后传入）。
-#[tauri::command]
-pub async fn rules_import(
-    state: State<'_, RuleEngineState>,
-    path: String,
+/// 选取不与已注册 id 或磁盘文件冲突的自定义规则落盘 id。
+///
+/// 稳定 id = 源文件 stem（Kimi K3 复审第 1 项）：落盘名 = stem，重启后
+/// `rules_load_all` 以同一文件重载时 id 恒等；`rules_remove_custom` 按同一 id
+/// 仍能定位并删除该文件——id 若随机生成，重启后 id 与文件名对不上，删除链路
+/// 断裂会让规则「复活」。
+///
+/// 静默覆盖防护（Kimi K3 复审第 4 项）：`rules_import` 若直接写 `custom_rules/{stem}.json`，
+/// 导入两个同名 stem 的规则文件会静默覆盖前一个（数据丢失 + 注册表条目被替换），
+/// 同名 stem 还可能遮蔽内置规则。因此在写入前检测：目标文件已存在 **或** 该 id 已注册时，
+/// 自动追加 `-2`/`-3`… 后缀形成新 id——落盘名即 id，「id = 文件名 stem」的不变量
+/// 对后缀名同样成立（重启重载、删除链路均不受影响），且绝不静默覆盖。
+pub(crate) fn unique_custom_rule_id(engine: &RuleEngine, stem: &str, dir: &Path) -> String {
+    let mut id = stem.to_string();
+    let mut n = 2u32;
+    while engine.is_registered(&id) || dir.join(format!("{id}.json")).exists() {
+        id = format!("{stem}-{n}");
+        n += 1;
+    }
+    id
+}
+
+/// 导入规则文件的核心流程（`dir` 为自定义规则落盘目录，可注入便于测试）。
+///
+/// 读取 → 解析 → schema 校验 → 编译 → 选取不冲突的 id 落盘 → 注册。
+/// 任何一步失败返回结构化 [`RuleLoadError`]（前端展示具体校验错误）。
+pub(crate) async fn import_rule_to_dir(
+    engine: &RuleEngine,
+    path: &Path,
+    dir: &Path,
 ) -> Result<LoadedRule, RuleLoadError> {
-    let engine = &state.0;
-    let path_buf = PathBuf::from(&path);
-    let format = RuleFileFormat::from_path(&path_buf)
+    let format = RuleFileFormat::from_path(path)
         .ok_or_else(|| RuleLoadError::schema("不支持的文件格式（仅 .json/.yaml/.yml）"))?;
-    let text = std::fs::read_to_string(&path_buf)
+    let text = std::fs::read_to_string(path)
         .map_err(|e| RuleLoadError::schema(format!("读取规则文件失败: {e}")))?;
     let manifest = RuleManifest::from_str(&text, format)?;
     validate_manifest(&manifest)?;
     engine.compile_manifest(&manifest).await?;
 
-    // 稳定 id = 源文件 stem（Kimi K3 复审第 1 项）：落盘名 = stem，重启后
-    // `rules_load_all` 以同一文件重载时 id 恒等；`rules_remove_custom` 按同一 id
-    // 仍能定位并删除该文件——id 若随机生成，重启后 id 与文件名对不上，删除链路
-    // 断裂会让规则「复活」。
-    let id = file_stem_id(&path_buf);
-    let target = custom_rules_dir().join(format!("{id}.json"));
+    let stem = file_stem_id(path);
+    let id = unique_custom_rule_id(engine, &stem, dir);
+    let target = dir.join(format!("{id}.json"));
     let json = serde_json::to_string_pretty(&manifest)
         .map_err(|e| RuleLoadError::schema(format!("序列化规则失败: {e}")))?;
     std::fs::write(&target, json)
@@ -176,6 +196,16 @@ pub async fn rules_import(
     };
     engine.register_loaded(loaded.clone());
     Ok(loaded)
+}
+
+/// 导入本地规则文件（前端弹文件对话框拿到路径后传入）。
+#[tauri::command]
+pub async fn rules_import(
+    state: State<'_, RuleEngineState>,
+    path: String,
+) -> Result<LoadedRule, RuleLoadError> {
+    let engine = &state.0;
+    import_rule_to_dir(engine, Path::new(&path), &custom_rules_dir()).await
 }
 
 /// 删除自定义规则（内置规则拒绝删除）。

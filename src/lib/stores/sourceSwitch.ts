@@ -39,6 +39,9 @@ export interface SwitchResult {
   resumeSec: number;
   /** fallback/failed 时的用户提示文案 */
   message?: string;
+  /** 该结果是「被更新的调用取代 / 已取消」的静默丢弃结果。spec §5 承诺 failed 必有
+   *  message，消费方凭此标记与真实失败区分：不应驱动任何 UI（AnimePlayer 接线用）。 */
+  discarded?: boolean;
 }
 
 export interface SourceSwitchState {
@@ -80,14 +83,20 @@ export function normalizeTitle(s: string): string {
     .replace(/\s+/g, " ");
 }
 
-/** 构造一个全新的 failed 结果（每次返回新对象，避免共享引用被外部修改）。 */
-function emptyFailed(message?: string): SwitchResult {
+/** 竞态丢弃文案：前序切换被更新的切换请求取代。spec §5 要求 status='failed' 时必有
+ *  message，此处以固定文案让消费方区分「被取代的丢弃结果」与真实失败（Kimi K3 复审第 4 项）。 */
+export const SWITCH_SUPERSEDED_MESSAGE = "请求已被更新请求取代";
+
+/** 构造一个全新的 failed 结果（每次返回新对象，避免共享引用被外部修改）。
+ *  `discarded=true` 表示该结果是竞态/取消导致的静默丢弃，非真实失败。 */
+function emptyFailed(message?: string, discarded = false): SwitchResult {
   return {
     status: "failed",
     chapters: [],
     targetChapter: null,
     resumeSec: 0,
     ...(message ? { message } : {}),
+    ...(discarded ? { discarded: true } : {}),
   };
 }
 
@@ -118,6 +127,7 @@ export function switchResultToPlayback(result: SwitchResult): {
   chapterIndex: number | null;
   status: SwitchStatus;
   message?: string;
+  discarded?: boolean;
 } {
   return {
     url: result.parseResult?.urls?.[0] ?? null,
@@ -127,6 +137,7 @@ export function switchResultToPlayback(result: SwitchResult): {
     chapterIndex: result.targetChapter?.index ?? null,
     status: result.status,
     ...(result.message ? { message: result.message } : {}),
+    ...(result.discarded ? { discarded: true } : {}),
   };
 }
 
@@ -185,8 +196,8 @@ export async function switchSource(
     // 5. 解析播放地址
     const parseResult = await parse(targetRuleId, target.url, scope);
 
-    // 双保险：已被更新的调用取代则静默丢弃
-    if (seq !== callSeq) return emptyFailed();
+    // 双保险：已被更新的调用取代则静默丢弃（discarded 标记 + 文案，区别于真实失败）
+    if (seq !== callSeq) return emptyFailed(SWITCH_SUPERSEDED_MESSAGE, true);
 
     const result: SwitchResult = {
       status,
@@ -204,8 +215,11 @@ export async function switchSource(
     });
     return result;
   } catch (err) {
-    // 取消 → 静默丢弃（不更新错误状态，lastResult 保持 null）
+    // 取消 → 静默丢弃（不更新错误状态，lastResult 保持 null）。竞态被取代（seq !==
+    // callSeq）与外部取消当前调用（seq === callSeq）都属非失败结果：spec §5 要求
+    // failed 必有 message，故以固定文案 + discarded 标记供消费方区分并跳过 UI。
     if (isCancelledError(err)) {
+      const discarded = seq !== callSeq ? SWITCH_SUPERSEDED_MESSAGE : "切换已取消";
       if (seq === callSeq) {
         sourceSwitchState.set({
           switching: false,
@@ -214,10 +228,10 @@ export async function switchSource(
           lastResult: null,
         });
       }
-      return emptyFailed();
+      return emptyFailed(discarded, true);
     }
 
-    if (seq !== callSeq) return emptyFailed();
+    if (seq !== callSeq) return emptyFailed(SWITCH_SUPERSEDED_MESSAGE, true);
 
     // 结构化透传：区分「条目未找到/无剧集」与「规则被禁用/不存在」（§3.6 置灰的
     // 运行时兜底），统一转为 lastError + failed 结果，绝不向上抛未捕获异常。

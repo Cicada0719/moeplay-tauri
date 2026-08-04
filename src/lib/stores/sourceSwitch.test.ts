@@ -1,6 +1,7 @@
 // sourceSwitch store 单元测试（对应 spec §6.2 测试 15~19）
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  SWITCH_SUPERSEDED_MESSAGE,
   normalizeTitle,
   sourceSwitchState,
   switchResultToPlayback,
@@ -198,10 +199,15 @@ describe("switchSource", () => {
 
     // cancelScope 被调用 3 次
     expect(mocks.cancelScope).toHaveBeenCalledTimes(3);
-    // 前两次为取消静默丢弃（status failed 且不污染 lastError）
+    // 前两次为取消/竞态静默丢弃（status failed + discarded 标记 + 文案，不污染 lastError）
     expect(results[0].status).toBe("failed");
+    expect(results[0].discarded).toBe(true);
+    expect(results[0].message).toBe(SWITCH_SUPERSEDED_MESSAGE);
     expect(results[1].status).toBe("failed");
+    expect(results[1].discarded).toBe(true);
+    expect(results[1].message).toBe(SWITCH_SUPERSEDED_MESSAGE);
     expect(results[2].status).toBe("ok");
+    expect(results[2].discarded).toBeUndefined();
 
     // store 只反映最后一次结果
     let state: { switching: boolean; currentScope: string | null; lastError: string | null } =
@@ -214,6 +220,41 @@ describe("switchSource", () => {
     expect(state.switching).toBe(false);
     expect(state.lastError).toBeNull();
     expect(state.currentScope).toBe("play:c1");
+  });
+
+  it("switch_failed_always_carries_message: 任何 failed 结果都有 message（spec §5 契约）", async () => {
+    mocks.cancelScope.mockImplementation(async () => {
+      cancel.cancelScope();
+    });
+    mocks.search.mockImplementation(() => cancellable([OK_ITEM]));
+    mocks.chapters.mockImplementation(() => cancellable(CHAPTERS_5));
+    mocks.parse.mockImplementation(() => cancellable(PARSE_OK));
+
+    const results = await Promise.all([
+      switchSource("rule-b", CTX),
+      switchSource("rule-b", CTX),
+    ]);
+
+    // 两个失败（竞态丢弃）结果都必须携带 message，且与真实失败可区分（discarded 标记）
+    for (const r of results.filter((x) => x.status === "failed")) {
+      expect(r.message).toBeTruthy();
+      expect(r.message!.length).toBeGreaterThan(0);
+      expect(r.discarded).toBe(true);
+    }
+  });
+
+  it("switch_result_to_playback: 丢弃结果透传 discarded，消费方可跳过 UI", () => {
+    const playback = switchResultToPlayback({
+      status: "failed",
+      chapters: [],
+      targetChapter: null,
+      resumeSec: 0,
+      message: SWITCH_SUPERSEDED_MESSAGE,
+      discarded: true,
+    });
+    expect(playback.status).toBe("failed");
+    expect(playback.message).toBe(SWITCH_SUPERSEDED_MESSAGE);
+    expect(playback.discarded).toBe(true);
   });
 
   it("switch_never_throws: 解析失败转为结构化 failed，不抛异常", async () => {

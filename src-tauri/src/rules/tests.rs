@@ -10,7 +10,10 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::engine::{RuleEngine, RuleExecError, RuleInput};
 use super::sandbox::Sandbox;
-use super::schema::{ContentType, RuleFileFormat, RuleManifest, RuleOrigin, RuleStatus};
+use super::schema::{
+    ContentType, LoadedRule, RuleFileFormat, RuleManifest, RuleOrigin, RuleStatus,
+};
+use crate::commands::{import_rule_to_dir, unique_custom_rule_id};
 
 fn test_http() -> reqwest::Client {
     reqwest::Client::builder()
@@ -1092,6 +1095,85 @@ async fn hard_interrupt_late_install_does_not_poison_next_task() {
         .expect("任务 B 不应 panic")
         .unwrap_err();
     assert!(matches!(err_b, RuleExecError::Cancelled));
+}
+
+// ── 测试：Kimi K3 复审第 4 项——rules_import 同名 stem 禁止静默覆盖 ─────────
+
+#[tokio::test]
+async fn import_same_stem_appends_suffix_not_overwrite() {
+    let engine = test_engine();
+    let root = tempfile::tempdir().unwrap();
+    let src_dir = root.path().join("src");
+    let dst_dir = root.path().join("custom_rules");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::create_dir_all(&dst_dir).unwrap();
+
+    // 两份内容不同、文件名 stem 相同的规则文件（分处不同目录，模拟两次独立导入）
+    let src1 = src_dir.join("dup.json");
+    let src2 = root.path().join("src2").join("dup.json");
+    std::fs::create_dir_all(src2.parent().unwrap()).unwrap();
+    let m1 = make_manifest(
+        "同名源A",
+        "function search(k,p){ return [{title:k,url:'https://example.com/a'}]; }",
+    );
+    let m2 = make_manifest(
+        "同名源B",
+        "function search(k,p){ return [{title:k,url:'https://example.com/b'}]; }",
+    );
+    std::fs::write(&src1, serde_json::to_string_pretty(&m1).unwrap()).unwrap();
+    std::fs::write(&src2, serde_json::to_string_pretty(&m2).unwrap()).unwrap();
+
+    // 第一次导入：无冲突 → 落盘 dup.json，id = "dup"
+    let first = import_rule_to_dir(&engine, &src1, &dst_dir).await.unwrap();
+    assert_eq!(first.id, "dup");
+    assert!(dst_dir.join("dup.json").exists());
+
+    // 第二次导入同 stem：目标已存在且 id 已注册 → 自动追加 -2，绝不覆盖
+    let second = import_rule_to_dir(&engine, &src2, &dst_dir).await.unwrap();
+    assert_eq!(second.id, "dup-2");
+    assert!(
+        dst_dir.join("dup.json").exists(),
+        "首次导入的 dup.json 不得被静默覆盖"
+    );
+    assert!(dst_dir.join("dup-2.json").exists());
+    assert!(engine.is_registered("dup") && engine.is_registered("dup-2"));
+
+    // 原文件内容保持不变（未被第二次导入的内容静默替换）
+    let on_disk: RuleManifest =
+        serde_json::from_slice(&std::fs::read(dst_dir.join("dup.json")).unwrap()).unwrap();
+    assert_eq!(on_disk.name, "同名源A");
+
+    // 第三次同 stem → -3
+    let src3 = root.path().join("src3").join("dup.json");
+    std::fs::create_dir_all(src3.parent().unwrap()).unwrap();
+    std::fs::write(&src3, serde_json::to_string_pretty(&m1).unwrap()).unwrap();
+    let third = import_rule_to_dir(&engine, &src3, &dst_dir).await.unwrap();
+    assert_eq!(third.id, "dup-3");
+    assert!(dst_dir.join("dup-3.json").exists());
+}
+
+#[tokio::test]
+async fn import_unique_id_considers_registry_and_disk() {
+    let engine = test_engine();
+    let dir = tempfile::tempdir().unwrap();
+
+    // 空引擎 + 空目录：直接用 stem
+    assert_eq!(unique_custom_rule_id(&engine, "rule", dir.path()), "rule");
+
+    // 磁盘已有 rule.json（即使引擎未注册）→ 也须避开，禁止静默覆盖文件
+    std::fs::write(dir.path().join("rule.json"), "{}").unwrap();
+    assert!(!engine.is_registered("rule"));
+    assert_eq!(unique_custom_rule_id(&engine, "rule", dir.path()), "rule-2");
+
+    // 注册表已有 rule-2 → 继续追加 -3（注册表冲突同样触发后缀）
+    engine.register_loaded(LoadedRule {
+        id: "rule-2".into(),
+        manifest: make_manifest("已注册源", "function search(k,p){ return []; }"),
+        origin: RuleOrigin::Custom,
+        status: RuleStatus::Ready,
+        error: None,
+    });
+    assert_eq!(unique_custom_rule_id(&engine, "rule", dir.path()), "rule-3");
 }
 
 // ── 辅助扩展 ────────────────────────────────────────────────────────────

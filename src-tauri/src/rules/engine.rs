@@ -473,6 +473,14 @@ impl RuleEngine {
         Ok(())
     }
 
+    /// 查询 id 是否已注册（Ready 与 Invalid 均计入）。
+    ///
+    /// 供 `rules_import` 规避同名覆盖（Kimi K3 复审第 4 项）：导入前检查目标 id 是否
+    /// 已被注册，是则改用追加后缀的新 id，绝不静默覆盖既有规则的注册表条目。
+    pub fn is_registered(&self, rule_id: &str) -> bool {
+        self.rules.read().unwrap().contains_key(rule_id)
+    }
+
     /// 导出全部**可执行（Ready）**规则的 manifest（内置 + 自定义）。
     ///
     /// Invalid 规则（含解析失败生成的占位 manifest）不参与导出：其脚本字段为空/残缺，
