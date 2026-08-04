@@ -208,7 +208,23 @@ pub async fn rules_import(
     import_rule_to_dir(engine, Path::new(&path), &custom_rules_dir()).await
 }
 
-/// 删除自定义规则（内置规则拒绝删除）。
+/// 删除自定义规则文件：对 json/yaml/yml 同 stem 文件都尝试删除（存在才删）。
+///
+/// Kimi K3 复审第 5 项：`discover_rule_inputs` 从自定义目录加载 `.json/.yaml/.yml`
+/// （id = 文件名 stem，见 [`file_stem_id`]）。若删除只清 `{id}.json`，同名手动放置的
+/// `.yaml`/`.yml` 规则会在下次 `rules_load_all` 时以同一 stem id 重新注册，规则「复活」。
+/// 因此对三种扩展名的同 stem 文件都尝试删除，杜绝手动 YAML 规则残留复活。
+pub(crate) fn remove_custom_rule_files(dir: &Path, rule_id: &str) -> Result<(), String> {
+    for ext in ["json", "yaml", "yml"] {
+        let file = dir.join(format!("{rule_id}.{ext}"));
+        if file.exists() {
+            std::fs::remove_file(&file).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+/// 删除自定义规则（内置规则拒绝删除）。同 stem 的 json/yaml/yml 文件一并清除。
 #[tauri::command]
 pub async fn rules_remove_custom(
     state: State<'_, RuleEngineState>,
@@ -216,11 +232,7 @@ pub async fn rules_remove_custom(
 ) -> Result<(), String> {
     let engine = &state.0;
     engine.remove_rule(&rule_id)?;
-    let file = custom_rules_dir().join(format!("{rule_id}.json"));
-    if file.exists() {
-        std::fs::remove_file(&file).map_err(|e| e.to_string())?;
-    }
-    Ok(())
+    remove_custom_rule_files(&custom_rules_dir(), &rule_id)
 }
 
 /// 导出全部规则（内置 + 自定义）为 JSON 数组到指定路径。

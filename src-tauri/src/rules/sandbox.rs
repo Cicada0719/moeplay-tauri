@@ -297,7 +297,9 @@ impl Sandbox {
                 .iter()
                 .map(|a| json_to_js(&ctx, a))
                 .collect::<rquickjs::Result<_>>()
-                .map_err(|e| RuleExecError::BadReturn(format!("参数转换失败: {e}")))?;
+                .map_err(|e| RuleExecError::BadReturn {
+                    message: format!("参数转换失败: {e}"),
+                })?;
             // 4. 调用
             let result = call_dynamic(&ctx, &f, &js_args).map_err(|e| {
                 let (message, line) = exception_info(&ctx, &e);
@@ -308,8 +310,9 @@ impl Sandbox {
                 return drive_promise(promise.clone());
             }
             // 6. 转 JSON
-            js_to_json(&result)
-                .map_err(|e| RuleExecError::BadReturn(format!("返回结构不合法: {e}")))
+            js_to_json(&result).map_err(|e| RuleExecError::BadReturn {
+                message: format!("返回结构不合法: {e}"),
+            })
         })
     }
 }
@@ -375,8 +378,9 @@ fn call_dynamic<'js>(
 /// 驱动 Promise 至 settled，返回其 resolve 值（reject 时返回结构化错误）。
 fn drive_promise<'js>(promise: Promise<'js>) -> Result<JsonValue, RuleExecError> {
     match promise.finish::<Value>() {
-        Ok(v) => js_to_json(&v)
-            .map_err(|e| RuleExecError::BadReturn(format!("Promise 返回值不合法: {e}"))),
+        Ok(v) => js_to_json(&v).map_err(|e| RuleExecError::BadReturn {
+            message: format!("Promise 返回值不合法: {e}"),
+        }),
         Err(e) => {
             let (message, line) = exception_info(promise.ctx(), &e);
             Err(RuleExecError::ScriptError { message, line })

@@ -440,7 +440,70 @@ async fn bad_return_shape() {
     let id = loaded[0].id.clone();
     let token = CancellationToken::new();
     let err = engine.search(&id, "x", 1, token).await.unwrap_err();
-    assert!(matches!(err, RuleExecError::BadReturn(_)));
+    assert!(matches!(err, RuleExecError::BadReturn { .. }));
+}
+
+// ── 测试：Kimi K3 复审第 5 项——RuleExecError 可 JSON 序列化且字段完整 ────────
+//
+// serde 内部标签枚举（`#[serde(tag = "kind")]`）要求所有变体都序列化为 map：String
+// newtype 变体（RuleNotFound/Network/BadReturn 包 String）在 `serde_json::to_string`
+// 时运行期失败（"cannot serialize tagged newtype variant containing a string"），
+// 导致 Tauri 命令错误无法传到前端。改为 struct 变体包 `message` 后，断言每个变体都能
+// 真正序列化为 JSON 且 `kind` tag / `message` 字段完整。
+
+#[test]
+fn rule_exec_error_serializes_with_complete_fields() {
+    let cases: Vec<(RuleExecError, &str, Option<&str>)> = vec![
+        (
+            RuleExecError::RuleNotFound {
+                message: "源不存在".into(),
+            },
+            "ruleNotFound",
+            Some("源不存在"),
+        ),
+        (RuleExecError::Timeout, "timeout", None),
+        (RuleExecError::Cancelled, "cancelled", None),
+        (
+            RuleExecError::ScriptError {
+                message: "boom".into(),
+                line: Some(7),
+            },
+            "scriptError",
+            Some("boom"),
+        ),
+        (
+            RuleExecError::Network {
+                message: "通道关闭".into(),
+            },
+            "network",
+            Some("通道关闭"),
+        ),
+        (
+            RuleExecError::BadReturn {
+                message: "结构不合法".into(),
+            },
+            "badReturn",
+            Some("结构不合法"),
+        ),
+    ];
+
+    for (err, kind, message) in cases {
+        let json = serde_json::to_string(&err).unwrap_or_else(|e| panic!("{kind} 序列化失败: {e}"));
+        let value: serde_json::Value =
+            serde_json::from_str(&json).unwrap_or_else(|e| panic!("{kind} 反序列化失败: {e}"));
+        assert_eq!(value["kind"], kind, "序列化应含 kind tag: {json}");
+        match message {
+            Some(m) => {
+                assert_eq!(value["message"], m, "message 字段应完整: {json}");
+            }
+            None => {
+                assert!(
+                    value.get("message").is_none(),
+                    "无消息变体不应带多余 message 字段: {json}"
+                );
+            }
+        }
+    }
 }
 
 // ── 测试 13：导入 / 导出 / 删除往返 ─────────────────────────────────────
@@ -709,7 +772,7 @@ async fn invalid_rules_are_registered_in_map() {
     // 执行层保持「仅 Ready 可执行」不变量
     let token = CancellationToken::new();
     let err = engine.search(&id, "x", 1, token).await.unwrap_err();
-    assert!(matches!(err, RuleExecError::RuleNotFound(_)));
+    assert!(matches!(err, RuleExecError::RuleNotFound { .. }));
 
     // 自定义 Invalid 规则仍可按 id 删除（删除链路依赖 map 内注册）
     engine.remove_rule(&id).unwrap();
@@ -1174,6 +1237,94 @@ async fn import_unique_id_considers_registry_and_disk() {
         error: None,
     });
     assert_eq!(unique_custom_rule_id(&engine, "rule", dir.path()), "rule-3");
+}
+
+// ── 测试：Kimi K3 复审第 5 项——rules_remove_custom 删除链路覆盖 .yaml/.yml ──
+//
+// discover 从自定义目录加载 `.json/.yaml/.yml`（id = 文件名 stem）。若删除只清 `{id}.json`，
+// 同名手动 YAML 规则会在下次重载时以同一 stem id「复活」。断言同 stem 的三种扩展名文件
+// 都被清除（存在才删），无关文件不受影响，且无同 stem 文件时静默成功。
+
+#[test]
+fn remove_custom_rule_files_clears_all_extensions() {
+    use crate::commands::remove_custom_rule_files;
+
+    let dir = tempfile::tempdir().unwrap();
+    let manifest = make_manifest(
+        "YAML 源",
+        "function search(k,p){ return [{title:k,url:'https://example.com'}]; }",
+    );
+    let json = serde_json::to_string_pretty(&manifest).unwrap();
+    let yaml = serde_yaml::to_string(&manifest).unwrap();
+
+    // 同 stem 三种扩展名 + 一个无关文件
+    std::fs::write(dir.path().join("my_rule.json"), &json).unwrap();
+    std::fs::write(dir.path().join("my_rule.yaml"), &yaml).unwrap();
+    std::fs::write(dir.path().join("my_rule.yml"), &yaml).unwrap();
+    std::fs::write(dir.path().join("other.json"), &json).unwrap();
+
+    remove_custom_rule_files(dir.path(), "my_rule").unwrap();
+
+    assert!(
+        !dir.path().join("my_rule.json").exists(),
+        "同 stem json 应被删除"
+    );
+    assert!(
+        !dir.path().join("my_rule.yaml").exists(),
+        "同 stem yaml 应被删除"
+    );
+    assert!(
+        !dir.path().join("my_rule.yml").exists(),
+        "同 stem yml 应被删除"
+    );
+    assert!(dir.path().join("other.json").exists(), "无关文件不受影响");
+
+    // 不存在任何同 stem 文件时也应成功（静默跳过）
+    remove_custom_rule_files(dir.path(), "no_such_rule").unwrap();
+}
+
+#[tokio::test]
+async fn remove_custom_clears_yaml_and_prevents_resurrection() {
+    use crate::commands::remove_custom_rule_files;
+
+    let dir = tempfile::tempdir().unwrap();
+    let manifest = make_manifest(
+        "手动 YAML 源",
+        "function search(k,p){ return [{title:k,url:'https://example.com/yaml'}]; }",
+    );
+    let yaml_path = dir.path().join("manual_rule.yaml");
+    std::fs::write(&yaml_path, serde_yaml::to_string(&manifest).unwrap()).unwrap();
+
+    // discover 等价路径：自定义目录中的 .yaml 文件以 stem 为 id 加载为 Ready
+    let engine = test_engine();
+    let loaded = engine
+        .load_rules(vec![RuleInput::File {
+            path: yaml_path.clone(),
+            origin: RuleOrigin::Custom,
+        }])
+        .await;
+    assert_eq!(loaded[0].status, RuleStatus::Ready);
+    assert_eq!(loaded[0].id, "manual_rule", ".yaml 规则 id = 文件 stem");
+
+    // 完整删除链路：注册表移除 + 命令层清除 json/yaml/yml 同 stem 文件
+    engine.remove_rule("manual_rule").unwrap();
+    remove_custom_rule_files(dir.path(), "manual_rule").unwrap();
+    assert!(!yaml_path.exists(), "删除后 .yaml 文件应被清除");
+
+    // 重新加载 → 不再出现 Ready 规则（杜绝手动 YAML 规则残留复活）
+    let engine_after = test_engine();
+    let after = engine_after
+        .load_rules(vec![RuleInput::File {
+            path: yaml_path,
+            origin: RuleOrigin::Custom,
+        }])
+        .await;
+    assert_eq!(
+        after[0].status,
+        RuleStatus::Invalid,
+        "文件已删，手动 YAML 规则不得复活"
+    );
+    assert!(after[0].error.is_some());
 }
 
 // ── 辅助扩展 ────────────────────────────────────────────────────────────

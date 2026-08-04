@@ -83,12 +83,19 @@ pub struct ParseResult {
     pub headers: Option<HashMap<String, String>>,
 }
 
-/// 规则执行错误（`kind` tag 稳定，供前端结构化透传）
+/// 规则执行错误（`kind` tag 稳定，供前端结构化透传）。
+///
+/// 序列化契约：serde 内部标签枚举（`#[serde(tag = "kind")]`）要求**所有**变体都序列化为
+/// map——String newtype 变体（`RuleNotFound(String)`/`Network(String)`/`BadReturn(String)`）
+/// 在 `serde_json::to_string` 时会运行期失败（"cannot serialize tagged newtype variant
+/// containing a string"），Tauri 命令错误无法传到前端。因此携带消息的变体统一为
+/// `{ message: String }` struct 形式，序列化输出 `{"kind": "...", "message": "..."}`，
+/// 与前端 `RuleExecError` 类型（`kind` + `message?`）一一对应。
 #[derive(Debug, thiserror::Error, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum RuleExecError {
-    #[error("规则不存在或无效: {0}")]
-    RuleNotFound(String),
+    #[error("规则不存在或无效: {message}")]
+    RuleNotFound { message: String },
     #[error("规则执行超时")]
     Timeout,
     #[error("任务已取消")]
@@ -99,10 +106,10 @@ pub enum RuleExecError {
         #[serde(skip_serializing_if = "Option::is_none")]
         line: Option<u32>,
     },
-    #[error("网络错误: {0}")]
-    Network(String),
-    #[error("返回结构不合法: {0}")]
-    BadReturn(String),
+    #[error("网络错误: {message}")]
+    Network { message: String },
+    #[error("返回结构不合法: {message}")]
+    BadReturn { message: String },
 }
 
 /// 规则加载输入
@@ -374,8 +381,9 @@ impl RuleEngine {
                 token,
             )
             .await?;
-        serde_json::from_value(value)
-            .map_err(|e| RuleExecError::BadReturn(format!("搜索返回结构不合法: {e}")))
+        serde_json::from_value(value).map_err(|e| RuleExecError::BadReturn {
+            message: format!("搜索返回结构不合法: {e}"),
+        })
     }
 
     /// 详情
@@ -389,8 +397,9 @@ impl RuleEngine {
         let value = self
             .execute(rule_id, manifest.detail, "detail", vec![json!(url)], token)
             .await?;
-        serde_json::from_value(value)
-            .map_err(|e| RuleExecError::BadReturn(format!("详情返回结构不合法: {e}")))
+        serde_json::from_value(value).map_err(|e| RuleExecError::BadReturn {
+            message: format!("详情返回结构不合法: {e}"),
+        })
     }
 
     /// 章节列表
@@ -410,8 +419,9 @@ impl RuleEngine {
                 token,
             )
             .await?;
-        serde_json::from_value(value)
-            .map_err(|e| RuleExecError::BadReturn(format!("章节返回结构不合法: {e}")))
+        serde_json::from_value(value).map_err(|e| RuleExecError::BadReturn {
+            message: format!("章节返回结构不合法: {e}"),
+        })
     }
 
     /// 解析播放地址
@@ -431,8 +441,9 @@ impl RuleEngine {
                 token,
             )
             .await?;
-        serde_json::from_value(value)
-            .map_err(|e| RuleExecError::BadReturn(format!("解析返回结构不合法: {e}")))
+        serde_json::from_value(value).map_err(|e| RuleExecError::BadReturn {
+            message: format!("解析返回结构不合法: {e}"),
+        })
     }
 
     /// 取消指定 scope（如 "play:{contentId}"）下所有未完成任务。
@@ -514,7 +525,9 @@ impl RuleEngine {
             // 执行层只放行 Ready：Invalid 规则虽已注册进 map（供列表/置灰），但不可执行。
             .filter(|r| r.status == RuleStatus::Ready)
             .map(|r| r.manifest.clone())
-            .ok_or_else(|| RuleExecError::RuleNotFound(rule_id.to_string()))
+            .ok_or_else(|| RuleExecError::RuleNotFound {
+                message: rule_id.to_string(),
+            })
     }
 
     /// 共享执行路径：分发到 worker → 监听 token 取消 / 15s 超时 → 中断 JS →
@@ -549,8 +562,9 @@ impl RuleEngine {
             reply: reply_tx,
             token: token.clone(),
         };
-        tx.send(task)
-            .map_err(|_| RuleExecError::Network("规则 worker 通道已关闭".into()))?;
+        tx.send(task).map_err(|_| RuleExecError::Network {
+            message: "规则 worker 通道已关闭".into(),
+        })?;
 
         // 结果 future：worker 真正完成当前任务后 resolve（成功/失败/通道关闭）。
         // Fuse 保证被 select 探测过后仍可安全二次 poll（等待 worker 退出）。
