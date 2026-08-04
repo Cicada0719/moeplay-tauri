@@ -328,6 +328,129 @@ async fn kazumi_compat_fixture() {
     );
 }
 
+// ── 测试：取消时 worker 被 fetch 阻塞 → 超时回收重建，后续任务不堆积 ─────────
+
+#[tokio::test]
+async fn exec_cancel_recycles_fetch_blocked_worker() {
+    // 端点延迟 10s：让规则脚本的 `await fetch(...)` 长时间阻塞 worker 线程
+    // （阻塞发生在 Rust block_on 内，QuickJS 中断 handler 不生效）。
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/slow"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(Duration::from_secs(10))
+                .set_body_string("late"),
+        )
+        .mount(&server)
+        .await;
+
+    let engine = test_engine();
+    let slow_url = format!("{}/slow", server.uri());
+    let slow_script = format!("async function search(k,p) {{ await fetch('{slow_url}'); return []; }}");
+    let loaded = engine
+        .load_rules(vec![RuleInput::Manifest {
+            manifest: make_manifest("慢源", &slow_script),
+            origin: RuleOrigin::Builtin,
+        }])
+        .await;
+    assert_eq!(loaded[0].status, RuleStatus::Ready);
+    let slow_id = loaded[0].id.clone();
+
+    // 快速规则：回收后的 worker 应能立刻承接
+    let fast = engine
+        .load_rules(vec![RuleInput::Manifest {
+            manifest: make_manifest(
+                "快源",
+                "function search(k,p){ return [{title:k,url:'https://example.com/x'}]; }",
+            ),
+            origin: RuleOrigin::Builtin,
+        }])
+        .await;
+    let fast_id = fast[0].id.clone();
+
+    // 首个派发落到 worker[0]，随后在 fetch 阻塞期间取消
+    let token = engine.new_scope_token("recycle:x");
+    let search_fut = engine.search(&slow_id, "x", 1, token.clone());
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    engine.cancel_scope("recycle:x");
+
+    let cancelled = tokio::time::timeout(Duration::from_secs(5), search_fut).await;
+    assert!(
+        matches!(cancelled, Ok(Err(RuleExecError::Cancelled))),
+        "取消应快速返回 Cancelled（含回收宽限），实际 {cancelled:?}"
+    );
+
+    // worker[0] 应已被回收重建：4 次派发（第 4 次回落到 worker[0]）全部快速完成，
+    // 不会堆积在旧 worker 的 fetch 阻塞上。
+    let all_ok = tokio::time::timeout(Duration::from_secs(4), async {
+        for _ in 0..4 {
+            let token = CancellationToken::new();
+            let items = engine
+                .search(&fast_id, "x", 1, token)
+                .await
+                .expect("worker 应已释放");
+            assert_eq!(items.len(), 1);
+        }
+    })
+    .await;
+    assert!(all_ok.is_ok(), "被回收的 worker 不应拖慢后续任务");
+}
+
+// ── 测试：超大/非有限 float 不静默丢弃为 null ─────────────────────────────
+
+#[test]
+fn js_to_json_non_finite_and_huge_float() {
+    let interrupt = Arc::new(AtomicBool::new(false));
+    let sandbox = Sandbox::new(test_http(), interrupt).unwrap();
+    let result = sandbox
+        .call(
+            "function search(k,p){ return { nan: NaN, inf: Infinity, negInf: -Infinity, huge: 1e100 }; }",
+            "search",
+            vec![],
+        )
+        .expect("脚本应正常执行");
+    let obj = result.as_object().expect("应返回对象");
+    assert_eq!(obj.get("nan"), Some(&serde_json::json!("NaN")));
+    assert_eq!(obj.get("inf"), Some(&serde_json::json!("inf")));
+    assert_eq!(obj.get("negInf"), Some(&serde_json::json!("-inf")));
+    // 超大有限浮点保留为 JSON number，绝不为 null
+    assert_eq!(obj.get("huge"), Some(&serde_json::json!(1e100)));
+}
+
+// ── 测试：Invalid 规则也注册进内部 map（列表/置灰/删除依赖）────────────────
+
+#[tokio::test]
+async fn invalid_rules_are_registered_in_map() {
+    let engine = test_engine();
+    let loaded = engine
+        .load_rules(vec![RuleInput::Manifest {
+            manifest: make_manifest("坏语法源", "function search(k,p){ return []; }")
+                .with_parse("function parse(chapterUrl) { let x = ; }"),
+            origin: RuleOrigin::Custom,
+        }])
+        .await;
+    assert_eq!(loaded[0].status, RuleStatus::Invalid);
+    let id = loaded[0].id.clone();
+
+    // Invalid 规则已注册 → all_manifests 可见（供前端置灰/导出）
+    let manifests = engine.all_manifests();
+    assert!(
+        manifests.iter().any(|m| m.name == "坏语法源"),
+        "Invalid 规则应出现在 all_manifests"
+    );
+
+    // 执行层保持「仅 Ready 可执行」不变量
+    let token = CancellationToken::new();
+    let err = engine.search(&id, "x", 1, token).await.unwrap_err();
+    assert!(matches!(err, RuleExecError::RuleNotFound(_)));
+
+    // 自定义 Invalid 规则可按 id 删除
+    engine.remove_rule(&id).unwrap();
+    let manifests = engine.all_manifests();
+    assert!(!manifests.iter().any(|m| m.name == "坏语法源"));
+}
+
 // ── 辅助扩展 ────────────────────────────────────────────────────────────
 
 impl RuleManifest {

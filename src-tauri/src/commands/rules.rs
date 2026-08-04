@@ -196,6 +196,12 @@ pub async fn rules_export(
 ) -> Result<u32, String> {
     let manifests = state.0.all_manifests();
     let json = serde_json::to_string_pretty(&manifests).map_err(|e| e.to_string())?;
+    // 目标父目录不存在时先创建，避免导出静默失败（DeepSeek 审核建议）。
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        if !parent.as_os_str().is_empty() && !parent.exists() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("创建导出目录失败: {e}"))?;
+        }
+    }
     std::fs::write(&path, json).map_err(|e| e.to_string())?;
     Ok(manifests.len() as u32)
 }

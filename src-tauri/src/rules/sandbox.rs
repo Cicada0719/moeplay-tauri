@@ -399,12 +399,11 @@ fn js_to_json<'js>(value: &Value<'js>) -> rquickjs::Result<JsonValue> {
         return Ok(JsonValue::from(i));
     }
     if let Some(f) = value.as_float() {
+        // 整数值落回 i32，避免前端按浮点解析丢失精度
         if f.fract() == 0.0 && f >= i32::MIN as f64 && f <= i32::MAX as f64 {
             return Ok(JsonValue::from(f as i32));
         }
-        return Ok(serde_json::Number::from_f64(f)
-            .map(JsonValue::Number)
-            .unwrap_or(JsonValue::Null));
+        return Ok(json_float(f));
     }
     if let Some(s) = value.as_string() {
         let s: String = s.get()?;
@@ -427,6 +426,17 @@ fn js_to_json<'js>(value: &Value<'js>) -> rquickjs::Result<JsonValue> {
         return Ok(JsonValue::Object(map));
     }
     Ok(JsonValue::Null)
+}
+
+/// 将 f64 映射为 JSON 值，绝不静默丢弃为 null：
+/// - 有限值（含超大/超小，如 `1e100`）交由 serde_json 以 JSON number 表示（精度按 f64）；
+/// - NaN/±Infinity 无法用 JSON number 表示（`Number::from_f64` 返回 None），
+///   显式转为字符串（"NaN" / "inf" / "-inf"），避免数据丢失。
+fn json_float(f: f64) -> JsonValue {
+    if let Some(n) = serde_json::Number::from_f64(f) {
+        return JsonValue::Number(n);
+    }
+    JsonValue::String(f.to_string())
 }
 
 /// 将 serde_json 值转换为 JS 值（手动递归）。

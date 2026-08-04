@@ -9,7 +9,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::Duration;
 
+use futures_util::FutureExt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
@@ -23,6 +25,10 @@ use crate::rules::schema::{
 
 /// 常驻 worker 线程数（QuickJS runtime 不可跨线程，必须一线程一沙箱）。
 const WORKER_COUNT: usize = 4;
+
+/// 取消/超时后等待 worker 真正退出当前任务的宽限期；超时则回收重建该 worker，
+/// 避免其永久占用导致后续任务堆积（DeepSeek 审核项 1）。
+const CANCEL_RECYCLE_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// 搜索结果条目
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,6 +120,9 @@ struct TaskMsg {
     fn_name: String,
     args: Vec<serde_json::Value>,
     reply: tokio::sync::oneshot::Sender<Result<serde_json::Value, RuleExecError>>,
+    /// 任务所属取消 token：worker 取任务时若已取消则直接回 Cancelled，不执行，
+    /// 从而避免「已取消任务先于取消信号入队」时 reset_interrupt 清掉中断标志的竞态。
+    token: CancellationToken,
 }
 
 /// worker 句柄（引擎持有，用于分发任务与中断 JS）
@@ -125,11 +134,12 @@ struct WorkerHandle {
 /// 规则引擎
 pub struct RuleEngine {
     http: reqwest::Client,
-    /// 仅存放 status=Ready 的规则（用于执行）
+    /// 全部已加载规则（Ready 与 Invalid 均登记；执行层只放行 Ready）。
     rules: Arc<RwLock<HashMap<String, LoadedRule>>>,
     /// scope → CancellationToken
     scopes: Arc<Mutex<HashMap<String, CancellationToken>>>,
-    workers: Vec<WorkerHandle>,
+    /// worker 句柄池（Mutex：取消/超时后可回收重建卡死的 worker）。
+    workers: Mutex<Vec<WorkerHandle>>,
     next_worker: AtomicUsize,
 }
 
@@ -150,6 +160,11 @@ fn spawn_worker(http: reqwest::Client) -> WorkerHandle {
         };
         while let Ok(task) = rx.recv() {
             sandbox.reset_interrupt();
+            // 任务派发后、取到前已被取消：直接回 Cancelled，不执行（见 TaskMsg.token）。
+            if task.token.is_cancelled() {
+                let _ = task.reply.send(Err(RuleExecError::Cancelled));
+                continue;
+            }
             sandbox.set_rule_id(&task.rule_id);
             let result = sandbox.call(&task.script, &task.fn_name, task.args);
             let _ = task.reply.send(result);
@@ -161,9 +176,7 @@ fn spawn_worker(http: reqwest::Client) -> WorkerHandle {
 impl RuleEngine {
     /// 创建引擎（会立刻派生 4 个常驻 worker 线程）。
     pub fn new(http: reqwest::Client) -> Self {
-        let workers = (0..WORKER_COUNT)
-            .map(|_| spawn_worker(http.clone()))
-            .collect();
+        let workers = Mutex::new((0..WORKER_COUNT).map(|_| spawn_worker(http.clone())).collect());
         Self {
             http,
             rules: Arc::new(RwLock::new(HashMap::new())),
@@ -188,25 +201,42 @@ impl RuleEngine {
                     Some(f) => f,
                     None => {
                         let err = RuleLoadError::schema("不支持的文件格式（仅 .json/.yaml/.yml）");
-                        return LoadedRule::invalid(id, placeholder_manifest(), origin, err);
+                        return self.register_loaded(LoadedRule::invalid(
+                            id,
+                            placeholder_manifest(),
+                            origin,
+                            err,
+                        ));
                     }
                 };
                 let text = match std::fs::read_to_string(&path) {
                     Ok(t) => t,
                     Err(e) => {
                         let err = RuleLoadError::schema(format!("读取规则文件失败: {e}"));
-                        return LoadedRule::invalid(id, placeholder_manifest(), origin, err);
+                        return self.register_loaded(LoadedRule::invalid(
+                            id,
+                            placeholder_manifest(),
+                            origin,
+                            err,
+                        ));
                     }
                 };
                 match RuleManifest::from_str(&text, format) {
                     Ok(m) => (m, origin),
-                    Err(e) => return LoadedRule::invalid(id, placeholder_manifest(), origin, e),
+                    Err(e) => {
+                        return self.register_loaded(LoadedRule::invalid(
+                            id,
+                            placeholder_manifest(),
+                            origin,
+                            e,
+                        ))
+                    }
                 }
             }
         };
 
         if let Err(e) = validate_manifest(&manifest) {
-            return LoadedRule::invalid(id, manifest, origin, e);
+            return self.register_loaded(LoadedRule::invalid(id, manifest, origin, e));
         }
 
         match self.compile_manifest(&manifest).await {
@@ -218,10 +248,9 @@ impl RuleEngine {
                     status: RuleStatus::Ready,
                     error: None,
                 };
-                self.rules.write().unwrap().insert(id, loaded.clone());
-                loaded
+                self.register_loaded(loaded)
             }
-            Err(e) => LoadedRule::invalid(id, manifest, origin, e),
+            Err(e) => self.register_loaded(LoadedRule::invalid(id, manifest, origin, e)),
         }
     }
 
@@ -351,11 +380,13 @@ impl RuleEngine {
         token
     }
 
-    /// 注册一条已加载规则（用于导入链路）。
-    pub fn register_loaded(&self, rule: LoadedRule) {
-        if rule.status == RuleStatus::Ready {
-            self.rules.write().unwrap().insert(rule.id.clone(), rule);
-        }
+    /// 注册一条已加载规则（Ready 与 Invalid 均登记，供前端列表/置灰/删除引用）。
+    pub fn register_loaded(&self, rule: LoadedRule) -> LoadedRule {
+        self.rules
+            .write()
+            .unwrap()
+            .insert(rule.id.clone(), rule.clone());
+        rule
     }
 
     /// 删除规则：仅允许 Custom；内置规则拒绝。
@@ -371,7 +402,7 @@ impl RuleEngine {
         Ok(())
     }
 
-    /// 导出全部已加载规则的 manifest（内置 + 自定义）。
+    /// 导出全部已加载规则的 manifest（内置 + 自定义，含 Invalid，供前端列表/导出展示）。
     pub fn all_manifests(&self) -> Vec<RuleManifest> {
         self.rules
             .read()
@@ -386,11 +417,14 @@ impl RuleEngine {
             .read()
             .unwrap()
             .get(rule_id)
+            // 执行层只放行 Ready：Invalid 规则虽已注册进 map（供列表/置灰），但不可执行。
+            .filter(|r| r.status == RuleStatus::Ready)
             .map(|r| r.manifest.clone())
             .ok_or_else(|| RuleExecError::RuleNotFound(rule_id.to_string()))
     }
 
-    /// 共享执行路径：分发到 worker → 监听 token 取消 / 15s 超时 → 中断 JS → 返回结果。
+    /// 共享执行路径：分发到 worker → 监听 token 取消 / 15s 超时 → 中断 JS →
+    /// 等待 worker 真正退出（宽限期内未退出则回收重建）→ 返回结果。
     async fn execute(
         &self,
         rule_id: &str,
@@ -399,8 +433,12 @@ impl RuleEngine {
         args: Vec<serde_json::Value>,
         token: CancellationToken,
     ) -> Result<serde_json::Value, RuleExecError> {
-        let worker_idx = self.next_worker.fetch_add(1, Ordering::Relaxed) % self.workers.len();
-        let worker = &self.workers[worker_idx];
+        let worker_idx = self.next_worker.fetch_add(1, Ordering::Relaxed);
+        let (tx, interrupt) = {
+            let workers = self.workers.lock().unwrap();
+            let worker = &workers[worker_idx % workers.len()];
+            (worker.tx.clone(), worker.interrupt.clone())
+        };
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
         let task = TaskMsg {
             rule_id: rule_id.to_string(),
@@ -408,30 +446,75 @@ impl RuleEngine {
             fn_name: fn_name.to_string(),
             args,
             reply: reply_tx,
+            token: token.clone(),
         };
-        worker
-            .tx
-            .send(task)
+        tx.send(task)
             .map_err(|_| RuleExecError::Network("规则 worker 通道已关闭".into()))?;
-        let interrupt = worker.interrupt.clone();
 
-        tokio::select! {
-            _ = token.cancelled() => {
-                interrupt.store(true, Ordering::Relaxed);
-                Err(RuleExecError::Cancelled)
-            }
-            res = tokio::time::timeout(EXEC_TIMEOUT, reply_rx) => {
-                match res {
-                    Ok(Ok(Ok(value))) => Ok(value),
-                    Ok(Ok(Err(e))) => Err(e),
-                    Ok(Err(_)) => Err(RuleExecError::Cancelled),
-                    Err(_elapsed) => {
-                        interrupt.store(true, Ordering::Relaxed);
-                        Err(RuleExecError::Timeout)
-                    }
-                }
+        // 结果 future：worker 真正完成当前任务后 resolve（成功/失败/通道关闭）。
+        // Fuse 保证被 select 探测过后仍可安全二次 poll（等待 worker 退出）。
+        let result_fut = async move {
+            match reply_rx.await {
+                Ok(Ok(v)) => Ok(v),
+                Ok(Err(e)) => Err(e),
+                Err(_) => Err(RuleExecError::Cancelled), // worker 线程退出，通道关闭
             }
         }
+        .fuse();
+        tokio::pin!(result_fut);
+
+        enum ExecOutcome {
+            Value(Result<serde_json::Value, RuleExecError>),
+            Cancelled,
+            Timeout,
+        }
+
+        let outcome = tokio::select! {
+            _ = token.cancelled() => ExecOutcome::Cancelled,
+            r = &mut result_fut => ExecOutcome::Value(r),
+            _ = tokio::time::sleep(EXEC_TIMEOUT) => ExecOutcome::Timeout,
+        };
+
+        match outcome {
+            ExecOutcome::Value(r) => r,
+            ExecOutcome::Cancelled => {
+                // 竞态取消：置中断位中断 worker 的 JS，并等待其真正退出，避免后续任务堆积。
+                interrupt.store(true, Ordering::Relaxed);
+                self.wait_worker_exit(worker_idx, &mut result_fut).await;
+                Err(RuleExecError::Cancelled)
+            }
+            ExecOutcome::Timeout => {
+                interrupt.store(true, Ordering::Relaxed);
+                self.wait_worker_exit(worker_idx, &mut result_fut).await;
+                Err(RuleExecError::Timeout)
+            }
+        }
+    }
+
+    /// 等待被中断的 worker 真正退出当前任务；宽限期内未退出则回收重建该 worker。
+    async fn wait_worker_exit(
+        &self,
+        worker_idx: usize,
+        result_fut: &mut (impl std::future::Future<Output = Result<serde_json::Value, RuleExecError>> + Unpin),
+    ) {
+        if tokio::time::timeout(CANCEL_RECYCLE_TIMEOUT, result_fut)
+            .await
+            .is_err()
+        {
+            self.recycle_worker(worker_idx);
+        }
+    }
+
+    /// 回收重建指定 worker：旧 worker 置中断位 + 通道关闭后自行退出，新 worker 立即接管。
+    fn recycle_worker(&self, worker_idx: usize) {
+        let mut workers = self.workers.lock().unwrap();
+        if worker_idx >= workers.len() {
+            return;
+        }
+        workers[worker_idx].interrupt.store(true, Ordering::Relaxed);
+        let fresh = spawn_worker(self.http.clone());
+        tracing::warn!("规则 worker 中断后未在宽限期内退出，已回收重建 (index={worker_idx})");
+        workers[worker_idx] = fresh;
     }
 }
 
