@@ -148,6 +148,8 @@ pub const BACKUP_PREFIX: &str = "history_v1_backup_";
 pub const BATCH_SIZE: usize = 500;
 /// v2 schema 版本号（与 `PRAGMA user_version` 对齐）。
 pub const V2_SCHEMA_VERSION: i64 = 2;
+/// 迁移进度事件名（spec §4.2 步骤 8 定义的 wire 契约，前端订阅方以此为准）。
+pub const MIGRATION_PROGRESS_EVENT: &str = "migration://progress";
 
 /// 迁移状态（对前端 wire format 为 camelCase）。
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -369,6 +371,14 @@ impl Migrator {
         };
         let started_at = now_ms();
 
+        // 回滚生命周期（spec §5）：fresh start / 失败重试时清空 staging 残留，保证失败回滚
+        // 只作用于本次迁移写入；断点续迁（in_progress）则保留既有 staging——它精确对应已提交
+        // 批次（状态更新与批次数据在同一事务内提交），回滚时据此还原被覆盖原行 / 删除本次写入行。
+        if !resume {
+            let guard = lock_conn(&conn)?;
+            guard.execute("DELETE FROM migration_staging", [])?;
+        }
+
         // ---- 2. 标记 in_progress ----
         {
             let guard = lock_conn(&conn)?;
@@ -429,11 +439,13 @@ impl Migrator {
             }
             let total = valid.len() as i64;
 
-            // 无有效记录：直接完成（备份已产生，源文件重命名）。
+            // 无有效记录：直接完成（备份已产生，源文件重命名）。状态写回与 staging 清空
+            // 在同一事务内，避免崩溃后残留 staging 与实际状态不一致。
             if total == 0 {
-                let guard = lock_conn(&conn)?;
+                let mut guard = lock_conn(&conn)?;
+                let tx = guard.transaction()?;
                 save_state(
-                    &guard,
+                    &tx,
                     &MigrationStateRow {
                         status: "completed".to_string(),
                         total_count: 0,
@@ -445,15 +457,19 @@ impl Migrator {
                         finished_at: Some(now_ms()),
                     },
                 )?;
-                guard.execute("DELETE FROM migration_staging", [])?;
+                tx.execute("DELETE FROM migration_staging", [])?;
+                tx.commit()?;
                 drop(guard);
                 crate::db::rename_v1_history_after_migration(&self.app_data_dir)?;
-                return Ok(MigrationReport {
+                let report = MigrationReport {
                     status: MigrationStatus::Completed,
                     total: 0,
                     migrated: 0,
                     backup_path: Some(backup_str.clone()),
-                });
+                };
+                // 最后一个“批次”完成后也要推送 Completed，前端据此离开 InProgress。
+                (self.progress_sink)(&report);
+                return Ok(report);
             }
 
             let expected_unique = count_unique_merge_keys(&valid) as i64;
@@ -481,11 +497,16 @@ impl Migrator {
                                 // 记录被覆盖前的完整快照：回滚时据此还原原行。
                                 let snapshot = serde_json::to_string(&old)
                                     .map_err(|error| MigrationError::Db(DbError::Serde(error)))?;
+                                // ON CONFLICT DO NOTHING：保留首次登记的 origin，跨批次 / 断点
+                                // 续迁再次覆盖同一 id 时不改写 origin，保证回滚彻底：
+                                // - 若该 id 更早批次登记为 'inserted'（迁移创建的行），再次被覆盖
+                                //   仍保持 'inserted' → 回滚时 DELETE 而非还原；
+                                // - 若登记为 'replaced'，保留最初的 pre-migration 快照，避免被
+                                //   中间态快照覆盖后回滚只能还原到中间值。
                                 tx.execute(
                                     "INSERT INTO migration_staging (id, kind, snapshot_json) \
                                      VALUES (?1, 'replaced', ?2) \
-                                     ON CONFLICT(id) DO UPDATE SET \
-                                        kind='replaced', snapshot_json=excluded.snapshot_json",
+                                     ON CONFLICT(id) DO NOTHING",
                                     rusqlite::params![id, snapshot],
                                 )?;
                             }
@@ -532,9 +553,10 @@ impl Migrator {
                 offset = end;
             }
 
-            // ---- 5. 条数校验 ----
-            let guard = lock_conn(&conn)?;
-            let actual: i64 = guard.query_row(
+            // ---- 5. 条数校验 + 完成标记（同一事务：校验失败回滚、崩溃后状态与 staging 一致）----
+            let mut guard = lock_conn(&conn)?;
+            let tx = guard.transaction()?;
+            let actual: i64 = tx.query_row(
                 "SELECT COUNT(*) FROM history WHERE device_id = ?1",
                 rusqlite::params![self.device_id],
                 |row| row.get(0),
@@ -545,9 +567,9 @@ impl Migrator {
                 );
                 return Err(MigrationError::Migration(message));
             }
-            guard.execute("DELETE FROM migration_staging", [])?;
+            tx.execute("DELETE FROM migration_staging", [])?;
             save_state(
-                &guard,
+                &tx,
                 &MigrationStateRow {
                     status: "completed".to_string(),
                     total_count: total,
@@ -559,6 +581,7 @@ impl Migrator {
                     finished_at: Some(now_ms()),
                 },
             )?;
+            tx.commit()?;
             drop(guard);
 
             tracing::info!(
@@ -569,12 +592,16 @@ impl Migrator {
             );
             crate::db::rename_v1_history_after_migration(&self.app_data_dir)?;
 
-            Ok(MigrationReport {
+            let report = MigrationReport {
                 status: MigrationStatus::Completed,
                 total,
                 migrated: migrated_count,
                 backup_path: Some(backup_str.clone()),
-            })
+            };
+            // 最后一个批次提交后必须也触发 progress_sink 并发出 Completed 事件，
+            // 前端进度页据此从 InProgress 收敛到终态（spec §4.2 步骤 7）。
+            (self.progress_sink)(&report);
+            Ok(report)
         })();
 
         match outcome {

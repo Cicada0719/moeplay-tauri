@@ -203,6 +203,12 @@ fn now_ms() -> i64 {
 /// 目标行已存在且 `updated_at >= 待写入值` → `Skipped`；
 /// 已存在但更旧 → `UPDATE`（保留原 `id`）并返回 `Replaced(原 id, 原行快照)`；
 /// 不存在 → `INSERT` 并返回 `Inserted(新 id)`。
+///
+/// `chapter_id = NULL` 的匹配语义边界（merge-key 去重）：匹配查询用 `chapter_id IS ?3`
+/// （NULL-safe 等值），因此 `NULL` 与任何具体值（如 `'ch1'`）分属不同 merge key、各自成行；
+/// 同一 merge key 的多条 v1 记录按 `updated_at` 收敛——较旧者被覆盖或跳过，保证 v2 表中
+/// 同一 merge key 至多一行（FR-08 “无重复记录”）。v1 数据缺 `chapter_id` 时，同
+/// `content_id + source_id` 的多集/多话会被合并为最新一条（这是设计语义，见 spec §4.1 默认值）。
 pub fn upsert_idempotent(
     tx: &rusqlite::Transaction<'_>,
     rec: &HistoryRecord,

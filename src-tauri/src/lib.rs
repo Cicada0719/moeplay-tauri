@@ -64,7 +64,7 @@ use import::ImportWatcher;
 #[cfg(desktop)]
 use locale::LocaleEmulatorManager;
 use migration::commands::AppState;
-use migration::{MigrationReport, MigrationStatus, Migrator};
+use migration::{MigrationReport, MigrationStatus, Migrator, MIGRATION_PROGRESS_EVENT};
 #[cfg(desktop)]
 use process_monitor::ProcessMonitor;
 use std::path::PathBuf;
@@ -783,7 +783,8 @@ pub fn run() {
                                     let app_handle = app.handle().clone();
                                     migrator.set_progress_sink(Some(Arc::new(
                                         move |report: &MigrationReport| {
-                                            let _ = app_handle.emit("migration://progress", report);
+                                            let _ =
+                                                app_handle.emit(MIGRATION_PROGRESS_EVENT, report);
                                         },
                                     )));
                                     let migrator_for_task = migrator.clone();

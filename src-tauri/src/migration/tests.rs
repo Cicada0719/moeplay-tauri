@@ -11,6 +11,7 @@ use rusqlite::params;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::{Arc, RwLock};
 use tempfile::TempDir;
 
 fn temp_app_dir() -> TempDir {
@@ -55,6 +56,21 @@ fn open_migrator(dir: &Path) -> (HistoryDb, Migrator) {
 
 fn history_rows(db: &HistoryDb) -> Vec<HistoryRecord> {
     <HistoryDb as HistoryRepo>::list(db, None, None, 100_000, 0).unwrap()
+}
+
+/// 断言 `(content_id, source_id, chapter_id)` merge key 全表唯一（FR-08 “无重复记录”）。
+fn assert_no_duplicates(db: &HistoryDb) {
+    let conn = db.conn();
+    let guard = conn.lock().unwrap();
+    let dup: i64 = guard
+        .query_row(
+            "SELECT COUNT(*) FROM (SELECT content_id, source_id, chapter_id, COUNT(*) c \
+             FROM history GROUP BY content_id, source_id, chapter_id HAVING c > 1)",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(dup, 0, "merge key (content_id, source_id, chapter_id) must be unique");
 }
 
 // ---------------------------------------------------------------------------
@@ -605,6 +621,228 @@ fn test_command_gating() {
     assert!(ensure_history_available(&MigrationStatus::Failed("x".into())).is_err());
     assert!(ensure_history_available(&MigrationStatus::RolledBack).is_err());
     assert!(ensure_history_available(&MigrationStatus::Pending).is_err());
+}
+
+// ---------------------------------------------------------------------------
+// 第 2 轮 DeepSeek 审核修复的回归测试
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_progress_event_name_matches_spec() {
+    // spec §4.2 步骤 8：事件名必须是 `migration://progress`（前端订阅方 wire 契约）。
+    assert_eq!(MIGRATION_PROGRESS_EVENT, "migration://progress");
+}
+
+#[test]
+fn test_final_progress_sink_emits_completed() {
+    // 600 条 → 2 批；最后一个批次提交后也必须触发 progress_sink 并发出 Completed 事件，
+    // 前端进度页据此从 InProgress 收敛到终态，而不是永远停在 InProgress。
+    let dir = temp_app_dir();
+    let entries: Vec<Value> = (0..600)
+        .map(|i| v1(&format!("c{i}"), "anime", &format!("T{i}"), map!()))
+        .collect();
+    write_v1(dir.path(), &entries);
+
+    let db = HistoryDb::open(dir.path()).unwrap();
+    let mut migrator = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
+    let reports: Arc<std::sync::Mutex<Vec<MigrationReport>>> = Arc::new(Default::default());
+    let captured = Arc::clone(&reports);
+    migrator.set_progress_sink(Some(Arc::new(move |report: &MigrationReport| {
+        captured.lock().unwrap().push(report.clone());
+    })));
+
+    let report = migrator.run().unwrap();
+    assert_eq!(report.status, MigrationStatus::Completed);
+
+    let all = reports.lock().unwrap();
+    assert!(!all.is_empty(), "progress sink must fire at least once");
+    assert_eq!(
+        all.last().unwrap().status,
+        MigrationStatus::Completed,
+        "last progress event must be Completed, got {:?}",
+        all.last().unwrap().status
+    );
+    assert!(all
+        .iter()
+        .all(|r| matches!(r.status, MigrationStatus::InProgress | MigrationStatus::Completed)));
+}
+
+#[test]
+fn test_merge_key_null_chapter_semantics() {
+    // 同 content_id + source_id、无 chapter_id → 合并为单行（最新 updated_at 胜出），无重复。
+    let dir = temp_app_dir();
+    write_v1(
+        dir.path(),
+        &[
+            v1("c1", "anime", "Old", map!("source_id" => "src", "updated_at" => 1_600_000_000_000_i64)),
+            v1("c1", "anime", "New", map!("source_id" => "src", "updated_at" => 1_600_000_000_001_i64)),
+        ],
+    );
+    let (db, migrator) = open_migrator(dir.path());
+    let report = migrator.run().unwrap();
+    assert_eq!(report.status, MigrationStatus::Completed);
+    let rows = history_rows(&db);
+    assert_eq!(rows.len(), 1, "无 chapter_id 的同 merge key 必须合并为一行");
+    assert_eq!(rows[0].title, "New");
+    assert_eq!(rows[0].updated_at, 1_600_000_000_001);
+    assert_no_duplicates(&db);
+
+    // NULL 与 'ch1' 分属不同 merge key → 两条独立行（各自保留），不能互相覆盖/合并。
+    let dir2 = temp_app_dir();
+    write_v1(
+        dir2.path(),
+        &[
+            v1("c2", "anime", "Null chapter", map!("source_id" => "src")),
+            v1(
+                "c2",
+                "anime",
+                "With chapter",
+                map!("source_id" => "src", "chapter_id" => "ch1"),
+            ),
+        ],
+    );
+    let (db2, migrator2) = open_migrator(dir2.path());
+    let report2 = migrator2.run().unwrap();
+    assert_eq!(report2.status, MigrationStatus::Completed);
+    let rows2 = history_rows(&db2);
+    assert_eq!(rows2.len(), 2, "chapter_id NULL 与具体值必须是不同 merge key");
+    assert_no_duplicates(&db2);
+}
+
+#[test]
+fn test_rollback_deletes_row_inserted_then_replaced() {
+    // 同一 merge key 两条 v1 记录：先 INSERT 再被更新的记录 REPLACE。
+    // 回滚时必须按“首次登记 origin”处理：该行由迁移创建（inserted），
+    // 即便同批次内又被 Replace，也必须 DELETE，而不是用中间态快照还原成残留行。
+    let dir = temp_app_dir();
+    write_v1(
+        dir.path(),
+        &[
+            v1("c1", "anime", "Old", map!("source_id" => "src", "updated_at" => 1_000)),
+            v1("c1", "anime", "New", map!("source_id" => "src", "updated_at" => 2_000)),
+        ],
+    );
+    let db = HistoryDb::open(dir.path()).unwrap();
+    let mut migrator = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
+    migrator.set_batch_hook(Some(Arc::new(|_batch| {
+        Err(MigrationError::Migration("injected failure".into()))
+    })));
+    let error = migrator.run().unwrap_err();
+    assert!(error.to_string().contains("injected failure"), "got: {error}");
+    assert_eq!(
+        history_rows(&db).len(),
+        0,
+        "inserted-then-replaced row must be deleted on rollback, not restored"
+    );
+    let conn = db.conn();
+    let guard = conn.lock().unwrap();
+    let staging: i64 = guard
+        .query_row("SELECT COUNT(*) FROM migration_staging", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(staging, 0);
+    drop(guard);
+}
+
+#[test]
+fn test_crash_resume_keeps_original_replaced_snapshot() {
+    // 崩溃→断点续迁场景：batch 1 REPLACE 预置行并崩溃，batch 2 再次 REPLACE 同一行。
+    // staging 必须保留最初 pre-migration 快照（而非 batch 1 的中间态），
+    // 否则续迁失败回滚只能还原到中间值，违背“回滚彻底”。
+    let dir = temp_app_dir();
+    let db = HistoryDb::open(dir.path()).unwrap();
+    db.upsert(&HistoryRecord {
+        id: "pre-1".into(),
+        content_id: "c1".into(),
+        content_type: ContentType::Anime,
+        title: "Original".into(),
+        cover: None,
+        source_id: "src".into(),
+        chapter_id: None,
+        chapter_title: None,
+        page_index: 0,
+        position_sec: 0.0,
+        scroll_pct: 0.0,
+        updated_at: 1_000,
+        device_id: "dev".into(),
+        deleted: false,
+    })
+    .unwrap();
+
+    // v1: 第 1 条 REPLACE pre-1（batch 1），第 502 条会在 batch 2 再次 REPLACE 同一 merge key。
+    let mut entries = vec![v1(
+        "c1",
+        "anime",
+        "New1",
+        map!("source_id" => "src", "updated_at" => 2_000),
+    )];
+    for i in 1..501 {
+        entries.push(v1(
+            &format!("f{i}"),
+            "anime",
+            &format!("F{i}"),
+            map!("updated_at" => 1_600_000_000_i64 + i),
+        ));
+    }
+    entries.push(v1(
+        "c1",
+        "anime",
+        "New2",
+        map!("source_id" => "src", "updated_at" => 3_000),
+    ));
+    assert_eq!(entries.len(), 502, "batch 1 = 500 条，New2 必须落在 batch 2");
+    write_v1(dir.path(), &entries);
+
+    // 第一次运行：batch 1 提交后崩溃（panic）。
+    let mut migrator = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
+    migrator.set_batch_hook(Some(Arc::new(|batch| {
+        if batch == 1 {
+            panic!("injected crash after batch 1");
+        }
+        Ok(())
+    })));
+    let handle = std::thread::spawn(move || migrator.run());
+    assert!(handle.join().is_err(), "run should have panicked");
+
+    // 断点续迁：batch 2 再次 REPLACE c1，随后注入失败触发回滚。
+    let mut migrator2 = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
+    migrator2.set_batch_hook(Some(Arc::new(|_batch| {
+        Err(MigrationError::Migration("injected failure".into()))
+    })));
+    let error = migrator2.run().unwrap_err();
+    assert!(error.to_string().contains("injected failure"), "got: {error}");
+
+    // 回滚必须还原到 pre-migration 原始值（title=Original, updated_at=1000），
+    // 而非 batch 1 的中间态（New1 @ 2000）。
+    let rows = history_rows(&db);
+    assert_eq!(rows.len(), 1, "only the pre-existing row may survive rollback");
+    assert_eq!(rows[0].id, "pre-1");
+    assert_eq!(rows[0].title, "Original");
+    assert_eq!(rows[0].updated_at, 1_000);
+}
+
+#[test]
+fn test_history_gate_refresh_after_completion() {
+    // 启动迁移在 spawn_blocking 完成后，内存门控可能仍停留在 InProgress；
+    // history_* 命令入口应先调用 refresh_gate（migrator.check()）刷新，避免误报 MIGRATION_PENDING。
+    let dir = temp_app_dir();
+    write_v1(dir.path(), &[v1("c1", "anime", "T", map!())]);
+    let db = HistoryDb::open(dir.path()).unwrap();
+    let migrator = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
+    migrator.run().unwrap();
+
+    let state = super::commands::AppState {
+        migrator: Some(migrator.clone()),
+        history: Some(db),
+        migration_status: Arc::new(RwLock::new(MigrationStatus::InProgress)),
+    };
+    assert!(ensure_history_available(&*state.migration_status.read().unwrap()).is_err());
+
+    let refreshed = super::commands::refresh_gate(&state).unwrap();
+    assert_eq!(refreshed, MigrationStatus::NotNeeded);
+    assert_eq!(*state.migration_status.read().unwrap(), MigrationStatus::NotNeeded);
+    assert!(ensure_history_available(&refreshed).is_ok());
 }
 
 // ---------------------------------------------------------------------------

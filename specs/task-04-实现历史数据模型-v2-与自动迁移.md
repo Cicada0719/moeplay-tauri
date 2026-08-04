@@ -270,7 +270,7 @@ pub fn upsert_idempotent(tx: &rusqlite::Transaction, rec: &HistoryRecord) -> Res
 6. **新建 `src-tauri/src/migration/v1_to_v2.rs`**：实现 `V1HistoryEntry`、`map_v1_to_v2`（纯函数，覆盖 §4.1 映射表）、`upsert_idempotent`（先 `SELECT updated_at`，存在且 ≥ 新值则返回 `Skipped`，否则 `INSERT OR REPLACE` 返回 `Inserted/Replaced`）。
 7. **接入应用启动流程**（`lib.rs` 的 `setup` 钩子）：
    - `SqliteDb::open` → `Migrator::new` → `check`；
-   - 若为 `Pending/InProgress`：`spawn_blocking` 执行 `run`，期间通过 `app.emit("migration-progress", report)` 推送进度（每批 emit 一次）；
+   - 若为 `Pending/InProgress`：`spawn_blocking` 执行 `run`，期间通过 `app.emit("migration://progress", report)` 推送进度（每批 emit 一次）；
    - 完成后将 `Migrator`、`HistoryRepo` 实现、`MigrationStatus` 注入 `AppState`，注册 §3.4 的 commands。
 8. **进度事件**：定义事件名 `migration://progress`（payload 为 `MigrationReport`），前端子任务可订阅；本任务只保证 Rust 侧 emit 正确。
 9. **日志**：全程使用现有日志方案（如无则用 `log` crate + `env_logger`/`tauri-plugin-log`，取仓库已有者），关键节点（备份路径、每批提交、回滚原因、完成条数）必须落日志。

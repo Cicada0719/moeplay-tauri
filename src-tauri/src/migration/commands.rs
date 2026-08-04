@@ -48,20 +48,44 @@ fn history(state: &AppState) -> Result<HistoryDb, String> {
         .ok_or_else(|| "history database unavailable".to_string())
 }
 
+/// 以 `migrator.check()`（读 `migration_state` 落盘状态）刷新内存门控并返回刷新后的状态。
+fn check_and_update_gate(
+    migrator: &Migrator,
+    gate: &Arc<RwLock<MigrationStatus>>,
+) -> Result<MigrationStatus, String> {
+    let status = migrator.check().map_err(|error| error.to_string())?;
+    set_gate(gate, status.clone());
+    Ok(status)
+}
+
+/// 刷新内存门控：以落盘状态为准（同步；调用方在 async 上下文需自行 `spawn_blocking`）。
+///
+/// 启动迁移在 `spawn_blocking` 中运行时，内存门控可能仍停留在 `Pending/InProgress`，
+/// 即使后端已经完成。`history_*` 命令入口先调用本函数，避免迁移完成后前端仍收到
+/// `MIGRATION_PENDING`。
+pub(crate) fn refresh_gate(state: &AppState) -> Result<MigrationStatus, String> {
+    match &state.migrator {
+        Some(migrator) => check_and_update_gate(migrator, &state.migration_status),
+        None => Ok(state
+            .migration_status
+            .read()
+            .map_err(|error| error.to_string())?
+            .clone()),
+    }
+}
+
 /// 查询当前迁移状态（前端启动时首先调用）。
+///
+/// 在 `spawn_blocking` 中执行 `check()`：迁移批量写入持有数据库锁时，避免阻塞 async 执行器。
 #[tauri::command]
 pub async fn migration_status(state: State<'_, AppState>) -> Result<MigrationStatus, String> {
     match &state.migrator {
         Some(migrator) => {
             let migrator = migrator.clone();
             let gate = Arc::clone(&state.migration_status);
-            tauri::async_runtime::spawn_blocking(move || {
-                let status = migrator.check().map_err(|error| error.to_string())?;
-                set_gate(&gate, status.clone());
-                Ok(status)
-            })
-            .await
-            .map_err(|error| error.to_string())?
+            tauri::async_runtime::spawn_blocking(move || check_and_update_gate(&migrator, &gate))
+                .await
+                .map_err(|error| error.to_string())?
         }
         None => Ok(state
             .migration_status
@@ -113,11 +137,8 @@ pub async fn history_list(
     offset: u32,
     state: State<'_, AppState>,
 ) -> Result<Vec<HistoryRecord>, String> {
-    let gate_status = state
-        .migration_status
-        .read()
-        .map_err(|error| error.to_string())?
-        .clone();
+    // 先刷新内存门控：spawn_blocking 迁移可能刚完成但内存状态未更新。
+    let gate_status = refresh_gate(&state)?;
     ensure_history_available(&gate_status)?;
 
     let history = history(&state)?;
@@ -142,11 +163,8 @@ pub async fn history_list(
 /// 墓碑删除单条历史。
 #[tauri::command]
 pub async fn history_delete(id: String, state: State<'_, AppState>) -> Result<(), String> {
-    let gate_status = state
-        .migration_status
-        .read()
-        .map_err(|error| error.to_string())?
-        .clone();
+    // 先刷新内存门控：spawn_blocking 迁移可能刚完成但内存状态未更新。
+    let gate_status = refresh_gate(&state)?;
     ensure_history_available(&gate_status)?;
 
     let history = history(&state)?;
