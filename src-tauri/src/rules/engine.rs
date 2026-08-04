@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use futures_util::FutureExt;
+use rquickjs::Runtime;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
@@ -129,6 +130,10 @@ struct TaskMsg {
 struct WorkerHandle {
     tx: std::sync::mpsc::Sender<TaskMsg>,
     interrupt: Arc<AtomicBool>,
+    /// worker 沙箱的 QuickJS Runtime 句柄（`parallel` feature 下 Send+Sync）。
+    /// 取消/超时时引擎直接调用 `runtime.set_interrupt_handler` 向正在执行的 JS
+    /// 发送中断（spec §3.3），而非只翻 AtomicBool 标志。
+    runtime: Runtime,
 }
 
 /// 单 worker 槽位：句柄的读取（派发）与替换（回收）用**每槽独立 Mutex** 保护，
@@ -154,20 +159,23 @@ pub struct RuleEngine {
 fn spawn_worker(http: reqwest::Client) -> WorkerHandle {
     let (tx, rx) = std::sync::mpsc::channel::<TaskMsg>();
     let interrupt = Arc::new(AtomicBool::new(false));
-    let handle = WorkerHandle {
-        tx,
-        interrupt: interrupt.clone(),
-    };
+    // worker 线程持有的是 Arc 克隆；原句柄留在引擎侧用于派发/中断。
+    let worker_interrupt = interrupt.clone();
+    // 沙箱在 worker 线程内就地构建（QuickJS runtime 不可跨线程共享），但 Runtime 句柄
+    // 需要回传给引擎用于取消/超时硬中断（`parallel` feature 下 Send+Sync）。
+    let (rt_tx, rt_rx) = std::sync::mpsc::channel::<Runtime>();
     std::thread::spawn(move || {
-        let sandbox = match Sandbox::new(http, interrupt.clone()) {
+        let sandbox = match Sandbox::new(http, worker_interrupt) {
             Ok(s) => s,
             Err(e) => {
                 tracing::error!("规则沙箱初始化失败: {e}");
                 return;
             }
         };
+        let _ = rt_tx.send(sandbox.runtime());
         while let Ok(task) = rx.recv() {
-            sandbox.reset_interrupt();
+            // 复位中断标记 + 重装 AtomicBool 中断处理器（清除引擎安装的硬中断残留）
+            sandbox.rearm_interrupt();
             // 任务派发后、取到前已被取消：直接回 Cancelled，不执行（见 TaskMsg.token）。
             if task.token.is_cancelled() {
                 let _ = task.reply.send(Err(RuleExecError::Cancelled));
@@ -178,7 +186,21 @@ fn spawn_worker(http: reqwest::Client) -> WorkerHandle {
             let _ = task.reply.send(result);
         }
     });
-    handle
+    // 等 worker 线程把真实 Runtime 句柄传回来（仅一个，启动即就绪）。若沙箱初始化失败
+    // 线程会直接退出、通道关闭——此时退化为「该 worker 不可用」，派发到它的任务会因
+    // 通道关闭得到 Network 错误，与旧实现（沙箱失败→worker 静默空转）等价，不阻塞引擎。
+    let runtime = match rt_rx.recv() {
+        Ok(rt) => rt,
+        Err(_) => {
+            tracing::error!("规则 worker 沙箱初始化失败，该 worker 将不可用");
+            Runtime::new().expect("failed to create fallback runtime")
+        }
+    };
+    WorkerHandle {
+        tx,
+        interrupt,
+        runtime,
+    }
 }
 
 impl RuleEngine {
@@ -449,10 +471,10 @@ impl RuleEngine {
         // 归一化到槽位：round-robin 计数器会超过槽数，回收路径必须使用**同一**槽位索引，
         // 否则会因 idx≥len 而错误跳过回收（曾导致卡死 worker 不被重建、后续任务堆积）。
         let slot_idx = worker_idx % self.workers.len();
-        let (tx, interrupt) = {
-            // 每槽独立锁，仅克隆 tx/interrupt（短临界区，无 await）。
+        let (tx, interrupt, runtime) = {
+            // 每槽独立锁，仅克隆 tx/interrupt/runtime（短临界区，无 await）。
             let guard = self.workers[slot_idx].handle.lock().unwrap();
-            (guard.tx.clone(), guard.interrupt.clone())
+            (guard.tx.clone(), guard.interrupt.clone(), guard.runtime.clone())
         };
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
         let task = TaskMsg {
@@ -495,15 +517,35 @@ impl RuleEngine {
             ExecOutcome::Cancelled => {
                 // 竞态取消：置中断位中断 worker 的 JS，并等待其真正退出，避免后续任务堆积。
                 interrupt.store(true, Ordering::Relaxed);
+                // spec §3.3：真正调用 runtime.set_interrupt_handler 发 JS 中断（不只看标志位）。
+                self.hard_interrupt_js(&runtime);
                 self.wait_worker_exit(slot_idx, &mut result_fut).await;
                 Err(RuleExecError::Cancelled)
             }
             ExecOutcome::Timeout => {
                 interrupt.store(true, Ordering::Relaxed);
+                // spec §3.3：同上，超时同样安装硬中断处理器兜底。
+                self.hard_interrupt_js(&runtime);
                 self.wait_worker_exit(slot_idx, &mut result_fut).await;
                 Err(RuleExecError::Timeout)
             }
         }
+    }
+
+    /// 真正调用 `runtime.set_interrupt_handler` 向 worker 发送 JS 中断（spec §3.3）。
+    ///
+    /// 实现说明：`Context::with` 在整段 JS 执行期间持有 runtime 内部锁；若 worker 正被
+    /// `await fetch(...)`（Rust `block_on`）阻塞，锁会被长时间占用，同步调用会阻塞当前
+    /// async 取消路径。因此放进 `tokio::task::spawn_blocking` 异步执行：锁空闲时立即
+    /// 生效，被占用时等锁释放后生效（AtomicBool 中断已先行触发 JS 中止并释放锁）。
+    /// worker 每轮取任务前的 `Sandbox::rearm_interrupt` 会把它换回 AtomicBool 处理器，
+    /// 避免硬中断残留影响下一次执行。
+    fn hard_interrupt_js(&self, runtime: &Runtime) {
+        let hard_rt = runtime.clone();
+        // drop 掉 JoinHandle 即「detach」：后台线程设置硬中断处理器，调用方不等待。
+        drop(tokio::task::spawn_blocking(move || {
+            hard_rt.set_interrupt_handler(Some(Box::new(|| true)));
+        }));
     }
 
     /// 等待被中断的 worker 真正退出当前任务；宽限期内未退出则回收重建该 worker。

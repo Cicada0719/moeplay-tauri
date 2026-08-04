@@ -23,6 +23,10 @@
   let busy = $state(false);
 
   function onSelect(ruleId: string) {
+    // spec §3.6：invalid 源在 UI 层置灰禁用（primary guard），正常不会走到这里。
+    // 即便被禁用规则因状态刷新竞态意外触发，switchSource 内部也会在 Rust 侧拿到
+    // `RuleNotFound` 并返回结构化 `failed`（defense in depth）——两者是同一策略的
+    // 两个层次，不冲突：UI 置灰防误点，引擎错误路径兜底。（DeepSeek 复审第 2 项）
     if ($sourceSwitchState.switching) return;
     dispatch("select", { ruleId });
   }

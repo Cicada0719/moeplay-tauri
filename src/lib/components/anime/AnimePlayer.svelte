@@ -18,6 +18,8 @@
   import VideoEnhancementCanvas from "./VideoEnhancementCanvas.svelte";
   import type { VideoEnhancementMode, VideoEnhancementStatus } from "../../features/anime-player/localVideoEnhancement";
   import { orientationStore, platformStore } from "../../platform";
+  import { loadAllRules } from "../../api/rules";
+  import { switchSource as switchSourceRule } from "../../stores/sourceSwitch";
 
   const status = $derived(animeStore.playerExtractStatus); // extracting | found | timeout | error
   const videoSrc = $derived(animeStore.playerVideoSrc);
@@ -765,6 +767,29 @@
     await setPlayerFullscreen(false);
     animeStore.closePlayer();
     animeStore.openSourceSheet();
+
+    // ── 任务 1 §4 Step 10 最小接线（DeepSeek 复审第 1 项）──────────────
+    // 在播放页现有「换源」点击处调用新规则引擎的 `switchSource` 契约：当前播放源若在
+    // 新引擎登记为 Ready，则以它为 target 调用 `switchSource(ruleId, ctx)`，结果写入
+    // `sourceSwitchState.lastResult`（任务 3 的播放器容器据此消费）。这是新引擎（并行
+    // 体系）的契约级接线，不替换现有选源面板；新引擎未就绪/无匹配规则时静默回落旧流程。
+    try {
+      const rules = await loadAllRules();
+      const currentRuleName = animeStore.playerRuleName || animeStore.detailRuleName;
+      const match = currentRuleName
+        ? rules.find((r) => r.status === "ready" && r.manifest.name === currentRuleName)
+        : undefined;
+      if (match) {
+        void switchSourceRule(match.id, {
+          contentId: animeStore.playerUrl || pageUrl || `anime:${animeStore.detailName}`,
+          title: animeStore.detailName,
+          chapterIndex: animeStore.playerEpisodeIdx + 1,
+          positionSec: Math.floor(currentTime),
+        });
+      }
+    } catch (e) {
+      debugLog("[换源] 规则引擎接线跳过:", e);
+    }
   }
 
   async function launchExternalPlayer() {

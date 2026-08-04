@@ -92,6 +92,19 @@ function emptyFailed(message?: string): SwitchResult {
 }
 
 /**
+ * 把规则引擎错误映射为用户可读文案。
+ * - `ruleNotFound`：源被禁用/不存在（§3.6 在 UI 层已置灰，这里兜底处理「被误标无效」
+ *   或状态刷新竞态导致对禁用源发起了切换）；
+ * - 其它错误透传 `message`。
+ */
+function describeSwitchError(err: unknown): string {
+  const e = err as { kind?: string; message?: string } | null;
+  const kind = e?.kind?.toLowerCase();
+  if (kind === "ruleNotFound") return "该源当前不可用或已被禁用，请选择其他源";
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
  * 将 `SwitchResult` 映射为播放器容器可直接消费的载荷（spec Step 10「结果透传至
  * 播放器容器」的稳定契约，任务 3 接线用）：
  * - `ok` / `fallback`：`url` + `headers` + `kind` 交给 `<video>`，`resumeSec` 用于 seek；
@@ -134,7 +147,10 @@ export async function switchSource(
     // 1. 取消前序任务（FR-02 竞态取消）
     await cancelScope(scope);
 
-    // 2. 搜索匹配条目（标题归一化后取首个）
+    // 2. 搜索匹配条目（标题归一化后取首个）。
+    //    §3.6 的置灰在 UI 层拦截禁用源（primary guard）；这里仍处理运行期错误路径：
+    //    搜索无结果（notFound）与规则被禁用/不存在（RuleNotFound，由 describeSwitchError
+    //    转可读文案），两层并存不冲突。（DeepSeek 复审第 2 项）
     const items = await search(targetRuleId, ctx.title, 1);
     if (items.length === 0) {
       throw Object.assign(new Error("新源未找到该条目，请检查关键词或稍后重试"), {
@@ -199,7 +215,9 @@ export async function switchSource(
 
     if (seq !== callSeq) return emptyFailed();
 
-    const lastError = err instanceof Error ? err.message : String(err);
+    // 结构化透传：区分「条目未找到/无剧集」与「规则被禁用/不存在」（§3.6 置灰的
+    // 运行时兜底），统一转为 lastError + failed 结果，绝不向上抛未捕获异常。
+    const lastError = describeSwitchError(err);
     sourceSwitchState.set({
       switching: false,
       currentScope: scope,

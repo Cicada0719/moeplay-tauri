@@ -196,9 +196,21 @@ impl Sandbox {
         }
     }
 
-    /// 复位中断标记（worker 每次取任务后调用，避免残留中断影响下一次执行）。
-    pub fn reset_interrupt(&self) {
+    /// 返回内部 QuickJS Runtime 的克隆句柄（`parallel` feature 下 Send+Sync）。
+    /// 引擎持有它以便在取消/超时时直接调用 `runtime.set_interrupt_handler`（spec §3.3）。
+    pub fn runtime(&self) -> Runtime {
+        self.runtime.clone()
+    }
+
+    /// 复位中断标记，并**重新安装** AtomicBool 驱动的中断处理器（worker 每轮取任务
+    /// 后调用）。引擎在取消/超时时会用 `runtime.set_interrupt_handler` 临时安装硬中断
+    /// 处理器（恒 `true`）兜底，这里把它换回 AtomicBool 驱动，避免硬中断残留影响
+    /// 下一次执行。
+    pub fn rearm_interrupt(&self) {
         self.interrupt.store(false, Ordering::Relaxed);
+        let intr = self.interrupt.clone();
+        self.runtime
+            .set_interrupt_handler(Some(Box::new(move || intr.load(Ordering::Relaxed))));
     }
 
     fn inject_globals(&self, http: reqwest::Client) -> rquickjs::Result<()> {
@@ -238,13 +250,20 @@ impl Sandbox {
         })
     }
 
-    /// 语法预编译：eval 顶层脚本（注册全局函数），捕获语法错误并提取行号。
+    /// 纯语法检查：把脚本包装为函数表达式 `(function(){ <script> })` 后编译，
+    /// **仅编译、不执行**（DeepSeek 复审第 4 项）。顶层语句（如 `while(true){}`
+    /// 死循环）落在函数体内，编译期通过但不会运行，避免加载阶段卡死 worker 线程。
     ///
-    /// 顶层为函数声明的正常规则脚本不会被执行；顶层死循环等异常会在调用方
-    /// （加载超时）中被中断，只影响该条规则。
+    /// 说明：spec §3.1 Step 3 建议的 `Function::new` 在 rquickjs 0.8 中只接受
+    /// Rust 闭包、不接受 JS 源码字符串，因此用「函数表达式包装 + eval 编译」实现
+    /// 相同的「仅编译不执行」语义。包装前缀 `(function(){` 不含换行，语法错误的
+    /// 行号与原始脚本保持一致（测试 4 锁定 `line == Some(3)`）。
     pub fn compile_check(&self, script: &str, _name: &str) -> Result<(), RuleLoadError> {
+        // 函数体内可嵌套函数声明与任意语句；整个表达式仅被求值成函数对象，
+        // 不被调用，故顶层 `while(true){}` 等不会执行。
+        let wrapped = format!("(function(){{ {script} }})");
         self.context.with(|ctx| {
-            ctx.eval::<Value, _>(script).map_err(|e| {
+            ctx.eval::<Value, _>(wrapped).map_err(|e| {
                 let (message, line) = exception_info(&ctx, &e);
                 RuleLoadError::compile(message, line)
             })?;

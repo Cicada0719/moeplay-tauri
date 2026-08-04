@@ -69,8 +69,9 @@ async fn load_rules_partial_failure() {
             origin: RuleOrigin::Builtin,
         });
     }
-    // 5 条顶层死循环脚本：含 function 关键字（通过 schema 校验），但 eval 挂起 → 10s 超时
-    let bad = "function search(k,p){ return []; }\nwhile(true) {}";
+    // 5 条顶层语法错误脚本：含 function 关键字（通过 schema 校验），compile_check 是
+    // 纯语法检查（不执行顶层代码），在编译期即被标记 Invalid，不占用 10s 加载超时。
+    let bad = "function search(k,p){ return []; }\nlet x = ;";
     for i in 0..5 {
         inputs.push(RuleInput::Manifest {
             manifest: make_manifest(&format!("死循环源{i}"), bad),
@@ -90,6 +91,44 @@ async fn load_rules_partial_failure() {
         elapsed < Duration::from_secs(15),
         "并行加载总耗时应 < 15s，实际 {elapsed:?}"
     );
+}
+
+// ── 测试 4b：compile_check 纯语法检查，顶层死循环只编译不执行（DeepSeek 复审第 4 项）─
+
+#[tokio::test]
+async fn compile_check_does_not_execute_toplevel_deadloop() {
+    let engine = test_engine();
+    let started = std::time::Instant::now();
+    let loaded = engine
+        .load_rules(vec![RuleInput::Manifest {
+            manifest: make_manifest(
+                "顶层死循环源",
+                "function search(k,p){ return []; }\nwhile(true) {}",
+            ),
+            origin: RuleOrigin::Builtin,
+        }])
+        .await;
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "纯语法检查应立即返回，不应被顶层死循环卡住（实际 {:?}）",
+        started.elapsed()
+    );
+    // 顶层死循环语法合法 → 规则标记为 Ready；只有运行时（call 会 eval 顶层代码）才会
+    // 真正执行它，被引擎的取消/超时拦截，而不是在编译期就被误伤。
+    assert_eq!(loaded[0].status, RuleStatus::Ready);
+    let id = loaded[0].id.clone();
+
+    // 运行时执行：验证顶层死循环会被取消拦截（worker 不被永久占用），且是运行期
+    // 行为而非编译期错误。
+    let token = engine.new_scope_token("deadloop:x");
+    let search_fut = engine.search(&id, "x", 1, token.clone());
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    engine.cancel_scope("deadloop:x");
+    let err = tokio::time::timeout(Duration::from_secs(5), search_fut)
+        .await
+        .expect("取消应快速返回")
+        .unwrap_err();
+    assert!(matches!(err, RuleExecError::Cancelled));
 }
 
 // ── 测试 6：执行超时 ────────────────────────────────────────────────────
@@ -139,14 +178,29 @@ async fn exec_script_error_propagates() {
 }
 
 // ── 测试 8：取消 + 中断生效（worker 不被永久占用）────────────────────────
+//
+// DeepSeek 复审第 7 项：原测试用 300ms 盲等模拟「任务已开始」，存在轮询竞态导致偶发
+// 失败。这里改为：parse 脚本先 `await fetch(/start)`，测试等到 /start 请求到达服务端
+// 作为「worker 已开始执行」的确定性信号，再 cancel_scope，消除竞态。
 
 #[tokio::test]
 async fn exec_cancelled() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/start"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("go"))
+        .mount(&server)
+        .await;
+    let start_url = format!("{}/start", server.uri());
+
     let engine = test_engine();
+    let parse_script = format!(
+        "async function parse(chapterUrl) {{ await fetch('{start_url}'); while(true){{}} }}"
+    );
     let loaded = engine
         .load_rules(vec![RuleInput::Manifest {
             manifest: make_manifest("取消源", "function search(k,p){ return [{title:k,url:'https://example.com/x'}]; }")
-                .with_parse("function parse(chapterUrl) { while(true){} }"),
+                .with_parse(&parse_script),
             origin: RuleOrigin::Builtin,
         }])
         .await;
@@ -155,9 +209,32 @@ async fn exec_cancelled() {
 
     let token = engine.new_scope_token("play:x");
     let parse_fut = engine.parse(&id, "https://example.com/1", token.clone());
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    tokio::pin!(parse_fut);
+    // 驱动 parse（让任务真正派发到 worker）并等待 worker 执行到 `fetch /start`——
+    // 以 mock 请求到达作为「任务已开始执行」的确定性信号（DeepSeek 复审第 7 项，
+    // 替代原先 300ms 盲等/轮询竞态）。若 parse 提前结束说明 worker 未成功执行。
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            tokio::select! {
+                r = &mut parse_fut => {
+                    panic!("parse 提前结束（worker 未开始执行）: {r:?}");
+                }
+                _ = tokio::time::sleep(Duration::from_millis(10)) => {}
+            }
+            let reqs = server.received_requests().await.unwrap();
+            if reqs.iter().any(|r| r.url.path() == "/start") {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("parse 应在 10s 内开始执行");
+
     engine.cancel_scope("play:x");
-    let err = parse_fut.await.unwrap_err();
+    let err = tokio::time::timeout(Duration::from_secs(5), parse_fut)
+        .await
+        .expect("取消应快速返回")
+        .unwrap_err();
     assert!(matches!(err, RuleExecError::Cancelled));
 
     // worker 未被永久占用：轮询 4 次回到原 worker，全部应正常成功
