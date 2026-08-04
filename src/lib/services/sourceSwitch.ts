@@ -1,3 +1,4 @@
+import { derived, writable, type Readable } from "svelte/store";
 import { uiStore } from "../stores/ui.svelte";
 
 /**
@@ -35,6 +36,9 @@ let sourceSwitchHandler: SourceSwitchHandler | null = null;
 type SourceProvider = (contentType: string) => SourceInfo[];
 let sourceProvider: SourceProvider | null = null;
 
+/** provider 注册版本号：provider 变化时 bump，供 `sourcesFor` 可读 store 响应式刷新 */
+const sourceProviderVersion = writable(0);
+
 /** 注册/注销真实源切换处理器（任务 1 服务就绪后在此接入） */
 export function setSourceSwitchHandler(handler: SourceSwitchHandler | null): void {
   sourceSwitchHandler = handler;
@@ -43,6 +47,38 @@ export function setSourceSwitchHandler(handler: SourceSwitchHandler | null): voi
 /** 注册/注销源健康数据 provider（任务 2 store 就绪后可由其替代） */
 export function setSourceProvider(provider: SourceProvider | null): void {
   sourceProvider = provider;
+  sourceProviderVersion.update((n) => n + 1);
+}
+
+/**
+ * 校验源切换参数（spec §3.5 / 外部接口健壮性）：
+ * 非法参数直接抛 `TypeError`，避免脏数据流入任务 1 的源切换服务。
+ * `targetSourceId` 允许空字符串——空值表示「打开选源面板」，非空时作为目标源标识。
+ */
+export function validateSwitchSourceParams(params: SwitchSourceParams): void {
+  if (!params || typeof params !== "object") {
+    throw new TypeError("switchSource 参数必须是对象");
+  }
+  if (typeof params.contentId !== "string" || params.contentId.trim() === "") {
+    throw new TypeError("switchSource 参数 contentId 必须是非空字符串");
+  }
+  if (
+    params.chapterId !== undefined &&
+    (typeof params.chapterId !== "string" || params.chapterId.trim() === "")
+  ) {
+    throw new TypeError("switchSource 参数 chapterId 必须是非空字符串");
+  }
+  if (
+    params.positionSec !== undefined &&
+    (typeof params.positionSec !== "number" ||
+      !Number.isFinite(params.positionSec) ||
+      params.positionSec < 0)
+  ) {
+    throw new TypeError("switchSource 参数 positionSec 必须是非负有限数字");
+  }
+  if (typeof params.targetSourceId !== "string") {
+    throw new TypeError("switchSource 参数 targetSourceId 必须是字符串");
+  }
 }
 
 const HEALTH_RANK: Record<SourceHealth, number> = { ok: 0, unknown: 1, degraded: 2 };
@@ -63,11 +99,21 @@ export function getSourcesFor(contentType: string): SourceInfo[] {
   return sourceProvider(contentType);
 }
 
-/** 触发源切换：优先走已注册的处理器，否则弹 TODO 桩提示 */
+/**
+ * 源健康列表可读 store（spec §5「或对应 readable store」）：provider 重注册时自动刷新，
+ * 供 SourceSuggestSheet 等组件响应式订阅，替代父组件注入的临时 sources 列表。
+ */
+export function sourcesFor(contentType: string): Readable<SourceInfo[]> {
+  return derived(sourceProviderVersion, () => getSourcesFor(contentType));
+}
+
+/** 触发源切换：先校验参数，再优先走已注册的处理器，否则弹 TODO 桩提示 */
 export async function switchSource(params: SwitchSourceParams): Promise<void> {
+  validateSwitchSourceParams(params);
   if (sourceSwitchHandler) {
     return sourceSwitchHandler(params);
   }
   // TODO(task-1): FR-02 源切换服务就绪后移除桩，改为真实切换（保留进度）。
+  // targetSourceId 为空字符串时表示「打开选源面板」，由播放器侧 switchSource() 流程处理。
   uiStore.toast("源切换能力待接入");
 }

@@ -10,9 +10,11 @@
     onRetry: () => void;
     onSwitchSource: () => void;
     onCopyLog: () => void;
+    /** 关闭/取消入口：传入时渲染右上角关闭按钮（清除错误状态，返回播放器） */
+    onClose?: () => void;
   }
 
-  let { error, retryCount, onRetry, onSwitchSource, onCopyLog }: Props = $props();
+  let { error, retryCount, onRetry, onSwitchSource, onCopyLog, onClose }: Props = $props();
 
   let switchBtn = $state<HTMLButtonElement | null>(null);
 
@@ -32,6 +34,11 @@
   data-testid="player-error-overlay"
 >
   <div class="player-error-overlay__card">
+    {#if onClose}
+      <button type="button" class="player-error-overlay__dismiss" aria-label="关闭错误提示" onclick={onClose}>
+        <Icon name="x" size={14} />
+      </button>
+    {/if}
     <Icon name="info" size={34} className="player-error-overlay__icon" />
     <h2 id="player-error-title">{messageForErrorKind(error.kind)}</h2>
     <p class="player-error-overlay__kind">
@@ -73,6 +80,7 @@
   }
   .player-error-overlay__card {
     width: min(440px, 100%);
+    position: relative;
     display: grid;
     justify-items: center;
     gap: 10px;
@@ -82,6 +90,25 @@
     background: rgba(23, 9, 12, 0.92);
     color: var(--text-primary, #f5f7fb);
     text-align: center;
+  }
+  .player-error-overlay__dismiss {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-muted, #9aa3b2);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .player-error-overlay__dismiss:hover {
+    color: var(--text-primary, #f5f7fb);
+    border-color: var(--text-muted, #9aa3b2);
   }
   :global(.player-error-overlay__icon) {
     color: #f87171;

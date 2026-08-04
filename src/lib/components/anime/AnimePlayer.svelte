@@ -29,6 +29,7 @@
   import { idleTimer } from "../../actions/idleTimer";
   import {
     clearPlayerError,
+    controlsIdleClass,
     controlsVisible,
     openMenuCount,
     playerError,
@@ -42,6 +43,7 @@
   } from "../../stores/player";
   import { buildErrorLog, classifyPlaybackError } from "../../player/errorMap";
   import {
+    setSourceProvider,
     setSourceSwitchHandler,
     switchSource as switchSourceService,
     type SourceHealth,
@@ -118,10 +120,11 @@
   let fullscreenGuardTimer: number | null = null;
   let currentTime = $state(0);
   let mediaAspectRatio = $state(16 / 9);
-  // 画质切换媒体重载（spec §3.3）：`switchQuality` 自增 token 让视频初始化 effect 重跑，
-  // 真正替换 video 源（HLS.js 重新 loadSource / 原生重新 src+load）；`pendingQualitySeek` /
-  // `pendingQualitySeekSrc` / `resumeAfterQualityLoad` 用于 loadedmetadata 后恢复进度与播放状态。
-  let mediaReloadToken = $state(0);
+  // 画质切换媒体重载（spec §3.3）：`switchQuality` 复用同一 <video> 元素直接替换 source
+  // （HLS.js 复用实例 loadSource / 原生重新 src+load），不重建媒体初始化 effect；
+  // `activeHls` 持有当前 HLS 实例供切换复用；`pendingQualitySeek` / `pendingQualitySeekSrc` /
+  // `resumeAfterQualityLoad` 用于 loadedmetadata 后恢复进度与播放状态。
+  let activeHls: Hls | null = null;
   let pendingQualitySeek = $state(0);
   let pendingQualitySeekSrc = $state("");
   let resumeAfterQualityLoad = $state(true);
@@ -286,6 +289,7 @@
     // FR-07：注册重试处理器与源切换适配器（任务 1 服务就绪后由适配层接管）
     setRetryHandler(handleRetry);
     setSourceSwitchHandler(handleSwitchSourceService);
+    setSourceProvider(buildSuggestSources);
     if (platformStore.capabilities.desktopWindowControl) {
       hostWindowWasFullscreen = ["fullscreen", "big-picture"].includes(settingsStore.settings.startup_mode ?? "fullscreen");
       try {
@@ -308,6 +312,7 @@
     // 注销本组件注册的处理器与 store 状态，避免跨实例/跨页面泄漏
     setRetryHandler(null);
     setSourceSwitchHandler(null);
+    setSourceProvider(null);
     openMenuCount.set(0);
     controlsVisible.set(true);
     clearPlayerError();
@@ -487,9 +492,6 @@
     const el = videoEl;
     const src = videoSrc;
     const m3u8 = isM3u8;
-    // 画质切换媒体重载依赖：`switchQuality` 自增该 token 让本 effect 重新执行，
-    // 从而真正替换 video 源（spec §3.3），不销毁重建 video 元素。
-    void mediaReloadToken;
     invokeCmd('frontend_log', { level: 'info', message: `[播放器$effect] el=${!!el} status=${status} src=${src ? src.substring(0, 60) : 'null'}` }).catch(() => {});
     if (!el || status !== "found" || !src) return;
     const v: HTMLVideoElement = el;
@@ -551,7 +553,7 @@
     const fail = (why: string, raw?: unknown, httpStatus?: number) => {
       clearWatchdog();
       clearPlaybackWatchdog();
-      if (hls) { try { hls.destroy(); } catch {} hls = null; }
+      if (hls) { try { hls.destroy(); } catch {} hls = null; activeHls = null; }
       const canTryAlternate = attempt < 2 && (!settled || (v.currentTime === 0 && v.readyState < 3));
       if (canTryAlternate) {
         console.warn(`[播放器] 第${attempt}次加载失败(${why})，自动切换播放方式兜底`);
@@ -679,6 +681,8 @@
       });
       hls.loadSource(src);
       hls.attachMedia(v);
+      // 供 `switchQuality` 复用同一 HLS 实例（spec §3.3：不销毁重建实例）
+      activeHls = hls;
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         debugLog("[播放器] HLS manifest 已解析，开始播放");
         v.play().catch(() => {});
@@ -743,6 +747,7 @@
       v.removeEventListener('ended', onEnded);
       v.removeEventListener('timeupdate', onTimeUpdateForSkip);
       if (hls) { try { hls.destroy(); } catch {} }
+      activeHls = null;
     };
   });
 
@@ -761,8 +766,9 @@
   }
 
   /**
-   * 切换画质（本地超清化 off / 均衡 / 质量）：复用现有 <video> 元素，真正替换视频源
-   * 并恢复进度与播放状态（spec §3.3 / FR-06）。不销毁重建 video 元素——idleTimer 因
+   * 切换画质（本地超清化 off / 均衡 / 质量）：复用现有 <video> 元素直接替换视频源
+   * 并恢复进度与播放状态（spec §3.3 / FR-06）。不销毁重建 video 元素 / 媒体初始化
+   * effect——HLS.js 复用同一实例 `loadSource`，原生则重新 `src + load`；idleTimer 因
    * 绑定在稳定的全屏容器上无需重建，从而根治超清切换后控制栏不再隐藏的问题。
    */
   async function switchQuality(quality: PlayerQuality): Promise<void> {
@@ -773,12 +779,17 @@
     const changed = quality !== enhancementMode;
     animeStore.videoEnhancementMode = quality;
     if (el && targetSrc && changed) {
-      // 真正替换 video 源：自增 reload token 让视频初始化 effect 重新执行
-      // （HLS.js 重新 loadSource / 原生重新 src+load），loadedmetadata 后 seek 回原位置。
+      // spec §3.3：仅替换 source 并 seek，不销毁元素/实例。loadedmetadata 后 seek 回原位置。
       pendingQualitySeek = resumeAt;
       pendingQualitySeekSrc = targetSrc;
       resumeAfterQualityLoad = !wasPaused;
-      mediaReloadToken += 1;
+      if (activeHls) {
+        // 保留 HLS 实例复用：仅重新 loadSource，不销毁重建实例
+        activeHls.loadSource(targetSrc);
+      } else {
+        el.src = targetSrc;
+        try { el.load(); } catch {}
+      }
       return;
     }
     if (el && !wasPaused) {
@@ -876,7 +887,8 @@
     await switchSource();
   }
 
-  /** 按当前源健康度构建 SourceInfo 列表（task-2 健康 store 就绪前用 animeStore 摘要） */
+  /** 按当前源健康度构建 SourceInfo 列表（task-2 健康 store 就绪前用 animeStore 摘要），
+   *  通过适配层 `setSourceProvider` 注入，供 `getSourcesFor`/`sourcesFor` 消费（spec §3.5）。 */
   function buildSuggestSources(): SourceInfo[] {
     return animeStore.rules.map((rule) => {
       const summary = animeStore.getSourceHealth(rule.name);
@@ -888,9 +900,6 @@
       return { id: rule.name, name: rule.name, contentType: 'anime', health };
     });
   }
-
-  /** 源推荐列表：读取 animeStore 规则（响应式），排序交给 SourceSuggestSheet */
-  const suggestSources = $derived<SourceInfo[]>(buildSuggestSources());
 
   /** 「复制日志」：error.detail + 环境信息写入剪贴板 */
   async function copyPlayerLog() {
@@ -1169,9 +1178,7 @@
 
 <div
   class="player-overlay"
-  class:idle={!$controlsVisible}
   class:fullscreen={isFullscreen}
-  class:chrome-hidden={isFullscreen && !$controlsVisible}
   role="dialog"
   aria-modal="true"
   aria-labelledby="anime-player-title"
@@ -1179,6 +1186,7 @@
   tabindex="-1"
   bind:this={overlayEl}
   use:idleTimer={idleTimerOptions}
+  use:controlsIdleClass
   use:focusTrap={{
     initialFocus: '[data-player-close]',
     returnFocus: false,
@@ -1198,7 +1206,6 @@
     {nextEpisodeTitle}
     aspectRatio={mediaAspectRatio}
     fullscreen={isFullscreen}
-    chromeVisible={$controlsVisible}
     panelOpen={showCommentsPanel || showEpisodePanel}
     variant="classic"
     stageLabel={`${animeStore.detailName} ${epName || "播放器"} 播放区域`}
@@ -1651,17 +1658,22 @@
         targetSourceId: '',
       })}
       onCopyLog={copyPlayerLog}
+      onClose={() => clearPlayerError()}
     />
   {/if}
 
   {#if $showSourceSuggest}
     <SourceSuggestSheet
-      sources={suggestSources}
+      contentType="anime"
       contentId={animeStore.detailName}
       chapterId={epName}
       positionSec={videoEl?.currentTime}
       onSelect={handleSuggestSelect}
-      onClose={() => showSourceSuggest.set(false)}
+      onClose={() => {
+        // 关闭源推荐时一并清除错误状态：空列表下用户也能退出「错误弹层」死循环
+        showSourceSuggest.set(false);
+        clearPlayerError();
+      }}
     />
   {/if}
 </div>
@@ -1680,13 +1692,26 @@
     flex-direction: column;
     overflow: hidden;
   }
-  /* 空闲态：隐藏鼠标指针与自定义增强控制栏（FR-06，过渡由 shell 的 chrome-hidden 承担） */
-  .player-overlay.idle {
+  /* 空闲态（spec §3.2）：controlsVisible=false 时由 store 提供的 controlsIdleClass
+     给容器加 .idle —— 隐藏鼠标指针、自定义增强控制栏与 shell 顶部栏（Controls 透明度 0）。
+     由于 .idle 由 JS action 动态追加，这里用 :global 匹配。 */
+  :global(.player-overlay.idle) {
     cursor: none;
   }
-  .player-overlay.idle .enhanced-media-controls {
+  :global(.player-overlay.idle) .enhanced-media-controls {
     opacity: 0;
     pointer-events: none;
+  }
+  :global(.player-overlay.idle) :global(.anime-playback-shell__context),
+  :global(.player-overlay.idle) :global(.anime-playback-shell__toolbar) {
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-12px);
+    pointer-events: none;
+    transition:
+      opacity 160ms ease,
+      transform 200ms ease,
+      visibility 0s linear 200ms;
   }
   .player-overlay.fullscreen {
     position: fixed;

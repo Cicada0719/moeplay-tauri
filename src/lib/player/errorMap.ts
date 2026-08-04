@@ -41,14 +41,16 @@ function describeRaw(raw: unknown): string {
 export function classifyPlaybackError(raw: unknown, httpStatus?: number): PlayerError {
   const detail = describeRaw(raw);
   const occurredAt = Date.now();
+  // 严格类型校验：仅接受 number 状态码；字符串 '403' 等非数字按未知处理，避免误判为 HTTP_FORBIDDEN/HTTP_ERROR
+  const status = typeof httpStatus === "number" && Number.isFinite(httpStatus) ? httpStatus : undefined;
 
   // HTTP 401/403 → 防盗链拒绝访问
-  if (httpStatus === 401 || httpStatus === 403) {
-    return { kind: "HTTP_FORBIDDEN", message: MESSAGES.HTTP_FORBIDDEN, detail, httpStatus, occurredAt };
+  if (status === 401 || status === 403) {
+    return { kind: "HTTP_FORBIDDEN", message: MESSAGES.HTTP_FORBIDDEN, detail, httpStatus: status, occurredAt };
   }
   // 其他 4xx/5xx
-  if (typeof httpStatus === "number" && httpStatus >= 400 && httpStatus < 600) {
-    return { kind: "HTTP_ERROR", message: httpErrorMessage(httpStatus), detail, httpStatus, occurredAt };
+  if (typeof status === "number" && status >= 400 && status < 600) {
+    return { kind: "HTTP_ERROR", message: httpErrorMessage(status), detail, httpStatus: status, occurredAt };
   }
 
   // 解析结果为空地址
@@ -87,7 +89,7 @@ export function classifyPlaybackError(raw: unknown, httpStatus?: number): Player
   }
 
   // 未知错误兜底
-  return { kind: "HTTP_ERROR", message: httpErrorMessage(httpStatus), detail, httpStatus, occurredAt };
+  return { kind: "HTTP_ERROR", message: httpErrorMessage(status), detail, httpStatus: status, occurredAt };
 }
 
 /** 复制日志：error.detail + 环境信息，供「复制日志」按钮写入剪贴板 */

@@ -1,10 +1,10 @@
 <script lang="ts">
   import Icon from "../Icon.svelte";
-  import { sortSourcesByHealth, type SourceHealth, type SourceInfo } from "../../services/sourceSwitch";
+  import { sortSourcesByHealth, sourcesFor, type SourceHealth } from "../../services/sourceSwitch";
 
   interface Props {
-    /** 当前内容类型下的源列表（由播放器按健康 store 构建） */
-    sources: SourceInfo[];
+    /** 内容类型：按此从适配层源健康 store 读取列表（如 'anime'） */
+    contentType: string;
     contentId: string;
     chapterId?: string;
     positionSec?: number;
@@ -12,9 +12,11 @@
     onClose: () => void;
   }
 
-  let { sources, contentId, chapterId, positionSec, onSelect, onClose }: Props = $props();
+  let { contentType, contentId, chapterId, positionSec, onSelect, onClose }: Props = $props();
 
-  const ordered = $derived(sortSourcesByHealth(sources));
+  // spec §3.5：消费适配层暴露的源健康可读 store，响应式订阅（替代父组件注入的临时 sources）
+  const sourceStore = $derived(sourcesFor(contentType));
+  const ordered = $derived(sortSourcesByHealth($sourceStore));
   const healthLabel: Record<SourceHealth, string> = { ok: "可用", unknown: "未知", degraded: "异常" };
 </script>
 

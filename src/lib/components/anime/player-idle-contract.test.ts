@@ -25,6 +25,12 @@ describe("player idle chrome contract", () => {
     expect(player).toContain("use:idleTimer={idleTimerOptions}");
     expect(player).not.toContain("use:idleTimer={{");
 
+    // spec §3.2：controlsVisible → 容器 idle class 由 store 提供的 controlsIdleClass action 驱动，
+    // 模板不再散落 class:idle / class:chrome-hidden 手动绑定
+    expect(player).toContain("use:controlsIdleClass");
+    expect(player).not.toMatch(/class:idle=\{!?\$controlsVisible\}/);
+    expect(player).not.toContain("class:chrome-hidden={");
+
     // 旧实现中的散落隐藏逻辑必须被移除（根因注释允许提及旧名，故按定义判定）
     expect(player).not.toMatch(/(?:function|const)\s+(schedulePlayerChromeHide|revealPlayerChrome|handlePlayerPointerMove)\b/);
     expect(player).not.toContain("playerChromeTimer = window.setTimeout");
@@ -43,6 +49,15 @@ describe("player idle chrome contract", () => {
     expect(Math.max(...durations)).toBeLessThanOrEqual(200);
   });
 
+  it("controlsIdleClass 驱动的 .idle 下 Controls 隐藏过渡 ≤ 200ms（spec §3.2）", () => {
+    const player = source("src/lib/components/anime/AnimePlayer.svelte");
+    expect(player).toContain(".player-overlay.idle");
+    expect(player).toContain("cursor: none");
+    expect(player).toMatch(/opacity 160ms/);
+    expect(player).toMatch(/transform 200ms/);
+    expect(player).toMatch(/pointer-events: none/);
+  });
+
   it("画质切换复用 video 元素：switchQuality 不销毁重建播放器容器", () => {
     const player = source("src/lib/components/anime/AnimePlayer.svelte");
     expect(player).toContain("switchQuality");
@@ -58,16 +73,28 @@ describe("player idle chrome contract", () => {
     expect(player).toContain("clearPlayerError()");
   });
 
-  it("switchQuality 真正替换 video 源并恢复进度（spec §3.3）", () => {
+  it("switchQuality 直接替换 video 源并恢复进度，复用 HLS 实例（spec §3.3）", () => {
     const player = source("src/lib/components/anime/AnimePlayer.svelte");
-    // 自增 reload token 让视频初始化 effect 重新执行，触发媒体引擎真实重载
-    expect(player).toContain("mediaReloadToken += 1");
+    // 不再自增 reload token 重建整个媒体初始化 effect
+    expect(player).not.toContain("mediaReloadToken");
     // 复用同一 video 元素，不销毁重建容器（FR-06 根因）
     expect(player).toContain("不销毁重建 video 元素");
+    // 真正替换 source：HLS 复用实例 loadSource / 原生重新 src+load
+    expect(player).toContain("activeHls.loadSource(targetSrc)");
+    expect(player).toContain("el.src = targetSrc");
     // loadedmetadata 后按画质切换前的进度 seek 回原位置并恢复播放状态
     expect(player).toContain("pendingQualitySeek");
     expect(player).toContain("pendingQualitySeekSrc");
     expect(player).toContain("resumeAfterQualityLoad");
+  });
+
+  it("SourceSuggestSheet 消费适配层源健康 store，关闭时清除错误状态（空列表可退出）", () => {
+    const player = source("src/lib/components/anime/AnimePlayer.svelte");
+    expect(player).toContain("setSourceProvider(buildSuggestSources)");
+    expect(player).toContain("setSourceProvider(null)");
+    expect(player).toContain('contentType="anime"');
+    expect(player).not.toContain("sources={suggestSources}");
+    expect(player).toMatch(/showSourceSuggest\.set\(false\);\s*clearPlayerError\(\);/);
   });
 
   it("FR-07 错误降级组件与源切换适配层已接入", () => {

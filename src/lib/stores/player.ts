@@ -96,3 +96,32 @@ export interface IdlePauseState {
 export function shouldPauseIdleTimer(state: IdlePauseState): boolean {
   return state.openMenuCount > 0 || !state.isFullscreen || state.hasPlayerError;
 }
+
+export interface ControlsIdleClassOptions {
+  /** 容器进入空闲态时追加的 CSS class 名，默认 'idle' */
+  className?: string;
+}
+
+/**
+ * `controlsIdleClass` — spec §3.2 的「controlsVisible 变化 → 容器 CSS class 'idle'」机制。
+ *
+ * 挂载在播放器根容器上，订阅 `controlsVisible`：为 false 时给容器追加 `idle` class
+ * （CSS 侧负责 `cursor: none` 与 Controls 透明度 0 + `pointer-events: none`），
+ * 避免在组件模板里散落 `class:idle={!$controlsVisible}` 手动绑定。`destroy()` 随
+ * 容器卸载自动退订，无泄漏。
+ */
+export function controlsIdleClass(
+  node: HTMLElement,
+  options: ControlsIdleClassOptions = {},
+): { update: (opts: ControlsIdleClassOptions) => void; destroy: () => void } {
+  let { className = "idle" } = options;
+  const apply = (visible: boolean) => node.classList.toggle(className, !visible);
+  const unsubscribe = controlsVisible.subscribe(apply);
+  return {
+    update(next) {
+      className = next.className ?? className;
+      apply(get(controlsVisible));
+    },
+    destroy: unsubscribe,
+  };
+}

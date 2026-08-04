@@ -39,6 +39,12 @@ describe("classifyPlaybackError", () => {
     const err = classifyPlaybackError(new Error("boom"), undefined);
     expect(err.kind).toBe("HTTP_ERROR");
   });
+
+  it("非数字 httpStatus（如字符串 '403'）不被误判为 HTTP_FORBIDDEN/HTTP_ERROR", () => {
+    const err = classifyPlaybackError("denied", "403" as unknown as number);
+    expect(err.kind).toBe("HTTP_ERROR");
+    expect(err.httpStatus).toBeUndefined();
+  });
 });
 
 describe("buildErrorLog", () => {

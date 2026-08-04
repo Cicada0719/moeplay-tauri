@@ -87,4 +87,33 @@ describe("ErrorOverlay", () => {
     expect(onSwitchSource).toHaveBeenCalledTimes(1);
     expect(onCopyLog).toHaveBeenCalledTimes(1);
   });
+
+  it("传入 onClose 时渲染关闭按钮，点击触发 onClose（错误弹层可关闭）", async () => {
+    const onClose = vi.fn();
+    render(ErrorOverlay, {
+      props: {
+        error: makeError(),
+        retryCount: 0,
+        onRetry: vi.fn(),
+        onSwitchSource: vi.fn(),
+        onCopyLog: vi.fn(),
+        onClose,
+      },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "关闭错误提示" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("未传 onClose 时不渲染关闭按钮", () => {
+    render(ErrorOverlay, {
+      props: {
+        error: makeError(),
+        retryCount: 0,
+        onRetry: vi.fn(),
+        onSwitchSource: vi.fn(),
+        onCopyLog: vi.fn(),
+      },
+    });
+    expect(screen.queryByRole("button", { name: "关闭错误提示" })).not.toBeInTheDocument();
+  });
 });

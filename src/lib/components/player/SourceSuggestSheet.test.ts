@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import SourceSuggestSheet from "./SourceSuggestSheet.svelte";
+import { setSourceProvider } from "../../services/sourceSwitch";
 import type { SourceInfo } from "../../services/sourceSwitch";
 
 const sources: SourceInfo[] = [
@@ -11,9 +12,14 @@ const sources: SourceInfo[] = [
   { id: "delta", name: "Delta", contentType: "anime", health: "ok" },
 ];
 
+beforeEach(() => {
+  // spec §3.5：组件通过适配层可读 store 消费源健康列表（测试中注入 provider）
+  setSourceProvider(() => sources);
+});
+
 function baseProps(overrides: Record<string, unknown> = {}) {
   return {
-    sources,
+    contentType: "anime",
     contentId: "anime-1",
     chapterId: "ep5",
     positionSec: 750,
@@ -57,7 +63,8 @@ describe("SourceSuggestSheet", () => {
   });
 
   it("空列表时显示占位文案", () => {
-    render(SourceSuggestSheet, { props: baseProps({ sources: [] }) });
+    setSourceProvider(() => []);
+    render(SourceSuggestSheet, { props: baseProps() });
     expect(screen.getByText(/暂无可推荐源/)).toBeInTheDocument();
   });
 });
