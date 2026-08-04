@@ -1,0 +1,12 @@
+{
+  "name": "Kazumi 兼容样例源",
+  "version": "1.0.0",
+  "contentType": "anime",
+  "baseUrl": "https://example.com",
+  "language": "zh-CN",
+  "nsfw": false,
+  "search": "async function search(keyword, page) { return [{ title: keyword, url: 'https://example.com/detail/1', cover: null }]; }",
+  "detail": "async function detail(url) { return { title: '样例条目', cover: null, description: 'kazumi 兼容 fixture' }; }",
+  "chapter": "async function chapter(detailUrl) { return [{ id: '1', title: '第 1 集', url: 'https://example.com/play/1', index: 1 }]; }",
+  "parse": "async function parse(chapterUrl) { return { urls: ['https://example.com/video.m3u8'], kind: 'video', headers: { Referer: 'https://example.com' } }; }"
+}

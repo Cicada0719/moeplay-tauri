@@ -22,6 +22,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
 tauri-plugin-orientation = { path = "../plugins/tauri-plugin-orientation" }
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.11", default-features = false, features = ["json", "stream", "rustls-tls"] }
@@ -30,7 +31,12 @@ futures-util = "0.3"
 log = "0.4"
 zip = "2"
 tokio = { version = "1", features = ["full"] }
-uuid = { version = "1", features = ["v4"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+# `parallel`：让 rquickjs 的 Runtime 成为 Send+Sync，从而引擎可持有 worker 的
+# Runtime 句柄并在取消/超时时直接调用 `runtime.set_interrupt_handler` 触发 JS 中断
+# （spec §3.3 / DeepSeek 复审第 7 项）。
+rquickjs = { version = "0.8", features = ["loader", "macro", "array-buffer", "futures", "parallel"] }
+uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "5"
 open = "5"
@@ -63,12 +69,13 @@ rfd = "0.15"
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
 
+[dev-dependencies]
+tempfile = "3"
+wiremock = "0.6"
+
 [target.'cfg(target_os = "android")'.dependencies]
 android-native-keyring-store = "1.0.0"
 keyring-core = "1.0.0"
 # Must stay on the same release as the copy pulled in by
 # android-native-keyring-store so both crates share one global context slot.
 ndk-context = "0.1.1"
-
-[dev-dependencies]
-tempfile = "3"

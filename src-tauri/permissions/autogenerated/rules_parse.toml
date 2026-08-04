@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rules-parse"
+description = "Enables the rules_parse command without any pre-configured scope."
+commands.allow = ["rules_parse"]
+
+[[permission]]
+identifier = "deny-rules-parse"
+description = "Denies the rules_parse command without any pre-configured scope."
+commands.deny = ["rules_parse"]

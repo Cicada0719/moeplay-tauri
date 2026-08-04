@@ -207,6 +207,8 @@ pub async fn anime_import_rules(
 }
 
 // ── 搜索 & 章节 ────────────────────────────────────────────────────────
+// DEPRECATED(task-1): 旧版 anime 规则（XPath/WebView 解析）由新规则引擎 RuleEngine
+// 接管。此处保留以兼容存量规则，新建源请使用 `rules_*` 命令。
 
 #[tauri::command]
 pub async fn anime_search(
@@ -343,6 +345,7 @@ pub async fn anime_search_all(
         .collect())
 }
 
+// DEPRECATED(task-1): 由新规则引擎 RuleEngine 接管，保留兼容存量规则。
 #[tauri::command]
 pub async fn anime_fetch_roads(
     state: State<'_, AnimeState>,
@@ -369,6 +372,7 @@ pub async fn anime_fetch_roads(
     }
 }
 
+// DEPRECATED(task-1): 由新规则引擎 RuleEngine 接管，保留兼容存量规则。
 #[tauri::command]
 pub async fn anime_build_url(
     state: State<'_, AnimeState>,

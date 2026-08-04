@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rules-export"
+description = "Enables the rules_export command without any pre-configured scope."
+commands.allow = ["rules_export"]
+
+[[permission]]
+identifier = "deny-rules-export"
+description = "Denies the rules_export command without any pre-configured scope."
+commands.deny = ["rules_export"]

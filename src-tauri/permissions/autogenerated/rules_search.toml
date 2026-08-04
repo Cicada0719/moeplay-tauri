@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rules-search"
+description = "Enables the rules_search command without any pre-configured scope."
+commands.allow = ["rules_search"]
+
+[[permission]]
+identifier = "deny-rules-search"
+description = "Denies the rules_search command without any pre-configured scope."
+commands.deny = ["rules_search"]

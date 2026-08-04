@@ -89,3 +89,6 @@ pub use extension_index::*;
 
 mod sync_envelope;
 pub use sync_envelope::*;
+
+mod rules;
+pub use rules::*;

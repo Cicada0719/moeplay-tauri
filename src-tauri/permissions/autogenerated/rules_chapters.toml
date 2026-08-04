@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rules-chapters"
+description = "Enables the rules_chapters command without any pre-configured scope."
+commands.allow = ["rules_chapters"]
+
+[[permission]]
+identifier = "deny-rules-chapters"
+description = "Denies the rules_chapters command without any pre-configured scope."
+commands.deny = ["rules_chapters"]

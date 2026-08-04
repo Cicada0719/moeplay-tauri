@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rules-cancel-scope"
+description = "Enables the rules_cancel_scope command without any pre-configured scope."
+commands.allow = ["rules_cancel_scope"]
+
+[[permission]]
+identifier = "deny-rules-cancel-scope"
+description = "Denies the rules_cancel_scope command without any pre-configured scope."
+commands.deny = ["rules_cancel_scope"]

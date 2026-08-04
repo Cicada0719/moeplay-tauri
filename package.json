@@ -59,6 +59,7 @@
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@fontsource/outfit": "^5.2.8",
     "@svelte-put/shortcut": "^4.2.0",
+    "@tauri-apps/plugin-dialog": "^2.3.0",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
     "chart.js": "^4.5.1",
