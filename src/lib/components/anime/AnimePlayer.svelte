@@ -837,7 +837,7 @@
         playback.url,
         playback.headers,
         playback.kind,
-        playback.resumeSec,
+        playback.resumeMs, // switchResultToPlayback 已把秒换算为毫秒（Kimi K3 复审第 6 项）
       );
     }
     if (playback.status === "fallback" && playback.message) {

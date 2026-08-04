@@ -130,7 +130,8 @@ describe("switchSource", () => {
     expect(playback.url).toBe("https://cdn.example.com/v.m3u8");
     expect(playback.kind).toBe("video");
     expect(playback.headers).toEqual({ Referer: "https://example.com" });
-    expect(playback.resumeSec).toBe(750);
+    // 单位契约：resumeSec（秒）→ resumeMs（毫秒），播放器 _pendingSeekMs 按毫秒消费
+    expect(playback.resumeMs).toBe(750_000);
     expect(playback.chapterIndex).toBe(5);
     expect(playback.status).toBe("ok");
     expect(playback.message).toBeUndefined();
@@ -146,6 +147,29 @@ describe("switchSource", () => {
     expect(failed.url).toBeNull();
     expect(failed.message).toBe("新源未找到该条目");
     expect(failed.chapterIndex).toBeNull();
+    expect(failed.resumeMs).toBe(0);
+  });
+
+  it("switch_result_to_playback_resume_unit_is_ms: 续播秒数换算为毫秒（Kimi K3 复审第 6 项 high）", () => {
+    // spec §3.5 resumeSec 是秒；播放器容器 playDirectVideoSource(…, seekMs) 与
+    // _pendingSeekMs 是毫秒。switchResultToPlayback 必须在边界处 ×1000，否则 750s
+    // 的续播点会落成 0.75s（currentTime = _pendingSeekMs / 1000）。
+    const cases: Array<[number, number]> = [
+      [0, 0],
+      [5, 5_000],
+      [65, 65_000],
+      [750, 750_000],
+    ];
+    for (const [sec, ms] of cases) {
+      const playback = switchResultToPlayback({
+        status: "ok",
+        chapters: CHAPTERS_5,
+        targetChapter: CHAPTERS_5[0],
+        parseResult: PARSE_OK,
+        resumeSec: sec,
+      });
+      expect(playback.resumeMs).toBe(ms);
+    }
   });
 
   it("switch_matches_normalized_title: 标题归一化匹配取首个命中项而非固定 items[0]", async () => {

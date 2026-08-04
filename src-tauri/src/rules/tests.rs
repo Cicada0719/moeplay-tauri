@@ -143,6 +143,43 @@ async fn compile_check_does_not_execute_toplevel_deadloop() {
     assert!(matches!(err, RuleExecError::Cancelled));
 }
 
+// ── 测试：Kimi K3 复审第 6 项——compile_manifest 并发上限（最多 COMPILE_CONCURRENCY 路）──
+
+#[tokio::test]
+async fn compile_concurrency_bounded_by_semaphore() {
+    let engine = test_engine();
+    let permits = engine.compile_permits();
+    // 占满信号量：全部许可被测试持有 → compile_manifest 必须等待许可，不得再 spawn
+    // 线程 / 建 Sandbox（若未限并发，它会在许可耗尽时照样开线程）。
+    let mut held = Vec::new();
+    for _ in 0..4 {
+        held.push(
+            permits
+                .clone()
+                .acquire_owned()
+                .await
+                .expect("acquire compile permit"),
+        );
+    }
+    let manifest = make_manifest("并发受限源", "function search(k,p){ return []; }");
+    let blocked = tokio::time::timeout(
+        Duration::from_millis(200),
+        engine.compile_manifest(&manifest),
+    )
+    .await;
+    assert!(
+        blocked.is_err(),
+        "信号量耗尽时 compile_manifest 应等待许可而非并发执行"
+    );
+
+    // 释放一个许可 → 等待中的编译放行并成功完成（有界并发：同一时刻最多 4 条在跑）。
+    drop(held.pop());
+    tokio::time::timeout(Duration::from_secs(5), engine.compile_manifest(&manifest))
+        .await
+        .expect("释放许可后编译应在超时内完成")
+        .expect("编译应成功");
+}
+
 // ── 测试 6：执行超时 ────────────────────────────────────────────────────
 
 #[tokio::test]

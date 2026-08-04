@@ -26,6 +26,12 @@ use crate::rules::schema::{
 /// 常驻 worker 线程数（QuickJS runtime 不可跨线程，必须一线程一沙箱）。
 const WORKER_COUNT: usize = 4;
 
+/// 编译阶段并发上限（信号量）：`compile_manifest` 每条规则单独 `std::thread::spawn` +
+/// 新建 Sandbox（QuickJS runtime），而 `load_rules` 用 `join_all` 无并发上限——几十上
+/// 百条规则会瞬间派生等量线程并各建一个 runtime（Kimi K3 复审第 6 项）。用信号量把
+/// 同时编译的规则数限制到与执行 worker 一致的数量，超出者等待而非并发开线程。
+const COMPILE_CONCURRENCY: usize = WORKER_COUNT;
+
 /// 取消/超时后等待 worker 真正退出当前任务的宽限期；超时则回收重建该 worker，
 /// 避免其永久占用导致后续任务堆积（DeepSeek 审核项 1）。
 const CANCEL_RECYCLE_TIMEOUT: Duration = Duration::from_secs(1);
@@ -163,6 +169,8 @@ pub struct RuleEngine {
     /// worker 槽位池（定长，取消/超时后仅替换槽内句柄；每槽独立锁，无全局池锁）。
     workers: Vec<WorkerSlot>,
     next_worker: AtomicUsize,
+    /// 编译并发门闩：限制同时进行 `compile_manifest` 的规则数（含其临时线程与 Sandbox）。
+    compile_permits: Arc<tokio::sync::Semaphore>,
     /// 测试专用：硬中断安装延迟（模拟「迟到至下一任务已 rearm」的竞态窗口）；生产恒 0。
     #[cfg(test)]
     hard_interrupt_delay: Duration,
@@ -229,6 +237,7 @@ impl RuleEngine {
             scopes: Arc::new(Mutex::new(HashMap::new())),
             workers,
             next_worker: AtomicUsize::new(0),
+            compile_permits: Arc::new(tokio::sync::Semaphore::new(COMPILE_CONCURRENCY)),
             #[cfg(test)]
             hard_interrupt_delay: Duration::ZERO,
         }
@@ -240,6 +249,13 @@ impl RuleEngine {
     pub(crate) fn with_hard_interrupt_delay(mut self, delay: Duration) -> Self {
         self.hard_interrupt_delay = delay;
         self
+    }
+
+    /// 测试专用：暴露编译并发门闩，用于验证 `compile_manifest` 的并发上限
+    /// （Kimi K3 复审第 6 项，见 `compile_concurrency_bounded_by_semaphore`）。
+    #[cfg(test)]
+    pub(crate) fn compile_permits(&self) -> Arc<tokio::sync::Semaphore> {
+        self.compile_permits.clone()
     }
 
     /// 并行加载一批规则；每条独立计时 10s，超时/失败仅影响该条。
@@ -322,6 +338,10 @@ impl RuleEngine {
     }
 
     /// 编译 4 个生命周期脚本（独立线程 + 10s 超时，死循环可被中断）。
+    ///
+    /// 并发受 `compile_permits` 信号量约束（`COMPILE_CONCURRENCY` 路）：许可在 spawn
+    /// 前获取、随线程生命周期持有——同时最多 N 条规则各派生一条编译线程 + 一个 Sandbox，
+    /// 超出的规则在此 await 等待许可，杜绝 `load_rules` 大批量加载时线程爆炸。
     pub async fn compile_manifest(&self, manifest: &RuleManifest) -> Result<(), RuleLoadError> {
         let scripts: Vec<(String, String)> = vec![
             ("search".to_string(), manifest.search.clone()),
@@ -333,7 +353,16 @@ impl RuleEngine {
         let interrupt = Arc::new(AtomicBool::new(false));
         let intr = interrupt.clone();
         let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), RuleLoadError>>();
+        let permit = self
+            .compile_permits
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| RuleLoadError::compile("规则编译并发门闩已关闭", None))?;
         std::thread::spawn(move || {
+            // 许可随编译线程持有：线程存续即占用一个并发额度，退出即归还（见
+            // `compile_permits` 注释）；被 await 等待的编译不会提前派生线程。
+            let _permit = permit;
             let sandbox = match Sandbox::new(http, intr) {
                 Ok(s) => s,
                 Err(e) => {

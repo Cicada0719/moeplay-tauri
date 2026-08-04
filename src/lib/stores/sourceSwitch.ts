@@ -116,14 +116,19 @@ function describeSwitchError(err: unknown): string {
 /**
  * 将 `SwitchResult` 映射为播放器容器可直接消费的载荷（spec Step 10「结果透传至
  * 播放器容器」的稳定契约，任务 3 接线用）：
- * - `ok` / `fallback`：`url` + `headers` + `kind` 交给 `<video>`，`resumeSec` 用于 seek；
+ * - `ok` / `fallback`：`url` + `headers` + `kind` 交给 `<video>`，`resumeMs` 用于 seek；
  * - `failed`：`url = null`，由播放器错误 UI（任务 3）读取 `message`。
+ *
+ * 单位契约：`SwitchResult.resumeSec` 是秒（spec §3.5，来自 `SwitchContext.positionSec`），
+ * 而播放器容器的 `_pendingSeekMs` / `playDirectVideoSource(…, seekMs)` 是毫秒——这里统一
+ * 换算为 `resumeMs`（`resumeSec * 1000`），避免调用方把秒当毫秒传入导致续播点缩水 1000 倍
+ * （Kimi K3 复审第 6 项 high）。
  */
 export function switchResultToPlayback(result: SwitchResult): {
   url: string | null;
   headers: Record<string, string> | null;
   kind: string | null;
-  resumeSec: number;
+  resumeMs: number;
   chapterIndex: number | null;
   status: SwitchStatus;
   message?: string;
@@ -133,7 +138,7 @@ export function switchResultToPlayback(result: SwitchResult): {
     url: result.parseResult?.urls?.[0] ?? null,
     headers: result.parseResult?.headers ?? null,
     kind: result.parseResult?.kind ?? null,
-    resumeSec: result.resumeSec,
+    resumeMs: result.resumeSec * 1000,
     chapterIndex: result.targetChapter?.index ?? null,
     status: result.status,
     ...(result.message ? { message: result.message } : {}),
