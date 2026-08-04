@@ -139,4 +139,29 @@ describe("api/rules 规则缓存", () => {
     const rules = await getLoadedRules();
     expect(rules).toHaveLength(1);
   });
+
+  it("加载失败后重置缓存，下一次 getLoadedRules 重新发起加载可自愈（Kimi K3 复审第 8 项）", async () => {
+    let calls = 0;
+    setMockInvokeHandler(
+      mockRouter({
+        rules_load_all: () => {
+          calls++;
+          if (calls === 1) throw new Error("网络中断");
+          return [READY_RULE];
+        },
+      }),
+    );
+
+    // refresh 重置模块级缓存（可能被前序用例填充），并作为第一次加载（失败）。
+    // 失败不缓存 rejected Promise：await 必须 reject，而不是返回永久的失败 Promise。
+    await expect(refreshLoadedRules()).rejects.toThrow("网络中断");
+    expect(calls).toBe(1);
+
+    // 下一次调用重新发起加载（而非复用旧 rejected Promise），成功后命中缓存
+    const rules = await getLoadedRules();
+    expect(calls).toBe(2);
+    expect(rules).toEqual([READY_RULE]);
+    await getLoadedRules();
+    expect(calls).toBe(2);
+  });
 });

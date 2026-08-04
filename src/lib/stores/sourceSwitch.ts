@@ -173,7 +173,16 @@ export async function switchSource(
 
   try {
     // 1. 作废旧 invocation（其 search/chapters/parse 一起取消）。首次调用无前序，跳过。
-    if (prevInvocation) await cancelScope(prevInvocation);
+    //    取消失败静默降级（Kimi K3 复审第 8 项）：取消旧调用的 IPC 异常不应阻断本次
+    //    全新切换，也不把旧调用的原始错误透进 lastError——旧调用最终仍会被 callSeq
+    //    校验静默丢弃，不需要向用户展示取消链路上的底层错误。
+    if (prevInvocation) {
+      try {
+        await cancelScope(prevInvocation);
+      } catch {
+        // 静默降级：新切换照常继续。
+      }
+    }
 
     // 2. 搜索匹配条目（spec §3.5 第 2 步）。
     //    §3.6 的置灰在 UI 层拦截禁用源（primary guard）；这里仍处理运行期错误路径：

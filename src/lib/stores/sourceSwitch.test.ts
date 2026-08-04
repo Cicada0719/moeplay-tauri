@@ -299,6 +299,39 @@ describe("switchSource", () => {
     expect(results[1].parseResult?.urls[0]).toBe("https://cdn.example.com/v.m3u8");
   });
 
+  it("switch_cancel_prev_failure_isolated: 作废旧调用取消失败静默降级，新切换照常成功（Kimi K3 复审第 8 项）", async () => {
+    // 模拟 IPC 层取消旧 invocation 时抛错（如通道异常）。修复前会进入外层 catch 把
+    // 本次全新切换判为 failed，且 lastError 展示旧调用的原始取消错误文案。
+    mocks.cancelScope.mockRejectedValue(new Error("IPC 通道异常"));
+    mocks.search.mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve([OK_ITEM]), 1)));
+    mocks.chapters.mockResolvedValue(CHAPTERS_5);
+    mocks.parse.mockResolvedValue(PARSE_OK);
+
+    const results = await Promise.all([
+      switchSource("rule-b", CTX),
+      switchSource("rule-b", CTX),
+    ]);
+
+    // 第二次（最新）调用尝试 cancelScope(前序 invocation)，失败被隔离 → 新切换照常 ok
+    expect(mocks.cancelScope).toHaveBeenCalledTimes(1);
+    expect(mocks.cancelScope.mock.calls[0][0]).toMatch(/^play:c1:\d+$/);
+    expect(results[1].status).toBe("ok");
+    expect(results[1].parseResult?.urls[0]).toBe("https://cdn.example.com/v.m3u8");
+    expect(results[1].discarded).toBeUndefined();
+    // 旧调用仍因 seq 校验被静默丢弃，不污染状态
+    expect(results[0].status).toBe("failed");
+    expect(results[0].discarded).toBe(true);
+
+    // lastError 不得展示旧调用取消的原始错误，保持 null
+    let state: { switching: boolean; currentScope: string | null; lastError: string | null } =
+      { switching: true, currentScope: null, lastError: null };
+    const unsub = sourceSwitchState.subscribe((s) => Object.assign(state, s));
+    await new Promise((r) => setTimeout(r, 0));
+    unsub();
+    expect(state.lastError).toBeNull();
+    expect(state.currentScope).toMatch(/^play:c1:\d+$/);
+  });
+
   it("switch_race_late_parse_does_not_cancel_latest: 旧调用迟到的 parse 不得取消最新调用（Kimi K3 复审第 7 项）", async () => {
     // 复现竞态窗口：旧调用 A 的 search 已在取消信号到达前越过取消点（worker 已完成 JS），
     // 因此 A 继续走到 parse——A 的 parse 使用**独立** invocation scope，绝不能取消最新

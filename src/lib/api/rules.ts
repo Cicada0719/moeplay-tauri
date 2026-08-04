@@ -99,10 +99,18 @@ let rulesLoadPromise: Promise<LoadedRule[]> | null = null;
 export function getLoadedRules(): Promise<LoadedRule[]> {
   if (cachedRules) return Promise.resolve(cachedRules);
   if (!rulesLoadPromise) {
-    rulesLoadPromise = loadAllRules().then((rules) => {
-      cachedRules = rules;
-      return rules;
-    });
+    rulesLoadPromise = loadAllRules()
+      .then((rules) => {
+        cachedRules = rules;
+        return rules;
+      })
+      .catch((err) => {
+        // 加载失败不缓存 rejected Promise（Kimi K3 复审第 8 项）：把缓存重置为 null，
+        // 下一次调用重新发起加载，避免失败后快速换源面板永远失败无法自愈（只能靠
+        // 显式 refresh 恢复）。并发等待方仍收到本次错误，rethrow 保持原语义。
+        rulesLoadPromise = null;
+        throw err;
+      });
   }
   return rulesLoadPromise;
 }
