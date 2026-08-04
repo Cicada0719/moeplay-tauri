@@ -58,15 +58,20 @@ pub mod video_extractor;
 pub mod video_proxy;
 use anime_download::AnimeDownloader;
 use db::Database;
+use db_sqlite::HistoryDb;
 use downloader::Downloader;
 #[cfg(desktop)]
 use import::ImportWatcher;
 #[cfg(desktop)]
 use locale::LocaleEmulatorManager;
+use migration::commands::AppState;
+use migration::{MigrationReport, MigrationStatus, Migrator, MIGRATION_PROGRESS_EVENT};
 #[cfg(desktop)]
 use process_monitor::ProcessMonitor;
 use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 use task_queue::TaskQueue;
+use tauri::Emitter;
 use tauri::Manager;
 #[cfg(desktop)]
 use tauri::{
@@ -517,6 +522,12 @@ pub fn run() {
             commands::get_migration_status,
             commands::export_database,
             commands::import_database,
+            // ---- 历史 v2 / 自动迁移（FR-08）----
+            migration::commands::migration_status,
+            migration::commands::migration_run,
+            migration::commands::migration_restore_backup,
+            migration::commands::history_list,
+            migration::commands::history_delete,
             commands::scan_images_dir,
             commands::scan_game_images,
             commands::get_performance_snapshot,
@@ -765,6 +776,104 @@ pub fn run() {
 
             // 启动视频流代理服务器（解决 CORS / 防盗链 Referer 问题）
             video_proxy::start_proxy_server(app.handle().clone());
+
+            // 历史数据 v2 初始化 + 自动迁移（FR-08）。
+            // 数据库文件 `<app_data_dir>/moeplay.db`；若存在 v1 `history.json`
+            // 且未迁移完成，则在后台 spawn_blocking 执行迁移，期间通过
+            // `migration://progress` 事件推送进度，完成后门控放行 history 命令。
+            {
+                let app_data_dir = app.path().app_data_dir().unwrap_or_else(|_| {
+                    dirs::data_dir()
+                        .unwrap_or_else(|| PathBuf::from("."))
+                        .join("moeplay")
+                });
+                match HistoryDb::open(&app_data_dir) {
+                    Ok(history_db) => {
+                        // device_id 获取失败 → 显式失败（不做静默替换），历史功能降级关闭。
+                        let migrator_result =
+                            Migrator::new(history_db.clone(), app_data_dir.clone());
+                        match migrator_result {
+                            Ok(mut migrator) => {
+                                let initial_status =
+                                    migrator.check().unwrap_or(MigrationStatus::NotNeeded);
+                                let status_arc = Arc::new(RwLock::new(initial_status.clone()));
+                                if matches!(
+                                    initial_status,
+                                    MigrationStatus::Pending | MigrationStatus::InProgress
+                                ) {
+                                    let app_handle = app.handle().clone();
+                                    migrator.set_progress_sink(Some(Arc::new(
+                                        move |report: &MigrationReport| {
+                                            let _ =
+                                                app_handle.emit(MIGRATION_PROGRESS_EVENT, report);
+                                        },
+                                    )));
+                                    let migrator_for_task = migrator.clone();
+                                    let status_arc_for_task = Arc::clone(&status_arc);
+                                    tauri::async_runtime::spawn_blocking(move || {
+                                        match migrator_for_task.run() {
+                                            Ok(report) => {
+                                                if let Ok(mut guard) = status_arc_for_task.write() {
+                                                    *guard = report.status.clone();
+                                                }
+                                                tracing::info!(
+                                                    status = ?report.status,
+                                                    total = report.total,
+                                                    migrated = report.migrated,
+                                                    "history migration finished"
+                                                );
+                                            }
+                                            Err(error) => {
+                                                if let Ok(mut guard) = status_arc_for_task.write() {
+                                                    *guard =
+                                                        MigrationStatus::Failed(error.to_string());
+                                                }
+                                                tracing::error!(
+                                                    error = %error,
+                                                    "history migration failed"
+                                                );
+                                            }
+                                        }
+                                    });
+                                }
+                                app.manage(AppState {
+                                    migrator: Some(migrator),
+                                    history: Some(history_db),
+                                    migration_status: status_arc,
+                                });
+                                crash_log("history v2 initialized");
+                            }
+                            Err(error) => {
+                                tracing::error!(
+                                    error = %error,
+                                    "failed to initialize history migrator (device id)"
+                                );
+                                app.manage(AppState {
+                                    migrator: None,
+                                    history: Some(history_db),
+                                    migration_status: Arc::new(RwLock::new(
+                                        MigrationStatus::Failed(format!(
+                                            "failed to initialize history migration: {error}"
+                                        )),
+                                    )),
+                                });
+                                crash_log("history v2 init failed: device id");
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        tracing::error!(error = %error, "failed to open history database");
+                        app.manage(AppState {
+                            migrator: None,
+                            history: None,
+                            migration_status: Arc::new(RwLock::new(MigrationStatus::Failed(
+                                format!("failed to open history database: {error}"),
+                            ))),
+                        });
+                    }
+                }
+            }
+
             crash_log("setup() DONE");
             Ok(())
         })

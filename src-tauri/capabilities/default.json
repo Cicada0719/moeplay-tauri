@@ -384,7 +384,12 @@
     "allow-rules-cancel-scope",
     "allow-rules-import",
     "allow-rules-remove-custom",
-    "allow-rules-export"
+    "allow-rules-export",
+    "allow-history-delete",
+    "allow-history-list",
+    "allow-migration-restore-backup",
+    "allow-migration-run",
+    "allow-migration-status"
   ],
   "platforms": [
     "windows"

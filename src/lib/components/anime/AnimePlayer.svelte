@@ -1,4 +1,12 @@
 <script lang="ts">
+  // ── 根因确认 spike 结论（2026-08，spec §四.1）──
+  // 旧实现里控制栏隐藏由本组件散落的 `playerChromeTimer`（setTimeout）+ 根容器
+  // `pointermove` 监听管理；切换「超清」画质（本地超清化 enhancement 管线）时，
+  // 一旦播放器容器/视频元素被重建，旧定时器与事件监听会悬空，导致控制栏永不再
+  // 自动隐藏。本次修复：控制栏隐藏收敛为单一 `useIdleTimer` action（挂载在**不随
+  // 画质切换重建**的稳定 `.player-overlay` 根容器上），`openMenuCount` 统一管理
+  // 下拉菜单展开暂停隐藏，画质切换复用同一 `<video>` 元素。播放错误通过
+  // `ErrorOverlay` / `SourceSuggestSheet` 降级（FR-06 / FR-07）。
   import Hls from "hls.js";
   import { invokeCmd } from "../../api/core";
   import { onDestroy, onMount } from "svelte";
@@ -18,13 +26,32 @@
   import VideoEnhancementCanvas from "./VideoEnhancementCanvas.svelte";
   import type { VideoEnhancementMode, VideoEnhancementStatus } from "../../features/anime-player/localVideoEnhancement";
   import { orientationStore, platformStore } from "../../platform";
-  import { getLoadedRules, type LoadedRule } from "../../api/rules";
+  import { idleTimer } from "../../actions/idleTimer";
   import {
-    sourceSwitchState,
-    switchSource as switchSourceRule,
-    switchResultToPlayback,
-    type SwitchResult,
-  } from "../../stores/sourceSwitch";
+    clearPlayerError,
+    controlsVisible,
+    openMenuCount,
+    playerError,
+    reportPlayerError,
+    retryCount,
+    retryPlayback,
+    setRetryHandler,
+    shouldPauseIdleTimer,
+    showSourceSuggest,
+    type PlayerQuality,
+  } from "../../stores/player";
+  import { buildErrorLog, classifyPlaybackError, mergeFailureContext, type PlaybackFailureRecord } from "../../player/errorMap";
+  import { shouldReloadMedia } from "../../player/qualitySwitch";
+  import {
+    setSourceProvider,
+    setSourceSwitchHandler,
+    switchSource as switchSourceService,
+    type SourceHealth,
+    type SourceInfo,
+    type SwitchSourceParams,
+  } from "../../services/sourceSwitch";
+  import ErrorOverlay from "../player/ErrorOverlay.svelte";
+  import SourceSuggestSheet from "../player/SourceSuggestSheet.svelte";
 
   const status = $derived(animeStore.playerExtractStatus); // extracting | found | timeout | error
   const videoSrc = $derived(animeStore.playerVideoSrc);
@@ -93,17 +120,22 @@
   let fullscreenGuardTimer: number | null = null;
   let currentTime = $state(0);
   let mediaAspectRatio = $state(16 / 9);
+  // 画质切换媒体重载（spec §3.3）：`switchQuality` 复用同一 <video> 元素直接替换 source
+  // （HLS.js 复用实例 loadSource / 原生重新 src+load），不重建媒体初始化 effect；
+  // `activeHls` 持有当前 HLS 实例供切换复用；`pendingQualitySeek` / `pendingQualitySeekSrc` /
+  // `resumeAfterQualityLoad` 用于 loadedmetadata 后恢复进度与播放状态。
+  let activeHls: Hls | null = null;
+  // 当前实际加载到媒体元素上的源地址：媒体初始化 effect 开始加载时记录；switchQuality
+  // 据此判断 targetSrc 是否真正变化——纯增强模式切换（同源）只更新 enhancement 管线状态，
+  // 不重载媒体，避免同源 m3u8 全量重缓冲（Kimi K3 复审 medium）。
+  let loadedMediaSrc = "";
+  let pendingQualitySeek = $state(0);
+  let pendingQualitySeekSrc = $state("");
+  let resumeAfterQualityLoad = $state(true);
   let showCommentsPanel = $state(false);
   let commentsPanelTab = $state<'comments' | 'danmaku'>('comments');
   let downloading = $state(false);
   let downloadMsg = $state('');
-
-  // ── 任务 1 §4 Step 10 快速换源接线（Kimi K3 复审修复）──────────────────
-  // 规则候选来自 getLoadedRules() 缓存（不在每次点击时重扫目录 + compile_check）；
-  // 只列出除当前源外的 Ready 规则（禁止以当前源自身为 target 的自切换）。
-  let quickSwitchOpen = $state(false);
-  let quickSwitchRules = $state<LoadedRule[]>([]);
-  let quickSwitchBusy = $state(false);
 
   // 提取进度反馈
   let extractElapsed = $state(0);
@@ -138,47 +170,41 @@
   let showEpisodePanel = $state(false);
   let pickerRoadIdx = $state(0);
   const pickerEpisodes = $derived(roads[pickerRoadIdx]?.episodes ?? []);
-  let playerChromeVisible = $state(true);
-  let playerChromeTimer: number | null = null;
-  const playerChromeLockedOpen = $derived(
-    showSpeedMenu || showDanmakuSettings || showEpisodePanel || showCommentsPanel,
-  );
 
-  function clearPlayerChromeTimer() {
-    if (playerChromeTimer === null) return;
-    window.clearTimeout(playerChromeTimer);
-    playerChromeTimer = null;
-  }
+  // 控制栏隐藏统一由 `useIdleTimer` action + player store 驱动（FR-06）：
+  // 移除散落的 playerChromeTimer / pointermove 监听；下拉菜单开合通过
+  // `openMenuCount` 暂停隐藏计时。
+  $effect(() => {
+    const base =
+      (showSpeedMenu ? 1 : 0) +
+      (showDanmakuSettings ? 1 : 0) +
+      (showEpisodePanel ? 1 : 0) +
+      (showCommentsPanel ? 1 : 0);
+    openMenuCount.set(base + ($showSourceSuggest ? 1 : 0));
+  });
 
-  function schedulePlayerChromeHide(delay = 2400) {
-    clearPlayerChromeTimer();
-    if (!isFullscreen || playerChromeLockedOpen) {
-      playerChromeVisible = true;
-      return;
-    }
-    playerChromeTimer = window.setTimeout(() => {
-      playerChromeTimer = null;
-      if (!isFullscreen || playerChromeLockedOpen) return;
-      const activeElement = document.activeElement;
-      if (
-        activeElement instanceof HTMLElement
-        && activeElement.closest('.anime-playback-shell__context, .anime-playback-shell__toolbar')
-      ) {
-        overlayEl?.focus({ preventScroll: true });
-      }
-      playerChromeVisible = false;
-    }, delay);
+  function shouldPauseIdle(): boolean {
+    return shouldPauseIdleTimer({
+      openMenuCount: $openMenuCount,
+      isFullscreen,
+      hasPlayerError: $playerError !== null,
+    });
   }
+  function onIdle() { controlsVisible.set(false); }
+  function onActive() { controlsVisible.set(true); }
 
-  function revealPlayerChrome(delay = 2400) {
-    if (!isFullscreen) return;
-    playerChromeVisible = true;
-    schedulePlayerChromeHide(delay);
-  }
+  // 稳定引用：避免每次渲染生成新对象触发 action.update() 而重置空闲计时
+  const idleTimerOptions = {
+    timeout: 3000,
+    shouldPause: shouldPauseIdle,
+    onIdle,
+    onActive,
+  };
 
-  function handlePlayerPointerMove(event: PointerEvent) {
-    revealPlayerChrome(event.clientY <= 120 ? 3200 : 2400);
-  }
+  // 非全屏 / 错误弹层打开时强制显示控制栏（保证按钮可点）
+  $effect(() => {
+    if (!isFullscreen || $playerError) controlsVisible.set(true);
+  });
 
   // ── 顶部导航沉浸隐藏：播放 20s 后隐藏，暂停/指针移到顶部唤回（仅本播放页生效） ──
   const TOPNAV_HIDE_DELAY_MS = 20_000;
@@ -264,6 +290,10 @@
     document.addEventListener('keydown', onKeyDown);
     window.addEventListener('pointermove', handleTopNavPointerMove, { passive: true });
     isPipSupported = !!document.pictureInPictureEnabled;
+    // FR-07：注册重试处理器与源切换适配器（任务 1 服务就绪后由适配层接管）
+    setRetryHandler(handleRetry);
+    setSourceSwitchHandler(handleSwitchSourceService);
+    setSourceProvider(buildSuggestSources);
     if (platformStore.capabilities.desktopWindowControl) {
       hostWindowWasFullscreen = ["fullscreen", "big-picture"].includes(settingsStore.settings.startup_mode ?? "fullscreen");
       try {
@@ -282,8 +312,14 @@
     if (extractTimer) clearInterval(extractTimer);
     if (restoreFullscreenTimer) clearTimeout(restoreFullscreenTimer);
     if (fullscreenGuardTimer) clearInterval(fullscreenGuardTimer);
-    clearPlayerChromeTimer();
     clearTopNavTimer();
+    // 注销本组件注册的处理器与 store 状态，避免跨实例/跨页面泄漏
+    setRetryHandler(null);
+    setSourceSwitchHandler(null);
+    setSourceProvider(null);
+    openMenuCount.set(0);
+    controlsVisible.set(true);
+    clearPlayerError();
     uiStore.topNavHidden = false;
     if (isFullscreen) void orientationStore.exitVideoFullscreen();
   });
@@ -297,17 +333,9 @@
     }
   });
 
+  // 恢复播放成功（status === 'found'）→ 清除错误状态，关闭 ErrorOverlay / 源推荐
   $effect(() => {
-    const fullscreen = isFullscreen;
-    const lockedOpen = playerChromeLockedOpen;
-    if (!fullscreen) {
-      clearPlayerChromeTimer();
-      playerChromeVisible = true;
-      return;
-    }
-    playerChromeVisible = true;
-    if (lockedOpen) clearPlayerChromeTimer();
-    else schedulePlayerChromeHide();
+    if (status === 'found' && videoSrc) clearPlayerError();
   });
 
   const currentRule = $derived(animeStore.rules.find(r => r.name === animeStore.playerRuleName));
@@ -481,6 +509,10 @@
     let settled = false;    // 已成功加载到元数据 或 已最终判 error —— 之后不再做初次兜底
     let watchdog: number | null = null;
     let playbackWatchdog: number | null = null;
+    // FR-07：记录本次加载过程中的每一次失败上下文（含中间尝试失败）。最终成功
+    // （succeed）时不误报；最终失败时通过 mergeFailureContext 合并进错误 detail，供
+    // ErrorOverlay 展示 / 复制日志携带完整链路。
+    const failureContext: PlaybackFailureRecord[] = [];
     const nativeHls = v.canPlayType("application/vnd.apple.mpegurl") !== "";
     // 首选方式：能用 hls.js 且看着像 m3u8 就先 hls，否则先原生
     const firstIsHls = m3u8 && !nativeHls && Hls.isSupported();
@@ -526,10 +558,12 @@
     };
 
     // 加载失败：首次失败且还有备用方式 → 换方式；否则判 error 让用户换源/网页播放
-    const fail = (why: string) => {
+    const fail = (why: string, raw?: unknown, httpStatus?: number) => {
       clearWatchdog();
       clearPlaybackWatchdog();
-      if (hls) { try { hls.destroy(); } catch {} hls = null; }
+      if (hls) { try { hls.destroy(); } catch {} hls = null; activeHls = null; }
+      // 每次失败都记录（含可兜底的中间失败）；最终上报时合并，成功路径不误报
+      failureContext.push({ why, raw, httpStatus, attempt });
       const canTryAlternate = attempt < 2 && (!settled || (v.currentTime === 0 && v.readyState < 3));
       if (canTryAlternate) {
         console.warn(`[播放器] 第${attempt}次加载失败(${why})，自动切换播放方式兜底`);
@@ -557,6 +591,14 @@
         if ((animeStore.autoWebFallback || prefersWebPlayback) && pageUrl) {
           invokeCmd('frontend_log', { level: 'info', message: '[播放器] 无可用备用源，自动切换网页播放兜底' }).catch(() => {});
           switchToWebFallback();
+        } else {
+          // FR-07：播放失败（网络/403/解码等）→ 上报结构化错误，ErrorOverlay 提供重试/换源/复制日志。
+          // 本次加载若存在中间失败（如尝试 1 hls 失败后兜底尝试 2 再失败），用 mergeFailureContext
+          // 把完整失败链路合并进 error.detail，供 ErrorOverlay 展示 / 复制日志携带；单次失败不包装。
+          if (!$playerError) {
+            const finalError = classifyPlaybackError(raw ?? why, httpStatus);
+            reportPlayerError(mergeFailureContext(finalError, failureContext));
+          }
         }
       }
     };
@@ -567,13 +609,21 @@
       if (v.videoWidth > 0 && v.videoHeight > 0) mediaAspectRatio = v.videoWidth / v.videoHeight;
       succeed();
       v.playbackRate = playbackRate;
-      if (pendingSeekMs > 0) {
+      // 画质切换后恢复原进度（spec §3.3 第 3 条）：仅当重载的是画质切换时的同一源时消费，
+      // 避免换集/换源后误把旧进度 seek 到新源上。
+      if (pendingQualitySeek > 0 && pendingQualitySeekSrc === src) {
+        v.currentTime = pendingQualitySeek;
+        pendingQualitySeek = 0;
+        pendingQualitySeekSrc = "";
+      } else if (pendingSeekMs > 0) {
         v.currentTime = pendingSeekMs / 1000;
         animeStore.pendingSeekMs = 0;
       } else if (animeStore.skipOpening > 0) {
         v.currentTime = animeStore.skipOpening;
       }
-      v.play().catch(() => {});
+      const shouldPlay = resumeAfterQualityLoad;
+      resumeAfterQualityLoad = true;
+      if (shouldPlay) v.play().catch(() => {});
     };
     v.addEventListener('loadedmetadata', onLoadedMetadata);
 
@@ -581,7 +631,7 @@
     const onVideoError = () => {
       const err = v.error;
       console.error("[播放器] video 元素错误:", err ? `code=${err.code} message=${err.message}` : "未知");
-      fail("video error");
+      fail("video error", err, undefined);
     };
     v.addEventListener('error', onVideoError);
 
@@ -644,9 +694,22 @@
       });
       hls.loadSource(src);
       hls.attachMedia(v);
+      // 供 `switchQuality` 复用同一 HLS 实例（spec §3.3：不销毁重建实例）
+      activeHls = hls;
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         debugLog("[播放器] HLS manifest 已解析，开始播放");
-        v.play().catch(() => {});
+        // 画质切换后恢复进度与播放状态（spec §3.3 第 3 条）：switchQuality 复用同一 HLS 实例
+        // loadSource 后 MANIFEST_PARSED 会再次触发；loadedmetadata 的 src 比对对 HLS 不适用
+        // （video.src 是 MediaSource/blob URL，不等于 m3u8 源地址），故在此消费 pendingQualitySeek
+        // 恢复切换前时间点；切换前 paused 则保持暂停（resumeAfterQualityLoad=false 时不 play）。
+        if (pendingQualitySeek > 0 && pendingQualitySeekSrc === src) {
+          v.currentTime = pendingQualitySeek;
+          pendingQualitySeek = 0;
+          pendingQualitySeekSrc = "";
+        }
+        const shouldPlay = resumeAfterQualityLoad;
+        resumeAfterQualityLoad = true;
+        if (shouldPlay) v.play().catch(() => {});
       });
       // 致命错误要自愈而不是直接判死（旧逻辑一遇 fatal 就 error → 播一会儿就卡死、必须退出重进）
       hls.on(Hls.Events.ERROR, (_e, data) => {
@@ -697,6 +760,10 @@
 
     startAttempt();
 
+    // 记录本次实际加载的源地址，供 switchQuality 判定「targetSrc 是否真正变化」：
+    // 同源时纯增强模式切换不重载媒体；仅在 cleanup 重建后由下一次 effect 覆盖。
+    loadedMediaSrc = src;
+
     return () => {
       clearWatchdog();
       clearPlaybackWatchdog();
@@ -708,6 +775,7 @@
       v.removeEventListener('ended', onEnded);
       v.removeEventListener('timeupdate', onTimeUpdateForSkip);
       if (hls) { try { hls.destroy(); } catch {} }
+      activeHls = null;
     };
   });
 
@@ -725,9 +793,61 @@
     enhancementMessage = message;
   }
 
+  /**
+   * 切换画质（本地超清化 off / 均衡 / 质量）：复用现有 <video> 元素直接替换视频源
+   * 并恢复进度与播放状态（spec §3.3 / FR-06）。不销毁重建 video 元素 / 媒体初始化
+   * effect——HLS.js 复用同一实例 `loadSource`，原生则重新 `src + load`；idleTimer 因
+   * 绑定在稳定的全屏容器上无需重建，从而根治超清切换后控制栏不再隐藏的问题。
+   *
+   * Kimi K3 复审（medium）：画质档位是本地超清化 enhancement 管线状态，与视频源无关。
+   * `targetSrc`（animeStore.playerVideoSrc）未变化时只更新 enhancement 管线状态
+   * （VideoEnhancementCanvas 响应 videoEnhancementMode），绝不重载媒体，避免同源
+   * m3u8 全量重缓冲；仅当 `targetSrc` 相对当前已加载源（loadedMediaSrc）真正变化时
+   * 才替换 source 重载。
+   */
+  async function switchQuality(quality: PlayerQuality): Promise<void> {
+    const el = videoEl;
+    const resumeAt = el ? el.currentTime : 0;
+    const wasPaused = el ? el.paused : true;
+    const targetSrc = animeStore.playerVideoSrc;
+    // 先捕获当前档位再更新：enhancementMode 是 $derived，赋值后读取会拿到新值
+    const previousMode = enhancementMode;
+    animeStore.videoEnhancementMode = quality;
+    if (el && shouldReloadMedia({ el, targetSrc, loadedSrc: loadedMediaSrc, quality, currentQuality: previousMode })) {
+      // spec §3.3：仅替换 source 并 seek，不销毁元素/实例。原生分支在 loadedmetadata 后
+      // seek 回原位置；HLS 分支的消费在 attachHls 的 MANIFEST_PARSED handler 内完成
+      // （loadedmetadata 的 src 比对对 HLS 不适用——video.src 是 MediaSource/blob URL，
+      // 不等于 m3u8 源地址）。
+      pendingQualitySeek = resumeAt;
+      pendingQualitySeekSrc = targetSrc;
+      resumeAfterQualityLoad = !wasPaused;
+      try {
+        if (activeHls) {
+          // 保留 HLS 实例复用：仅重新 loadSource，不销毁重建实例；loadSource 后 HLS 再次
+          // 触发 MANIFEST_PARSED，由 attachHls 注册的 handler 消费 pendingQualitySeek 并条件恢复播放。
+          activeHls.loadSource(targetSrc);
+        } else {
+          el.src = targetSrc;
+          try { el.load(); } catch {}
+        }
+        loadedMediaSrc = targetSrc;
+      } catch {
+        // 重载失败路径：清理残留的 pendingQualitySeek，避免被后续无关加载误消费旧进度
+        // （Kimi K3 非阻塞建议）。
+        pendingQualitySeek = 0;
+        pendingQualitySeekSrc = "";
+        resumeAfterQualityLoad = true;
+      }
+      return;
+    }
+    if (el && !wasPaused) {
+      void el.play().catch(() => {});
+    }
+  }
+
   function cycleEnhancementMode() {
-    const order: VideoEnhancementMode[] = ["off", "balanced", "quality"];
-    animeStore.videoEnhancementMode = order[(order.indexOf(enhancementMode) + 1) % order.length];
+    const order: PlayerQuality[] = ["off", "balanced", "quality"];
+    void switchQuality(order[(order.indexOf(enhancementMode as PlayerQuality) + 1) % order.length]);
   }
 
   function toggleMediaPlayback() {
@@ -776,73 +896,79 @@
   }
 
   async function switchSource() {
-    // 退出全屏，保证换源面板可交互
+    clearPlayerError();
     await setPlayerFullscreen(false);
-
-    // ── 任务 1 §4 Step 10 最小接线（Kimi K3 复审修复版）──────────────
-    // 新引擎「快速换源」：规则列表来自 `getLoadedRules()` 缓存（加载命令只在首次
-    // 调用或显式刷新时触发，不在每次点击时重扫目录 + compile_check）；只列出
-    // `status === "ready"` 且不等于当前源的候选，禁止以当前源自身为 target 的自切换。
-    // 用户从候选里选一个不同源 → `switchSource(ruleId, ctx)` → 按 Step 10 消费结果。
-    try {
-      const rules = await getLoadedRules();
-      const currentRuleName = animeStore.playerRuleName || animeStore.detailRuleName;
-      const candidates = rules.filter(
-        (r) => r.status === "ready" && r.manifest.name !== currentRuleName,
-      );
-      if (candidates.length > 0) {
-        quickSwitchRules = candidates;
-        quickSwitchOpen = true;
-        return;
-      }
-    } catch (e) {
-      debugLog("[换源] 规则缓存加载失败，回退旧选源面板:", e);
-    }
-
-    // 无其他可用规则 / 加载失败 → 回退旧选源面板（关闭播放器 → 打开 SourceSheet）
     animeStore.closePlayer();
     animeStore.openSourceSheet();
   }
 
-  /** 用户从快速换源面板选中一个不同源 → switchSource + 消费 SwitchResult。 */
-  async function onQuickSwitch(rule: LoadedRule) {
-    if (quickSwitchBusy) return;
-    quickSwitchBusy = true;
-    quickSwitchOpen = false;
+  // ── FR-07 错误降级辅助 ────────────────────────────────────────────────
+
+  /** 等待播放器进入指定状态（轮询），用于 retry 判断是否恢复成功 */
+  function waitForPlayerStatus(predicate: () => boolean, timeoutMs = 10_000): Promise<boolean> {
+    return new Promise((resolve) => {
+      const started = Date.now();
+      const tick = () => {
+        if (predicate()) return resolve(true);
+        if (Date.now() - started > timeoutMs) return resolve(false);
+        window.setTimeout(tick, 120);
+      };
+      tick();
+    });
+  }
+
+  /** 重试当前播放：重新 playEpisode，恢复成功返回 true */
+  async function handleRetry(): Promise<boolean> {
+    useWebFallback = false;
+    webFrameLoaded = false;
+    webFrameTimedOut = false;
+    const targetRoad = roadIdx;
+    const targetEp = epIdx;
+    void animeStore.playEpisode(targetRoad, targetEp);
+    return waitForPlayerStatus(() => animeStore.playerExtractStatus === 'found' && !!animeStore.playerVideoSrc);
+  }
+
+  /** 源切换适配层处理器：进度保持参数由任务 1 服务消费（当前打开选源面板） */
+  async function handleSwitchSourceService(params: SwitchSourceParams) {
+    // TODO(task-1): 任务 1 源切换服务就绪后，把 contentId/chapterId/positionSec 传给真实切换流程。
+    invokeCmd('frontend_log', { level: 'info', message: `[播放器] 请求切换源 ${params.targetSourceId || '(打开选源面板)'}` }).catch(() => {});
+    await switchSource();
+  }
+
+  /** 按当前源健康度构建 SourceInfo 列表（task-2 健康 store 就绪前用 animeStore 摘要），
+   *  通过适配层 `setSourceProvider` 注入，供 `getSourcesFor`/`sourcesFor` 消费（spec §3.5）。 */
+  function buildSuggestSources(): SourceInfo[] {
+    return animeStore.rules.map((rule) => {
+      const summary = animeStore.getSourceHealth(rule.name);
+      const health: SourceHealth = summary.consecutiveFailures >= 3
+        ? 'degraded'
+        : summary.lastSuccessAt > 0 && summary.lastSuccessAt >= summary.lastFailureAt
+          ? 'ok'
+          : 'unknown';
+      return { id: rule.name, name: rule.name, contentType: 'anime', health };
+    });
+  }
+
+  /** 「复制日志」：error.detail + 环境信息写入剪贴板 */
+  async function copyPlayerLog() {
+    const err = $playerError;
+    if (!err) return;
     try {
-      const result = await switchSourceRule(rule.id, {
-        contentId: animeStore.playerUrl || pageUrl || `anime:${animeStore.detailName}`,
-        title: animeStore.detailName,
-        chapterIndex: animeStore.playerEpisodeIdx + 1,
-        positionSec: Math.floor(currentTime),
-      });
-      applySwitchResult(result);
-    } finally {
-      quickSwitchBusy = false;
+      await navigator.clipboard.writeText(buildErrorLog(err));
+      uiStore.toast('日志已复制到剪贴板');
+    } catch {
+      uiStore.toast('复制失败', 'error');
     }
   }
 
-  /** spec §4 Step 10：消费 SwitchResult（ok/fallback/failed）并做最小 UI 反馈。 */
-  function applySwitchResult(result: SwitchResult) {
-    const playback = switchResultToPlayback(result);
-    // 竞态被取代 / 已取消的静默丢弃结果：不驱动任何 UI（与真实失败区分，避免误报换源失败）
-    if (playback.discarded) return;
-    if (playback.status === "failed") {
-      animeStore.playerExtractStatus = "error";
-      animeStore.markPlayerFailure("switchFailed", playback.message || "换源失败，请重试或选择其他源");
-      return;
-    }
-    if (playback.url) {
-      animeStore.playDirectVideoSource(
-        playback.url,
-        playback.headers,
-        playback.kind,
-        playback.resumeMs, // switchResultToPlayback 已把秒换算为毫秒（Kimi K3 复审第 6 项）
-      );
-    }
-    if (playback.status === "fallback" && playback.message) {
-      uiStore.toast(playback.message, "info");
-    }
+  /** 源推荐列表点击：携带进度保持参数调用源切换适配层 */
+  function handleSuggestSelect(sourceId: string) {
+    void switchSourceService({
+      contentId: animeStore.detailName,
+      chapterId: epName,
+      positionSec: videoEl?.currentTime,
+      targetSourceId: sourceId,
+    });
   }
 
   async function launchExternalPlayer() {
@@ -993,7 +1119,7 @@
     const target = e.target as HTMLElement;
     if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
 
-    if (isFullscreen) revealPlayerChrome(3200);
+    if (isFullscreen) controlsVisible.set(true);
 
     if (e.key === 'f' || e.key === 'F') {
       e.preventDefault();
@@ -1101,15 +1227,14 @@
 <div
   class="player-overlay"
   class:fullscreen={isFullscreen}
-  class:chrome-hidden={isFullscreen && !playerChromeVisible}
+  class:idle={$controlsVisible === false}
   role="dialog"
   aria-modal="true"
   aria-labelledby="anime-player-title"
   aria-describedby="anime-player-status"
   tabindex="-1"
   bind:this={overlayEl}
-  onpointermove={handlePlayerPointerMove}
-  onpointerdown={() => revealPlayerChrome()}
+  use:idleTimer={idleTimerOptions}
   use:focusTrap={{
     initialFocus: '[data-player-close]',
     returnFocus: false,
@@ -1129,7 +1254,7 @@
     {nextEpisodeTitle}
     aspectRatio={mediaAspectRatio}
     fullscreen={isFullscreen}
-    chromeVisible={playerChromeVisible}
+    chromeVisible={$controlsVisible}
     panelOpen={showCommentsPanel || showEpisodePanel}
     variant="classic"
     stageLabel={`${animeStore.detailName} ${epName || "播放器"} 播放区域`}
@@ -1570,60 +1695,35 @@
     {/snippet}
   </AnimePlaybackShell>
 
-  {#if quickSwitchOpen}
-    <div class="quick-switch" role="dialog" aria-modal="true" aria-label="快速换源">
-      <div class="quick-switch__panel">
-        <div class="quick-switch__header">
-          <h3 class="quick-switch__title">快速换源</h3>
-          <button
-            class="quick-switch__close"
-            type="button"
-            aria-label="关闭换源面板"
-            onclick={() => (quickSwitchOpen = false)}
-          >
-            <Icon name="x" size={14} />
-          </button>
-        </div>
-        {#if quickSwitchRules.length === 0}
-          <p class="quick-switch__empty">没有其他可用源，可打开完整源列表搜索更多来源。</p>
-        {:else}
-          <ul class="quick-switch__list">
-            {#each quickSwitchRules as rule (rule.id)}
-              <li>
-                <button
-                  class="quick-switch__item"
-                  type="button"
-                  disabled={quickSwitchBusy || $sourceSwitchState.switching}
-                  onclick={() => void onQuickSwitch(rule)}
-                  title={rule.manifest.baseUrl}
-                >
-                  <span class="quick-switch__name">{rule.manifest.name}</span>
-                  {#if rule.origin === "custom"}
-                    <span class="quick-switch__badge">自定义</span>
-                  {/if}
-                </button>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-        <div class="quick-switch__footer">
-          {#if quickSwitchBusy || $sourceSwitchState.switching}
-            <span class="quick-switch__busy">正在切换源…</span>
-          {/if}
-          <button
-            class="quick-switch__more"
-            type="button"
-            onclick={() => {
-              quickSwitchOpen = false;
-              animeStore.closePlayer();
-              animeStore.openSourceSheet();
-            }}
-          >
-            打开完整源列表
-          </button>
-        </div>
-      </div>
-    </div>
+  {#if $playerError && !$showSourceSuggest && status !== 'extracting' && failoverStatus !== 'trying'}
+    <ErrorOverlay
+      error={$playerError}
+      retryCount={$retryCount}
+      onRetry={() => void retryPlayback()}
+      onSwitchSource={() => void switchSourceService({
+        contentId: animeStore.detailName,
+        chapterId: epName,
+        positionSec: videoEl?.currentTime,
+        targetSourceId: '',
+      })}
+      onCopyLog={copyPlayerLog}
+      onClose={() => clearPlayerError()}
+    />
+  {/if}
+
+  {#if $showSourceSuggest}
+    <SourceSuggestSheet
+      contentType="anime"
+      contentId={animeStore.detailName}
+      chapterId={epName}
+      positionSec={videoEl?.currentTime}
+      onSelect={handleSuggestSelect}
+      onClose={() => {
+        // 关闭源推荐时一并清除错误状态：空列表下用户也能退出「错误弹层」死循环
+        showSourceSuggest.set(false);
+        clearPlayerError();
+      }}
+    />
   {/if}
 </div>
 
@@ -1640,6 +1740,20 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+  }
+  /* 空闲态（spec §3.2）：根容器 `class:idle={$controlsVisible === false}` 单一绑定——
+     控制栏隐藏时加 .idle 隐藏鼠标指针与自定义增强控制栏；不再挂载重复的
+     controlsIdleClass action（单一职责：idleTimer 只管计时，controlsVisible 为
+     单一事实源，模板直接由此派生 .idle）。shell 顶部栏（context/toolbar）的隐藏由
+     AnimePlaybackShell 自带的 chromeVisible 属性驱动（anime-player.css 内
+     --chrome-hidden 规则），本组件不再用 :global 侵入其内部 class。 */
+  :global(.player-overlay.idle) {
+    cursor: none;
+  }
+  :global(.player-overlay.idle) .enhanced-media-controls {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(8px);
   }
   .player-overlay.fullscreen {
     position: fixed;
@@ -2236,6 +2350,7 @@
     background: rgba(4,7,10,.82);
     box-shadow: 0 12px 38px rgba(0,0,0,.42);
     backdrop-filter: blur(16px);
+    transition: opacity 160ms ease, transform 200ms ease;
   }
   .enhanced-media-controls button {
     width: 32px;
@@ -2282,136 +2397,5 @@
   @media (max-width: 760px) {
     .enhanced-volume, .enhanced-media-controls > :global(svg), .enhanced-badge { display: none; }
     .enhanced-media-controls { right: 8px; bottom: 8px; left: 8px; gap: 6px; }
-  }
-
-  /* 快速换源面板（任务 1 §4 Step 10 接线） */
-  .quick-switch {
-    position: absolute;
-    inset: 0;
-    z-index: 60;
-    display: grid;
-    place-items: center;
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(2px);
-    padding: 24px;
-  }
-  .quick-switch__panel {
-    width: min(24rem, 100%);
-    max-height: min(70vh, 30rem);
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 14px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 12px;
-    background: rgba(16, 18, 24, 0.98);
-    box-shadow: 0 16px 44px rgba(0, 0, 0, 0.45);
-    animation: fade-in 0.15s ease;
-  }
-  .quick-switch__header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-  .quick-switch__title {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 650;
-    color: var(--text-primary);
-  }
-  .quick-switch__close {
-    width: 26px;
-    height: 26px;
-    display: grid;
-    place-items: center;
-    border: none;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--text-muted);
-    cursor: pointer;
-  }
-  .quick-switch__close:hover {
-    background: rgba(232, 85, 127, 0.15);
-    color: var(--accent);
-  }
-  .quick-switch__empty {
-    margin: 0;
-    padding: 12px;
-    color: var(--text-muted);
-    font-size: 12.5px;
-    text-align: center;
-  }
-  .quick-switch__list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    overflow-y: auto;
-  }
-  .quick-switch__item {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 9px 12px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.03);
-    color: var(--text-primary);
-    font-size: 13px;
-    text-align: left;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  .quick-switch__item:hover:not(:disabled) {
-    border-color: var(--accent-ring, rgba(232, 85, 127, 0.4));
-    background: rgba(232, 85, 127, 0.08);
-  }
-  .quick-switch__item:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  .quick-switch__name {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .quick-switch__badge {
-    flex-shrink: 0;
-    font-size: 0.7rem;
-    padding: 0.1rem 0.4rem;
-    border-radius: 999px;
-    background: rgba(96, 165, 250, 0.2);
-    color: #60a5fa;
-  }
-  .quick-switch__footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
-    padding-top: 10px;
-  }
-  .quick-switch__busy {
-    font-size: 12px;
-    color: var(--text-muted);
-  }
-  .quick-switch__more {
-    margin-left: auto;
-    padding: 6px 12px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 8px;
-    background: transparent;
-    color: var(--text-muted);
-    font-size: 12px;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  .quick-switch__more:hover {
-    border-color: var(--accent);
-    color: var(--accent);
   }
 </style>
