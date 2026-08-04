@@ -374,7 +374,12 @@
     "allow-ai-changes-apply",
     "allow-ai-changes-undo",
     "allow-merge-sync-envelopes",
-    "allow-get-sync-snapshot-path"
+    "allow-get-sync-snapshot-path",
+    "allow-history-delete",
+    "allow-history-list",
+    "allow-migration-restore-backup",
+    "allow-migration-run",
+    "allow-migration-status"
   ],
   "platforms": [
     "windows"

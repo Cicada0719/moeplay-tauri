@@ -4,6 +4,7 @@
 // 存储从单 JSON 文件迁移到 SQLite（WAL + 事务 + 索引）。
 
 use crate::db_sqlite::SqliteDb;
+use crate::migration::{V1_HISTORY_FILE, V1_HISTORY_MIGRATED_FILE};
 use crate::models::{
     AppDatabase, CompletionStatus, Game, GameAlias, GameMetadata, GamePlatform, PlaySession,
     PlayTracker, SaveBackup, SaveData, Settings, Tag,
@@ -15,6 +16,32 @@ use std::sync::Arc;
 
 const SQLITE_FILE_NAME: &str = "moegame.db";
 const JSON_FILE_NAME: &str = "database.json";
+
+/// 读取 v1 历史 JSON（只读，供 FR-08 迁移使用）。文件不存在返回空 Vec。
+pub fn load_v1_history(
+    app_data_dir: &Path,
+) -> Result<Vec<crate::migration::v1_to_v2::V1HistoryEntry>, String> {
+    let path = app_data_dir.join(V1_HISTORY_FILE);
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    crate::migration::read_v1_entries(&path).map_err(|error| error.to_string())
+}
+
+/// 迁移 completed 后调用：把 v1 文件重命名为 `history.json.migrated`（幂等）。
+/// 只重命名，不删除任何数据。
+pub fn rename_v1_history_after_migration(app_data_dir: &Path) -> Result<(), String> {
+    let src = app_data_dir.join(V1_HISTORY_FILE);
+    let dst = app_data_dir.join(V1_HISTORY_MIGRATED_FILE);
+    if !src.exists() {
+        return Ok(());
+    }
+    if dst.exists() {
+        std::fs::remove_file(&dst).map_err(|error| error.to_string())?;
+    }
+    std::fs::rename(&src, &dst).map_err(|error| error.to_string())?;
+    Ok(())
+}
 
 #[derive(Debug)]
 struct RecoveryBackup {

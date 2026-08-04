@@ -8,14 +8,16 @@
 //
 // 本模块为 M0-3 命令切换做准备：方法签名与 `db::Database` 对齐，commands.rs 可无缝切换。
 
+use crate::domain::history::{ContentType, HistoryRecord};
 use crate::models::{
     AppDatabase, CompletionStatus, Game, GameAlias, GameMetadata, GamePlatform, PlaySession,
     PlayTracker, SaveBackup, SaveData, Settings, StoreLink, Tag,
 };
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
-use std::sync::Mutex;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 /// Current schema version. v7 adds per-media source preferences for Source Center.
 pub const SCHEMA_VERSION: i64 = 7;
@@ -2936,4 +2938,382 @@ mod tests {
         let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
         let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
     }
+}
+
+// ============================================================================
+// 历史数据 v2 存储层（FR-08）
+//
+// 独立的 `moeplay.db`（<app_data_dir>/moeplay.db），与游戏库 `moegame.db`
+// 完全隔离。Schema 见 `SCHEMA_V2_SQL`；`PRAGMA user_version` 管理版本：
+// 0 = 空库 / 2 = v2 schema。
+// ============================================================================
+
+/// 历史数据库操作错误。
+#[derive(Debug, thiserror::Error)]
+pub enum DbError {
+    #[error("sqlite error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("serde error: {0}")]
+    Serde(#[from] serde_json::Error),
+    #[error("{0}")]
+    Other(String),
+}
+
+/// v2 schema（历史表 + 迁移状态表 + 迁移 staging 表）。
+///
+/// 与 PRD §5.3 / spec §3.2 的 `history` / `migration_state` 完全一致；
+/// `migration_staging` 在 spec §3.2 单列 `id` 的基础上扩展了 `kind` / `snapshot_json`
+/// 两列——这是**第 2 轮 DeepSeek 审核"回滚恢复被覆盖行"要求**所必需：迁移失败回滚
+/// 不能只删除本次 INSERT 的行，还必须把被 UPDATE 覆盖的迁移前原行按快照还原，
+/// 单列 `id` 表无法表达"inserted → DELETE / replaced → 还原快照"两种回滚动作
+/// （spec §4.2 步骤 5 亦明确允许"更稳妥的做法"维护 richer 的 staging 表）。该扩展
+/// 是迁移框架的内部实现细节，不构成对外 schema 契约；spec §3.2 的明文 schema 不再改动
+/// （spec 属禁止修改清单，第 4 轮审核 item 1/3）。
+pub const SCHEMA_V2_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS history (
+  id            TEXT PRIMARY KEY,
+  content_id    TEXT NOT NULL,
+  content_type  TEXT NOT NULL CHECK (content_type IN ('anime','manga','novel')),
+  title         TEXT NOT NULL,
+  cover         TEXT,
+  source_id     TEXT NOT NULL,
+  chapter_id    TEXT,
+  chapter_title TEXT,
+  page_index    INTEGER NOT NULL DEFAULT 0,
+  position_sec  REAL    NOT NULL DEFAULT 0,
+  scroll_pct    REAL    NOT NULL DEFAULT 0,
+  updated_at    INTEGER NOT NULL,
+  device_id     TEXT    NOT NULL,
+  deleted       INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_history_type_updated
+  ON history(content_type, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_history_merge_key
+  ON history(content_id, source_id);
+
+CREATE TABLE IF NOT EXISTS migration_state (
+  id              INTEGER PRIMARY KEY CHECK (id = 1),
+  from_version    INTEGER NOT NULL,
+  to_version      INTEGER NOT NULL,
+  status          TEXT NOT NULL CHECK (status IN ('pending','in_progress','completed','failed','rolled_back')),
+  total_count     INTEGER NOT NULL DEFAULT 0,
+  migrated_count  INTEGER NOT NULL DEFAULT 0,
+  last_offset     INTEGER NOT NULL DEFAULT 0,
+  backup_path     TEXT,
+  error_message   TEXT,
+  started_at      INTEGER,
+  finished_at     INTEGER
+);
+
+-- 回滚 staging（内部实现细节，非对外 schema 契约）：
+--   id            本次迁移写入/覆盖的行；
+--   kind='inserted' → 回滚时 DELETE 该行；
+--   kind='replaced' → 回滚时按 snapshot_json 还原被覆盖的迁移前原行。
+-- 扩展列由第 2 轮 DeepSeek 审核"回滚恢复被覆盖行"要求引入（spec §3.2 仅定义 id 列）。
+CREATE TABLE IF NOT EXISTS migration_staging (
+  id            TEXT PRIMARY KEY,
+  kind          TEXT NOT NULL DEFAULT 'inserted' CHECK (kind IN ('inserted','replaced')),
+  snapshot_json TEXT
+);
+"#;
+
+/// 历史数据库。持有 `Arc<Mutex<rusqlite::Connection>>`，可廉价 Clone
+/// 供 Tauri command 与 spawn_blocking 迁移任务共享。
+#[derive(Clone)]
+pub struct HistoryDb {
+    conn: Arc<Mutex<rusqlite::Connection>>,
+    path: PathBuf,
+}
+
+impl HistoryDb {
+    /// 打开（不存在则创建）`<app_data_dir>/moeplay.db`，应用 PRAGMA，
+    /// 并把 schema 初始化到 v2（`PRAGMA user_version = 2`）。
+    ///
+    /// 注意：schema 初始化（建空表）与 v1→v2 数据迁移解耦——这里只负责建表。
+    pub fn open(app_data_dir: &Path) -> Result<Self, DbError> {
+        std::fs::create_dir_all(app_data_dir)?;
+        let path = app_data_dir.join("moeplay.db");
+        let conn = rusqlite::Connection::open(&path)?;
+        conn.busy_timeout(std::time::Duration::from_millis(5000))?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+        let db = Self {
+            conn: Arc::new(Mutex::new(conn)),
+            path,
+        };
+        db.init_schema()?;
+        Ok(db)
+    }
+
+    fn init_schema(&self) -> Result<(), DbError> {
+        let guard = self.lock_conn()?;
+        let version: i64 = guard.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        if version < 2 {
+            guard.execute_batch(SCHEMA_V2_SQL)?;
+            guard.execute_batch("PRAGMA user_version = 2;")?;
+        } else {
+            // 兼容早期 v2 schema（migration_staging 仅有 id 列）：补齐
+            // kind / snapshot_json 列，供回滚还原被 UPDATE 覆盖的原行
+            // （第 2 轮 DeepSeek 审核"回滚恢复被覆盖行"要求，见 SCHEMA_V2_SQL 注释）。
+            let has_kind: bool = guard
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('migration_staging') WHERE name='kind'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map(|count| count > 0)
+                .unwrap_or(true);
+            if !has_kind {
+                guard.execute_batch(
+                    "ALTER TABLE migration_staging ADD COLUMN kind TEXT NOT NULL DEFAULT 'inserted' \
+                     CHECK (kind IN ('inserted','replaced'));
+                     ALTER TABLE migration_staging ADD COLUMN snapshot_json TEXT;",
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    fn lock_conn(&self) -> Result<MutexGuard<'_, rusqlite::Connection>, DbError> {
+        self.conn
+            .lock()
+            .map_err(|_| DbError::Other("history db lock poisoned".to_string()))
+    }
+
+    /// 共享连接引用（迁移框架直接跑 SQL 用）。
+    pub fn conn(&self) -> Arc<Mutex<rusqlite::Connection>> {
+        Arc::clone(&self.conn)
+    }
+
+    /// 数据库文件路径。
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn user_version(&self) -> Result<i64, DbError> {
+        let guard = self.lock_conn()?;
+        let version: i64 = guard.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        Ok(version)
+    }
+
+    pub fn set_user_version(&self, version: i64) -> Result<(), DbError> {
+        let guard = self.lock_conn()?;
+        guard.execute_batch(&format!("PRAGMA user_version = {version};"))?;
+        Ok(())
+    }
+}
+
+/// v2 历史记录 CRUD（供 Tauri command 层与子任务 5/6 调用）。
+pub trait HistoryRepo: Send + Sync {
+    /// `INSERT OR REPLACE`（按 `id` 主键），同步合并也走此入口。
+    fn upsert(&self, rec: &HistoryRecord) -> Result<(), DbError>;
+    fn get(&self, id: &str) -> Result<Option<HistoryRecord>, DbError>;
+    fn find_by_merge_key(
+        &self,
+        content_id: &str,
+        source_id: &str,
+    ) -> Result<Vec<HistoryRecord>, DbError>;
+    /// 分页列表：`content_type=None` 表示全部；不包含 `deleted=1` 的记录
+    /// （墓碑仅供同步拉取）。固定 `ORDER BY updated_at DESC`。
+    fn list(
+        &self,
+        content_type: Option<ContentType>,
+        keyword: Option<&str>,
+        limit: u32,
+        offset: u32,
+    ) -> Result<Vec<HistoryRecord>, DbError>;
+    fn count(&self, content_type: Option<ContentType>) -> Result<i64, DbError>;
+    /// 墓碑删除：`deleted=1` + 刷新 `updated_at`。
+    fn tombstone(&self, id: &str) -> Result<(), DbError>;
+    /// 拉取某时刻之后的墓碑（子任务 5 同步用）。
+    fn list_tombstones_since(&self, since_ms: i64) -> Result<Vec<HistoryRecord>, DbError>;
+}
+
+impl HistoryRepo for HistoryDb {
+    fn upsert(&self, rec: &HistoryRecord) -> Result<(), DbError> {
+        let guard = self.lock_conn()?;
+        guard.execute(
+            "INSERT INTO history
+                (id, content_id, content_type, title, cover, source_id, chapter_id, chapter_title,
+                 page_index, position_sec, scroll_pct, updated_at, device_id, deleted)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
+             ON CONFLICT(id) DO UPDATE SET
+                content_id=excluded.content_id, content_type=excluded.content_type, title=excluded.title,
+                cover=excluded.cover, source_id=excluded.source_id, chapter_id=excluded.chapter_id,
+                chapter_title=excluded.chapter_title, page_index=excluded.page_index,
+                position_sec=excluded.position_sec, scroll_pct=excluded.scroll_pct,
+                updated_at=excluded.updated_at, device_id=excluded.device_id, deleted=excluded.deleted",
+            params![
+                rec.id,
+                rec.content_id,
+                rec.content_type.as_str(),
+                rec.title,
+                rec.cover,
+                rec.source_id,
+                rec.chapter_id,
+                rec.chapter_title,
+                rec.page_index,
+                rec.position_sec,
+                rec.scroll_pct,
+                rec.updated_at,
+                rec.device_id,
+                i64::from(rec.deleted),
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn get(&self, id: &str) -> Result<Option<HistoryRecord>, DbError> {
+        let guard = self.lock_conn()?;
+        let mut stmt = guard.prepare(&format!(
+            "SELECT {HISTORY_COLUMNS} FROM history WHERE id = ?1"
+        ))?;
+        let mut rows = stmt.query_map(params![id], read_history_row)?;
+        match rows.next() {
+            Some(row) => Ok(Some(row?)),
+            None => Ok(None),
+        }
+    }
+
+    fn find_by_merge_key(
+        &self,
+        content_id: &str,
+        source_id: &str,
+    ) -> Result<Vec<HistoryRecord>, DbError> {
+        let guard = self.lock_conn()?;
+        let mut stmt = guard.prepare(&format!(
+            "SELECT {HISTORY_COLUMNS} FROM history WHERE content_id = ?1 AND source_id = ?2 \
+             ORDER BY updated_at DESC"
+        ))?;
+        let rows = stmt.query_map(params![content_id, source_id], read_history_row)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+    }
+
+    fn list(
+        &self,
+        content_type: Option<ContentType>,
+        keyword: Option<&str>,
+        limit: u32,
+        offset: u32,
+    ) -> Result<Vec<HistoryRecord>, DbError> {
+        let guard = self.lock_conn()?;
+        let mut sql = format!("SELECT {HISTORY_COLUMNS} FROM history WHERE deleted = 0");
+        let mut args: Vec<rusqlite::types::Value> = Vec::new();
+        if let Some(ct) = content_type {
+            sql.push_str(" AND content_type = ?");
+            args.push(rusqlite::types::Value::Text(ct.as_str().to_string()));
+        }
+        if let Some(kw) = keyword.filter(|k| !k.trim().is_empty()) {
+            sql.push_str(" AND title LIKE '%' || ? || '%'");
+            args.push(rusqlite::types::Value::Text(kw.trim().to_string()));
+        }
+        sql.push_str(" ORDER BY updated_at DESC LIMIT ? OFFSET ?");
+        args.push(rusqlite::types::Value::Integer(i64::from(limit)));
+        args.push(rusqlite::types::Value::Integer(i64::from(offset)));
+
+        let mut stmt = guard.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), read_history_row)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+    }
+
+    fn count(&self, content_type: Option<ContentType>) -> Result<i64, DbError> {
+        let guard = self.lock_conn()?;
+        match content_type {
+            Some(ct) => Ok(guard.query_row(
+                "SELECT COUNT(*) FROM history WHERE deleted = 0 AND content_type = ?1",
+                params![ct.as_str()],
+                |row| row.get(0),
+            )?),
+            None => Ok(guard.query_row(
+                "SELECT COUNT(*) FROM history WHERE deleted = 0",
+                [],
+                |row| row.get(0),
+            )?),
+        }
+    }
+
+    fn tombstone(&self, id: &str) -> Result<(), DbError> {
+        let guard = self.lock_conn()?;
+        guard.execute(
+            "UPDATE history SET deleted = 1, updated_at = ?1 WHERE id = ?2",
+            params![now_ms(), id],
+        )?;
+        Ok(())
+    }
+
+    fn list_tombstones_since(&self, since_ms: i64) -> Result<Vec<HistoryRecord>, DbError> {
+        let guard = self.lock_conn()?;
+        let mut stmt = guard.prepare(&format!(
+            "SELECT {HISTORY_COLUMNS} FROM history WHERE deleted = 1 AND updated_at >= ?1 \
+             ORDER BY updated_at DESC"
+        ))?;
+        let rows = stmt.query_map(params![since_ms], read_history_row)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+    }
+}
+
+const HISTORY_COLUMNS: &str = "id, content_id, content_type, title, cover, source_id, chapter_id, \
+                               chapter_title, page_index, position_sec, scroll_pct, updated_at, \
+                               device_id, deleted";
+
+fn read_history_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<HistoryRecord> {
+    let content_type_raw: String = row.get(2)?;
+    let content_type = ContentType::from_str(&content_type_raw).map_err(|message| {
+        rusqlite::Error::FromSqlConversionFailure(
+            2,
+            rusqlite::types::Type::Text,
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                message,
+            )),
+        )
+    })?;
+    Ok(HistoryRecord {
+        id: row.get(0)?,
+        content_id: row.get(1)?,
+        content_type,
+        title: row.get(3)?,
+        cover: row.get(4)?,
+        source_id: row.get(5)?,
+        chapter_id: row.get(6)?,
+        chapter_title: row.get(7)?,
+        page_index: row.get(8)?,
+        position_sec: row.get(9)?,
+        scroll_pct: row.get(10)?,
+        updated_at: row.get(11)?,
+        device_id: row.get(12)?,
+        deleted: row.get::<_, i64>(13)? != 0,
+    })
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// 设备唯一标识：首次生成 uuid 写入 `<app_data_dir>/device.id`，之后读取。
+/// 子任务 5 的同步合并依赖该值稳定不变。
+///
+/// 读取失败（权限等）返回错误而不是静默重新生成新 uuid——否则每次启动都会
+/// 换一个 device_id，破坏同步合并的稳定性。
+pub fn get_or_create_device_id(app_data_dir: &Path) -> Result<String, DbError> {
+    std::fs::create_dir_all(app_data_dir)?;
+    let path = app_data_dir.join("device.id");
+    match std::fs::read_to_string(&path) {
+        Ok(existing) => {
+            let trimmed = existing.trim().to_string();
+            if !trimmed.is_empty() {
+                return Ok(trimmed);
+            }
+            // 空/损坏文件 → 落到下方重新生成并覆盖。
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(DbError::Io(error)),
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    std::fs::write(&path, &id)?;
+    Ok(id)
 }
