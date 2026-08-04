@@ -944,7 +944,7 @@ fn test_history_gate_refresh_after_completion() {
         history: Some(db),
         migration_status: Arc::new(RwLock::new(MigrationStatus::InProgress)),
     };
-    assert!(ensure_history_available(&*state.migration_status.read().unwrap()).is_err());
+    assert!(ensure_history_available(&state.migration_status.read().unwrap()).is_err());
 
     let status = super::commands::gate_history(&state).unwrap();
     assert_eq!(status, MigrationStatus::NotNeeded);
