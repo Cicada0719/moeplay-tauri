@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rules-probe-health"
+description = "Enables the rules_probe_health command without any pre-configured scope."
+commands.allow = ["rules_probe_health"]
+
+[[permission]]
+identifier = "deny-rules-probe-health"
+description = "Denies the rules_probe_health command without any pre-configured scope."
+commands.deny = ["rules_probe_health"]

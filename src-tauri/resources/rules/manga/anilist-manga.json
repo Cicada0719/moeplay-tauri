@@ -1,0 +1,16 @@
+{
+  "name": "AniList 漫画",
+  "id": "anilist-manga",
+  "version": "1.0.0",
+  "contentType": "manga",
+  "baseUrl": "https://anilist.co",
+  "language": "en",
+  "nsfw": true,
+  "author": "MoeGame",
+  "probeKeyword": "Shingeki no Kyojin",
+  "licenseNote": "Self-authored rule. AniList GraphQL public API (MANGA type). Metadata source, no image server.",
+  "search": "function search(kw, page) { try { var p = page || 1; var q = { query: 'query($s:String,$p:Int){Page(page:$p,perPage:20){media(search:$s,type:MANGA){id title{romaji english native} coverImage{large}}}}', variables: { s: kw, p: p } }; return fetch('https://graphql.anilist.co', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(q) }).then(function(r) { if (r.status !== 200) return []; var data = JSON.parse(r.body); var list = (data.data && data.data.Page && data.data.Page.media) || []; return list.map(function(it) { var t = it.title || {}; return { title: t.romaji || t.english || t.native || '', url: 'https://anilist.co/manga/' + it.id, cover: (it.coverImage && it.coverImage.large) || '', extra: { id: it.id } }; }); }).catch(function(e) { throw new Error('anilist-manga search: ' + e.message); }); } catch (e) { throw new Error('anilist-manga search: ' + e.message); } }",
+  "detail": "function detail(url) { try { var m = /anilist\\.co\\/manga\\/(\\d+)/.exec(url || ''); if (!m) return { title: '未知', cover: null, description: null, extra: {} }; var id = parseInt(m[1], 10); var q = { query: 'query($id:Int){Media(id:$id,type:MANGA){title{romaji english native} description(asHtml:false) coverImage{large} chapters}}', variables: { id: id } }; return fetch('https://graphql.anilist.co', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(q) }).then(function(r) { if (r.status !== 200) return { title: String(id), cover: null, description: null, extra: {} }; var d = JSON.parse(r.body); var media = d.data && d.data.Media; if (!media) return { title: String(id), cover: null, description: null, extra: {} }; var t = media.title || {}; return { title: t.romaji || t.english || t.native || String(id), cover: (media.coverImage && media.coverImage.large) || null, description: media.description || null, extra: { chapters: media.chapters } }; }).catch(function() { return { title: String(id), cover: null, description: null, extra: {} }; }); } catch (e) { return { title: '未知', cover: null, description: null, extra: {} }; } }",
+  "chapter": "function chapter(detailUrl) { try { return []; } catch (e) { return []; } }",
+  "parse": "function parse(chapterUrl) { try { return { urls: [], kind: 'images' }; } catch (e) { return { urls: [], kind: 'images' }; } }"
+}

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rules-get-health"
+description = "Enables the rules_get_health command without any pre-configured scope."
+commands.allow = ["rules_get_health"]
+
+[[permission]]
+identifier = "deny-rules-get-health"
+description = "Denies the rules_get_health command without any pre-configured scope."
+commands.deny = ["rules_get_health"]

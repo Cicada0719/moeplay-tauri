@@ -1,0 +1,16 @@
+{
+  "name": "Kitsu 动画",
+  "id": "kitsu",
+  "version": "1.0.0",
+  "contentType": "anime",
+  "baseUrl": "https://kitsu.io",
+  "language": "en",
+  "nsfw": false,
+  "author": "MoeGame",
+  "probeKeyword": "Shingeki no Kyojin",
+  "licenseNote": "Self-authored rule. Kitsu (kitsu.io) exposes a public JSON:API. Metadata source, no playback URL.",
+  "search": "function search(kw, page) { try { var p = page || 1; var url = 'https://kitsu.io/api/edge/anime?filter[text]=' + encodeURIComponent(kw) + '&page[limit]=20&page[offset]=' + ((p - 1) * 20); return fetch(url, { headers: { 'Accept': 'application/vnd.api+json' } }).then(function(r) { if (r.status !== 200) return []; var data = JSON.parse(r.body); var list = data.data || []; return list.map(function(it) { var attrs = it.attributes || {}; var t = attrs.canonicalTitle || ''; return { title: t, url: 'https://kitsu.io/anime/' + it.id, cover: (attrs.posterImage && (attrs.posterImage.original || attrs.posterImage.medium)) || '', extra: { id: it.id } }; }); }).catch(function(e) { throw new Error('kitsu search: ' + e.message); }); } catch (e) { throw new Error('kitsu search: ' + e.message); } }",
+  "detail": "function detail(url) { try { var m = /kitsu\\.io\\/anime\\/([A-Za-z0-9-]+)/.exec(url || ''); if (!m) return { title: '未知', cover: null, description: null, extra: {} }; var id = m[1]; return fetch('https://kitsu.io/api/edge/anime/' + id, { headers: { 'Accept': 'application/vnd.api+json' } }).then(function(r) { if (r.status !== 200) return { title: id, cover: null, description: null, extra: {} }; var d = JSON.parse(r.body); var a = d.data && d.data.attributes; if (!a) return { title: id, cover: null, description: null, extra: {} }; return { title: a.canonicalTitle || id, cover: (a.posterImage && (a.posterImage.original || a.posterImage.medium)) || null, description: a.synopsis || null, extra: {} }; }).catch(function() { return { title: id, cover: null, description: null, extra: {} }; }); } catch (e) { return { title: '未知', cover: null, description: null, extra: {} }; } }",
+  "chapter": "function chapter(detailUrl) { try { var m = /kitsu\\.io\\/anime\\/([A-Za-z0-9-]+)/.exec(detailUrl || ''); if (!m) return []; var id = m[1]; return fetch('https://kitsu.io/api/edge/anime/' + id + '/episodes?page[limit]=200', { headers: { 'Accept': 'application/vnd.api+json' } }).then(function(r) { if (r.status !== 200) return []; var d = JSON.parse(r.body); var list = d.data || []; return list.map(function(ep) { var a = ep.attributes || {}; return { id: ep.id, title: a.canonicalTitle || ('第' + (a.number || '') + '话'), url: 'https://kitsu.io/anime/' + id + '/episodes/' + ep.id, index: a.number || 0 }; }); }).catch(function() { return []; }); } catch (e) { return []; } }",
+  "parse": "function parse(chapterUrl) { try { return { urls: [], kind: 'video' }; } catch (e) { return { urls: [], kind: 'video' }; } }"
+}

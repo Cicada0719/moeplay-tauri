@@ -1,0 +1,16 @@
+{
+  "name": "Open Library 书籍",
+  "id": "openlibrary",
+  "version": "1.0.0",
+  "contentType": "novel",
+  "baseUrl": "https://openlibrary.org",
+  "language": "en",
+  "nsfw": false,
+  "author": "MoeGame",
+  "probeKeyword": "Cradle",
+  "licenseNote": "Self-authored rule. Open Library (openlibrary.org) public JSON search API; novel metadata discovery, no reading URL.",
+  "search": "function search(kw, page) { try { var url = 'https://openlibrary.org/search.json?q=' + encodeURIComponent(kw) + '&limit=20'; return fetch(url, { headers: { 'User-Agent': 'moeplay/0.20.0' } }).then(function(r) { if (r.status !== 200) return []; var data = JSON.parse(r.body); var docs = data.docs || []; var items = []; for (var i = 0; i < docs.length; i++) { var d = docs[i]; var title = d.title || ''; if (!title) continue; var cover = d.cover_i ? ('https://covers.openlibrary.org/b/id/' + d.cover_i + '-M.jpg') : ''; items.push({ title: title, url: 'https://openlibrary.org' + (d.key || ''), cover: cover, extra: { author: (d.author_name && d.author_name[0]) || '' } }); } return items; }).catch(function(e) { throw new Error('openlibrary search: ' + e.message); }); } catch (e) { throw new Error('openlibrary search: ' + e.message); } }",
+  "detail": "function detail(url) { try { var m = /openlibrary\\.org(\\/works\\/[^?]+)/.exec(url || ''); if (!m) return { title: '未知', cover: null, description: null, extra: {} }; return fetch('https://openlibrary.org' + m[1] + '.json', { headers: { 'User-Agent': 'moeplay/0.20.0' } }).then(function(r) { if (r.status !== 200) return { title: '未知', cover: null, description: null, extra: {} }; var d = JSON.parse(r.body); var desc = null; if (typeof d.description === 'string') desc = d.description; else if (d.description && d.description.value) desc = d.description.value; var cover = (d.covers && d.covers[0]) ? ('https://covers.openlibrary.org/b/id/' + d.covers[0] + '-L.jpg') : null; return { title: d.title || '未知', cover: cover, description: desc, extra: {} }; }).catch(function() { return { title: '未知', cover: null, description: null, extra: {} }; }); } catch (e) { return { title: '未知', cover: null, description: null, extra: {} }; } }",
+  "chapter": "function chapter(detailUrl) { try { return []; } catch (e) { return []; } }",
+  "parse": "function parse(chapterUrl) { try { return { urls: [], kind: 'text' }; } catch (e) { return { urls: [], kind: 'text' }; } }"
+}

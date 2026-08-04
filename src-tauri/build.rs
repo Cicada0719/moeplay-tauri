@@ -1,3 +1,15 @@
+// 构建期规则清单生成（spec task-02 Step 2）：manifest_gen 独立于 crate 之外，
+// 通过 `#[path]` 直接包含编译（禁止 `use crate::`）。规则改动触发重新生成。
+#[path = "src/rules/manifest_gen.rs"]
+mod manifest_gen;
+
+use std::path::Path;
+
+/// 规则包版本（日期戳格式 `YYYY.M.N`，与 update.rs::is_newer 注释固定一致）。
+const RULES_PACKAGE_VERSION: &str = "2026.08.1";
+/// 规则包发布时间戳（2026-08-04 00:00:00 UTC）。
+const RULES_PACKAGE_PUBLISHED_AT: i64 = 1785830400;
+
 // Tauri 2 命令清单（ACL 权限系统的必需注册，DeepSeek 复审第 3 项说明）：
 // 在 Tauri 2 中，命令默认不对 WebView 暴露。必须在 `build.rs` 通过
 // `AppManifest::commands(COMMANDS)` 把全部命令登记进 `tauri-build` 的
@@ -379,9 +391,28 @@ const COMMANDS: &[&str] = &[
     "rules_import",
     "rules_remove_custom",
     "rules_export",
+    // 任务 2（spec §3.4）：规则包元信息 / 检查更新 / 健康探测 / 健康状态
+    "rules_get_meta",
+    "rules_check_and_update",
+    "rules_probe_health",
+    "rules_get_health",
 ];
 
 fn main() {
+    // spec task-02 Step 2：构建期校验内置规则 + 生成 resources/rules/manifest.json。
+    // 任一条规则缺必填字段 → build 失败，防止残缺规则进包。
+    let rules_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("resources")
+        .join("rules");
+    if let Err(e) = manifest_gen::generate_rules_manifest(
+        &rules_root,
+        RULES_PACKAGE_VERSION,
+        RULES_PACKAGE_PUBLISHED_AT,
+    ) {
+        panic!("[rules-manifest] 构建期规则清单生成失败: {e}");
+    }
+    println!("cargo:rerun-if-changed=resources/rules");
+
     tauri_build::try_build(
         tauri_build::Attributes::new()
             .app_manifest(tauri_build::AppManifest::new().commands(COMMANDS)),

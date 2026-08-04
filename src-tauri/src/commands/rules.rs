@@ -6,34 +6,18 @@ use tauri::Manager;
 use tauri::State;
 
 use crate::rules::engine::{Chapter, Detail, ParseResult, RuleExecError, RuleInput, SearchItem};
+use crate::rules::health::{self, HealthProbeResult, SourceHealthInfo};
 use crate::rules::schema::{
     file_stem_id, validate_manifest, LoadedRule, RuleFileFormat, RuleLoadError, RuleManifest,
     RuleOrigin, RuleStatus,
 };
-use crate::rules::{RuleEngine, RuleEngineState};
+use crate::rules::update::{self, RulesMetaInfo, UpdateOutcome};
+use crate::rules::{collect_rule_inputs, RuleEngine, RuleEngineState};
 
-/// 内置规则目录：优先资源目录，其次源码 resources/rules，最后创建空目录。
+/// 内置规则目录（spec Step 3.7）：优先 `$APPDATA/rules-cache/current`（远端热更新缓存），
+/// 否则打包资源目录 `resources/rules/`——这是与子任务 1 规则加载入口的唯一集成点。
 fn builtin_rules_dir(app: &tauri::AppHandle) -> PathBuf {
-    if let Ok(dir) = app.path().resource_dir() {
-        let candidate = dir.join("rules");
-        if candidate.exists() {
-            return candidate;
-        }
-    }
-    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("resources")
-        .join("rules");
-    if dev.exists() {
-        return dev;
-    }
-    let fallback = dirs::config_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("moeplay")
-        .join("rules");
-    if std::fs::create_dir_all(&fallback).is_ok() {
-        tracing::warn!("内置规则目录不存在，已创建空目录: {}", fallback.display());
-    }
-    fallback
+    update::resolve_rules_dir(app)
 }
 
 /// 自定义规则目录。
@@ -49,21 +33,13 @@ fn custom_rules_dir() -> PathBuf {
 }
 
 /// 扫描内置 + 自定义规则文件，构造加载输入。
+///
+/// 规则按类型分目录存放（`resources/rules/{anime,manga,novel}`），热更新缓存亦然，
+/// 因此递归扫描子目录；`manifest.json` 是清单而非规则，跳过。
 fn discover_rule_inputs(app: &tauri::AppHandle) -> Vec<RuleInput> {
     let mut inputs = Vec::new();
-    for (path, origin) in [
-        (builtin_rules_dir(app), RuleOrigin::Builtin),
-        (custom_rules_dir(), RuleOrigin::Custom),
-    ] {
-        if let Ok(entries) = std::fs::read_dir(&path) {
-            for entry in entries.flatten() {
-                let file = entry.path();
-                if RuleFileFormat::from_path(&file).is_some() {
-                    inputs.push(RuleInput::File { path: file, origin });
-                }
-            }
-        }
-    }
+    collect_rule_inputs(&builtin_rules_dir(app), RuleOrigin::Builtin, &mut inputs);
+    collect_rule_inputs(&custom_rules_dir(), RuleOrigin::Custom, &mut inputs);
     inputs
 }
 
@@ -264,4 +240,55 @@ pub async fn rules_export(state: State<'_, RuleEngineState>, path: String) -> Re
     }
     std::fs::write(&path, json).map_err(|e| e.to_string())?;
     Ok(manifests.len() as u32)
+}
+
+/// 规则包元信息（设置页展示版本/来源/更新时间）。
+#[tauri::command]
+pub async fn rules_get_meta(app: tauri::AppHandle) -> Result<RulesMetaInfo, String> {
+    update::rules_meta_info(&app)
+}
+
+/// 检查并更新规则包（启动时自动调用 + 设置页"检查更新"按钮）。
+///
+/// `force=true` 跳过 24h 节流。网络/签名/应用失败一律回退本地缓存（`FallbackCached`），
+/// 不向用户报错（FR-04）。
+#[tauri::command]
+pub async fn rules_check_and_update(
+    app: tauri::AppHandle,
+    state: State<'_, RuleEngineState>,
+    force: bool,
+) -> Result<UpdateOutcome, String> {
+    let outcome = update::check_and_update(&app, force).await?;
+    // 更新成功 → 以新规则目录热重载引擎注册表。
+    if matches!(outcome.status, update::UpdateStatus::Updated) {
+        let dir = update::resolve_rules_dir(&app);
+        let loaded = crate::rules::reload_all(&state.0, &dir).await;
+        let ready = loaded
+            .iter()
+            .filter(|r| r.status == RuleStatus::Ready)
+            .count();
+        tracing::info!("热更新后重载规则: Ready {ready}/{}", loaded.len());
+    }
+    Ok(outcome)
+}
+
+/// 立即健康检查（`None` 表示全量探测；并发，单源 10s 超时）。
+#[tauri::command]
+pub async fn rules_probe_health(
+    app: tauri::AppHandle,
+    state: State<'_, RuleEngineState>,
+    source_ids: Option<Vec<String>>,
+) -> Result<Vec<HealthProbeResult>, String> {
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("应用数据目录不可用: {e}"))?;
+    let rules_dir = update::resolve_rules_dir(&app);
+    Ok(health::probe_all(&state.0, &app_data, &rules_dir, source_ids).await)
+}
+
+/// 读取持久化的源健康状态（源列表页展示；不触发探测）。
+#[tauri::command]
+pub async fn rules_get_health(app: tauri::AppHandle) -> Result<Vec<SourceHealthInfo>, String> {
+    health::get_health_info(&app)
 }

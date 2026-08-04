@@ -175,6 +175,74 @@ export function exportRules(path: string): Promise<number> {
   return invokeCmd<number>("rules_export", { path });
 }
 
+// ── 规则包热更新 + 源健康检查（spec task-02 §3.4/§3.5）────────────────────
+
+/** 单源健康状态（Rust `HealthStatus` 序列化为 PascalCase）。 */
+export type HealthStatus = "Healthy" | "Degraded" | "Abnormal" | "Unknown";
+
+export interface SourceHealthInfo {
+  sourceId: string;
+  status: HealthStatus;
+  consecutiveFailures: number;
+  lastCheckedAt: number | null;
+  lastLatencyMs: number | null;
+  lastError: string | null;
+}
+
+/** 单次健康探测结果（`rules_probe_health` 返回）。 */
+export interface HealthProbeResult {
+  sourceId: string;
+  ok: boolean;
+  latencyMs: number;
+  error?: string | null;
+}
+
+/** 规则包来源：内置 / 远端热更新缓存。 */
+export type RuleSource = "bundled" | "remoteCache";
+
+export interface RulesMetaInfo {
+  packageVersion: string;
+  source: RuleSource;
+  updatedAt: number;
+  lastCheckAt: number | null;
+  ruleCount: number;
+  remoteBase: string;
+}
+
+/** 更新结果状态（Rust `UpdateStatus` tag）。 */
+export type UpdateStatus = "updated" | "alreadyLatest" | "fallbackCached";
+
+export interface UpdateOutcome {
+  status: UpdateStatus;
+  fromVersion: string | null;
+  toVersion: string;
+  updatedRules: number;
+  /** `fallbackCached` 时的回退原因。 */
+  reason?: string;
+}
+
+/** 规则包元信息（设置页展示版本/来源/更新时间）。 */
+export function getRulesMeta(): Promise<RulesMetaInfo> {
+  return invokeCmd<RulesMetaInfo>("rules_get_meta");
+}
+
+/** 检查并更新规则包；`force=true` 跳过 24h 节流（启动时静默调用 force=false）。 */
+export function checkAndUpdateRules(force = false): Promise<UpdateOutcome> {
+  return invokeCmd<UpdateOutcome>("rules_check_and_update", { force });
+}
+
+/** 立即健康检查；`ids` 为空表示全量探测（并发，单源 10s 超时）。 */
+export function probeHealth(ids?: string[]): Promise<HealthProbeResult[]> {
+  return invokeCmd<HealthProbeResult[]>("rules_probe_health", {
+    sourceIds: ids ?? null,
+  });
+}
+
+/** 读取持久化的源健康状态（源列表展示；不触发探测）。 */
+export function getHealth(): Promise<SourceHealthInfo[]> {
+  return invokeCmd<SourceHealthInfo[]>("rules_get_health");
+}
+
 /** 判断是否为取消类错误（FR-02 竞态静默丢弃依据） */
 export function isCancelledError(err: unknown): boolean {
   const e = err as { kind?: string; message?: string } | null;

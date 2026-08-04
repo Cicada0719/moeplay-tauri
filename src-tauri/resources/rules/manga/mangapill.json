@@ -1,0 +1,16 @@
+{
+  "name": "MangaPill",
+  "id": "mangapill",
+  "version": "1.0.0",
+  "contentType": "manga",
+  "baseUrl": "https://mangapill.com",
+  "language": "en",
+  "nsfw": false,
+  "author": "MoeGame",
+  "probeKeyword": "Shingeki no Kyojin",
+  "licenseNote": "Self-authored rule. MangaPill (mangapill.com) HTML scraping via regex; discovery source, chapter images not scraped.",
+  "search": "function search(kw, page) { try { var url = 'https://mangapill.com/search?q=' + encodeURIComponent(kw); return fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }).then(function(r) { if (r.status !== 200) return []; var html = r.body; var items = []; var seen = {}; var re = /<a href=\"(\\/manga\\/[^\"]+)\" class=\"relative block\"[^]*?data-src=\"([^\"]*)\"[^]*?class=\"mt-3 font-black leading-tight line-clamp-2\">([^<]+)<\\/div>/g; var m; while ((m = re.exec(html)) !== null && items.length < 40) { var full = 'https://mangapill.com' + m[1]; if (seen[full]) continue; seen[full] = true; items.push({ title: (m[3] || '').trim(), url: full, cover: m[2] || '', extra: {} }); } return items; }).catch(function(e) { throw new Error('mangapill search: ' + e.message); }); } catch (e) { throw new Error('mangapill search: ' + e.message); } }",
+  "detail": "function detail(url) { try { return fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }).then(function(r) { if (r.status !== 200) return { title: '未知', cover: null, description: null, extra: {} }; var html = r.body; var tM = /<h1[^>]*>([^<]+)/.exec(html) || /property=\"og:title\"[^>]*content=\"([^\"]+)\"/.exec(html); var ogM = /property=\"og:image\"[^>]*content=\"([^\"]+)\"/.exec(html); return { title: (tM && tM[1]) || '未知', cover: (ogM && ogM[1]) || null, description: null, extra: {} }; }).catch(function() { return { title: '未知', cover: null, description: null, extra: {} }; }); } catch (e) { return { title: '未知', cover: null, description: null, extra: {} }; } }",
+  "chapter": "function chapter(detailUrl) { try { return fetch(detailUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }).then(function(r) { if (r.status !== 200) return []; var html = r.body; var items = []; var seen = {}; var re = /href=\"(\\/chapters\\/[^\"]+)\"/g; var m; var idx = 0; while ((m = re.exec(html)) !== null && items.length < 300) { var href = 'https://mangapill.com' + m[1]; if (seen[href]) continue; seen[href] = true; idx += 1; var seg = html.slice(m.index, m.index + 300); var tM = /class=\"[^\"]*line-clamp[^\"]*\"[^>]*>([^<]+)/.exec(seg); items.push({ id: String(idx), title: (tM && tM[1].trim()) || ('Chapter ' + idx), url: href, index: idx }); } return items; }).catch(function() { return []; }); } catch (e) { return []; } }",
+  "parse": "function parse(chapterUrl) { try { return { urls: [], kind: 'images' }; } catch (e) { return { urls: [], kind: 'images' }; } }"
+}

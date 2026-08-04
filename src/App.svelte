@@ -39,6 +39,7 @@
   import { motionStore } from "./lib/stores/motion.svelte";
   import { createJobsStore } from "./lib/features/jobs";
   import { invokeCmd } from "./lib/api/core";
+  import { checkAndUpdateRules } from "./lib/api/rules";
   import { wallpaperStore } from "./lib/stores/wallpapers.svelte";
   import { workspaceFocusStore } from "./lib/stores/workspaceFocus.svelte";
   import { nativeFullscreenHealthy, reassertNativeFullscreen } from "./lib/utils/window-fullscreen";
@@ -390,6 +391,8 @@
       gameStore.load();
       settingsStore.load();
     }
+    // 启动静默检查规则包更新（spec task-02 Step 7.6）：失败静默忽略，回退本地规则。
+    void checkAndUpdateRules(false).catch(() => {});
     const releaseRouter = initRouter();
     let androidBackListener: { unregister: () => Promise<void> } | null = null;
     void platformReady.then(async () => {

@@ -19,6 +19,7 @@
   import LibrarySection from "./settings/LibrarySection.svelte";
   import BangumiSection from "./settings/BangumiSection.svelte";
   import PlayerSection from "./settings/PlayerSection.svelte";
+  import RulesSection from "./settings/RulesSection.svelte";
   import "./settings/settings-shared.css";
   import { APP_VERSION } from "../app-version";
   import { orientationStore, platformStore, type OrientationMode } from "../platform";
@@ -264,8 +265,9 @@
         <button type="button" onclick={() => scrollToSettings("settings-library")}><b>03</b><em>{i18n.t("settings.nav_library")}</em></button>
         <button type="button" onclick={() => scrollToSettings("settings-bangumi")}><b>04</b><em>{i18n.t("settings.nav_bangumi")}</em></button>
         <button type="button" onclick={() => scrollToSettings("settings-player")}><b>05</b><em>{i18n.t("settings.nav_player")}</em></button>
-        <button type="button" onclick={() => scrollToSettings("settings-advanced")}><b>06</b><em>{i18n.t("settings.nav_advanced")}</em></button>
-        <button type="button" onclick={() => scrollToSettings("settings-maintenance")}><b>07</b><em>{i18n.t("settings.nav_maintenance")}</em></button>
+        <button type="button" onclick={() => scrollToSettings("settings-rules")}><b>06</b><em>内置源规则</em></button>
+        <button type="button" onclick={() => scrollToSettings("settings-advanced")}><b>07</b><em>{i18n.t("settings.nav_advanced")}</em></button>
+        <button type="button" onclick={() => scrollToSettings("settings-maintenance")}><b>08</b><em>{i18n.t("settings.nav_maintenance")}</em></button>
         <small>{i18n.t("settings.index_hint")}</small>
       </aside>
 
@@ -369,6 +371,7 @@
         <LibrarySection />
         <BangumiSection />
         <PlayerSection />
+        <RulesSection />
 
         <!-- 系统与实验功能 -->
         <span class="section-anchor" id="settings-advanced" aria-hidden="true"></span>

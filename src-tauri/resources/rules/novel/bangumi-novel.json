@@ -1,0 +1,16 @@
+{
+  "name": "Bangumi 书籍",
+  "id": "bangumi-novel",
+  "version": "1.0.0",
+  "contentType": "novel",
+  "baseUrl": "https://bgm.tv",
+  "language": "zh-CN",
+  "nsfw": false,
+  "author": "MoeGame",
+  "probeKeyword": "三体",
+  "licenseNote": "Self-authored rule. Bangumi book/novel catalog (type=1) via its public JSON API. Metadata source, no text content.",
+  "search": "function search(kw, page) { try { var url = 'https://api.bgm.tv/search/subject/' + encodeURIComponent(kw) + '?type=1&responseGroup=small'; return fetch(url, { headers: { 'User-Agent': 'moeplay/0.20.0' } }).then(function(r) { if (r.status !== 200) return []; var data = JSON.parse(r.body); var list = data.list || []; return list.map(function(it) { var img = (it.images && it.images.large) || (it.images && it.images.medium) || ''; return { title: it.name_cn || it.name || '', url: 'https://bgm.tv/subject/' + it.id, cover: img, extra: { id: it.id, type: it.type } }; }); }).catch(function(e) { throw new Error('bangumi-novel search: ' + e.message); }); } catch (e) { throw new Error('bangumi-novel search: ' + e.message); } }",
+  "detail": "function detail(url) { try { var m = /subject\\/(\\d+)/.exec(url || ''); if (!m) return { title: '未知', cover: null, description: null, extra: {} }; var id = m[1]; return fetch('https://api.bgm.tv/v0/subjects/' + id, { headers: { 'User-Agent': 'moeplay/0.20.0' } }).then(function(r) { if (r.status !== 200) return { title: id, cover: null, description: null, extra: {} }; var d = JSON.parse(r.body); var img = d.images && (d.images.large || d.images.common); return { title: d.name_cn || d.name || id, cover: img || null, description: d.summary || null, extra: {} }; }).catch(function() { return { title: id, cover: null, description: null, extra: {} }; }); } catch (e) { return { title: '未知', cover: null, description: null, extra: {} }; } }",
+  "chapter": "function chapter(detailUrl) { try { return []; } catch (e) { return []; } }",
+  "parse": "function parse(chapterUrl) { try { return { urls: [], kind: 'text' }; } catch (e) { return { urls: [], kind: 'text' }; } }"
+}

@@ -270,7 +270,7 @@ pub fn run() {
         .manage(extension_index::ExtensionIndexService::default())
         .manage(ai_changes_service)
         .manage(ai_v2_state)
-        .manage(rules::RuleEngineState(rule_engine));
+        .manage(rules::RuleEngineState(Arc::new(rule_engine)));
 
     #[cfg(desktop)]
     let builder = builder
@@ -701,6 +701,11 @@ pub fn run() {
             commands::rules_import,
             commands::rules_remove_custom,
             commands::rules_export,
+            // ---- 规则包热更新 + 源健康检查（FR-03/FR-04，spec task-02 §3.4）----
+            commands::rules_get_meta,
+            commands::rules_check_and_update,
+            commands::rules_probe_health,
+            commands::rules_get_health,
         ])
         .setup(move |app| {
             crash_log("setup() ENTER");
@@ -872,6 +877,35 @@ pub fn run() {
                         });
                     }
                 }
+            }
+
+            // 规则包热更新（FR-04，spec task-02 Step 3.8）：启动后后台静默检查更新，
+            // 不阻塞首屏；网络/签名/应用失败自动回退本地缓存。
+            {
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = rules::update::check_and_update(&app_handle, false).await {
+                        tracing::warn!("启动规则热更新检查失败: {e}");
+                    }
+                });
+            }
+
+            // 源健康检查周期任务（spec task-02 Step 4.6）：启动后延迟 30s 全量探测一次，
+            // 之后每 6 小时一次（源列表页打开时不自动探测，只读缓存状态——性能约束）。
+            {
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    if let Err(e) = rules::health::probe_all_from_app(&app_handle).await {
+                        tracing::debug!("首次健康探测失败: {e}");
+                    }
+                    let mut interval =
+                        tokio::time::interval(std::time::Duration::from_secs(6 * 3600));
+                    loop {
+                        interval.tick().await;
+                        let _ = rules::health::probe_all_from_app(&app_handle).await;
+                    }
+                });
             }
 
             crash_log("setup() DONE");

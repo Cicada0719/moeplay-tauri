@@ -1,7 +1,17 @@
 // api/rules 规则列表缓存测试（Kimi K3 复审第 1 项：加载命令只在初始化或显式刷新时触发）
 import { beforeEach, describe, expect, it } from "vitest";
 import { clearMockInvokeHandler, mockRouter, setMockInvokeHandler } from "./core";
-import { getLoadedRules, importRule, refreshLoadedRules, removeCustomRule, type LoadedRule } from "./rules";
+import {
+  checkAndUpdateRules,
+  getHealth,
+  getLoadedRules,
+  getRulesMeta,
+  importRule,
+  probeHealth,
+  refreshLoadedRules,
+  removeCustomRule,
+  type LoadedRule,
+} from "./rules";
 
 const READY_RULE: LoadedRule = {
   id: "rule-a",
@@ -163,5 +173,85 @@ describe("api/rules 规则缓存", () => {
     expect(rules).toEqual([READY_RULE]);
     await getLoadedRules();
     expect(calls).toBe(2);
+  });
+});
+
+// ── 规则包热更新 + 健康检查命令封装（spec task-02 §3.5）──────────────────
+
+describe("api/rules 热更新与健康检查命令", () => {
+  beforeEach(() => {
+    clearMockInvokeHandler();
+  });
+
+  it("getRulesMeta 调用 rules_get_meta", async () => {
+    const meta = {
+      packageVersion: "2026.08.1",
+      source: "bundled" as const,
+      updatedAt: 1785830400,
+      lastCheckAt: null,
+      ruleCount: 13,
+      remoteBase: "https://raw.githubusercontent.com/Cicada0719/moeplay-tauri-rules/main/",
+    };
+    const seen: unknown[] = [];
+    setMockInvokeHandler(
+      mockRouter({
+        rules_get_meta: (cmd, args) => {
+          seen.push(args);
+          return meta;
+        },
+      }),
+    );
+    await expect(getRulesMeta()).resolves.toEqual(meta);
+    expect(seen[0]).toEqual({});
+  });
+
+  it("checkAndUpdateRules 透传 force 参数（默认 false）", async () => {
+    const seen: unknown[] = [];
+    setMockInvokeHandler(
+      mockRouter({
+        rules_check_and_update: (_cmd, args) => {
+          seen.push(args);
+          return { status: "updated", fromVersion: "2026.08.1", toVersion: "2026.08.2", updatedRules: 13 };
+        },
+      }),
+    );
+    const outcome = await checkAndUpdateRules();
+    expect(outcome.status).toBe("updated");
+    await checkAndUpdateRules(true);
+    expect(seen).toEqual([{ force: false }, { force: true }]);
+  });
+
+  it("probeHealth：无参 → sourceIds=null；有参 → 数组透传", async () => {
+    const seen: unknown[] = [];
+    setMockInvokeHandler(
+      mockRouter({
+        rules_probe_health: (_cmd, args) => {
+          seen.push(args);
+          return [];
+        },
+      }),
+    );
+    await probeHealth();
+    await probeHealth(["a", "b"]);
+    expect(seen).toEqual([{ sourceIds: null }, { sourceIds: ["a", "b"] }]);
+  });
+
+  it("getHealth 调用 rules_get_health 并返回健康列表", async () => {
+    const list = [
+      {
+        sourceId: "agefans",
+        status: "Healthy",
+        consecutiveFailures: 0,
+        lastCheckedAt: 1785830400,
+        lastLatencyMs: 42,
+        lastError: null,
+      },
+    ];
+    setMockInvokeHandler(
+      mockRouter({
+        rules_get_health: () => list,
+      }),
+    );
+    await expect(getHealth()).resolves.toEqual(list);
   });
 });

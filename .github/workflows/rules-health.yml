@@ -1,0 +1,74 @@
+name: rules-health
+
+on:
+  schedule:
+    - cron: "0 2 * * *" # 每日 UTC 02:00
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # rules-health bin 复用 moeplay_lib（依赖 tauri/wry），Linux 构建需要 GTK/webkit 系统库。
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - name: Run health probe
+        working-directory: src-tauri
+        # 通过率 <80% 时进程退出码 1 → job 失败 → 触发下方告警 issue（FR-03）
+        run: cargo run --release --bin rules-health -- --rules-dir ./resources/rules --out ../health-report.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: health-report
+          path: health-report.json
+
+      - name: Alert on low pass rate
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const reportPath = 'health-report.json';
+            let report = { total: 0, passed: 0, passRate: 0, failures: [] };
+            try { report = JSON.parse(fs.readFileSync(reportPath, 'utf8')); } catch (e) { console.log('无法读取 health-report.json:', e.message); }
+
+            const title = '[rules-health] 内置源健康检查通过率过低';
+            const body = [
+              `每日源健康检查发现通过率 **${(report.passRate * 100).toFixed(1)}%**（${report.passed}/${report.total}）低于 80% 阈值。`,
+              '',
+              '失败源：',
+              ...(report.failures && report.failures.length ? report.failures.map(f => `- \`${f.id}\`：${f.error || '未知错误'}`) : ['- 无（探测异常或报告缺失）']),
+            ].join('\n');
+
+            // 查找标题含 [rules-health] 的 open issue，有则评论，无则新建
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+            });
+            const existing = issues.find(issue => issue.title.includes('[rules-health]'));
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['dev'],
+              });
+            }

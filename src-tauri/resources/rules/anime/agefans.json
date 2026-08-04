@@ -1,0 +1,16 @@
+{
+  "name": "AGE 动漫",
+  "id": "agefans",
+  "version": "1.0.0",
+  "contentType": "anime",
+  "baseUrl": "https://www.agefans.tv",
+  "language": "zh-CN",
+  "nsfw": false,
+  "author": "MoeGame",
+  "probeKeyword": "进击的巨人",
+  "licenseNote": "Self-authored rule. AGE Anime (agefans.tv) HTML scraping via regex. Site structure may change; hot-update path is the remedy.",
+  "search": "function search(kw, page) { try { var url = 'https://www.agefans.tv/search?query=' + encodeURIComponent(kw); return fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }).then(function(r) { if (r.status !== 200) return []; var html = r.body; var items = []; var re = /href=\"\\/detail\\/(\\d+)\"/g; var m; while ((m = re.exec(html)) !== null && items.length < 40) { var id = m[1]; var seg = html.slice(m.index, m.index + 500); var imgM = /<img[^>]*src=\"([^\"]+)\"/.exec(seg); var altM = /alt=\"([^\"]+)\"/.exec(seg); var nameM = /anime-name[^>]*>\\s*<a[^>]*>([^<]+)/.exec(html.slice(m.index, m.index + 700)); var title = (altM && altM[1]) || (nameM && nameM[1]) || id; items.push({ title: title, url: 'https://www.agefans.tv/detail/' + id, cover: (imgM && imgM[1]) || '', extra: { id: id } }); } return items; }).catch(function(e) { throw new Error('agefans search: ' + e.message); }); } catch (e) { throw new Error('agefans search: ' + e.message); } }",
+  "detail": "function detail(url) { try { var m = /\\/detail\\/(\\d+)/.exec(url || ''); if (!m) return { title: '未知', cover: null, description: null, extra: {} }; var id = m[1]; return fetch('https://www.agefans.tv/detail/' + id, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }).then(function(r) { if (r.status !== 200) return { title: id, cover: null, description: null, extra: {} }; var html = r.body; var tM = /<h1[^>]*>([^<]+)/.exec(html); var iM = /detail-imgs[^>]*>\\s*<img[^>]*src=\"([^\"]+)/.exec(html) || /og:image[^>]*content=\"([^\"]+)/.exec(html); return { title: (tM && tM[1]) || id, cover: (iM && iM[1]) || null, description: null, extra: {} }; }).catch(function() { return { title: id, cover: null, description: null, extra: {} }; }); } catch (e) { return { title: '未知', cover: null, description: null, extra: {} }; } }",
+  "chapter": "function chapter(detailUrl) { try { var m = /\\/detail\\/(\\d+)/.exec(detailUrl || ''); if (!m) return []; var id = m[1]; return fetch('https://www.agefans.tv/detail/' + id, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }).then(function(r) { if (r.status !== 200) return []; var html = r.body; var items = []; var re = /href=\"(\\/detail\\/' + id + '\\?ep=\\d+)\"[^>]*>([^<]+)/g; var mm; var idx = 0; while ((mm = re.exec(html)) !== null && items.length < 200) { idx += 1; items.push({ id: String(idx), title: (mm[2] || '').trim(), url: 'https://www.agefans.tv' + mm[1], index: idx }); } return items; }).catch(function() { return []; }); } catch (e) { return []; } }",
+  "parse": "function parse(chapterUrl) { try { return { urls: [], kind: 'video' }; } catch (e) { return { urls: [], kind: 'video' }; } }"
+}

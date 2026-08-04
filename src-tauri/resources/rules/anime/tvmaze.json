@@ -1,0 +1,16 @@
+{
+  "name": "TVmaze 剧集",
+  "id": "tvmaze",
+  "version": "1.0.0",
+  "contentType": "anime",
+  "baseUrl": "https://www.tvmaze.com",
+  "language": "en",
+  "nsfw": false,
+  "author": "MoeGame",
+  "probeKeyword": "Shingeki no Kyojin",
+  "licenseNote": "Self-authored rule. TVmaze (tvmaze.com) public JSON API; indexes anime as TV shows. Metadata source, no playback URL.",
+  "search": "function search(kw, page) { try { var url = 'https://api.tvmaze.com/search/shows?q=' + encodeURIComponent(kw); return fetch(url).then(function(r) { if (r.status !== 200) return []; var list = JSON.parse(r.body) || []; return list.map(function(it) { var s = it.show || {}; var img = (s.image && (s.image.original || s.image.medium)) || ''; return { title: s.name || '', url: s.url || ('https://www.tvmaze.com/shows/' + s.id), cover: img, extra: { id: s.id } }; }); }).catch(function(e) { throw new Error('tvmaze search: ' + e.message); }); } catch (e) { throw new Error('tvmaze search: ' + e.message); } }",
+  "detail": "function detail(url) { try { var m = /\\/(\\d+)$/.exec(url || ''); if (!m) return { title: '未知', cover: null, description: null, extra: {} }; var id = m[1]; return fetch('https://api.tvmaze.com/shows/' + id).then(function(r) { if (r.status !== 200) return { title: id, cover: null, description: null, extra: {} }; var s = JSON.parse(r.body); var img = (s.image && (s.image.original || s.image.medium)) || null; var desc = (s.summary || '').replace(/<[^>]+>/g, ''); return { title: s.name || id, cover: img, description: desc || null, extra: {} }; }).catch(function() { return { title: id, cover: null, description: null, extra: {} }; }); } catch (e) { return { title: '未知', cover: null, description: null, extra: {} }; } }",
+  "chapter": "function chapter(detailUrl) { try { var m = /\\/(\\d+)$/.exec(detailUrl || ''); if (!m) return []; var id = m[1]; return fetch('https://api.tvmaze.com/shows/' + id + '/episodes').then(function(r) { if (r.status !== 200) return []; var list = JSON.parse(r.body) || []; return list.map(function(ep) { return { id: String(ep.id), title: ('S' + (ep.season || 1) + 'E' + (ep.number || ep.airdate || '')) + ' ' + (ep.name || ''), url: ep.url || ('https://www.tvmaze.com/episodes/' + ep.id), index: ep.number || 0 }; }); }).catch(function() { return []; }); } catch (e) { return []; } }",
+  "parse": "function parse(chapterUrl) { try { return { urls: [], kind: 'video' }; } catch (e) { return { urls: [], kind: 'video' }; } }"
+}

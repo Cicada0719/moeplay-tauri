@@ -1,0 +1,16 @@
+{
+  "name": "Royal Road",
+  "id": "royalroad",
+  "version": "1.0.0",
+  "contentType": "novel",
+  "baseUrl": "https://www.royalroad.com",
+  "language": "en",
+  "nsfw": false,
+  "author": "MoeGame",
+  "probeKeyword": "Cradle",
+  "licenseNote": "Self-authored rule. Royal Road (royalroad.com) web-novel HTML scraping via regex.",
+  "search": "function search(kw, page) { try { var url = 'https://www.royalroad.com/fictions/search?title=' + encodeURIComponent(kw); return fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }).then(function(r) { if (r.status !== 200) return []; var html = r.body; var items = []; var re = /href=\"(\\/fiction\\/\\d+\\/[^\"]+)\"[^>]*>([^<]+)<\\/a>/g; var m; var seen = {}; while ((m = re.exec(html)) !== null && items.length < 40) { var href = m[1]; if (seen[href]) continue; seen[href] = true; items.push({ title: (m[2] || '').trim(), url: 'https://www.royalroad.com' + href, cover: '', extra: {} }); } return items; }).catch(function(e) { throw new Error('royalroad search: ' + e.message); }); } catch (e) { throw new Error('royalroad search: ' + e.message); } }",
+  "detail": "function detail(url) { try { return fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }).then(function(r) { if (r.status !== 200) return { title: '未知', cover: null, description: null, extra: {} }; var html = r.body; var tM = /<h1[^>]*>([^<]+)/.exec(html) || /<title>([^<]+)/.exec(html); var ogM = /property=\"og:image\"[^>]*content=\"([^\"]+)\"/.exec(html); var dM = /class=\"description\"[^>]*>([\\s\\S]*?)<\\/div>/.exec(html); var desc = dM ? dM[1].replace(/<[^>]+>/g, '').replace(/\\s+/g, ' ').trim() : null; return { title: (tM && tM[1]) || '未知', cover: (ogM && ogM[1]) || null, description: desc, extra: {} }; }).catch(function() { return { title: '未知', cover: null, description: null, extra: {} }; }); } catch (e) { return { title: '未知', cover: null, description: null, extra: {} }; } }",
+  "chapter": "function chapter(detailUrl) { try { return fetch(detailUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }).then(function(r) { if (r.status !== 200) return []; var html = r.body; var items = []; var re = /href=\"(\\/fiction\\/\\d+\\/[^\"]+\\/chapter\\/[^\"]+)\"[^>]*>([^<]+)<\\/a>/g; var m; var idx = 0; var seen = {}; while ((m = re.exec(html)) !== null && items.length < 500) { var href = m[1]; if (seen[href]) continue; seen[href] = true; idx += 1; items.push({ id: String(idx), title: (m[2] || '').trim(), url: 'https://www.royalroad.com' + href, index: idx }); } return items; }).catch(function() { return []; }); } catch (e) { return []; } }",
+  "parse": "function parse(chapterUrl) { try { return { urls: [], kind: 'text' }; } catch (e) { return { urls: [], kind: 'text' }; } }"
+}

@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   open: vi.fn(),
   importRule: vi.fn(),
   removeCustomRule: vi.fn(),
+  getHealth: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -18,6 +19,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 vi.mock("../api/rules", () => ({
   importRule: mocks.importRule,
   removeCustomRule: mocks.removeCustomRule,
+  getHealth: mocks.getHealth,
 }));
 
 function rule(overrides: Partial<LoadedRule> & { id: string; manifest: LoadedRule["manifest"] }): LoadedRule {
@@ -45,6 +47,7 @@ const READY_MANIFEST = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.getHealth.mockResolvedValue([]);
   sourceSwitchState.set({ switching: false, currentScope: null, lastError: null, lastResult: null });
 });
 
@@ -124,5 +127,37 @@ describe("SourceList", () => {
     });
     // 成功后无错误提示
     expect(screen.queryByTestId("import-error")).not.toBeInTheDocument();
+  });
+
+  it("健康状态：Abnormal 沉底、置灰但可点击，Healthy 置顶（spec task-02 Step 7.4）", async () => {
+    const healthy = rule({
+      id: "healthy-1",
+      manifest: { ...READY_MANIFEST, name: "健康源" },
+    });
+    const abnormal = rule({
+      id: "abnormal-1",
+      manifest: { ...READY_MANIFEST, name: "异常源" },
+    });
+    mocks.getHealth.mockResolvedValue([
+      { sourceId: "healthy-1", status: "Healthy", consecutiveFailures: 0, lastCheckedAt: 1, lastLatencyMs: 50, lastError: null },
+      { sourceId: "abnormal-1", status: "Abnormal", consecutiveFailures: 3, lastCheckedAt: 1, lastLatencyMs: 500, lastError: "网络错误" },
+    ]);
+
+    // 入参顺序为 [abnormal, healthy]，渲染后应被 sortByHealth 重排
+    render(SourceList, { props: { rules: [abnormal, healthy], activeRuleId: null } });
+
+    await waitFor(() => {
+      const items = screen.getAllByTestId("source-item") as HTMLButtonElement[];
+      expect(items).toHaveLength(2);
+      expect(items[0].textContent).toContain("健康源");
+      expect(items[1].textContent).toContain("异常源");
+      expect(items[1]).toHaveClass("health-abnormal");
+      expect(items[1]).not.toBeDisabled(); // 异常源仍可点击（FR-04 不阻止手动尝试）
+    });
+
+    const badges = screen.getAllByTestId("source-health");
+    expect(badges[0]).toHaveAttribute("data-status", "Healthy");
+    expect(badges[1]).toHaveAttribute("data-status", "Abnormal");
+    expect(badges[1]).toHaveAttribute("title", "网络错误");
   });
 });

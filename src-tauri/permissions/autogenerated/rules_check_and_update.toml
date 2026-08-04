@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rules-check-and-update"
+description = "Enables the rules_check_and_update command without any pre-configured scope."
+commands.allow = ["rules_check_and_update"]
+
+[[permission]]
+identifier = "deny-rules-check-and-update"
+description = "Denies the rules_check_and_update command without any pre-configured scope."
+commands.deny = ["rules_check_and_update"]

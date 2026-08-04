@@ -1,0 +1,149 @@
+{
+  "packageVersion": "2026.08.1",
+  "publishedAt": 1785830400,
+  "rules": [
+    {
+      "contentType": "anime",
+      "id": "agefans",
+      "lang": "zh-CN",
+      "name": "AGE 动漫",
+      "nsfw": false,
+      "path": "anime/agefans.json",
+      "probeKeyword": "进击的巨人",
+      "sha256": "ea3de24b523df50f48a679fd9fe7b47d42892858d069690c14ccbc991f8fde8b",
+      "version": "1.0.0"
+    },
+    {
+      "contentType": "anime",
+      "id": "anilist",
+      "lang": "en",
+      "name": "AniList 动画",
+      "nsfw": false,
+      "path": "anime/anilist.json",
+      "probeKeyword": "Shingeki no Kyojin",
+      "sha256": "c452d24955dc76a7c67b73f11e007ab02ce139412670f3f8d27c2249cb20ce7b",
+      "version": "1.0.0"
+    },
+    {
+      "contentType": "anime",
+      "id": "bangumi",
+      "lang": "zh-CN",
+      "name": "Bangumi 番组计划",
+      "nsfw": false,
+      "path": "anime/bangumi.json",
+      "probeKeyword": "进击的巨人",
+      "sha256": "e3c341ba46d32b0a38b1c98d9f9584a8dcaf8ac68b68ca3c48c81704b25c9228",
+      "version": "1.0.0"
+    },
+    {
+      "contentType": "anime",
+      "id": "kitsu",
+      "lang": "en",
+      "name": "Kitsu 动画",
+      "nsfw": false,
+      "path": "anime/kitsu.json",
+      "probeKeyword": "Shingeki no Kyojin",
+      "sha256": "84f024584b4eb067ed848bc517d9fb35be5c1b06c3c08af190ddd12aa7b55a4b",
+      "version": "1.0.0"
+    },
+    {
+      "contentType": "anime",
+      "id": "mikan",
+      "lang": "zh-CN",
+      "name": "蜜柑计划 Mikan",
+      "nsfw": false,
+      "path": "anime/mikan.json",
+      "probeKeyword": "Shingeki no Kyojin",
+      "sha256": "c99ee69cfc6f463bb328a5dd1995954fdfa6190e32c79693034e1095a78ac78d",
+      "version": "1.0.0"
+    },
+    {
+      "contentType": "anime",
+      "id": "tvmaze",
+      "lang": "en",
+      "name": "TVmaze 剧集",
+      "nsfw": false,
+      "path": "anime/tvmaze.json",
+      "probeKeyword": "Shingeki no Kyojin",
+      "sha256": "82d1b83601ab1a111e580486873dd570b3cee2cf341fee2c3c1e6347b9284ae3",
+      "version": "1.0.0"
+    },
+    {
+      "contentType": "manga",
+      "id": "anilist-manga",
+      "lang": "en",
+      "name": "AniList 漫画",
+      "nsfw": true,
+      "path": "manga/anilist-manga.json",
+      "probeKeyword": "Shingeki no Kyojin",
+      "sha256": "82a20bb89ed4b465d686e4f6f60eccd0a1d1d2e8e02877a1fe301d208e114f58",
+      "version": "1.0.0"
+    },
+    {
+      "contentType": "manga",
+      "id": "kitsu-manga",
+      "lang": "en",
+      "name": "Kitsu 漫画",
+      "nsfw": true,
+      "path": "manga/kitsu-manga.json",
+      "probeKeyword": "Shingeki no Kyojin",
+      "sha256": "17bb9bba684144d711608aae0d980dfcaad409634e0e4ed9f102d212526b073a",
+      "version": "1.0.0"
+    },
+    {
+      "contentType": "manga",
+      "id": "mangadex",
+      "lang": "en",
+      "name": "MangaDex",
+      "nsfw": true,
+      "path": "manga/mangadex.json",
+      "probeKeyword": "Shingeki no Kyojin",
+      "sha256": "69ca90ccbdaa6f8d71571a23118f1c323daf54b7807838203e25159b6cb0177e",
+      "version": "1.0.0"
+    },
+    {
+      "contentType": "manga",
+      "id": "mangapill",
+      "lang": "en",
+      "name": "MangaPill",
+      "nsfw": false,
+      "path": "manga/mangapill.json",
+      "probeKeyword": "Shingeki no Kyojin",
+      "sha256": "92379fc31c7684ae98e1e8932e7a4fe2c7d708f3a9c154fd54e720efe81c6ef2",
+      "version": "1.0.0"
+    },
+    {
+      "contentType": "novel",
+      "id": "bangumi-novel",
+      "lang": "zh-CN",
+      "name": "Bangumi 书籍",
+      "nsfw": false,
+      "path": "novel/bangumi-novel.json",
+      "probeKeyword": "三体",
+      "sha256": "ebf57c3f951158c82f7ea8d4825ace53098ed3f89fd188e9431c7604999c28d0",
+      "version": "1.0.0"
+    },
+    {
+      "contentType": "novel",
+      "id": "openlibrary",
+      "lang": "en",
+      "name": "Open Library 书籍",
+      "nsfw": false,
+      "path": "novel/openlibrary.json",
+      "probeKeyword": "Cradle",
+      "sha256": "830ae98605a1a0c9eb8fbfe36e47fe992ac0042815d3ba39ad0c0f487cc187f0",
+      "version": "1.0.0"
+    },
+    {
+      "contentType": "novel",
+      "id": "royalroad",
+      "lang": "en",
+      "name": "Royal Road",
+      "nsfw": false,
+      "path": "novel/royalroad.json",
+      "probeKeyword": "Cradle",
+      "sha256": "f6b164b481d883425d1d72a839274da2775e8f59a842773280d79c6a49c6eeb3",
+      "version": "1.0.0"
+    }
+  ]
+}

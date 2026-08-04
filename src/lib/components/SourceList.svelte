@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { createEventDispatcher } from "svelte";
+  import { createEventDispatcher, onMount } from "svelte";
   import { open } from "@tauri-apps/plugin-dialog";
-  import type { LoadedRule } from "../api/rules";
-  import { importRule, removeCustomRule } from "../api/rules";
+  import type { LoadedRule, SourceHealthInfo } from "../api/rules";
+  import { getHealth, importRule, removeCustomRule } from "../api/rules";
+  import SourceHealth from "./SourceHealth.svelte";
+  import { sortByHealth } from "../utils/sourceSort";
   import { sourceSwitchState } from "../stores/sourceSwitch";
 
   let {
@@ -18,6 +20,25 @@
     import: { rule: LoadedRule };
     remove: { ruleId: string };
   }>();
+
+  // 源健康状态（spec task-02 Step 7.4）：onMount 读缓存状态，不触发探测。
+  let healthList: SourceHealthInfo[] = $state([]);
+  // 经 sortByHealth 排序后渲染：Healthy 置顶、Abnormal 沉底（FR-04）。
+  const sortedRules = $derived(sortByHealth(rules, healthList));
+
+  function healthFor(id: string): SourceHealthInfo | undefined {
+    return healthList.find((h) => h.sourceId === id);
+  }
+
+  onMount(() => {
+    void getHealth()
+      .then((h) => {
+        healthList = h;
+      })
+      .catch(() => {
+        healthList = [];
+      });
+  });
 
   let importError: string | null = $state(null);
   let busy = $state(false);
@@ -81,13 +102,15 @@
   {/if}
 
   <ul class="source-list__items">
-    {#each rules as rule (rule.id)}
+    {#each sortedRules as rule (rule.id)}
+      {@const health = healthFor(rule.id)}
       <li class="source-row">
         <button
           type="button"
           class="source-item"
           class:active={rule.id === activeRuleId}
           class:invalid={rule.status === "invalid"}
+          class:health-abnormal={health?.status === "Abnormal"}
           disabled={rule.status === "invalid" || $sourceSwitchState.switching}
           title={rule.status === "invalid" ? rule.error?.message : rule.manifest.baseUrl}
           onclick={() => onSelect(rule.id)}
@@ -96,6 +119,12 @@
           data-origin={rule.origin}
         >
           <span class="source-name">{rule.manifest.name}</span>
+          <SourceHealth
+            status={health?.status ?? "Unknown"}
+            latencyMs={health?.lastLatencyMs ?? null}
+            lastError={health?.lastError ?? null}
+            size="sm"
+          />
           {#if rule.origin === "custom"}
             <span class="badge" data-testid="custom-badge">自定义</span>
           {/if}
@@ -195,6 +224,13 @@
   .source-item.invalid {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+  /* 异常源置灰 30% 透明度但保持可点击（FR-04：不阻止用户手动尝试） */
+  .source-item.health-abnormal {
+    opacity: 0.3;
+  }
+  .source-item.health-abnormal:hover {
+    opacity: 0.6;
   }
   .source-item:disabled {
     cursor: not-allowed;
