@@ -10,7 +10,12 @@
   import { onDestroy, untrack } from 'svelte';
   import { buildHistoryId, upsertHistory } from '../../history/historyApi';
   import type { HistoryItem } from '../../history/types';
-  import { probeImageSize } from '../../reader/imageMeta';
+  import { getCachedImageSize, probeImageSize } from '../../reader/imageMeta';
+  import {
+    attachPreloadImage,
+    hasPreload,
+    touchPreload,
+  } from '../../reader/preloadCache';
   import {
     buildScreens,
     intentFromInput,
@@ -212,37 +217,12 @@
   });
 
   // ---- 预取 + LRU（模块级 Map，估算 width*height*4 字节，>200MB 淘汰最久未用）----
-  interface PreloadEntry {
-    url: string;
-    lastUsed: number;
-    bytes: number;
-  }
-  const preloadCache = new Map<string, PreloadEntry>();
-  let preloadBytes = 0;
-  const MAX_PRELOAD_BYTES = 200 * 1024 * 1024;
-
-  function touchPreload(url: string, bytes = 0) {
-    const existing = preloadCache.get(url);
-    if (existing) {
-      existing.lastUsed = Date.now();
-      return;
-    }
-    preloadCache.set(url, { url, lastUsed: Date.now(), bytes });
-    preloadBytes += bytes;
-    while (preloadBytes > MAX_PRELOAD_BYTES && preloadCache.size > 0) {
-      let oldestKey: string | null = null;
-      let oldest = Number.POSITIVE_INFINITY;
-      for (const [key, entry] of preloadCache) {
-        if (entry.lastUsed < oldest) {
-          oldest = entry.lastUsed;
-          oldestKey = key;
-        }
-      }
-      if (oldestKey === null) break;
-      const removed = preloadCache.get(oldestKey);
-      if (removed) preloadBytes = Math.max(0, preloadBytes - removed.bytes);
-      preloadCache.delete(oldestKey);
-    }
+  // 缓存本体（preloadCache / preloadBytes / MAX_PRELOAD_BYTES）在模块级
+  // `src/lib/reader/preloadCache.ts`，跨实例共享；这里只负责估算字节 + 持有 Image 引用。
+  function estimatePreloadBytes(url: string): number {
+    const size = getCachedImageSize(url);
+    if (!size || size.width <= 0 || size.height <= 0) return 0;
+    return size.width * size.height * 4;
   }
 
   function prefetchNearbyScreens() {
@@ -257,8 +237,10 @@
     for (const pageIndex of target) {
       const url = pages[pageIndex];
       if (!url) continue;
-      touchPreload(url);
+      touchPreload(url, estimatePreloadBytes(url));
+      if (!hasPreload(url)) continue; // 单图超预算已被自淘汰，跳过引用登记
       const img = new Image();
+      attachPreloadImage(url, img);
       img.src = url;
     }
   }

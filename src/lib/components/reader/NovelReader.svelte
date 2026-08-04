@@ -135,7 +135,7 @@
       </div>
     {:else}
       <article class="novel-article">
-        {#each content.split(/\n+/) as paragraph (paragraph)}
+        {#each content.split(/\n+/) as paragraph, index (index)}
           <p>{paragraph}</p>
         {/each}
       </article>

@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mangaSettingsKey } from "../../stores/readerSettings";
+import { clearPreloadCache } from "../../reader/preloadCache";
 import ComicReader from "./ComicReader.svelte";
 
 vi.mock("../../history/historyApi", () => ({
@@ -44,6 +45,7 @@ function renderComic(
 }
 
 beforeEach(() => {
+  clearPreloadCache();
   sizeMap.clear();
   vi.mocked(probeImageSize).mockImplementation(async (url: string) => {
     return sizeMap.get(url) ?? { width: 100, height: 100 };
@@ -52,6 +54,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  clearPreloadCache();
   localStorage.clear();
   sizeMap.clear();
   vi.restoreAllMocks();

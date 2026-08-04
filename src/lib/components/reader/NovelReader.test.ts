@@ -75,3 +75,27 @@ describe("NovelReader 滚动位置上报与恢复", () => {
     expect(vi.mocked(upsertHistory).mock.calls[0][0].scrollPct).toBe(0);
   });
 });
+
+describe("NovelReader keyed each 去重崩溃回归", () => {
+  it("C12d: 含重复段落的文本渲染不崩溃，重复段落全部保留", () => {
+    // 旧实现以段落文本作 each key，重复段落（如连续「——」）会触发
+    // Svelte 5 duplicate-key 运行期错误；改为索引 key 后应全部渲染。
+    const content = [
+      "第一段。",
+      "——",
+      "——",
+      "第二段。",
+      "",
+      "——",
+      "第三段。",
+    ].join("\n");
+    render(NovelReader, { props: { ...BASE_PROPS, content } });
+
+    const paragraphs = screen.getByTestId("novel-scroll").querySelectorAll("p");
+    expect(paragraphs).toHaveLength(6);
+    // 重复文本均渲染，不被去重丢弃。
+    const texts = Array.from(paragraphs).map((p) => p.textContent);
+    expect(texts.filter((t) => t === "——")).toHaveLength(3);
+    expect(screen.queryByTestId("novel-empty")).not.toBeInTheDocument();
+  });
+});
