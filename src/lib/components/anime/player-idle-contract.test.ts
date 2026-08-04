@@ -114,6 +114,23 @@ describe("player idle chrome contract", () => {
     expect(manifestBlock).toMatch(/if \(shouldPlay\) v\.play\(\)\.catch/);
   });
 
+  it("switchQuality 仅当 targetSrc 实际变化时才重载媒体（纯增强模式切换不重载，Kimi 复审）", () => {
+    const player = source("src/lib/components/anime/AnimePlayer.svelte");
+    // 复用同一 video 元素，不销毁重建容器（FR-06 根因）
+    expect(player).toContain("不销毁重建 video 元素");
+    // 重载判定收敛到 shouldReloadMedia：targetSrc 与 loadedMediaSrc 不同才重载
+    expect(player).toContain("shouldReloadMedia");
+    expect(player).toContain("loadedMediaSrc");
+    expect(player).toContain("if (el && shouldReloadMedia({");
+    // 真正替换 source 的调用仍在（HLS 复用实例 loadSource / 原生重新 src+load），
+    // 但必须由 src 变化判定门控，避免同源重缓冲
+    expect(player).toContain("activeHls.loadSource(targetSrc)");
+    expect(player).toContain("el.src = targetSrc");
+    // 重载失败路径清理 pendingQualitySeek / pendingQualitySeekSrc（Kimi 非阻塞建议）
+    expect(player).toContain("pendingQualitySeek = 0");
+    expect(player).toContain('pendingQualitySeekSrc = ""');
+  });
+
   it("SourceSuggestSheet 消费适配层源健康 store，关闭时清除错误状态（空列表可退出）", () => {
     const player = source("src/lib/components/anime/AnimePlayer.svelte");
     expect(player).toContain("setSourceProvider(buildSuggestSources)");

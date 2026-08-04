@@ -41,6 +41,7 @@
     type PlayerQuality,
   } from "../../stores/player";
   import { buildErrorLog, classifyPlaybackError, mergeFailureContext, type PlaybackFailureRecord } from "../../player/errorMap";
+  import { shouldReloadMedia } from "../../player/qualitySwitch";
   import {
     setSourceProvider,
     setSourceSwitchHandler,
@@ -124,6 +125,10 @@
   // `activeHls` 持有当前 HLS 实例供切换复用；`pendingQualitySeek` / `pendingQualitySeekSrc` /
   // `resumeAfterQualityLoad` 用于 loadedmetadata 后恢复进度与播放状态。
   let activeHls: Hls | null = null;
+  // 当前实际加载到媒体元素上的源地址：媒体初始化 effect 开始加载时记录；switchQuality
+  // 据此判断 targetSrc 是否真正变化——纯增强模式切换（同源）只更新 enhancement 管线状态，
+  // 不重载媒体，避免同源 m3u8 全量重缓冲（Kimi K3 复审 medium）。
+  let loadedMediaSrc = "";
   let pendingQualitySeek = $state(0);
   let pendingQualitySeekSrc = $state("");
   let resumeAfterQualityLoad = $state(true);
@@ -755,6 +760,10 @@
 
     startAttempt();
 
+    // 记录本次实际加载的源地址，供 switchQuality 判定「targetSrc 是否真正变化」：
+    // 同源时纯增强模式切换不重载媒体；仅在 cleanup 重建后由下一次 effect 覆盖。
+    loadedMediaSrc = src;
+
     return () => {
       clearWatchdog();
       clearPlaybackWatchdog();
@@ -789,15 +798,22 @@
    * 并恢复进度与播放状态（spec §3.3 / FR-06）。不销毁重建 video 元素 / 媒体初始化
    * effect——HLS.js 复用同一实例 `loadSource`，原生则重新 `src + load`；idleTimer 因
    * 绑定在稳定的全屏容器上无需重建，从而根治超清切换后控制栏不再隐藏的问题。
+   *
+   * Kimi K3 复审（medium）：画质档位是本地超清化 enhancement 管线状态，与视频源无关。
+   * `targetSrc`（animeStore.playerVideoSrc）未变化时只更新 enhancement 管线状态
+   * （VideoEnhancementCanvas 响应 videoEnhancementMode），绝不重载媒体，避免同源
+   * m3u8 全量重缓冲；仅当 `targetSrc` 相对当前已加载源（loadedMediaSrc）真正变化时
+   * 才替换 source 重载。
    */
   async function switchQuality(quality: PlayerQuality): Promise<void> {
     const el = videoEl;
     const resumeAt = el ? el.currentTime : 0;
     const wasPaused = el ? el.paused : true;
     const targetSrc = animeStore.playerVideoSrc;
-    const changed = quality !== enhancementMode;
+    // 先捕获当前档位再更新：enhancementMode 是 $derived，赋值后读取会拿到新值
+    const previousMode = enhancementMode;
     animeStore.videoEnhancementMode = quality;
-    if (el && targetSrc && changed) {
+    if (el && shouldReloadMedia({ el, targetSrc, loadedSrc: loadedMediaSrc, quality, currentQuality: previousMode })) {
       // spec §3.3：仅替换 source 并 seek，不销毁元素/实例。原生分支在 loadedmetadata 后
       // seek 回原位置；HLS 分支的消费在 attachHls 的 MANIFEST_PARSED handler 内完成
       // （loadedmetadata 的 src 比对对 HLS 不适用——video.src 是 MediaSource/blob URL，
@@ -805,13 +821,22 @@
       pendingQualitySeek = resumeAt;
       pendingQualitySeekSrc = targetSrc;
       resumeAfterQualityLoad = !wasPaused;
-      if (activeHls) {
-        // 保留 HLS 实例复用：仅重新 loadSource，不销毁重建实例；loadSource 后 HLS 再次
-        // 触发 MANIFEST_PARSED，由 attachHls 注册的 handler 消费 pendingQualitySeek 并条件恢复播放。
-        activeHls.loadSource(targetSrc);
-      } else {
-        el.src = targetSrc;
-        try { el.load(); } catch {}
+      try {
+        if (activeHls) {
+          // 保留 HLS 实例复用：仅重新 loadSource，不销毁重建实例；loadSource 后 HLS 再次
+          // 触发 MANIFEST_PARSED，由 attachHls 注册的 handler 消费 pendingQualitySeek 并条件恢复播放。
+          activeHls.loadSource(targetSrc);
+        } else {
+          el.src = targetSrc;
+          try { el.load(); } catch {}
+        }
+        loadedMediaSrc = targetSrc;
+      } catch {
+        // 重载失败路径：清理残留的 pendingQualitySeek，避免被后续无关加载误消费旧进度
+        // （Kimi K3 非阻塞建议）。
+        pendingQualitySeek = 0;
+        pendingQualitySeekSrc = "";
+        resumeAfterQualityLoad = true;
       }
       return;
     }
