@@ -148,7 +148,12 @@ pub const BACKUP_PREFIX: &str = "history_v1_backup_";
 pub const BATCH_SIZE: usize = 500;
 /// v2 schema 版本号（与 `PRAGMA user_version` 对齐）。
 pub const V2_SCHEMA_VERSION: i64 = 2;
-/// 迁移进度事件名（spec §4.2 步骤 8 定义的 wire 契约，前端订阅方以此为准）。
+/// 迁移进度事件名（wire 契约，前端订阅方以此为准）。
+///
+/// 事件名统一为 `migration://progress`：spec §4.2 步骤 8 明文定义为
+/// `migration://progress`，步骤 7 的示例文本写作 `migration-progress`（连字符）属笔误。
+/// 实现以步骤 8 为准；spec 属"禁止修改清单"（第 4 轮 DeepSeek 审核 item 1）已还原，
+/// 口径差异以本注释 + PR 说明表达，不再改动 spec 文件。
 pub const MIGRATION_PROGRESS_EVENT: &str = "migration://progress";
 
 /// 迁移状态（对前端 wire format 为 camelCase）。
@@ -271,28 +276,36 @@ impl Migrator {
 
     /// 启动时调用：判断是否需要迁移。
     ///
+    /// 状态机（spec §3.3 / §4.2 步骤 5）：
     /// - `migration_state` 无 completed 记录且 v1 JSON 存在 → `Pending`
     /// - 上次中断（`in_progress`）→ `InProgress`（断点续迁）
     /// - 上次失败（`failed`/`rolled_back`）→ `Pending`（从头重试）
     /// - 已完成或无 v1 数据 → `NotNeeded`
+    ///
+    /// 阻塞语义：`check()` 会获取数据库连接锁（可能等待后台迁移写库结束），
+    /// 适合启动流程与 `migration_status` 这类"专查状态"的入口；`history_*`
+    /// 命令入口必须用 [`Self::try_check`] 的非阻塞变体（第 4 轮审核 item 2）。
     pub fn check(&self) -> Result<MigrationStatus, MigrationError> {
         let conn = self.db.conn();
         let guard = lock_conn(&conn)?;
-        match load_state(&guard)? {
-            Some(row) => match row.status.as_str() {
-                "completed" => Ok(MigrationStatus::NotNeeded),
-                "in_progress" => Ok(MigrationStatus::InProgress),
-                "failed" | "rolled_back" => Ok(MigrationStatus::Pending),
-                _ => Ok(MigrationStatus::Pending),
-            },
-            None => {
-                if self.app_data_dir.join(V1_HISTORY_FILE).exists() {
-                    Ok(MigrationStatus::Pending)
-                } else {
-                    Ok(MigrationStatus::NotNeeded)
-                }
+        status_from_state(&guard, &self.app_data_dir)
+    }
+
+    /// 非阻塞状态检查：`history_*` 命令入口专用（第 4 轮 DeepSeek 审核 item 2）。
+    ///
+    /// 若后台迁移正持有数据库连接锁（分批写库中），返回 `Ok(None)` 表示
+    /// "落盘状态此刻不可读"，调用方不得等待，应按"迁移进行中"返回
+    /// `MIGRATION_PENDING`。仅当成功拿到锁时返回 `Ok(Some(status))`。
+    pub(crate) fn try_check(&self) -> Result<Option<MigrationStatus>, MigrationError> {
+        let conn = self.db.conn();
+        let guard = match conn.try_lock() {
+            Ok(guard) => guard,
+            Err(std::sync::TryLockError::WouldBlock) => return Ok(None),
+            Err(std::sync::TryLockError::Poisoned(_)) => {
+                return Err(MigrationError::Migration("history db lock poisoned".to_string()));
             }
-        }
+        };
+        Ok(Some(status_from_state(&guard, &self.app_data_dir)?))
     }
 
     /// 执行迁移（同步阻塞；调用方需在 `spawn_blocking` 中运行）。
@@ -315,6 +328,10 @@ impl Migrator {
     /// “从备份恢复”入口（R4 应对）：将备份 JSON 作为 v1 数据源重新迁移。
     ///
     /// 与 `run` 共享 `run_lock`，避免与并发迁移交错执行。
+    ///
+    /// 恢复成功后会把备份内容**写回 v1 路径**（`<app_data_dir>/history.json`，
+    /// 第 4 轮 DeepSeek 审核 item 4）：迁移状态虽已 `completed`，但用户能直接看到
+    /// v1 数据文件"回来了"，避免误以为恢复失败。
     pub fn restore_from_backup(&self, backup_path: &Path) -> Result<MigrationReport, MigrationError> {
         if !backup_path.exists() {
             return Err(MigrationError::BackupNotFound(backup_path.to_path_buf()));
@@ -324,7 +341,24 @@ impl Migrator {
             .lock()
             .map_err(|_| MigrationError::Migration("migration run lock poisoned".to_string()))?;
         self.reset_state_for_restore(backup_path)?;
-        self.run_with_source(backup_path)
+        let report = self.run_with_source(backup_path)?;
+        self.write_backup_to_v1_path(backup_path)?;
+        Ok(report)
+    }
+
+    /// 把备份文件内容复制回 v1 路径 `history.json`（恢复成功的可见性保证）。
+    ///
+    /// 注意：`run_with_source` 成功路径会先把残留的旧 `history.json` 重命名为
+    /// `.migrated`，这里再写入的就是本次恢复的备份内容，二者不会互相覆盖。
+    fn write_backup_to_v1_path(&self, backup_path: &Path) -> Result<(), MigrationError> {
+        let v1_path = self.app_data_dir.join(V1_HISTORY_FILE);
+        std::fs::copy(backup_path, &v1_path)?;
+        tracing::info!(
+            v1 = %v1_path.display(),
+            backup = %backup_path.display(),
+            "backup content restored to v1 history.json"
+        );
+        Ok(())
     }
 
     /// 列出备份目录下的 v1 备份文件。
@@ -585,9 +619,7 @@ impl Migrator {
                     "history migration batch committed"
                 );
                 if let Some(hook) = &self.batch_hook {
-                    if let Err(error) = hook(batch_index) {
-                        return Err(error);
-                    }
+                    hook(batch_index)?;
                 }
                 offset = end;
             }
@@ -662,14 +694,20 @@ impl Migrator {
 
         match outcome {
             Ok(report) => Ok(report),
-            Err(error) => Err(self.fail_and_rollback(&error.to_string())),
+            // 回滚时保留本次备份路径：备份文件不因失败而"孤儿化"，下次重试直接复用
+            // 该备份（第 4 轮 DeepSeek 审核 item 5：rolled_back 后 check() 返回 Pending，
+            // 重试不应再生成第二份备份）。
+            Err(error) => Err(self.fail_and_rollback(&error.to_string(), backup_str.clone())),
         }
     }
 
     /// 失败自动回滚：删除 staging 表登记的本次写入 + 清空 staging + 标记
     /// `rolled_back`。返回携带原错误信息的 `MigrationError`。
-    fn fail_and_rollback(&self, message: &str) -> MigrationError {
-        match self.do_rollback(message) {
+    ///
+    /// `backup_path` 为本次迁移实际使用的备份路径（`run_with_source` 已确认存在），
+    /// 回滚后仍写回 `migration_state`，避免备份文件与状态脱节成为孤儿。
+    fn fail_and_rollback(&self, message: &str, backup_path: String) -> MigrationError {
+        match self.do_rollback(message, backup_path) {
             Ok(()) => MigrationError::Migration(message.to_string()),
             Err(rollback_error) => {
                 tracing::error!(
@@ -682,7 +720,7 @@ impl Migrator {
         }
     }
 
-    fn do_rollback(&self, message: &str) -> Result<(), MigrationError> {
+    fn do_rollback(&self, message: &str, backup_path: String) -> Result<(), MigrationError> {
         tracing::error!(message, "history migration failed, rolling back");
         let conn = self.db.conn();
         let mut guard = lock_conn(&conn)?;
@@ -771,7 +809,9 @@ impl Migrator {
                 total_count: 0,
                 migrated_count: 0,
                 last_offset: 0,
-                backup_path: None,
+                // 保留本次备份路径：check() 据此返回 Pending（重试），重试的 run()
+                // 复用该备份而不再生成第二份（第 4 轮 DeepSeek 审核 item 5）。
+                backup_path: Some(backup_path),
                 error_message: Some(message.to_string()),
                 started_at: None,
                 finished_at: Some(now_ms()),
@@ -820,6 +860,31 @@ fn lock_conn(
 ) -> Result<MutexGuard<'_, rusqlite::Connection>, MigrationError> {
     conn.lock()
         .map_err(|_| MigrationError::Migration("history db lock poisoned".to_string()))
+}
+
+/// 由 `migration_state` 单行 + v1 文件存在性推导迁移状态（spec §3.3 状态机）。
+///
+/// `check()` / `try_check()` 共用，保证两种入口的判定口径完全一致。
+fn status_from_state(
+    conn: &Connection,
+    app_data_dir: &Path,
+) -> Result<MigrationStatus, MigrationError> {
+    match load_state(conn)? {
+        Some(row) => match row.status.as_str() {
+            "completed" => Ok(MigrationStatus::NotNeeded),
+            "in_progress" => Ok(MigrationStatus::InProgress),
+            // 失败/回滚 → Pending：下次 run() 从头重试（spec §3.3.c）。
+            "failed" | "rolled_back" => Ok(MigrationStatus::Pending),
+            _ => Ok(MigrationStatus::Pending),
+        },
+        None => {
+            if app_data_dir.join(V1_HISTORY_FILE).exists() {
+                Ok(MigrationStatus::Pending)
+            } else {
+                Ok(MigrationStatus::NotNeeded)
+            }
+        }
+    }
 }
 
 fn load_state(conn: &Connection) -> Result<Option<MigrationStateRow>, MigrationError> {

@@ -479,6 +479,17 @@ fn test_restore_from_backup() {
         1,
         "restore must not create a second backup"
     );
+    // 恢复成功后备份内容写回 v1 路径（第 4 轮审核 item 4）：用户能看到数据"回来了"，
+    // 避免误以为恢复失败。
+    assert!(
+        dir.path().join("history.json").exists(),
+        "restore must write backup content back to history.json"
+    );
+    assert_eq!(
+        std::fs::read(dir.path().join("history.json")).unwrap(),
+        std::fs::read(&backups[0]).unwrap(),
+        "history.json must equal the restored backup content"
+    );
 }
 
 #[test]
@@ -630,6 +641,9 @@ fn test_command_gating() {
 #[test]
 fn test_progress_event_name_matches_spec() {
     // spec §4.2 步骤 8：事件名必须是 `migration://progress`（前端订阅方 wire 契约）。
+    // 步骤 7 的示例文本写作 `migration-progress`（连字符）属笔误；实现以步骤 8 为准。
+    // spec 属"禁止修改清单"（第 4 轮审核 item 1）已还原，口径差异以 mod.rs 常量注释
+    // + PR 说明表达。
     assert_eq!(MIGRATION_PROGRESS_EVENT, "migration://progress");
 }
 
@@ -825,7 +839,7 @@ fn test_crash_resume_keeps_original_replaced_snapshot() {
 #[test]
 fn test_history_gate_refresh_after_completion() {
     // 启动迁移在 spawn_blocking 完成后，内存门控可能仍停留在 InProgress；
-    // history_* 命令入口应先调用 refresh_gate（migrator.check()）刷新，避免误报 MIGRATION_PENDING。
+    // history_* 命令入口通过 gate_history 的非阻塞落盘核对刷新门控，避免误报 MIGRATION_PENDING。
     let dir = temp_app_dir();
     write_v1(dir.path(), &[v1("c1", "anime", "T", map!())]);
     let db = HistoryDb::open(dir.path()).unwrap();
@@ -839,10 +853,10 @@ fn test_history_gate_refresh_after_completion() {
     };
     assert!(ensure_history_available(&*state.migration_status.read().unwrap()).is_err());
 
-    let refreshed = super::commands::refresh_gate(&state).unwrap();
-    assert_eq!(refreshed, MigrationStatus::NotNeeded);
+    let status = super::commands::gate_history(&state).unwrap();
+    assert_eq!(status, MigrationStatus::NotNeeded);
     assert_eq!(*state.migration_status.read().unwrap(), MigrationStatus::NotNeeded);
-    assert!(ensure_history_available(&refreshed).is_ok());
+    assert!(ensure_history_available(&status).is_ok());
 }
 
 // ---------------------------------------------------------------------------
@@ -1045,6 +1059,146 @@ fn test_concurrent_runs_serialized() {
     assert_eq!(r2.status, MigrationStatus::NotNeeded);
     assert_eq!(history_rows(&db).len(), 600);
     assert_no_duplicates(&db);
+}
+
+// ---------------------------------------------------------------------------
+// 第 4 轮 DeepSeek 审核修复的回归测试
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_gate_history_returns_pending_when_lock_held() {
+    // item 2：后台迁移持有数据库连接锁时，`history_*` 命令入口必须立即返回
+    // `MIGRATION_PENDING`，绝不阻塞等待锁释放。
+    let dir = temp_app_dir();
+    write_v1(dir.path(), &[v1("c1", "anime", "T", map!())]);
+    let db = HistoryDb::open(dir.path()).unwrap();
+    let migrator = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
+    let state = super::commands::AppState {
+        migrator: Some(migrator),
+        history: Some(db.clone()),
+        // 内存门控停在 InProgress（后台迁移进行中），与磁盘锁无关。
+        migration_status: Arc::new(RwLock::new(MigrationStatus::InProgress)),
+    };
+    // 模拟后台迁移正在写库：本线程持有连接锁，try_check 的 try_lock 将 WouldBlock。
+    let conn_arc = db.conn();
+    let lock_guard = conn_arc.lock().unwrap();
+    let result = super::commands::gate_history(&state);
+    drop(lock_guard);
+    assert_eq!(
+        result.unwrap_err(),
+        "MIGRATION_PENDING",
+        "gate must return MIGRATION_PENDING immediately when the DB lock is held"
+    );
+}
+
+#[test]
+fn test_gate_history_refreshes_from_disk_when_unlocked() {
+    // item 2：内存门控陈旧（InProgress）但落盘已完成时，`gate_history` 用非阻塞
+    // try_lock 核对落盘状态并放行，避免误报 MIGRATION_PENDING。
+    let dir = temp_app_dir();
+    write_v1(dir.path(), &[v1("c1", "anime", "T", map!())]);
+    let db = HistoryDb::open(dir.path()).unwrap();
+    let migrator = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
+    migrator.run().unwrap(); // 磁盘已完成（NotNeeded）
+
+    let state = super::commands::AppState {
+        migrator: Some(migrator.clone()),
+        history: Some(db),
+        // 陈旧的内存门控：后台迁移任务可能刚结束但尚未写回 status_arc。
+        migration_status: Arc::new(RwLock::new(MigrationStatus::InProgress)),
+    };
+    let status = super::commands::gate_history(&state).unwrap();
+    assert_eq!(status, MigrationStatus::NotNeeded);
+    assert_eq!(
+        *state.migration_status.read().unwrap(),
+        MigrationStatus::NotNeeded,
+        "gate must refresh the in-memory gate after a non-blocking disk check"
+    );
+}
+
+#[test]
+fn test_rollback_preserves_backup_path() {
+    // item 5：失败回滚后 `migration_state.backup_path` 必须保留（引用真实存在的
+    // 备份文件），备份不因失败而"孤儿化"。
+    let dir = temp_app_dir();
+    let entries: Vec<Value> = (0..600)
+        .map(|i| v1(&format!("c{i}"), "anime", &format!("T{i}"), map!()))
+        .collect();
+    write_v1(dir.path(), &entries);
+
+    let db = HistoryDb::open(dir.path()).unwrap();
+    let mut migrator = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
+    migrator.set_batch_hook(Some(Arc::new(|batch| {
+        if batch == 1 {
+            Err(MigrationError::Migration("injected".into()))
+        } else {
+            Ok(())
+        }
+    })));
+    assert!(migrator.run().is_err());
+
+    let conn = db.conn();
+    let guard = conn.lock().unwrap();
+    let status: String = guard
+        .query_row("SELECT status FROM migration_state WHERE id=1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(status, "rolled_back");
+    let backup_path: Option<String> = guard
+        .query_row("SELECT backup_path FROM migration_state WHERE id=1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    drop(guard);
+    assert!(
+        backup_path.is_some(),
+        "rolled_back state must keep backup_path, got {backup_path:?}"
+    );
+    assert!(
+        Path::new(backup_path.as_deref().unwrap()).exists(),
+        "preserved backup_path must reference an existing file"
+    );
+}
+
+#[test]
+fn test_check_after_rollback_pending_and_retry_reuses_backup() {
+    // item 5：迁移失败（rolled_back）后 check() 返回 Pending（从头重试），
+    // 且重试 run() 复用已保留的备份路径，不生成第二份孤儿备份。
+    let dir = temp_app_dir();
+    let entries: Vec<Value> = (0..600)
+        .map(|i| v1(&format!("c{i}"), "anime", &format!("T{i}"), map!()))
+        .collect();
+    write_v1(dir.path(), &entries);
+
+    let db = HistoryDb::open(dir.path()).unwrap();
+    let mut migrator = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
+    migrator.set_batch_hook(Some(Arc::new(|batch| {
+        if batch == 1 {
+            Err(MigrationError::Migration("injected".into()))
+        } else {
+            Ok(())
+        }
+    })));
+    assert!(migrator.run().is_err());
+    // 边界行为核对：rolled_back → Pending（spec §3.3.c）。
+    assert_eq!(
+        migrator.check().unwrap(),
+        MigrationStatus::Pending,
+        "check() must return Pending after rollback"
+    );
+    assert_eq!(migrator.list_backups().unwrap().len(), 1);
+
+    // 重试（无注入）→ 成功；复用既有备份，备份数仍为 1。
+    let retry = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
+    let report = retry.run().unwrap();
+    assert_eq!(report.status, MigrationStatus::Completed);
+    assert_eq!(history_rows(&db).len(), 600);
+    assert_eq!(
+        retry.list_backups().unwrap().len(),
+        1,
+        "retry after rollback must reuse the preserved backup, not create a second one"
+    );
 }
 
 // ---------------------------------------------------------------------------

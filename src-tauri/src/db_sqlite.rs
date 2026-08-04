@@ -2963,8 +2963,14 @@ pub enum DbError {
 
 /// v2 schema（历史表 + 迁移状态表 + 迁移 staging 表）。
 ///
-/// 与 PRD §5.3 / spec §3.2 完全一致；`migration_staging` 为迁移回滚时维护
-/// “本次写入 id 集合”的临时表。
+/// 与 PRD §5.3 / spec §3.2 的 `history` / `migration_state` 完全一致；
+/// `migration_staging` 在 spec §3.2 单列 `id` 的基础上扩展了 `kind` / `snapshot_json`
+/// 两列——这是**第 2 轮 DeepSeek 审核"回滚恢复被覆盖行"要求**所必需：迁移失败回滚
+/// 不能只删除本次 INSERT 的行，还必须把被 UPDATE 覆盖的迁移前原行按快照还原，
+/// 单列 `id` 表无法表达"inserted → DELETE / replaced → 还原快照"两种回滚动作
+/// （spec §4.2 步骤 5 亦明确允许"更稳妥的做法"维护 richer 的 staging 表）。该扩展
+/// 是迁移框架的内部实现细节，不构成对外 schema 契约；spec §3.2 的明文 schema 不再改动
+/// （spec 属禁止修改清单，第 4 轮审核 item 1/3）。
 pub const SCHEMA_V2_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS history (
   id            TEXT PRIMARY KEY,
@@ -3001,6 +3007,11 @@ CREATE TABLE IF NOT EXISTS migration_state (
   finished_at     INTEGER
 );
 
+-- 回滚 staging（内部实现细节，非对外 schema 契约）：
+--   id            本次迁移写入/覆盖的行；
+--   kind='inserted' → 回滚时 DELETE 该行；
+--   kind='replaced' → 回滚时按 snapshot_json 还原被覆盖的迁移前原行。
+-- 扩展列由第 2 轮 DeepSeek 审核"回滚恢复被覆盖行"要求引入（spec §3.2 仅定义 id 列）。
 CREATE TABLE IF NOT EXISTS migration_staging (
   id            TEXT PRIMARY KEY,
   kind          TEXT NOT NULL DEFAULT 'inserted' CHECK (kind IN ('inserted','replaced')),
@@ -3043,7 +3054,8 @@ impl HistoryDb {
             guard.execute_batch("PRAGMA user_version = 2;")?;
         } else {
             // 兼容早期 v2 schema（migration_staging 仅有 id 列）：补齐
-            // kind / snapshot_json 列，供回滚还原被 UPDATE 覆盖的原行。
+            // kind / snapshot_json 列，供回滚还原被 UPDATE 覆盖的原行
+            // （第 2 轮 DeepSeek 审核"回滚恢复被覆盖行"要求，见 SCHEMA_V2_SQL 注释）。
             let has_kind: bool = guard
                 .query_row(
                     "SELECT COUNT(*) FROM pragma_table_info('migration_staging') WHERE name='kind'",

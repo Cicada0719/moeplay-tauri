@@ -2,6 +2,10 @@
 //!
 //! 迁移门控约定：`history_*` 系列命令在迁移状态非 `Completed | NotNeeded`
 //! 时返回 `"MIGRATION_PENDING"`，前端据此展示迁移进度页而非历史列表。
+//!
+//! 门控必须**非阻塞**（第 4 轮 DeepSeek 审核 item 2）：`history_*` 入口先读内存
+//! 门控，非放行态时用 `Migrator::try_check`（`try_lock`）核对落盘；后台迁移持有
+//! 数据库连接锁时立即返回 `MIGRATION_PENDING`，绝不等待锁释放。
 
 use crate::db_sqlite::{HistoryDb, HistoryRepo};
 use crate::domain::history::{ContentType, HistoryRecord};
@@ -34,6 +38,38 @@ pub(crate) fn set_gate(gate: &Arc<RwLock<MigrationStatus>>, status: MigrationSta
     }
 }
 
+/// 历史读写命令的统一门控入口（spec §3.5 + 第 4 轮 DeepSeek 审核 item 2）。
+///
+/// 顺序：
+/// 1. **先读内存门控**（`RwLock` 读锁，非阻塞）——非 `Completed | NotNeeded`
+///    不触碰数据库，立即准备返回 `MIGRATION_PENDING`，绝不阻塞等待后台迁移
+///    持有的连接锁（`migrator.check()` 的阻塞锁只留给 `migration_status` 这类
+///    专查状态的入口）；
+/// 2. 内存门控未放行时，给一次**非阻塞**核对落盘状态的机会（处理"后台迁移刚
+///    完成但门控尚未更新"的陈旧态，见 `test_history_gate_refresh_after_completion`）：
+///    用 `Migrator::try_check` 的 `try_lock` 拿得到锁就刷新；拿不到（后台迁移
+///    正在写库）则不等待，维持"迁移进行中"返回 `MIGRATION_PENDING`。
+pub(crate) fn gate_history(state: &AppState) -> Result<MigrationStatus, String> {
+    let current = state
+        .migration_status
+        .read()
+        .map_err(|error| error.to_string())?
+        .clone();
+    if ensure_history_available(&current).is_ok() {
+        return Ok(current);
+    }
+    if let Some(migrator) = &state.migrator {
+        // 非阻塞：后台迁移持有连接锁时 try_check 返回 Ok(None)，不等待。
+        if let Some(disk_status) = migrator.try_check().map_err(|error| error.to_string())? {
+            if ensure_history_available(&disk_status).is_ok() {
+                set_gate(&state.migration_status, disk_status.clone());
+                return Ok(disk_status);
+            }
+        }
+    }
+    Err("MIGRATION_PENDING".to_string())
+}
+
 fn migrator(state: &AppState) -> Result<Migrator, String> {
     state
         .migrator
@@ -56,22 +92,6 @@ fn check_and_update_gate(
     let status = migrator.check().map_err(|error| error.to_string())?;
     set_gate(gate, status.clone());
     Ok(status)
-}
-
-/// 刷新内存门控：以落盘状态为准（同步；调用方在 async 上下文需自行 `spawn_blocking`）。
-///
-/// 启动迁移在 `spawn_blocking` 中运行时，内存门控可能仍停留在 `Pending/InProgress`，
-/// 即使后端已经完成。`history_*` 命令入口先调用本函数，避免迁移完成后前端仍收到
-/// `MIGRATION_PENDING`。
-pub(crate) fn refresh_gate(state: &AppState) -> Result<MigrationStatus, String> {
-    match &state.migrator {
-        Some(migrator) => check_and_update_gate(migrator, &state.migration_status),
-        None => Ok(state
-            .migration_status
-            .read()
-            .map_err(|error| error.to_string())?
-            .clone()),
-    }
 }
 
 /// 查询当前迁移状态（前端启动时首先调用）。
@@ -137,9 +157,9 @@ pub async fn history_list(
     offset: u32,
     state: State<'_, AppState>,
 ) -> Result<Vec<HistoryRecord>, String> {
-    // 先刷新内存门控：spawn_blocking 迁移可能刚完成但内存状态未更新。
-    let gate_status = refresh_gate(&state)?;
-    ensure_history_available(&gate_status)?;
+    // 非阻塞门控：先查内存状态、非放行态时用 try_lock 核对落盘，后台迁移持锁
+    // 立即返回 MIGRATION_PENDING 而非阻塞（第 4 轮 DeepSeek 审核 item 2）。
+    gate_history(&state)?;
 
     let history = history(&state)?;
     // `ContentType::from_str` 的 Err 就是 `String`，与命令签名一致，直接 `?` 传播。
@@ -163,9 +183,9 @@ pub async fn history_list(
 /// 墓碑删除单条历史。
 #[tauri::command]
 pub async fn history_delete(id: String, state: State<'_, AppState>) -> Result<(), String> {
-    // 先刷新内存门控：spawn_blocking 迁移可能刚完成但内存状态未更新。
-    let gate_status = refresh_gate(&state)?;
-    ensure_history_available(&gate_status)?;
+    // 非阻塞门控：先查内存状态、非放行态时用 try_lock 核对落盘，后台迁移持锁
+    // 立即返回 MIGRATION_PENDING 而非阻塞（第 4 轮 DeepSeek 审核 item 2）。
+    gate_history(&state)?;
 
     let history = history(&state)?;
     tauri::async_runtime::spawn_blocking(move || {
