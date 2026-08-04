@@ -694,7 +694,18 @@
       activeHls = hls;
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         debugLog("[播放器] HLS manifest 已解析，开始播放");
-        v.play().catch(() => {});
+        // 画质切换后恢复进度与播放状态（spec §3.3 第 3 条）：switchQuality 复用同一 HLS 实例
+        // loadSource 后 MANIFEST_PARSED 会再次触发；loadedmetadata 的 src 比对对 HLS 不适用
+        // （video.src 是 MediaSource/blob URL，不等于 m3u8 源地址），故在此消费 pendingQualitySeek
+        // 恢复切换前时间点；切换前 paused 则保持暂停（resumeAfterQualityLoad=false 时不 play）。
+        if (pendingQualitySeek > 0 && pendingQualitySeekSrc === src) {
+          v.currentTime = pendingQualitySeek;
+          pendingQualitySeek = 0;
+          pendingQualitySeekSrc = "";
+        }
+        const shouldPlay = resumeAfterQualityLoad;
+        resumeAfterQualityLoad = true;
+        if (shouldPlay) v.play().catch(() => {});
       });
       // 致命错误要自愈而不是直接判死（旧逻辑一遇 fatal 就 error → 播一会儿就卡死、必须退出重进）
       hls.on(Hls.Events.ERROR, (_e, data) => {
@@ -788,12 +799,16 @@
     const changed = quality !== enhancementMode;
     animeStore.videoEnhancementMode = quality;
     if (el && targetSrc && changed) {
-      // spec §3.3：仅替换 source 并 seek，不销毁元素/实例。loadedmetadata 后 seek 回原位置。
+      // spec §3.3：仅替换 source 并 seek，不销毁元素/实例。原生分支在 loadedmetadata 后
+      // seek 回原位置；HLS 分支的消费在 attachHls 的 MANIFEST_PARSED handler 内完成
+      // （loadedmetadata 的 src 比对对 HLS 不适用——video.src 是 MediaSource/blob URL，
+      // 不等于 m3u8 源地址）。
       pendingQualitySeek = resumeAt;
       pendingQualitySeekSrc = targetSrc;
       resumeAfterQualityLoad = !wasPaused;
       if (activeHls) {
-        // 保留 HLS 实例复用：仅重新 loadSource，不销毁重建实例
+        // 保留 HLS 实例复用：仅重新 loadSource，不销毁重建实例；loadSource 后 HLS 再次
+        // 触发 MANIFEST_PARSED，由 attachHls 注册的 handler 消费 pendingQualitySeek 并条件恢复播放。
         activeHls.loadSource(targetSrc);
       } else {
         el.src = targetSrc;

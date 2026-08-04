@@ -95,6 +95,24 @@ describe("player idle chrome contract", () => {
     expect(player).toContain("resumeAfterQualityLoad");
   });
 
+  it("HLS 画质切换：MANIFEST_PARSED 后消费 pendingQualitySeek 恢复进度，并按切换前状态条件恢复播放", () => {
+    const player = source("src/lib/components/anime/AnimePlayer.svelte");
+    // switchQuality HLS 分支复用同一实例 loadSource（不销毁重建）
+    expect(player).toContain("activeHls.loadSource(targetSrc)");
+
+    // MANIFEST_PARSED handler 内必须消费 pendingQualitySeek：HLS 下 loadedmetadata 的
+    // src 比对不适用（video.src 是 MediaSource/blob URL，不等于 m3u8 源地址），
+    // 因此恢复 seek 与播放状态必须在 HLS 事件上完成。
+    const manifestBlock =
+      player.match(/hls\.on\(Hls\.Events\.MANIFEST_PARSED[\s\S]*?\n\s*\}\);/)?.[0] ?? "";
+    expect(manifestBlock).toContain("pendingQualitySeekSrc === src");
+    expect(manifestBlock).toContain("v.currentTime = pendingQualitySeek");
+    expect(manifestBlock).toContain("pendingQualitySeek = 0");
+    // 恢复后按切换前状态决定是否 play()：切换前 paused 保持暂停
+    expect(manifestBlock).toContain("const shouldPlay = resumeAfterQualityLoad;");
+    expect(manifestBlock).toMatch(/if \(shouldPlay\) v\.play\(\)\.catch/);
+  });
+
   it("SourceSuggestSheet 消费适配层源健康 store，关闭时清除错误状态（空列表可退出）", () => {
     const player = source("src/lib/components/anime/AnimePlayer.svelte");
     expect(player).toContain("setSourceProvider(buildSuggestSources)");
