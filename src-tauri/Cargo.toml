@@ -69,3 +69,6 @@ keyring-core = "1.0.0"
 # Must stay on the same release as the copy pulled in by
 # android-native-keyring-store so both crates share one global context slot.
 ndk-context = "0.1.1"
+
+[dev-dependencies]
+tempfile = "3"
