@@ -5,6 +5,7 @@
 //! `#[serde(alias = "...")]` 兼容，不改变对外输出的字段名。
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::path::Path;
 
 /// 规则清单（kazumi 兼容，JSON/YAML 反序列化目标）
@@ -48,7 +49,9 @@ pub enum ContentType {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LoadedRule {
-    /// uuid，加载时生成；自定义规则持久化其 manifest
+    /// 稳定 id：文件规则取文件名 stem、清单规则取内容 SHA-256（见 [`file_stem_id`]
+    /// / [`stable_rule_id`]），非随机生成——重启后删除链路
+    /// （`rules_remove_custom` → `custom_rules/{id}.json`）不断裂。
     pub id: String,
     pub manifest: RuleManifest,
     pub origin: RuleOrigin,
@@ -159,6 +162,35 @@ impl RuleManifest {
                 .map_err(|e| RuleLoadError::schema(format!("规则文件解析失败: {e}"))),
         }
     }
+}
+
+/// 计算规则的稳定 id：对 manifest 的规范化 JSON 序列化取 SHA-256（hex）。
+///
+/// 用于无文件名可用的 [`RuleInput::Manifest`](crate::rules::engine::RuleInput::Manifest)
+/// 输入（程序化/测试加载）：同一 manifest 值无论加载多少次都得到同一 id，
+/// 重复加载天然 upsert（Kimi K3 复审第 2 项）。
+///
+/// 用「规范化序列化」而非原始文件字节：字段顺序固定（struct 声明序），同一
+/// manifest 值恒等序列化，保证 id 与文件格式（JSON/YAML）、缩进无关。
+pub fn stable_rule_id(manifest: &RuleManifest) -> String {
+    let canonical = serde_json::to_vec(manifest).expect("RuleManifest 序列化不应失败");
+    hex::encode(Sha256::digest(&canonical))
+}
+
+/// 从规则文件路径取稳定 id：文件 stem（不含扩展名）。
+///
+/// 自定义规则的 id 采用文件名 stem（Kimi K3 复审第 1 项，`rules_import` 落盘为
+/// `custom_rules/{stem}.json`，`rules_load_all` 以同一文件重载时 id 恒等）：
+/// - 幂等：无论加载多少次、重启多少次，id 都与磁盘文件名一一对应；
+/// - 删除链路不断裂：`rules_remove_custom` 按 `{rule_id}.json` 定位文件删除，
+///   即使规则文件被就地编辑（内容变了、内容 hash 变了），stem 仍不变，
+///   文件仍能被定位删除——若 id 每次随机生成或随内容变化，重启后 id 与文件名
+///   对不上，`file.exists()` 静默跳过，文件残留，规则下轮启动「复活」。
+pub fn file_stem_id(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| "rule".to_string())
 }
 
 /// Schema 校验：必需字段非空、baseUrl 为合法 http(s) URL、脚本含 function 关键字。

@@ -147,7 +147,7 @@ export async function switchSource(
     // 1. 取消前序任务（FR-02 竞态取消）
     await cancelScope(scope);
 
-    // 2. 搜索匹配条目（标题归一化后取首个）。
+    // 2. 搜索匹配条目（spec §3.5 第 2 步）。
     //    §3.6 的置灰在 UI 层拦截禁用源（primary guard）；这里仍处理运行期错误路径：
     //    搜索无结果（notFound）与规则被禁用/不存在（RuleNotFound，由 describeSwitchError
     //    转可读文案），两层并存不冲突。（DeepSeek 复审第 2 项）
@@ -157,7 +157,11 @@ export async function switchSource(
         kind: "notFound",
       });
     }
-    const detailUrl = items[0].url;
+    // 标题归一化比较后取首个匹配项；找不到再回退 items[0]（Kimi K3 复审第 3 项：
+    // 源返回的条目标题常有全角/空白/标点差异，固定取 items[0] 可能命中无关条目）。
+    const normalized = normalizeTitle(ctx.title);
+    const matched = items.find((item) => normalizeTitle(item.title) === normalized);
+    const detailUrl = (matched ?? items[0]).url;
 
     // 3. 章节列表
     const chapterList = await chapters(targetRuleId, detailUrl);

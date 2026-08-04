@@ -6,7 +6,7 @@
 //! - 竞态：`new_scope_token`/`cancel_scope` 支持 FR-02 的 scope 级取消语义。
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
@@ -16,12 +16,11 @@ use rquickjs::Runtime;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
-use uuid::Uuid;
 
 use crate::rules::sandbox::{Sandbox, EXEC_TIMEOUT, LOAD_TIMEOUT};
 use crate::rules::schema::{
-    validate_manifest, ContentType, LoadedRule, RuleFileFormat, RuleLoadError, RuleManifest,
-    RuleOrigin, RuleStatus,
+    file_stem_id, stable_rule_id, validate_manifest, ContentType, LoadedRule, RuleFileFormat,
+    RuleLoadError, RuleManifest, RuleOrigin, RuleStatus,
 };
 
 /// 常驻 worker 线程数（QuickJS runtime 不可跨线程，必须一线程一沙箱）。
@@ -227,17 +226,23 @@ impl RuleEngine {
     }
 
     async fn load_one(&self, input: RuleInput) -> LoadedRule {
-        let id = Uuid::new_v4().to_string();
-        let (manifest, origin) = match input {
-            RuleInput::Manifest { manifest, origin } => (manifest, origin),
+        let (id, manifest, origin) = match input {
+            RuleInput::Manifest { manifest, origin } => {
+                // 无文件名可用的输入 → 内容 hash 稳定 id（Kimi K3 复审第 2 项：重复
+                // 加载同一 manifest 得同一 id，天然 upsert）。
+                (stable_rule_id(&manifest), manifest, origin)
+            }
             RuleInput::File { path, origin } => {
+                // 文件规则 id = 文件名 stem（Kimi K3 复审第 1 项）：幂等且与磁盘文件
+                // 一一对应，就地编辑内容也不变，删除链路 `custom_rules/{id}.json` 不断裂。
+                let id = file_stem_id(&path);
                 let format = match RuleFileFormat::from_path(&path) {
                     Some(f) => f,
                     None => {
                         let err = RuleLoadError::schema("不支持的文件格式（仅 .json/.yaml/.yml）");
                         return self.register_loaded(LoadedRule::invalid(
                             id,
-                            placeholder_manifest(),
+                            placeholder_manifest(&path),
                             origin,
                             err,
                         ));
@@ -249,18 +254,18 @@ impl RuleEngine {
                         let err = RuleLoadError::schema(format!("读取规则文件失败: {e}"));
                         return self.register_loaded(LoadedRule::invalid(
                             id,
-                            placeholder_manifest(),
+                            placeholder_manifest(&path),
                             origin,
                             err,
                         ));
                     }
                 };
                 match RuleManifest::from_str(&text, format) {
-                    Ok(m) => (m, origin),
+                    Ok(m) => (id, m, origin),
                     Err(e) => {
                         return self.register_loaded(LoadedRule::invalid(
                             id,
-                            placeholder_manifest(),
+                            placeholder_manifest(&path),
                             origin,
                             e,
                         ))
@@ -578,9 +583,11 @@ impl RuleEngine {
     }
 }
 
-fn placeholder_manifest() -> RuleManifest {
+/// 解析/读取失败时的占位 manifest：用文件 stem 作 name，避免列表/导出出现无名条目
+/// （Kimi K3 复审非阻塞项）。
+fn placeholder_manifest(path: &Path) -> RuleManifest {
     RuleManifest {
-        name: String::new(),
+        name: file_stem_id(path),
         version: String::new(),
         content_type: ContentType::Anime,
         base_url: String::new(),

@@ -4,14 +4,13 @@ use std::path::PathBuf;
 
 use tauri::Manager;
 use tauri::State;
-use uuid::Uuid;
 
 use crate::rules::engine::{
     Detail, ParseResult, RuleExecError, RuleInput, SearchItem, Chapter,
 };
 use crate::rules::schema::{
-    validate_manifest, LoadedRule, RuleFileFormat, RuleLoadError, RuleManifest, RuleOrigin,
-    RuleStatus,
+    file_stem_id, validate_manifest, LoadedRule, RuleFileFormat, RuleLoadError, RuleManifest,
+    RuleOrigin, RuleStatus,
 };
 use crate::rules::RuleEngineState;
 
@@ -162,7 +161,11 @@ pub async fn rules_import(
     validate_manifest(&manifest)?;
     engine.compile_manifest(&manifest).await?;
 
-    let id = Uuid::new_v4().to_string();
+    // 稳定 id = 源文件 stem（Kimi K3 复审第 1 项）：落盘名 = stem，重启后
+    // `rules_load_all` 以同一文件重载时 id 恒等；`rules_remove_custom` 按同一 id
+    // 仍能定位并删除该文件——id 若随机生成，重启后 id 与文件名对不上，删除链路
+    // 断裂会让规则「复活」。
+    let id = file_stem_id(&path_buf);
     let target = custom_rules_dir().join(format!("{id}.json"));
     let json = serde_json::to_string_pretty(&manifest)
         .map_err(|e| RuleLoadError::schema(format!("序列化规则失败: {e}")))?;

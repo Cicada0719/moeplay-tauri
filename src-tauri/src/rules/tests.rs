@@ -10,7 +10,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::engine::{RuleEngine, RuleExecError, RuleInput};
 use super::sandbox::Sandbox;
-use super::schema::{ContentType, RuleManifest, RuleOrigin, RuleStatus};
+use super::schema::{ContentType, RuleFileFormat, RuleManifest, RuleOrigin, RuleStatus};
 
 fn test_http() -> reqwest::Client {
     reqwest::Client::builder()
@@ -678,7 +678,160 @@ async fn invalid_rules_are_registered_in_map() {
     assert!(!manifests.iter().any(|m| m.name == "坏语法源"));
 }
 
+// ── 测试：Kimi K3 复审第 1 项——自定义规则 id 稳定性 + 删除链路不「复活」────────
+
+#[tokio::test]
+async fn custom_rule_id_stable_across_reloads() {
+    // 模拟 rules_import 的落盘约定：自定义规则文件存为 {源文件 stem}.json
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("my_custom_rule.json");
+    let manifest = make_manifest(
+        "稳定 id 源",
+        "function search(k,p){ return [{title:k,url:'https://example.com'}]; }",
+    );
+    std::fs::write(&file, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+
+    // 首次加载（模拟导入后）
+    let engine_a = test_engine();
+    let first = engine_a
+        .load_rules(vec![RuleInput::File { path: file.clone(), origin: RuleOrigin::Custom }])
+        .await;
+    assert_eq!(first[0].status, RuleStatus::Ready);
+    assert_eq!(first[0].id, "my_custom_rule", "文件规则 id = 文件名 stem");
+
+    // 重启模拟：全新引擎重新加载同一文件 → 同一 id（禁止每次加载重新生成随机 id）
+    let engine_b = test_engine();
+    let second = engine_b
+        .load_rules(vec![RuleInput::File { path: file.clone(), origin: RuleOrigin::Custom }])
+        .await;
+    assert_eq!(second[0].id, "my_custom_rule", "重启后 id 必须保持稳定");
+
+    // 就地编辑文件内容（内容 hash 变了）→ id 仍不变：删除链路靠文件名而非内容
+    let edited = make_manifest(
+        "稳定 id 源",
+        "function search(k,p){ return [{title:k,url:'https://example.com/edited'}]; }",
+    );
+    std::fs::write(&file, serde_json::to_string_pretty(&edited).unwrap()).unwrap();
+    let engine_d = test_engine();
+    let edited_load = engine_d
+        .load_rules(vec![RuleInput::File { path: file.clone(), origin: RuleOrigin::Custom }])
+        .await;
+    assert_eq!(edited_load[0].id, "my_custom_rule", "内容编辑不应改变 id");
+
+    // 删除链路：注册表按 id 移除 + 命令层定位文件 {id}.json 删除
+    engine_b.remove_rule(&second[0].id).unwrap();
+    assert!(
+        !engine_b.all_manifests().iter().any(|m| m.name == "稳定 id 源"),
+        "删除后注册表应移除该规则"
+    );
+    // 等价于 commands::rules::rules_remove_custom 里 custom_rules_dir().join("{id}.json")
+    assert!(file.exists(), "删除前 my_custom_rule.json 应存在");
+    std::fs::remove_file(&file).unwrap();
+
+    // 文件已删除 → 重新加载不再出现 Ready 规则（删除链路完整，规则不「复活」）
+    let engine_c = test_engine();
+    let after_remove = engine_c
+        .load_rules(vec![RuleInput::File { path: file, origin: RuleOrigin::Custom }])
+        .await;
+    assert_eq!(
+        after_remove[0].status,
+        RuleStatus::Invalid,
+        "文件已删除，规则不应复活"
+    );
+    assert!(after_remove[0].error.is_some());
+}
+
+#[tokio::test]
+async fn unparseable_custom_file_uses_file_stem_id() {
+    // 无法解析的文件拿不到 manifest → 用文件 stem 作稳定 id，删除链路仍可定位
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("broken_rule.json");
+    std::fs::write(&file, "not json {").unwrap();
+
+    let engine = test_engine();
+    let loaded = engine
+        .load_rules(vec![RuleInput::File { path: file, origin: RuleOrigin::Custom }])
+        .await;
+    assert_eq!(loaded[0].status, RuleStatus::Invalid);
+    assert_eq!(loaded[0].id, "broken_rule", "解析失败的文件应以 stem 为稳定 id");
+    assert_eq!(loaded[0].manifest.name, "broken_rule", "占位 manifest 应以 stem 命名");
+}
+
+// ── 测试：Kimi K3 复审第 2 项——load_rules 按稳定 id upsert，注册表不累积 ──
+
+#[tokio::test]
+async fn load_rules_upsert_does_not_accumulate() {
+    let engine = test_engine();
+    let dir = tempfile::tempdir().unwrap();
+    for i in 0..3 {
+        let m = make_manifest(
+            &format!("upsert 源{i}"),
+            &format!("function search(k,p){{ return [{{title:k,url:'https://example.com/{i}'}}]; }}"),
+        );
+        let file = dir.path().join(format!("rule_{i}.json"));
+        std::fs::write(&file, serde_json::to_string_pretty(&m).unwrap()).unwrap();
+    }
+    let inputs = file_inputs_from(dir.path(), RuleOrigin::Custom);
+
+    let first = engine.load_rules(inputs.clone()).await;
+    assert_eq!(first.len(), 3);
+    assert_eq!(engine.all_manifests().len(), 3);
+
+    // 重复加载同一批 → 稳定 id（文件 stem）覆盖旧条目（upsert），all_manifests 不膨胀
+    for _ in 0..2 {
+        let loaded = engine.load_rules(inputs.clone()).await;
+        assert_eq!(loaded.len(), 3);
+        assert_eq!(
+            engine.all_manifests().len(),
+            3,
+            "重复加载后 all_manifests 不应膨胀"
+        );
+    }
+
+    // 幂等：每次加载 id 仍是文件 stem（无随机 id 累积）
+    let loaded = engine.load_rules(inputs.clone()).await;
+    let mut ids: Vec<&str> = loaded.iter().map(|r| r.id.as_str()).collect();
+    ids.sort_unstable();
+    assert_eq!(ids, vec!["rule_0", "rule_1", "rule_2"]);
+}
+
+#[tokio::test]
+async fn manifest_input_reload_upserts_same_id() {
+    let engine = test_engine();
+    let manifest = make_manifest("upsert 源", "function search(k,p){ return []; }");
+
+    let first = engine
+        .load_rules(vec![RuleInput::Manifest {
+            manifest: manifest.clone(),
+            origin: RuleOrigin::Builtin,
+        }])
+        .await;
+    let second = engine
+        .load_rules(vec![RuleInput::Manifest {
+            manifest: manifest.clone(),
+            origin: RuleOrigin::Builtin,
+        }])
+        .await;
+
+    assert_eq!(
+        first[0].id, second[0].id,
+        "同一 manifest 重复加载应得同一 id"
+    );
+    assert_eq!(engine.all_manifests().len(), 1, "注册表应按稳定 id 覆盖，不累积");
+}
+
 // ── 辅助扩展 ────────────────────────────────────────────────────────────
+
+/// 扫描目录内全部规则文件为 File 输入（等价于 commands::rules::discover_rule_inputs）。
+fn file_inputs_from(dir: &std::path::Path, origin: RuleOrigin) -> Vec<RuleInput> {
+    std::fs::read_dir(dir)
+        .expect("目录应可读")
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| RuleFileFormat::from_path(p).is_some())
+        .map(|p| RuleInput::File { path: p, origin })
+        .collect()
+}
 
 impl RuleManifest {
     fn with_parse(mut self, parse: &str) -> Self {

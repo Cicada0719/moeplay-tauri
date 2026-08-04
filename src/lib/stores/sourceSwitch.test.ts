@@ -147,6 +147,26 @@ describe("switchSource", () => {
     expect(failed.chapterIndex).toBeNull();
   });
 
+  it("switch_matches_normalized_title: 标题归一化匹配取首个命中项而非固定 items[0]", async () => {
+    mocks.cancelScope.mockResolvedValue(undefined);
+    // items[0] 是无关条目；命中项在 items[1] 且标题带全角空格/全角标点差异
+    mocks.search.mockResolvedValue([
+      { title: "别的番剧", url: "https://example.com/detail/other" },
+      { title: "　测试番！！", url: "https://example.com/detail/right" },
+    ]);
+    mocks.chapters.mockResolvedValue(CHAPTERS_5);
+    mocks.parse.mockResolvedValue(PARSE_OK);
+
+    const result = await switchSource("rule-b", CTX);
+
+    // 必须取归一化匹配的 detail_url，而非盲目用 items[0]
+    expect(mocks.chapters).toHaveBeenCalledWith(
+      "rule-b",
+      "https://example.com/detail/right",
+    );
+    expect(result.status).toBe("ok");
+  });
+
   it("switch_fallback_to_latest: 目标集不存在时跳转最新一集并提示", async () => {
     mocks.cancelScope.mockResolvedValue(undefined);
     mocks.search.mockResolvedValue([OK_ITEM]);
