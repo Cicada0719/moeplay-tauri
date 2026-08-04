@@ -1,4 +1,12 @@
 <script lang="ts">
+  // ── 根因确认 spike 结论（2026-08，spec §四.1）──
+  // 旧实现里控制栏隐藏由本组件散落的 `playerChromeTimer`（setTimeout）+ 根容器
+  // `pointermove` 监听管理；切换「超清」画质（本地超清化 enhancement 管线）时，
+  // 一旦播放器容器/视频元素被重建，旧定时器与事件监听会悬空，导致控制栏永不再
+  // 自动隐藏。本次修复：控制栏隐藏收敛为单一 `useIdleTimer` action（挂载在**不随
+  // 画质切换重建**的稳定 `.player-overlay` 根容器上），`openMenuCount` 统一管理
+  // 下拉菜单展开暂停隐藏，画质切换复用同一 `<video>` 元素。播放错误通过
+  // `ErrorOverlay` / `SourceSuggestSheet` 降级（FR-06 / FR-07）。
   import Hls from "hls.js";
   import { invokeCmd } from "../../api/core";
   import { onDestroy, onMount } from "svelte";
@@ -18,6 +26,30 @@
   import VideoEnhancementCanvas from "./VideoEnhancementCanvas.svelte";
   import type { VideoEnhancementMode, VideoEnhancementStatus } from "../../features/anime-player/localVideoEnhancement";
   import { orientationStore, platformStore } from "../../platform";
+  import { idleTimer } from "../../actions/idleTimer";
+  import {
+    clearPlayerError,
+    controlsVisible,
+    openMenuCount,
+    playerError,
+    reportPlayerError,
+    retryCount,
+    retryPlayback,
+    setRetryHandler,
+    shouldPauseIdleTimer,
+    showSourceSuggest,
+    type PlayerQuality,
+  } from "../../stores/player";
+  import { buildErrorLog, classifyPlaybackError } from "../../player/errorMap";
+  import {
+    setSourceSwitchHandler,
+    switchSource as switchSourceService,
+    type SourceHealth,
+    type SourceInfo,
+    type SwitchSourceParams,
+  } from "../../services/sourceSwitch";
+  import ErrorOverlay from "../player/ErrorOverlay.svelte";
+  import SourceSuggestSheet from "../player/SourceSuggestSheet.svelte";
 
   const status = $derived(animeStore.playerExtractStatus); // extracting | found | timeout | error
   const videoSrc = $derived(animeStore.playerVideoSrc);
@@ -124,47 +156,41 @@
   let showEpisodePanel = $state(false);
   let pickerRoadIdx = $state(0);
   const pickerEpisodes = $derived(roads[pickerRoadIdx]?.episodes ?? []);
-  let playerChromeVisible = $state(true);
-  let playerChromeTimer: number | null = null;
-  const playerChromeLockedOpen = $derived(
-    showSpeedMenu || showDanmakuSettings || showEpisodePanel || showCommentsPanel,
-  );
 
-  function clearPlayerChromeTimer() {
-    if (playerChromeTimer === null) return;
-    window.clearTimeout(playerChromeTimer);
-    playerChromeTimer = null;
-  }
+  // 控制栏隐藏统一由 `useIdleTimer` action + player store 驱动（FR-06）：
+  // 移除散落的 playerChromeTimer / pointermove 监听；下拉菜单开合通过
+  // `openMenuCount` 暂停隐藏计时。
+  $effect(() => {
+    const base =
+      (showSpeedMenu ? 1 : 0) +
+      (showDanmakuSettings ? 1 : 0) +
+      (showEpisodePanel ? 1 : 0) +
+      (showCommentsPanel ? 1 : 0);
+    openMenuCount.set(base + ($showSourceSuggest ? 1 : 0));
+  });
 
-  function schedulePlayerChromeHide(delay = 2400) {
-    clearPlayerChromeTimer();
-    if (!isFullscreen || playerChromeLockedOpen) {
-      playerChromeVisible = true;
-      return;
-    }
-    playerChromeTimer = window.setTimeout(() => {
-      playerChromeTimer = null;
-      if (!isFullscreen || playerChromeLockedOpen) return;
-      const activeElement = document.activeElement;
-      if (
-        activeElement instanceof HTMLElement
-        && activeElement.closest('.anime-playback-shell__context, .anime-playback-shell__toolbar')
-      ) {
-        overlayEl?.focus({ preventScroll: true });
-      }
-      playerChromeVisible = false;
-    }, delay);
+  function shouldPauseIdle(): boolean {
+    return shouldPauseIdleTimer({
+      openMenuCount: $openMenuCount,
+      isFullscreen,
+      hasPlayerError: $playerError !== null,
+    });
   }
+  function onIdle() { controlsVisible.set(false); }
+  function onActive() { controlsVisible.set(true); }
 
-  function revealPlayerChrome(delay = 2400) {
-    if (!isFullscreen) return;
-    playerChromeVisible = true;
-    schedulePlayerChromeHide(delay);
-  }
+  // 稳定引用：避免每次渲染生成新对象触发 action.update() 而重置空闲计时
+  const idleTimerOptions = {
+    timeout: 3000,
+    shouldPause: shouldPauseIdle,
+    onIdle,
+    onActive,
+  };
 
-  function handlePlayerPointerMove(event: PointerEvent) {
-    revealPlayerChrome(event.clientY <= 120 ? 3200 : 2400);
-  }
+  // 非全屏 / 错误弹层打开时强制显示控制栏（保证按钮可点）
+  $effect(() => {
+    if (!isFullscreen || $playerError) controlsVisible.set(true);
+  });
 
   // ── 顶部导航沉浸隐藏：播放 20s 后隐藏，暂停/指针移到顶部唤回（仅本播放页生效） ──
   const TOPNAV_HIDE_DELAY_MS = 20_000;
@@ -250,6 +276,9 @@
     document.addEventListener('keydown', onKeyDown);
     window.addEventListener('pointermove', handleTopNavPointerMove, { passive: true });
     isPipSupported = !!document.pictureInPictureEnabled;
+    // FR-07：注册重试处理器与源切换适配器（任务 1 服务就绪后由适配层接管）
+    setRetryHandler(handleRetry);
+    setSourceSwitchHandler(handleSwitchSourceService);
     if (platformStore.capabilities.desktopWindowControl) {
       hostWindowWasFullscreen = ["fullscreen", "big-picture"].includes(settingsStore.settings.startup_mode ?? "fullscreen");
       try {
@@ -268,8 +297,13 @@
     if (extractTimer) clearInterval(extractTimer);
     if (restoreFullscreenTimer) clearTimeout(restoreFullscreenTimer);
     if (fullscreenGuardTimer) clearInterval(fullscreenGuardTimer);
-    clearPlayerChromeTimer();
     clearTopNavTimer();
+    // 注销本组件注册的处理器与 store 状态，避免跨实例/跨页面泄漏
+    setRetryHandler(null);
+    setSourceSwitchHandler(null);
+    openMenuCount.set(0);
+    controlsVisible.set(true);
+    clearPlayerError();
     uiStore.topNavHidden = false;
     if (isFullscreen) void orientationStore.exitVideoFullscreen();
   });
@@ -283,17 +317,9 @@
     }
   });
 
+  // 恢复播放成功（status === 'found'）→ 清除错误状态，关闭 ErrorOverlay / 源推荐
   $effect(() => {
-    const fullscreen = isFullscreen;
-    const lockedOpen = playerChromeLockedOpen;
-    if (!fullscreen) {
-      clearPlayerChromeTimer();
-      playerChromeVisible = true;
-      return;
-    }
-    playerChromeVisible = true;
-    if (lockedOpen) clearPlayerChromeTimer();
-    else schedulePlayerChromeHide();
+    if (status === 'found' && videoSrc) clearPlayerError();
   });
 
   const currentRule = $derived(animeStore.rules.find(r => r.name === animeStore.playerRuleName));
@@ -512,7 +538,7 @@
     };
 
     // 加载失败：首次失败且还有备用方式 → 换方式；否则判 error 让用户换源/网页播放
-    const fail = (why: string) => {
+    const fail = (why: string, raw?: unknown, httpStatus?: number) => {
       clearWatchdog();
       clearPlaybackWatchdog();
       if (hls) { try { hls.destroy(); } catch {} hls = null; }
@@ -543,6 +569,11 @@
         if ((animeStore.autoWebFallback || prefersWebPlayback) && pageUrl) {
           invokeCmd('frontend_log', { level: 'info', message: '[播放器] 无可用备用源，自动切换网页播放兜底' }).catch(() => {});
           switchToWebFallback();
+        } else {
+          // FR-07：播放失败（网络/403/解码等）→ 上报结构化错误，ErrorOverlay 提供重试/换源/复制日志
+          if (!$playerError) {
+            reportPlayerError(classifyPlaybackError(raw ?? why, httpStatus));
+          }
         }
       }
     };
@@ -567,7 +598,7 @@
     const onVideoError = () => {
       const err = v.error;
       console.error("[播放器] video 元素错误:", err ? `code=${err.code} message=${err.message}` : "未知");
-      fail("video error");
+      fail("video error", err, undefined);
     };
     v.addEventListener('error', onVideoError);
 
@@ -711,9 +742,25 @@
     enhancementMessage = message;
   }
 
+  /** 切换画质（本地超清化 off / 均衡 / 质量）：复用 <video> 元素，仅替换 enhancement 管线（FR-06） */
+  async function switchQuality(quality: PlayerQuality): Promise<void> {
+    const el = videoEl;
+    const resumeAt = el ? el.currentTime : 0;
+    const wasPaused = el ? el.paused : true;
+    animeStore.videoEnhancementMode = quality;
+    if (el && !wasPaused) {
+      // 画质切换不销毁重建 video 元素，idleTimer 因绑定在稳定的全屏容器上无需重建。
+      // 若 enhancement 管线切换需要重载媒体流，loadedmetadata 后 seek 回原位置。
+      if (el.readyState >= 1) {
+        try { el.currentTime = resumeAt; } catch { /* ignore */ }
+      }
+      void el.play().catch(() => {});
+    }
+  }
+
   function cycleEnhancementMode() {
-    const order: VideoEnhancementMode[] = ["off", "balanced", "quality"];
-    animeStore.videoEnhancementMode = order[(order.indexOf(enhancementMode) + 1) % order.length];
+    const order: PlayerQuality[] = ["off", "balanced", "quality"];
+    void switchQuality(order[(order.indexOf(enhancementMode as PlayerQuality) + 1) % order.length]);
   }
 
   function toggleMediaPlayback() {
@@ -762,9 +809,81 @@
   }
 
   async function switchSource() {
+    clearPlayerError();
     await setPlayerFullscreen(false);
     animeStore.closePlayer();
     animeStore.openSourceSheet();
+  }
+
+  // ── FR-07 错误降级辅助 ────────────────────────────────────────────────
+
+  /** 等待播放器进入指定状态（轮询），用于 retry 判断是否恢复成功 */
+  function waitForPlayerStatus(predicate: () => boolean, timeoutMs = 10_000): Promise<boolean> {
+    return new Promise((resolve) => {
+      const started = Date.now();
+      const tick = () => {
+        if (predicate()) return resolve(true);
+        if (Date.now() - started > timeoutMs) return resolve(false);
+        window.setTimeout(tick, 120);
+      };
+      tick();
+    });
+  }
+
+  /** 重试当前播放：重新 playEpisode，恢复成功返回 true */
+  async function handleRetry(): Promise<boolean> {
+    useWebFallback = false;
+    webFrameLoaded = false;
+    webFrameTimedOut = false;
+    const targetRoad = roadIdx;
+    const targetEp = epIdx;
+    void animeStore.playEpisode(targetRoad, targetEp);
+    return waitForPlayerStatus(() => animeStore.playerExtractStatus === 'found' && !!animeStore.playerVideoSrc);
+  }
+
+  /** 源切换适配层处理器：进度保持参数由任务 1 服务消费（当前打开选源面板） */
+  async function handleSwitchSourceService(params: SwitchSourceParams) {
+    // TODO(task-1): 任务 1 源切换服务就绪后，把 contentId/chapterId/positionSec 传给真实切换流程。
+    invokeCmd('frontend_log', { level: 'info', message: `[播放器] 请求切换源 ${params.targetSourceId || '(打开选源面板)'}` }).catch(() => {});
+    await switchSource();
+  }
+
+  /** 按当前源健康度构建 SourceInfo 列表（task-2 健康 store 就绪前用 animeStore 摘要） */
+  function buildSuggestSources(): SourceInfo[] {
+    return animeStore.rules.map((rule) => {
+      const summary = animeStore.getSourceHealth(rule.name);
+      const health: SourceHealth = summary.consecutiveFailures >= 3
+        ? 'degraded'
+        : summary.lastSuccessAt > 0 && summary.lastSuccessAt >= summary.lastFailureAt
+          ? 'ok'
+          : 'unknown';
+      return { id: rule.name, name: rule.name, contentType: 'anime', health };
+    });
+  }
+
+  /** 源推荐列表：读取 animeStore 规则（响应式），排序交给 SourceSuggestSheet */
+  const suggestSources = $derived<SourceInfo[]>(buildSuggestSources());
+
+  /** 「复制日志」：error.detail + 环境信息写入剪贴板 */
+  async function copyPlayerLog() {
+    const err = $playerError;
+    if (!err) return;
+    try {
+      await navigator.clipboard.writeText(buildErrorLog(err));
+      uiStore.toast('日志已复制到剪贴板');
+    } catch {
+      uiStore.toast('复制失败', 'error');
+    }
+  }
+
+  /** 源推荐列表点击：携带进度保持参数调用源切换适配层 */
+  function handleSuggestSelect(sourceId: string) {
+    void switchSourceService({
+      contentId: animeStore.detailName,
+      chapterId: epName,
+      positionSec: videoEl?.currentTime,
+      targetSourceId: sourceId,
+    });
   }
 
   async function launchExternalPlayer() {
@@ -915,7 +1034,7 @@
     const target = e.target as HTMLElement;
     if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
 
-    if (isFullscreen) revealPlayerChrome(3200);
+    if (isFullscreen) controlsVisible.set(true);
 
     if (e.key === 'f' || e.key === 'F') {
       e.preventDefault();
@@ -1022,16 +1141,16 @@
 
 <div
   class="player-overlay"
+  class:idle={!$controlsVisible}
   class:fullscreen={isFullscreen}
-  class:chrome-hidden={isFullscreen && !playerChromeVisible}
+  class:chrome-hidden={isFullscreen && !$controlsVisible}
   role="dialog"
   aria-modal="true"
   aria-labelledby="anime-player-title"
   aria-describedby="anime-player-status"
   tabindex="-1"
   bind:this={overlayEl}
-  onpointermove={handlePlayerPointerMove}
-  onpointerdown={() => revealPlayerChrome()}
+  use:idleTimer={idleTimerOptions}
   use:focusTrap={{
     initialFocus: '[data-player-close]',
     returnFocus: false,
@@ -1051,7 +1170,7 @@
     {nextEpisodeTitle}
     aspectRatio={mediaAspectRatio}
     fullscreen={isFullscreen}
-    chromeVisible={playerChromeVisible}
+    chromeVisible={$controlsVisible}
     panelOpen={showCommentsPanel || showEpisodePanel}
     variant="classic"
     stageLabel={`${animeStore.detailName} ${epName || "播放器"} 播放区域`}
@@ -1491,6 +1610,32 @@
   {/if}
     {/snippet}
   </AnimePlaybackShell>
+
+  {#if $playerError && !$showSourceSuggest && status !== 'extracting' && failoverStatus !== 'trying'}
+    <ErrorOverlay
+      error={$playerError}
+      retryCount={$retryCount}
+      onRetry={() => void retryPlayback()}
+      onSwitchSource={() => void switchSourceService({
+        contentId: animeStore.detailName,
+        chapterId: epName,
+        positionSec: videoEl?.currentTime,
+        targetSourceId: '',
+      })}
+      onCopyLog={copyPlayerLog}
+    />
+  {/if}
+
+  {#if $showSourceSuggest}
+    <SourceSuggestSheet
+      sources={suggestSources}
+      contentId={animeStore.detailName}
+      chapterId={epName}
+      positionSec={videoEl?.currentTime}
+      onSelect={handleSuggestSelect}
+      onClose={() => showSourceSuggest.set(false)}
+    />
+  {/if}
 </div>
 
 <style>
@@ -1506,6 +1651,14 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+  }
+  /* 空闲态：隐藏鼠标指针与自定义增强控制栏（FR-06，过渡由 shell 的 chrome-hidden 承担） */
+  .player-overlay.idle {
+    cursor: none;
+  }
+  .player-overlay.idle .enhanced-media-controls {
+    opacity: 0;
+    pointer-events: none;
   }
   .player-overlay.fullscreen {
     position: fixed;
