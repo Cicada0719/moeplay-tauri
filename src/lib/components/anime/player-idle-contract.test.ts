@@ -50,6 +50,26 @@ describe("player idle chrome contract", () => {
     expect(player).toContain("不销毁重建 video 元素");
   });
 
+  it("onDestroy 注销重试/源切换处理器与 store 状态，避免跨实例泄漏", () => {
+    const player = source("src/lib/components/anime/AnimePlayer.svelte");
+    expect(player).toContain("setRetryHandler(null)");
+    expect(player).toContain("setSourceSwitchHandler(null)");
+    expect(player).toContain("openMenuCount.set(0)");
+    expect(player).toContain("clearPlayerError()");
+  });
+
+  it("switchQuality 真正替换 video 源并恢复进度（spec §3.3）", () => {
+    const player = source("src/lib/components/anime/AnimePlayer.svelte");
+    // 自增 reload token 让视频初始化 effect 重新执行，触发媒体引擎真实重载
+    expect(player).toContain("mediaReloadToken += 1");
+    // 复用同一 video 元素，不销毁重建容器（FR-06 根因）
+    expect(player).toContain("不销毁重建 video 元素");
+    // loadedmetadata 后按画质切换前的进度 seek 回原位置并恢复播放状态
+    expect(player).toContain("pendingQualitySeek");
+    expect(player).toContain("pendingQualitySeekSrc");
+    expect(player).toContain("resumeAfterQualityLoad");
+  });
+
   it("FR-07 错误降级组件与源切换适配层已接入", () => {
     const player = source("src/lib/components/anime/AnimePlayer.svelte");
     expect(player).toContain("<ErrorOverlay");

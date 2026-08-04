@@ -118,6 +118,13 @@
   let fullscreenGuardTimer: number | null = null;
   let currentTime = $state(0);
   let mediaAspectRatio = $state(16 / 9);
+  // 画质切换媒体重载（spec §3.3）：`switchQuality` 自增 token 让视频初始化 effect 重跑，
+  // 真正替换 video 源（HLS.js 重新 loadSource / 原生重新 src+load）；`pendingQualitySeek` /
+  // `pendingQualitySeekSrc` / `resumeAfterQualityLoad` 用于 loadedmetadata 后恢复进度与播放状态。
+  let mediaReloadToken = $state(0);
+  let pendingQualitySeek = $state(0);
+  let pendingQualitySeekSrc = $state("");
+  let resumeAfterQualityLoad = $state(true);
   let showCommentsPanel = $state(false);
   let commentsPanelTab = $state<'comments' | 'danmaku'>('comments');
   let downloading = $state(false);
@@ -480,6 +487,9 @@
     const el = videoEl;
     const src = videoSrc;
     const m3u8 = isM3u8;
+    // 画质切换媒体重载依赖：`switchQuality` 自增该 token 让本 effect 重新执行，
+    // 从而真正替换 video 源（spec §3.3），不销毁重建 video 元素。
+    void mediaReloadToken;
     invokeCmd('frontend_log', { level: 'info', message: `[播放器$effect] el=${!!el} status=${status} src=${src ? src.substring(0, 60) : 'null'}` }).catch(() => {});
     if (!el || status !== "found" || !src) return;
     const v: HTMLVideoElement = el;
@@ -584,13 +594,21 @@
       if (v.videoWidth > 0 && v.videoHeight > 0) mediaAspectRatio = v.videoWidth / v.videoHeight;
       succeed();
       v.playbackRate = playbackRate;
-      if (pendingSeekMs > 0) {
+      // 画质切换后恢复原进度（spec §3.3 第 3 条）：仅当重载的是画质切换时的同一源时消费，
+      // 避免换集/换源后误把旧进度 seek 到新源上。
+      if (pendingQualitySeek > 0 && pendingQualitySeekSrc === src) {
+        v.currentTime = pendingQualitySeek;
+        pendingQualitySeek = 0;
+        pendingQualitySeekSrc = "";
+      } else if (pendingSeekMs > 0) {
         v.currentTime = pendingSeekMs / 1000;
         animeStore.pendingSeekMs = 0;
       } else if (animeStore.skipOpening > 0) {
         v.currentTime = animeStore.skipOpening;
       }
-      v.play().catch(() => {});
+      const shouldPlay = resumeAfterQualityLoad;
+      resumeAfterQualityLoad = true;
+      if (shouldPlay) v.play().catch(() => {});
     };
     v.addEventListener('loadedmetadata', onLoadedMetadata);
 
@@ -742,18 +760,28 @@
     enhancementMessage = message;
   }
 
-  /** 切换画质（本地超清化 off / 均衡 / 质量）：复用 <video> 元素，仅替换 enhancement 管线（FR-06） */
+  /**
+   * 切换画质（本地超清化 off / 均衡 / 质量）：复用现有 <video> 元素，真正替换视频源
+   * 并恢复进度与播放状态（spec §3.3 / FR-06）。不销毁重建 video 元素——idleTimer 因
+   * 绑定在稳定的全屏容器上无需重建，从而根治超清切换后控制栏不再隐藏的问题。
+   */
   async function switchQuality(quality: PlayerQuality): Promise<void> {
     const el = videoEl;
     const resumeAt = el ? el.currentTime : 0;
     const wasPaused = el ? el.paused : true;
+    const targetSrc = animeStore.playerVideoSrc;
+    const changed = quality !== enhancementMode;
     animeStore.videoEnhancementMode = quality;
+    if (el && targetSrc && changed) {
+      // 真正替换 video 源：自增 reload token 让视频初始化 effect 重新执行
+      // （HLS.js 重新 loadSource / 原生重新 src+load），loadedmetadata 后 seek 回原位置。
+      pendingQualitySeek = resumeAt;
+      pendingQualitySeekSrc = targetSrc;
+      resumeAfterQualityLoad = !wasPaused;
+      mediaReloadToken += 1;
+      return;
+    }
     if (el && !wasPaused) {
-      // 画质切换不销毁重建 video 元素，idleTimer 因绑定在稳定的全屏容器上无需重建。
-      // 若 enhancement 管线切换需要重载媒体流，loadedmetadata 后 seek 回原位置。
-      if (el.readyState >= 1) {
-        try { el.currentTime = resumeAt; } catch { /* ignore */ }
-      }
       void el.play().catch(() => {});
     }
   }
