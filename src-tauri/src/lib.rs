@@ -768,50 +768,76 @@ pub fn run() {
                 });
                 match HistoryDb::open(&app_data_dir) {
                     Ok(history_db) => {
-                        let mut migrator = Migrator::new(history_db.clone(), app_data_dir.clone());
-                        let initial_status =
-                            migrator.check().unwrap_or(MigrationStatus::NotNeeded);
-                        let status_arc = Arc::new(RwLock::new(initial_status.clone()));
-                        if matches!(
-                            initial_status,
-                            MigrationStatus::Pending | MigrationStatus::InProgress
-                        ) {
-                            let app_handle = app.handle().clone();
-                            migrator.set_progress_sink(Some(Arc::new(
-                                move |report: &MigrationReport| {
-                                    let _ = app_handle.emit("migration://progress", report);
-                                },
-                            )));
-                            let migrator_for_task = migrator.clone();
-                            let status_arc_for_task = Arc::clone(&status_arc);
-                            tauri::async_runtime::spawn_blocking(move || {
-                                match migrator_for_task.run() {
-                                    Ok(report) => {
-                                        if let Ok(mut guard) = status_arc_for_task.write() {
-                                            *guard = report.status.clone();
+                        // device_id 获取失败 → 显式失败（不做静默替换），历史功能降级关闭。
+                        let migrator_result =
+                            Migrator::new(history_db.clone(), app_data_dir.clone());
+                        match migrator_result {
+                            Ok(mut migrator) => {
+                                let initial_status =
+                                    migrator.check().unwrap_or(MigrationStatus::NotNeeded);
+                                let status_arc = Arc::new(RwLock::new(initial_status.clone()));
+                                if matches!(
+                                    initial_status,
+                                    MigrationStatus::Pending | MigrationStatus::InProgress
+                                ) {
+                                    let app_handle = app.handle().clone();
+                                    migrator.set_progress_sink(Some(Arc::new(
+                                        move |report: &MigrationReport| {
+                                            let _ = app_handle.emit("migration://progress", report);
+                                        },
+                                    )));
+                                    let migrator_for_task = migrator.clone();
+                                    let status_arc_for_task = Arc::clone(&status_arc);
+                                    tauri::async_runtime::spawn_blocking(move || {
+                                        match migrator_for_task.run() {
+                                            Ok(report) => {
+                                                if let Ok(mut guard) = status_arc_for_task.write() {
+                                                    *guard = report.status.clone();
+                                                }
+                                                tracing::info!(
+                                                    status = ?report.status,
+                                                    total = report.total,
+                                                    migrated = report.migrated,
+                                                    "history migration finished"
+                                                );
+                                            }
+                                            Err(error) => {
+                                                if let Ok(mut guard) = status_arc_for_task.write() {
+                                                    *guard =
+                                                        MigrationStatus::Failed(error.to_string());
+                                                }
+                                                tracing::error!(
+                                                    error = %error,
+                                                    "history migration failed"
+                                                );
+                                            }
                                         }
-                                        tracing::info!(
-                                            status = ?report.status,
-                                            total = report.total,
-                                            migrated = report.migrated,
-                                            "history migration finished"
-                                        );
-                                    }
-                                    Err(error) => {
-                                        if let Ok(mut guard) = status_arc_for_task.write() {
-                                            *guard = MigrationStatus::Failed(error.to_string());
-                                        }
-                                        tracing::error!(error = %error, "history migration failed");
-                                    }
+                                    });
                                 }
-                            });
+                                app.manage(AppState {
+                                    migrator: Some(migrator),
+                                    history: Some(history_db),
+                                    migration_status: status_arc,
+                                });
+                                crash_log("history v2 initialized");
+                            }
+                            Err(error) => {
+                                tracing::error!(
+                                    error = %error,
+                                    "failed to initialize history migrator (device id)"
+                                );
+                                app.manage(AppState {
+                                    migrator: None,
+                                    history: Some(history_db),
+                                    migration_status: Arc::new(RwLock::new(
+                                        MigrationStatus::Failed(format!(
+                                            "failed to initialize history migration: {error}"
+                                        )),
+                                    )),
+                                });
+                                crash_log("history v2 init failed: device id");
+                            }
                         }
-                        app.manage(AppState {
-                            migrator: Some(migrator),
-                            history: Some(history_db),
-                            migration_status: status_arc,
-                        });
-                        crash_log("history v2 initialized");
                     }
                     Err(error) => {
                         tracing::error!(error = %error, "failed to open history database");

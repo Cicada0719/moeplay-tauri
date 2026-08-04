@@ -223,16 +223,17 @@ pub struct Migrator {
 }
 
 impl Migrator {
-    pub fn new(db: HistoryDb, app_data_dir: PathBuf) -> Self {
-        let device_id = get_or_create_device_id(&app_data_dir)
-            .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
-        Self {
+    pub fn new(db: HistoryDb, app_data_dir: PathBuf) -> Result<Self, MigrationError> {
+        // device_id 必须稳定（spec §3.4）：获取失败直接报错，绝不静默换新 uuid，
+        // 否则同步合并会因设备标识漂移而错乱。
+        let device_id = get_or_create_device_id(&app_data_dir).map_err(MigrationError::Db)?;
+        Ok(Self {
             db,
             app_data_dir,
             device_id,
             progress_sink: Arc::new(|_| {}),
             batch_hook: None,
-        }
+        })
     }
 
     /// 设置进度回调（默认 no-op）。
@@ -469,10 +470,23 @@ impl Migrator {
                     let tx = guard.transaction()?;
                     for record in batch {
                         match upsert_idempotent(&tx, record) {
-                            Ok(UpsertOutcome::Inserted(id)) | Ok(UpsertOutcome::Replaced(id)) => {
+                            Ok(UpsertOutcome::Inserted(id)) => {
                                 tx.execute(
-                                    "INSERT OR IGNORE INTO migration_staging (id) VALUES (?1)",
+                                    "INSERT OR IGNORE INTO migration_staging (id, kind) \
+                                     VALUES (?1, 'inserted')",
                                     rusqlite::params![id],
+                                )?;
+                            }
+                            Ok(UpsertOutcome::Replaced(id, old)) => {
+                                // 记录被覆盖前的完整快照：回滚时据此还原原行。
+                                let snapshot = serde_json::to_string(&old)
+                                    .map_err(|error| MigrationError::Db(DbError::Serde(error)))?;
+                                tx.execute(
+                                    "INSERT INTO migration_staging (id, kind, snapshot_json) \
+                                     VALUES (?1, 'replaced', ?2) \
+                                     ON CONFLICT(id) DO UPDATE SET \
+                                        kind='replaced', snapshot_json=excluded.snapshot_json",
+                                    rusqlite::params![id, snapshot],
                                 )?;
                             }
                             Ok(UpsertOutcome::Skipped) => {}
@@ -590,11 +604,72 @@ impl Migrator {
         let conn = self.db.conn();
         let mut guard = lock_conn(&conn)?;
         let tx = guard.transaction()?;
-        tx.execute(
-            "DELETE FROM history \
-             WHERE device_id = ?1 AND id IN (SELECT id FROM migration_staging)",
-            rusqlite::params![self.device_id],
-        )?;
+
+        // 按 staging 表还原：本次 INSERT 的行删除；本次 UPDATE（Replaced）覆盖的
+        // 原行按快照还原。
+        let mut inserted_ids: Vec<String> = Vec::new();
+        let mut replaced: Vec<(String, HistoryRecord)> = Vec::new();
+        {
+            let mut stmt = tx.prepare("SELECT id, kind, snapshot_json FROM migration_staging")?;
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })?;
+            for row in rows {
+                let (id, kind, snapshot_json) = row?;
+                match kind.as_str() {
+                    "inserted" => inserted_ids.push(id),
+                    "replaced" => {
+                        let json = snapshot_json.ok_or_else(|| {
+                            MigrationError::Rollback(format!(
+                                "staging row {id} is missing its replaced snapshot"
+                            ))
+                        })?;
+                        let old: HistoryRecord = serde_json::from_str(&json)
+                            .map_err(|error| MigrationError::Db(DbError::Serde(error)))?;
+                        replaced.push((id, old));
+                    }
+                    other => {
+                        return Err(MigrationError::Rollback(format!(
+                            "unknown migration_staging kind: {other}"
+                        )));
+                    }
+                }
+            }
+        }
+
+        for id in inserted_ids {
+            tx.execute("DELETE FROM history WHERE id = ?1", rusqlite::params![id])?;
+        }
+        for (id, old) in replaced {
+            tx.execute(
+                "UPDATE history SET
+                    content_id=?1, content_type=?2, title=?3, cover=?4, source_id=?5,
+                    chapter_id=?6, chapter_title=?7, page_index=?8, position_sec=?9,
+                    scroll_pct=?10, updated_at=?11, device_id=?12, deleted=?13
+                 WHERE id=?14",
+                rusqlite::params![
+                    old.content_id,
+                    old.content_type.as_str(),
+                    old.title,
+                    old.cover,
+                    old.source_id,
+                    old.chapter_id,
+                    old.chapter_title,
+                    old.page_index,
+                    old.position_sec,
+                    old.scroll_pct,
+                    old.updated_at,
+                    old.device_id,
+                    i64::from(old.deleted),
+                    id,
+                ],
+            )?;
+        }
+
         tx.execute("DELETE FROM migration_staging", [])?;
         save_state(
             &tx,

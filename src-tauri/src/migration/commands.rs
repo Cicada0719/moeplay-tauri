@@ -121,10 +121,9 @@ pub async fn history_list(
     ensure_history_available(&gate_status)?;
 
     let history = history(&state)?;
+    // `ContentType::from_str` 的 Err 就是 `String`，与命令签名一致，直接 `?` 传播。
     let content_type = match content_type {
-        Some(raw) if !raw.trim().is_empty() => {
-            Some(ContentType::from_str(raw.trim()).map_err(|error| error)?)
-        }
+        Some(raw) if !raw.trim().is_empty() => Some(ContentType::from_str(raw.trim())?),
         _ => None,
     };
     let keyword = keyword

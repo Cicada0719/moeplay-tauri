@@ -49,7 +49,7 @@ fn v1(
 
 fn open_migrator(dir: &Path) -> (HistoryDb, Migrator) {
     let db = HistoryDb::open(dir).expect("open history db");
-    let migrator = Migrator::new(db.clone(), dir.to_path_buf());
+    let migrator = Migrator::new(db.clone(), dir.to_path_buf()).expect("create migrator");
     (db, migrator)
 }
 
@@ -281,7 +281,7 @@ fn test_crash_resume_no_duplicates() {
     write_v1(dir.path(), &entries);
 
     let db = HistoryDb::open(dir.path()).unwrap();
-    let mut migrator = Migrator::new(db.clone(), dir.path().to_path_buf());
+    let mut migrator = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
     migrator.set_batch_hook(Some(Arc::new(|batch| {
         if batch == 2 {
             panic!("injected crash after batch 2");
@@ -292,7 +292,7 @@ fn test_crash_resume_no_duplicates() {
     assert!(handle.join().is_err(), "run should have panicked");
 
     // 重建 Migrator 断点续迁
-    let migrator2 = Migrator::new(db.clone(), dir.path().to_path_buf());
+    let migrator2 = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
     let report = migrator2.run().unwrap();
     assert_eq!(report.status, MigrationStatus::Completed);
     assert_eq!(report.total, 1200);
@@ -321,7 +321,7 @@ fn test_migrate_failure_rollback() {
     write_v1(dir.path(), &entries);
 
     let db = HistoryDb::open(dir.path()).unwrap();
-    let mut migrator = Migrator::new(db.clone(), dir.path().to_path_buf());
+    let mut migrator = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
     migrator.set_batch_hook(Some(Arc::new(|batch| {
         if batch == 3 {
             Err(MigrationError::Migration("injected failure".into()))
@@ -350,8 +350,83 @@ fn test_migrate_failure_rollback() {
     assert_eq!(staging, 0);
     drop(guard);
 
+    // 回滚后 v1 源文件不得被重命名（只有 status=completed 之后才执行重命名）。
+    assert!(dir.path().join("history.json").exists());
+    assert!(!dir.path().join("history.json.migrated").exists());
+
     let backups = migrator.list_backups().unwrap();
     assert_eq!(backups.len(), 1, "backup file must be retained after rollback");
+}
+
+#[test]
+fn test_rollback_restores_replaced_rows() {
+    let dir = temp_app_dir();
+    let db = HistoryDb::open(dir.path()).unwrap();
+
+    // 预置两条历史，后续迁移会以更新的 updated_at 覆盖它们（UPDATE / Replaced）。
+    let seed = |id: &str, content_id: &str, title: &str, updated_at: i64| HistoryRecord {
+        id: id.into(),
+        content_id: content_id.into(),
+        content_type: ContentType::Anime,
+        title: title.into(),
+        cover: None,
+        source_id: "src".into(),
+        chapter_id: None,
+        chapter_title: None,
+        page_index: 0,
+        position_sec: 0.0,
+        scroll_pct: 0.0,
+        updated_at,
+        device_id: "dev".into(),
+        deleted: false,
+    };
+    db.upsert(&seed("pre-1", "c1", "Old Title 1", 1_000)).unwrap();
+    db.upsert(&seed("pre-2", "c2", "Old Title 2", 1_000)).unwrap();
+
+    // v1 数据：同一 merge key，updated_at 更新 → 迁移会触发 UPDATE。
+    write_v1(
+        dir.path(),
+        &[
+            v1("c1", "anime", "New Title 1", map!("source_id" => "src", "updated_at" => 2_000)),
+            v1("c2", "anime", "New Title 2", map!("source_id" => "src", "updated_at" => 2_000)),
+        ],
+    );
+
+    let mut migrator = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
+    migrator.set_batch_hook(Some(Arc::new(|batch| {
+        if batch == 1 {
+            Err(MigrationError::Migration("injected failure".into()))
+        } else {
+            Ok(())
+        }
+    })));
+    let error = migrator.run().unwrap_err();
+    assert!(
+        error.to_string().contains("injected failure"),
+        "got: {error}"
+    );
+
+    // 回滚后：被 UPDATE 覆盖的原行必须按快照还原（id 不变、旧值恢复）。
+    let rows = history_rows(&db);
+    assert_eq!(rows.len(), 2, "no extra rows may remain after rollback");
+    let by_id: HashMap<&str, &HistoryRecord> = rows.iter().map(|r| (r.id.as_str(), r)).collect();
+    let restored1 = by_id["pre-1"];
+    assert_eq!(restored1.content_id, "c1");
+    assert_eq!(restored1.title, "Old Title 1");
+    assert_eq!(restored1.updated_at, 1_000);
+    let restored2 = by_id["pre-2"];
+    assert_eq!(restored2.title, "Old Title 2");
+    assert_eq!(restored2.updated_at, 1_000);
+
+    let conn = db.conn();
+    let guard = conn.lock().unwrap();
+    let staging: i64 = guard
+        .query_row("SELECT COUNT(*) FROM migration_staging", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(staging, 0, "staging must be cleared after rollback");
+    drop(guard);
 }
 
 #[test]
@@ -363,7 +438,7 @@ fn test_restore_from_backup() {
     write_v1(dir.path(), &entries);
 
     let db = HistoryDb::open(dir.path()).unwrap();
-    let mut migrator = Migrator::new(db.clone(), dir.path().to_path_buf());
+    let mut migrator = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
     migrator.set_batch_hook(Some(Arc::new(|batch| {
         if batch == 1 {
             Err(MigrationError::Migration("boom".into()))
@@ -377,11 +452,17 @@ fn test_restore_from_backup() {
     let backups = migrator.list_backups().unwrap();
     assert_eq!(backups.len(), 1);
 
-    let migrator2 = Migrator::new(db.clone(), dir.path().to_path_buf());
+    let migrator2 = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
     let report = migrator2.restore_from_backup(&backups[0]).unwrap();
     assert_eq!(report.status, MigrationStatus::Completed);
     assert_eq!(report.total, 10);
     assert_eq!(history_rows(&db).len(), 10);
+    // restore 复用备份文件作为 backup_path，不应生成第二个备份。
+    assert_eq!(
+        migrator2.list_backups().unwrap().len(),
+        1,
+        "restore must not create a second backup"
+    );
 }
 
 #[test]
@@ -390,7 +471,7 @@ fn test_corrupted_v1_json() {
     std::fs::write(dir.path().join("history.json"), "{ this is not valid json").unwrap();
 
     let db = HistoryDb::open(dir.path()).unwrap();
-    let migrator = Migrator::new(db.clone(), dir.path().to_path_buf());
+    let migrator = Migrator::new(db.clone(), dir.path().to_path_buf()).unwrap();
     let error = migrator.run().unwrap_err();
     assert!(
         error.to_string().contains("parse") || error.to_string().contains("expected"),
@@ -408,6 +489,10 @@ fn test_corrupted_v1_json() {
         })
         .unwrap();
     assert_eq!(status, "rolled_back");
+    drop(guard);
+    // 解析失败 → 回滚，v1 文件不得被重命名。
+    assert!(dir.path().join("history.json").exists());
+    assert!(!dir.path().join("history.json.migrated").exists());
 }
 
 #[test]
@@ -442,6 +527,16 @@ fn test_empty_v1() {
     // 行为锁定：空备份仍生成，源文件重命名
     assert_eq!(migrator.list_backups().unwrap().len(), 1);
     assert!(dir.path().join("history.json.migrated").exists());
+    // 空库场景不残留 migration_staging 记录。
+    let conn = db.conn();
+    let guard = conn.lock().unwrap();
+    let staging: i64 = guard
+        .query_row("SELECT COUNT(*) FROM migration_staging", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(staging, 0, "empty migration must clear staging rows");
+    drop(guard);
 }
 
 #[test]

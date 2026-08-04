@@ -67,12 +67,12 @@ impl fmt::Display for MapError {
 
 impl std::error::Error for MapError {}
 
-/// 幂等写入结果。`Inserted`/`Replaced` 携带实际写入行的 `id`（迁移框架用它
-/// 登记 staging 表以便回滚）。
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// 幂等写入结果。`Inserted` 携带新写入行的 `id`；`Replaced` 携带被覆盖行的
+/// `id` 与**更新前快照**（迁移框架据此登记 staging 表，回滚时还原原行）。
+#[derive(Debug, Clone, PartialEq)]
 pub enum UpsertOutcome {
     Inserted(String),
-    Replaced(String),
+    Replaced(String, HistoryRecord),
     Skipped,
 }
 
@@ -201,7 +201,7 @@ fn now_ms() -> i64 {
 
 /// 幂等写入：以 `(content_id, source_id, chapter_id)` 判定重复。
 /// 目标行已存在且 `updated_at >= 待写入值` → `Skipped`；
-/// 已存在但更旧 → `UPDATE`（保留原 `id`）并返回 `Replaced(原 id)`；
+/// 已存在但更旧 → `UPDATE`（保留原 `id`）并返回 `Replaced(原 id, 原行快照)`；
 /// 不存在 → `INSERT` 并返回 `Inserted(新 id)`。
 pub fn upsert_idempotent(
     tx: &rusqlite::Transaction<'_>,
@@ -220,6 +220,8 @@ pub fn upsert_idempotent(
         if existing_updated_at >= rec.updated_at {
             return Ok(UpsertOutcome::Skipped);
         }
+        // 先取被覆盖行的完整快照，供迁移回滚时还原原行。
+        let snapshot = load_snapshot(tx, &existing_id)?;
         tx.execute(
             "UPDATE history SET
                 content_type=?1, title=?2, cover=?3, source_id=?4, chapter_id=?5,
@@ -242,7 +244,7 @@ pub fn upsert_idempotent(
                 existing_id,
             ],
         )?;
-        return Ok(UpsertOutcome::Replaced(existing_id));
+        return Ok(UpsertOutcome::Replaced(existing_id, snapshot));
     }
 
     tx.execute(
@@ -268,6 +270,46 @@ pub fn upsert_idempotent(
         ],
     )?;
     Ok(UpsertOutcome::Inserted(rec.id.clone()))
+}
+
+/// 读取一行完整 `history` 记录作为回滚快照。
+fn load_snapshot(tx: &rusqlite::Transaction<'_>, id: &str) -> Result<HistoryRecord, DbError> {
+    let record = tx.query_row(
+        "SELECT id, content_id, content_type, title, cover, source_id, chapter_id,
+                chapter_title, page_index, position_sec, scroll_pct, updated_at, device_id, deleted
+         FROM history WHERE id = ?1",
+        rusqlite::params![id],
+        |row| {
+            let content_type_raw: String = row.get(2)?;
+            let content_type = ContentType::from_str(&content_type_raw).map_err(|message| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    2,
+                    rusqlite::types::Type::Text,
+                    Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        message,
+                    )),
+                )
+            })?;
+            Ok(HistoryRecord {
+                id: row.get(0)?,
+                content_id: row.get(1)?,
+                content_type,
+                title: row.get(3)?,
+                cover: row.get(4)?,
+                source_id: row.get(5)?,
+                chapter_id: row.get(6)?,
+                chapter_title: row.get(7)?,
+                page_index: row.get(8)?,
+                position_sec: row.get(9)?,
+                scroll_pct: row.get(10)?,
+                updated_at: row.get(11)?,
+                device_id: row.get(12)?,
+                deleted: row.get::<_, i64>(13)? != 0,
+            })
+        },
+    )?;
+    Ok(record)
 }
 
 #[cfg(test)]

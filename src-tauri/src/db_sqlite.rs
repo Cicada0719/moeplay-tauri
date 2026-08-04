@@ -8,14 +8,16 @@
 //
 // 本模块为 M0-3 命令切换做准备：方法签名与 `db::Database` 对齐，commands.rs 可无缝切换。
 
+use crate::domain::history::{ContentType, HistoryRecord};
 use crate::models::{
     AppDatabase, CompletionStatus, Game, GameAlias, GameMetadata, GamePlatform, PlaySession,
     PlayTracker, SaveBackup, SaveData, Settings, StoreLink, Tag,
 };
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
-use std::sync::Mutex;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 /// Current schema version. v7 adds per-media source preferences for Source Center.
 pub const SCHEMA_VERSION: i64 = 7;
@@ -2946,11 +2948,6 @@ mod tests {
 // 0 = 空库 / 2 = v2 schema。
 // ============================================================================
 
-use crate::domain::history::{ContentType, HistoryRecord};
-use std::path::PathBuf;
-use std::str::FromStr;
-use std::sync::{Arc, MutexGuard};
-
 /// 历史数据库操作错误。
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
@@ -3005,7 +3002,9 @@ CREATE TABLE IF NOT EXISTS migration_state (
 );
 
 CREATE TABLE IF NOT EXISTS migration_staging (
-  id TEXT PRIMARY KEY
+  id            TEXT PRIMARY KEY,
+  kind          TEXT NOT NULL DEFAULT 'inserted' CHECK (kind IN ('inserted','replaced')),
+  snapshot_json TEXT
 );
 "#;
 
@@ -3042,6 +3041,24 @@ impl HistoryDb {
         if version < 2 {
             guard.execute_batch(SCHEMA_V2_SQL)?;
             guard.execute_batch("PRAGMA user_version = 2;")?;
+        } else {
+            // 兼容早期 v2 schema（migration_staging 仅有 id 列）：补齐
+            // kind / snapshot_json 列，供回滚还原被 UPDATE 覆盖的原行。
+            let has_kind: bool = guard
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('migration_staging') WHERE name='kind'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map(|count| count > 0)
+                .unwrap_or(true);
+            if !has_kind {
+                guard.execute_batch(
+                    "ALTER TABLE migration_staging ADD COLUMN kind TEXT NOT NULL DEFAULT 'inserted' \
+                     CHECK (kind IN ('inserted','replaced'));
+                     ALTER TABLE migration_staging ADD COLUMN snapshot_json TEXT;",
+                )?;
+            }
         }
         Ok(())
     }
@@ -3269,14 +3286,22 @@ fn now_ms() -> i64 {
 
 /// 设备唯一标识：首次生成 uuid 写入 `<app_data_dir>/device.id`，之后读取。
 /// 子任务 5 的同步合并依赖该值稳定不变。
+///
+/// 读取失败（权限等）返回错误而不是静默重新生成新 uuid——否则每次启动都会
+/// 换一个 device_id，破坏同步合并的稳定性。
 pub fn get_or_create_device_id(app_data_dir: &Path) -> Result<String, DbError> {
     std::fs::create_dir_all(app_data_dir)?;
     let path = app_data_dir.join("device.id");
-    if let Ok(existing) = std::fs::read_to_string(&path) {
-        let trimmed = existing.trim().to_string();
-        if !trimmed.is_empty() {
-            return Ok(trimmed);
+    match std::fs::read_to_string(&path) {
+        Ok(existing) => {
+            let trimmed = existing.trim().to_string();
+            if !trimmed.is_empty() {
+                return Ok(trimmed);
+            }
+            // 空/损坏文件 → 落到下方重新生成并覆盖。
         }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(DbError::Io(error)),
     }
     let id = uuid::Uuid::new_v4().to_string();
     std::fs::write(&path, &id)?;

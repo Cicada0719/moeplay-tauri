@@ -4,6 +4,7 @@
 // 存储从单 JSON 文件迁移到 SQLite（WAL + 事务 + 索引）。
 
 use crate::db_sqlite::SqliteDb;
+use crate::migration::{V1_HISTORY_FILE, V1_HISTORY_MIGRATED_FILE};
 use crate::models::{
     AppDatabase, CompletionStatus, Game, GameAlias, GameMetadata, GamePlatform, PlaySession,
     PlayTracker, SaveBackup, SaveData, Settings, Tag,
@@ -15,11 +16,6 @@ use std::sync::Arc;
 
 const SQLITE_FILE_NAME: &str = "moegame.db";
 const JSON_FILE_NAME: &str = "database.json";
-
-/// v1 历史 JSON 文件名（FR-08 迁移的只读来源）。
-const V1_HISTORY_FILE: &str = "history.json";
-/// 迁移完成后 v1 文件重命名目标。
-const V1_HISTORY_MIGRATED_FILE: &str = "history.json.migrated";
 
 /// 读取 v1 历史 JSON（只读，供 FR-08 迁移使用）。文件不存在返回空 Vec。
 pub fn load_v1_history(
