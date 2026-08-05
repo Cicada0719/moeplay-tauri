@@ -200,6 +200,36 @@ pub struct AnimeHistory {
 
 // ── 托管状态 ─────────────────────────────────────────────────────────────
 
+/// 内置番剧源清单（2026-08-05 从 KazumiRules 实测筛选：HTTP 可达 + 搜索可出结果 +
+/// 无 Cloudflare 反爬拦截；DM84 因站点 522 不稳定被剔除）。
+/// 规则内容 1:1 参考 kazumi 社区规则（Predidit/KazumiRules，站点选择器逐条实测通过）。
+pub const BUILTIN_RULE_NAMES: [&str; 5] = ["AGE", "7sefun", "MXdm", "gugu3", "xfdmneo"];
+
+/// 编译期内嵌的内置规则 JSON（与 Kazumi JSON 1:1 兼容，AnimeRule 直接反序列化）。
+const BUILTIN_RULES_JSON: &str = include_str!("../resources/builtin_anime_rules.json");
+
+/// 解析内置规则列表；解析失败时静默降级为空（规则文件随源码编译，理论上不会失败）。
+pub fn builtin_anime_rules() -> Vec<AnimeRule> {
+    serde_json::from_str(BUILTIN_RULES_JSON).unwrap_or_default()
+}
+
+/// 合并输入规则与内置规则：输入优先（同名覆盖内置），缺失的内置源补回。
+/// 保证前端整体推送 localStorage 规则时内置源不会被清掉。
+pub fn merge_with_builtin(input: Vec<AnimeRule>) -> Vec<AnimeRule> {
+    let mut merged = input;
+    for b in builtin_anime_rules() {
+        if !merged.iter().any(|r| r.name == b.name) {
+            merged.push(b);
+        }
+    }
+    merged
+}
+
+/// 是否为内置规则名（删除保护）。
+pub fn is_builtin_rule(name: &str) -> bool {
+    BUILTIN_RULE_NAMES.contains(&name)
+}
+
 pub struct AnimeState {
     pub rules: Mutex<Vec<AnimeRule>>,
 }
@@ -207,7 +237,7 @@ pub struct AnimeState {
 impl Default for AnimeState {
     fn default() -> Self {
         Self {
-            rules: Mutex::new(Vec::new()),
+            rules: Mutex::new(builtin_anime_rules()),
         }
     }
 }
@@ -245,7 +275,7 @@ pub fn xpath_to_css(xpath: &str) -> String {
         }
 
         if seg.contains('[') {
-            // div[@class="xxx"] or div[contains(@class,'xxx')]
+            // div[@class="xxx"] / div[contains(@class,'xxx')] / div[@id="x"] / div[2] / a[1]
             if let Some(pos) = seg.find('[') {
                 let tag = &seg[..pos];
                 let pred = &seg[pos + 1..seg.len() - 1]; // strip []
@@ -279,6 +309,15 @@ pub fn xpath_to_css(xpath: &str) -> String {
                         .trim_matches('"')
                         .trim_matches('\'');
                     css_parts.push(format!("{}#{}", tag, val));
+                } else if let Ok(idx) = pred.parse::<u32>() {
+                    // XPath 位置谓词（1-based，在同名元素中计数）→ CSS :nth-of-type(N)
+                    // 注意不能用 :nth-child：XPath div[2] 是「第 2 个 div 子元素」（跳过
+                    // 其他标签），:nth-child(2) 要求「第 2 个子元素恰好是 div」，语义不同。
+                    if idx > 0 {
+                        css_parts.push(format!("{}:nth-of-type({})", tag, idx));
+                    } else {
+                        css_parts.push(tag.to_string());
+                    }
                 } else {
                     css_parts.push(tag.to_string());
                 }
@@ -798,6 +837,100 @@ fn captcha_selector_matches(html: &str, xpath: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── 内置源清单（2026-08-05 KazumiRules 实测筛选）───────────────────
+
+    #[test]
+    fn builtin_rules_are_complete_and_valid() {
+        let rules = builtin_anime_rules();
+        assert_eq!(rules.len(), 5, "内置番剧源应为 5 个（实测筛选）");
+        for r in &rules {
+            assert!(!r.name.is_empty());
+            assert!(!r.base_url.is_empty());
+            assert!(!r.search_url.is_empty());
+            assert!(!r.search_list.is_empty());
+            assert!(!r.search_name.is_empty());
+            assert!(!r.search_result.is_empty());
+            assert!(!r.chapter_roads.is_empty());
+            assert!(!r.chapter_result.is_empty());
+            assert!(r.base_url.starts_with("http"), "baseURL 必须是 http(s)");
+        }
+        // BUILTIN_RULE_NAMES 与解析出的规则一一对应
+        assert_eq!(BUILTIN_RULE_NAMES.len(), rules.len());
+        for name in BUILTIN_RULE_NAMES {
+            assert!(rules.iter().any(|r| r.name == name), "缺少内置源 {name}");
+        }
+    }
+
+    #[test]
+    fn merge_with_builtin_keeps_builtins_and_respects_overrides() {
+        // 用户推空列表 → 内置源仍在
+        let merged = merge_with_builtin(Vec::new());
+        assert_eq!(merged.len(), 5);
+        // 用户推自己的规则 → 内置源补回
+        let custom = AnimeRule {
+            api: "1".into(),
+            r#type: "anime".into(),
+            name: "我的源".into(),
+            version: "1.0".into(),
+            muli_sources: true,
+            use_webview: false,
+            use_native_player: true,
+            use_post: false,
+            use_legacy_parser: false,
+            ad_blocker: false,
+            user_agent: String::new(),
+            base_url: "https://example.com".into(),
+            search_url: "/search?wd=@keyword".into(),
+            search_list: "//div".into(),
+            search_name: "//a".into(),
+            search_result: "//a".into(),
+            chapter_roads: "//div".into(),
+            chapter_result: "//a".into(),
+            referer: String::new(),
+            search_mode: String::new(),
+            chapter_mode: String::new(),
+            search_api_config: None,
+            chapter_api_config: None,
+            anti_crawler_config: AntiCrawlerConfig::default(),
+        };
+        let merged = merge_with_builtin(vec![custom.clone()]);
+        assert_eq!(merged.len(), 6);
+        assert!(merged.iter().any(|r| r.name == "我的源"));
+        assert!(merged.iter().any(|r| r.name == "AGE"));
+        // 同名覆盖：用户自定义的 AGE 优先
+        let mut override_age = custom.clone();
+        override_age.name = "AGE".into();
+        override_age.base_url = "https://override.example.com".into();
+        let merged = merge_with_builtin(vec![override_age.clone()]);
+        assert_eq!(merged.len(), 5);
+        let age = merged.iter().find(|r| r.name == "AGE").unwrap();
+        assert_eq!(age.base_url, "https://override.example.com");
+    }
+
+    #[test]
+    fn builtin_name_protection() {
+        assert!(is_builtin_rule("AGE"));
+        assert!(is_builtin_rule("xfdmneo"));
+        assert!(!is_builtin_rule("我的自定义源"));
+        assert!(!is_builtin_rule("age")); // 大小写敏感
+    }
+
+    #[test]
+    fn xpath_to_css_handles_index_predicates() {
+        // Kazumi 社区规则常见的绝对路径位置谓词 → :nth-of-type（XPath div[2] 语义 =
+        // 同类型第 2 个，等价 CSS :nth-of-type(2)，不等价 :nth-child(2)）
+        assert_eq!(xpath_to_css("//div[2]/div/section/div/div/div/div"),
+                   "div:nth-of-type(2) div section div div div div");
+        assert_eq!(xpath_to_css("//div/div[2]/h5/a"), "div div:nth-of-type(2) h5 a");
+        assert_eq!(xpath_to_css("//div[3]/div[2]/a[1]"), "div:nth-of-type(3) div:nth-of-type(2) a:nth-of-type(1)");
+        // 原有 class/id/contains 模式不受影响
+        assert_eq!(xpath_to_css("//div[@class='public-list-box search-box flex rel']"),
+                   "div.public-list-box.search-box.flex.rel");
+        assert_eq!(xpath_to_css("//ul[@class='anthology-list-play size']"), "ul.anthology-list-play.size");
+        // text()/@attr 段跳过
+        assert_eq!(xpath_to_css("//div[2]/text()"), "div:nth-of-type(2)");
+    }
 
     fn base_rule() -> AnimeRule {
         AnimeRule {

@@ -364,7 +364,7 @@ import { invokeCmd } from '../../api/core';
               {#each currentResult.items as item (item.url)}
                 <Button variant="quiet" fullWidth class="result-item" press={() => onSelectResult(currentSource.name, item)}>
                   <Icon name="film" size={16} />
-                  <span class="result-name">{item.name}</span>
+                  <span class="result-name" title={item.name}>{item.name}</span>
                   <Icon name="chevronRight" size={14} />
                 </Button>
               {/each}
@@ -477,9 +477,10 @@ import { invokeCmd } from '../../api/core';
   }
   .source-name {
     flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    line-height: 1.3;
+    padding: 2px 0;
   }
   .source-count {
     font-size: 11px;

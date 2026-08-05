@@ -165,7 +165,9 @@ pub async fn anime_set_rules(
     rules: Vec<AnimeRule>,
 ) -> Result<(), String> {
     let mut store = state.rules.lock().map_err(|e| e.to_string())?;
-    *store = rules;
+    // 内置源合并保护：输入规则覆盖/新增，但内置源永不被整体覆盖移除
+    // （前端启动时用 localStorage 整体推送规则，若直接覆盖会把内置源清掉）。
+    *store = anime::merge_with_builtin(rules);
     Ok(())
 }
 
@@ -182,6 +184,9 @@ pub async fn anime_add_rule(state: State<'_, AnimeState>, rule: AnimeRule) -> Re
 
 #[tauri::command]
 pub async fn anime_remove_rule(state: State<'_, AnimeState>, name: String) -> Result<(), String> {
+    if anime::is_builtin_rule(&name) {
+        return Err(format!("内置规则「{name}」不可删除"));
+    }
     let mut store = state.rules.lock().map_err(|e| e.to_string())?;
     store.retain(|r| r.name != name);
     Ok(())

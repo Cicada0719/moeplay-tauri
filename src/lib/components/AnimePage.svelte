@@ -713,11 +713,14 @@
                       · {rule.baseUrl}
                       {#if rule.useWebview}<span class="rule-badge">WebView</span>{/if}
                       {#if rule.adBlocker}<span class="rule-badge">AdBlock</span>{/if}
+                      {#if animeStore.isBuiltinRule(rule.name)}<span class="rule-badge rule-badge--builtin">内置</span>{/if}
                     </span>
                   </div>
-                  <Button variant="quiet" size="sm" press={() => animeStore.removeRule(rule.name)} ariaLabel="删除规则" class="remove-rule">
-                    <Icon name="trash" size={14} />
-                  </Button>
+                  {#if !animeStore.isBuiltinRule(rule.name)}
+                    <Button variant="quiet" size="sm" press={() => animeStore.removeRule(rule.name)} ariaLabel="删除规则" class="remove-rule">
+                      <Icon name="trash" size={14} />
+                    </Button>
+                  {/if}
                 </div>
               {/each}
             </div>

@@ -243,14 +243,18 @@ export interface BangumiEpisodeComment {
 // ── localStorage 键 ──────────────────────────────────────────────────────
 
 const RULES_KEY = "anime-rules";
+const CATALOG_CACHE_KEY = 'anime-rules-catalog-v1';
 const COLLECT_KEY = "anime-collect";
+
+/** 内置番剧源名（与后端 anime::BUILTIN_RULE_NAMES 保持一致）。
+ *  内置源由后端注入且不可删除，前端据此隐藏删除按钮并打「内置」徽标。 */
+export const BUILTIN_RULE_NAMES = ["AGE", "7sefun", "MXdm", "gugu3", "xfdmneo"];
 const HISTORY_KEY = "anime-history";
 const BANGUMI_TOKEN_KEY = "bangumi-token";
 const BANGUMI_USERNAME_KEY = "bangumi-username";
 const BANGUMI_SYNC_PRIORITY_KEY = "bangumi-sync-priority"; // 0=localFirst, 1=bangumiFirst
 const SOURCE_HEALTH_KEY = 'anime-source-health-v1';
 const RECOMMENDATION_CACHE_KEY = 'anime-recommendations-v1';
-const CATALOG_CACHE_KEY = 'anime-rules-catalog-v1';
 
 function loadJson<T>(key: string, fallback: T): T {
   if (typeof localStorage === "undefined") return fallback;
@@ -1021,6 +1025,11 @@ export const animeStore = {
     await invokeCmd("anime_remove_rule", { name });
     _rules = _rules.filter((r) => r.name !== name);
     saveJson(RULES_KEY, _rules);
+  },
+
+  /** 是否为内置规则（内置源不可删除，删除按钮在 UI 中隐藏）。 */
+  isBuiltinRule(name: string): boolean {
+    return BUILTIN_RULE_NAMES.includes(name);
   },
 
   async importRules(json: string): Promise<number> {
