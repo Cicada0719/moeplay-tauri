@@ -6,6 +6,7 @@
   import {
     checkAndUpdateRules,
     getRulesMeta,
+    importKazumiRules,
     probeHealth,
     type RulesMetaInfo,
   } from "../../api/rules";
@@ -15,8 +16,25 @@
   import "./settings-shared.css";
 
   let meta: RulesMetaInfo | null = $state(null);
-  let checking = $state(false);
-  let probing = $state(false);
+    let checking = $state(false);
+    let probing = $state(false);
+    let syncingKazumi = $state(false);
+
+    async function onSyncKazumi() {
+      syncingKazumi = true;
+      try {
+        const result = await importKazumiRules(true);
+        const total = result.imported + result.unchanged;
+        uiStore.notify(
+          `Kazumi 规则库同步完成：${total} 个源可用（新增 ${result.imported}，跳过 ${result.unchanged}）`,
+          result.syncFailed > 0 ? "error" : "success",
+        );
+      } catch (e) {
+        uiStore.notify(`Kazumi 同步失败：${String(e)}`, "error");
+      } finally {
+        syncingKazumi = false;
+      }
+    }
 
   onMount(() => {
     void getRulesMeta()
@@ -137,6 +155,21 @@
       loading={probing}
     >
       立即健康检查
+    </Button>
+  </div>
+
+  <div class="src-item">
+    <div class="src-info">
+      <span class="src-name">同步 Kazumi 规则库</span>
+      <span class="src-desc">从 kazumi 官方规则仓库（KazumiRules）拉取最新源；kazumi 更新源后点这里即可跟进，无需等应用更新</span>
+    </div>
+    <Button
+      size="sm"
+      variant="secondary"
+      press={onSyncKazumi}
+      loading={syncingKazumi}
+    >
+      同步 Kazumi 源
     </Button>
   </div>
 </Card>

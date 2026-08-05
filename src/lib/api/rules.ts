@@ -255,3 +255,18 @@ export function isCancelledError(err: unknown): boolean {
     message.toLowerCase().includes("cancelled")
   );
 }
+
+/** 从 KazumiRules 官方规则库同步并导入（设置页按钮 + 启动自动调用）。 */
+export interface KazumiImportResult {
+  imported: number;
+  catalogTotal: number;
+  synced: number;
+  unchanged: number;
+  syncFailed: number;
+  invalid: number;
+  errors: string[];
+}
+
+export function importKazumiRules(force = false): Promise<KazumiImportResult> {
+  return invokeCmd<KazumiImportResult>("anime_import_kazumi_rules", { force });
+}

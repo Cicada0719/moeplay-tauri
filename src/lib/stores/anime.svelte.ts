@@ -965,6 +965,45 @@ export const animeStore = {
       console.warn("[anime-init] no rules in localStorage, skipping sync");
     }
 
+    // KazumiRules 官方源自动导入（kazumi 更新源后启动即跟进）：
+    // 同步并注入本地规则列表——后端 anime_import_kazumi_rules 已完成同步+注册，
+    // 这里把结果合并进前端 _rules（含首次使用场景）。
+    try {
+      const kz = await invokeCmd<{
+        imported: number;
+        catalogTotal: number;
+        synced: number;
+        unchanged: number;
+        syncFailed: number;
+        invalid: number;
+      }>("anime_import_kazumi_rules", { force: false });
+      if (kz.imported > 0) {
+        const remote = await invokeCmd<AnimeRule[]>("anime_get_rules");
+        const kazumiRules = remote.filter((r) => r.searchURL || r.chapterRoads);
+        let changed = false;
+        for (const r of kazumiRules) {
+          const idx = _rules.findIndex((x) => x.name === r.name);
+          if (idx >= 0) {
+            if (JSON.stringify(_rules[idx]) !== JSON.stringify(r)) {
+              _rules[idx] = r;
+              changed = true;
+            }
+          } else {
+            _rules = [..._rules, r];
+            changed = true;
+          }
+        }
+        if (changed) saveJson(RULES_KEY, _rules);
+        debugLog(
+          `[anime-init] KazumiRules 导入完成: ${kazumiRules.length} 个源 (sync=${kz.synced}, new=${kz.imported})`,
+        );
+      } else if (kz.syncFailed > 0) {
+        console.warn("[anime-init] KazumiRules 同步失败，稍后可在规则页重试");
+      }
+    } catch (e) {
+      console.warn("[anime-init] KazumiRules 导入失败（不影响现有规则）:", e);
+    }
+
     // 启动时静默检查规则更新：失败不打扰用户，目录为空时回退本地缓存
     void this.loadCatalog(true);
   },

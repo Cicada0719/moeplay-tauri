@@ -55,6 +55,7 @@ const COMMANDS: &[&str] = &[
     "anime_get_external_players",
     "anime_get_proxy_url",
     "anime_get_rules",
+    "anime_import_kazumi_rules",
     "anime_get_source_health",
     "anime_github_rules_index",
     "anime_image_search",

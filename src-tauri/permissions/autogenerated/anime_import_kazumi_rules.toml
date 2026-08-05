@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-anime-import-kazumi-rules"
+description = "Enables the anime_import_kazumi_rules command without any pre-configured scope."
+commands.allow = ["anime_import_kazumi_rules"]
+
+[[permission]]
+identifier = "deny-anime-import-kazumi-rules"
+description = "Denies the anime_import_kazumi_rules command without any pre-configured scope."
+commands.deny = ["anime_import_kazumi_rules"]

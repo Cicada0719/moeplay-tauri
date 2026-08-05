@@ -1226,3 +1226,51 @@ mod search_health_tests {
         assert_eq!(items, vec!["recovered", "fresh"]);
     }
 }
+
+/// 从 KazumiRules 同步规则并导入旧规则系统（前端规则列表直接可用）。
+/// 返回同步+导入统计。
+#[tauri::command]
+pub async fn anime_import_kazumi_rules(
+    state: State<'_, AnimeState>,
+    force: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let sync = crate::rules::kazumi_sync::sync_from_kazumi(force.unwrap_or(false)).await;
+    let dir = crate::rules::kazumi_sync::kazumi_rules_dir();
+    let mut imported: Vec<AnimeRule> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            match std::fs::read_to_string(&path) {
+                Ok(text) => match serde_json::from_str::<AnimeRule>(&text) {
+                    Ok(rule) => imported.push(rule),
+                    Err(e) => errors.push(format!("{}: {e}", path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default())),
+                },
+                Err(e) => errors.push(format!("{}: {e}", path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default())),
+            }
+        }
+    }
+    let mut store = state.rules.lock().map_err(|e| e.to_string())?;
+    let mut upserted = 0usize;
+    for rule in &imported {
+        if let Some(pos) = store.iter().position(|r| r.name == rule.name) {
+            store[pos] = rule.clone();
+        } else {
+            store.push(rule.clone());
+        }
+        upserted += 1;
+    }
+    drop(store);
+    Ok(serde_json::json!({
+        "imported": upserted,
+        "catalogTotal": sync.catalog_total,
+        "synced": sync.added + sync.updated,
+        "unchanged": sync.unchanged,
+        "syncFailed": sync.failed,
+        "invalid": sync.invalid,
+        "errors": errors.iter().take(5).collect::<Vec<_>>(),
+    }))
+}

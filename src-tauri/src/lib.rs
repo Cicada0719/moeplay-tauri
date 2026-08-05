@@ -630,6 +630,7 @@ pub fn run() {
             commands::novel_read_chapter,
             // ---- 番剧规则引擎 ----
             commands::anime_get_rules,
+            commands::anime_import_kazumi_rules,
             commands::anime_set_rules,
             commands::anime_add_rule,
             commands::anime_remove_rule,

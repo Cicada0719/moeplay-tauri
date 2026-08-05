@@ -277,6 +277,7 @@
     "allow-novel-detail",
     "allow-novel-read-chapter",
     "allow-anime-get-rules",
+    "allow-anime-import-kazumi-rules",
     "allow-anime-set-rules",
     "allow-anime-add-rule",
     "allow-anime-remove-rule",

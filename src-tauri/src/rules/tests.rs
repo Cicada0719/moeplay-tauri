@@ -1582,3 +1582,25 @@ async fn kazumi_live_search_chapter_parse() {
     }
     assert!(!parsed.urls.is_empty(), "应解析出播放地址");
 }
+
+/// 诊断：加载 appdata 中真实落盘的 kazumi 规则（手动跑）
+#[tokio::test]
+#[ignore = "诊断用"]
+async fn kazumi_diag_load_appdata() {
+    let dir = std::path::Path::new(r"C:\Users\sgy\AppData\Roaming\moeplay\custom_rules\kazumi");
+    let engine = test_engine();
+    let mut inputs = Vec::new();
+    super::collect_rule_inputs(dir, RuleOrigin::Custom, &mut inputs);
+    println!("发现 {} 个规则文件", inputs.len());
+    let loaded = engine.load_rules(inputs).await;
+    for r in &loaded {
+        let status = match r.status {
+            RuleStatus::Ready => "Ready",
+            RuleStatus::Invalid => "INVALID",
+            _ => "?",
+        };
+        let err = r.error.as_ref().map(|e| e.message.clone()).unwrap_or_default();
+        println!("[{status}] {} v{} id={} {}", r.manifest.name, r.manifest.version, r.id,
+            if err.is_empty() { String::new() } else { format!("ERR: {}", &err[..err.len().min(200)]) });
+    }
+}
