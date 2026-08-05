@@ -389,6 +389,7 @@
     "allow-rules-check-and-update",
     "allow-rules-probe-health",
     "allow-rules-get-health",
+    "allow-rules-sync-kazumi",
     "allow-history-delete",
     "allow-history-list",
     "allow-migration-restore-backup",

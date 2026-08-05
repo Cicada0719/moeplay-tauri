@@ -1,6 +1,6 @@
 [package]
 name = "moeplay"
-version = "0.20.2"
+version = "0.20.3"
 description = "萌游 MoeGame — 游戏与番剧管理器"
 authors = ["MoeGame Dev"]
 edition = "2021"
@@ -71,6 +71,7 @@ keyring = { version = "=4.1.4", default-features = false, features = ["v1"] }
 # WebDAV Basic 认证头手动拼 base64（spec §3.4 / task-05）
 base64 = "0.22"
 scraper = "0.22"
+ego-tree = "0.10"
 # 规则包热更新（spec task-02 §2.2）：ed25519 签名校验 / 版本比较 / 签名 base64 编码。
 ed25519-dalek = "2"
 semver = "1"

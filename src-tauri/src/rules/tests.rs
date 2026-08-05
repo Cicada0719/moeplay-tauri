@@ -39,6 +39,16 @@ fn make_manifest(name: &str, search: &str) -> RuleManifest {
         detail: "function detail(url) { return {}; }".to_string(),
         chapter: "function chapter(detailUrl) { return []; }".to_string(),
         parse: "function parse(chapterUrl) { return { urls: [], kind: 'video' }; }".to_string(),
+        search_url: None,
+        search_list: None,
+        search_name: None,
+        search_result: None,
+        chapter_roads: None,
+        chapter_result: None,
+        user_agent: None,
+        referer: None,
+        kazumi_api: None,
+        muli_sources: None,
     }
 }
 
@@ -1497,4 +1507,78 @@ impl RuleManifest {
         self.parse = parse.to_string();
         self
     }
+}
+
+// ── kazumi 格式规则真实网络验证（手动跑：cargo test --lib kazumi_live -- --ignored --nocapture）──
+
+/// 加载 kazumi 原始格式规则（AGE XPath 规则）并真实搜索/取集/解析。
+#[tokio::test]
+#[ignore = "真实网络，手动运行"]
+async fn kazumi_live_search_chapter_parse() {
+    let rule_json = r#"{
+      "api": "1",
+      "type": "anime",
+      "name": "AGE",
+      "version": "1.5",
+      "muliSources": true,
+      "useWebview": true,
+      "useNativePlayer": true,
+      "userAgent": "",
+      "baseURL": "https://www.agedm.io/",
+      "searchURL": "https://www.agedm.io/search?query=@keyword",
+      "searchList": "//div[2]/div/section/div/div/div/div",
+      "searchName": "//div/div[2]/h5/a",
+      "searchResult": "//div/div[2]/h5/a",
+      "chapterRoads": "//div[2]/div/section/div/div[2]/div[2]/div[2]/div",
+      "chapterResult": "//ul/li/a"
+    }"#;
+    let mut m = RuleManifest::from_str(rule_json, RuleFileFormat::Json).unwrap();
+    super::schema::normalize_kazumi(&mut m).unwrap();
+    assert!(m.search.contains("function search"));
+    assert!(m.search.contains("kzXPath"));
+
+    let engine = test_engine();
+    let loaded = engine
+        .load_rules(vec![RuleInput::Manifest {
+            manifest: m,
+            origin: RuleOrigin::Custom,
+        }])
+        .await;
+    let rule = loaded.first().unwrap();
+    assert_eq!(rule.status, RuleStatus::Ready, "规则应为 Ready: {:?}", rule.error);
+
+    // 1) 搜索
+    let items = engine
+        .search(&rule.id, "进击的巨人", 1, CancellationToken::new())
+        .await
+        .expect("search 应成功");
+    println!("[kazumi] search 命中 {} 条", items.len());
+    assert!(!items.is_empty(), "7sefun 搜索应有结果");
+    for it in items.iter().take(3) {
+        println!("  - {} | {}", it.title, it.url);
+    }
+
+    // 2) 剧集（只测第一条）
+    let first = &items[0];
+    let chapters = engine
+        .chapters(&rule.id, &first.url, CancellationToken::new())
+        .await
+        .expect("chapters 应成功");
+    println!("[kazumi] '{}' 剧集 {} 条", first.title, chapters.len());
+    assert!(!chapters.is_empty(), "应解析出剧集");
+    for ch in chapters.iter().take(3) {
+        println!("  - {} | {}", ch.title, ch.url);
+    }
+
+    // 3) 解析播放地址（只测第一集）
+    let ep = &chapters[0];
+    let parsed = engine
+        .parse(&rule.id, &ep.url, CancellationToken::new())
+        .await
+        .expect("parse 应成功");
+    println!("[kazumi] 第一集解析: {} 个直链", parsed.urls.len());
+    for u in parsed.urls.iter().take(3) {
+        println!("  - {}", u);
+    }
+    assert!(!parsed.urls.is_empty(), "应解析出播放地址");
 }

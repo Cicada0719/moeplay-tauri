@@ -7,6 +7,7 @@ use tauri::State;
 
 use crate::rules::engine::{Chapter, Detail, ParseResult, RuleExecError, RuleInput, SearchItem};
 use crate::rules::health::{self, HealthProbeResult, SourceHealthInfo};
+use crate::rules::kazumi_sync::KazumiSyncResult;
 use crate::rules::schema::{
     file_stem_id, validate_manifest, LoadedRule, RuleFileFormat, RuleLoadError, RuleManifest,
     RuleOrigin, RuleStatus,
@@ -291,4 +292,12 @@ pub async fn rules_probe_health(
 #[tauri::command]
 pub async fn rules_get_health(app: tauri::AppHandle) -> Result<Vec<SourceHealthInfo>, String> {
     health::get_health_info(&app)
+}
+
+/// 从 KazumiRules 官方规则库同步（kazumi 更新源后，一键拉取最新规则）。
+/// 规则以 kazumi 原始格式落盘 `custom_rules/kazumi/`，下次 `rules_load_all`
+/// 时自动包装为可执行规则。返回同步统计。
+#[tauri::command]
+pub async fn rules_sync_kazumi(force: Option<bool>) -> Result<KazumiSyncResult, String> {
+    Ok(crate::rules::kazumi_sync::sync_from_kazumi(force.unwrap_or(false)).await)
 }

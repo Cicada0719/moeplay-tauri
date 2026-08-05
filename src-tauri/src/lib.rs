@@ -713,6 +713,7 @@ pub fn run() {
             commands::rules_check_and_update,
             commands::rules_probe_health,
             commands::rules_get_health,
+            commands::rules_sync_kazumi,
         ])
         .setup(move |app| {
             crash_log("setup() ENTER");
@@ -897,6 +898,20 @@ pub fn run() {
                     if let Err(e) = rules::update::check_and_update(&app_handle, false).await {
                         tracing::warn!("启动规则热更新检查失败: {e}");
                     }
+                });
+            }
+
+            // KazumiRules 规则库同步（kazumi 更新源后应用自动跟进）：
+            // 启动后延迟 60s 后台同步一次，失败静默（下次启动或手动按钮重试）。
+            {
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    let result = rules::kazumi_sync::sync_from_kazumi(false).await;
+                    tracing::info!(
+                        "KazumiRules 启动同步: catalog={} added={} updated={} unchanged={} failed={} invalid={}",
+                        result.catalog_total, result.added, result.updated,
+                        result.unchanged, result.failed, result.invalid,
+                    );
                 });
             }
 

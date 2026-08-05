@@ -16,6 +16,7 @@
 
 pub mod engine;
 pub mod health;
+pub mod kazumi_sync;
 pub mod manifest_gen;
 pub mod sandbox;
 pub mod schema;

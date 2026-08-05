@@ -19,8 +19,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::rules::sandbox::{Sandbox, EXEC_TIMEOUT, LOAD_TIMEOUT};
 use crate::rules::schema::{
-    file_stem_id, stable_rule_id, validate_manifest, ContentType, LoadedRule, RuleFileFormat,
-    RuleLoadError, RuleManifest, RuleOrigin, RuleStatus,
+    file_stem_id, normalize_kazumi, stable_rule_id, validate_manifest, ContentType, LoadedRule,
+    RuleFileFormat, RuleLoadError, RuleManifest, RuleOrigin, RuleStatus,
 };
 
 /// 常驻 worker 线程数（QuickJS runtime 不可跨线程，必须一线程一沙箱）。
@@ -300,7 +300,18 @@ impl RuleEngine {
                     }
                 };
                 match RuleManifest::from_str(&text, format) {
-                    Ok(m) => (id, m, origin),
+                    Ok(mut m) => {
+                        // kazumi 格式 → 加载期包装为标准四函数（KazumiRules 同步轨）
+                        if let Err(e) = normalize_kazumi(&mut m) {
+                            return self.register_loaded(LoadedRule::invalid(
+                                id,
+                                placeholder_manifest(&path),
+                                origin,
+                                e,
+                            ));
+                        }
+                        (id, m, origin)
+                    }
                     Err(e) => {
                         return self.register_loaded(LoadedRule::invalid(
                             id,
@@ -755,5 +766,15 @@ fn placeholder_manifest(path: &Path) -> RuleManifest {
         detail: String::new(),
         chapter: String::new(),
         parse: String::new(),
+        search_url: None,
+        search_list: None,
+        search_name: None,
+        search_result: None,
+        chapter_roads: None,
+        chapter_result: None,
+        user_agent: None,
+        referer: None,
+        kazumi_api: None,
+        muli_sources: None,
     }
 }

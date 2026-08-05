@@ -49,6 +49,72 @@ struct FetchResponse {
     status: u16,
     body: String,
     headers: HashMap<String, String>,
+    /// HTML 解析后的轻量 DOM 树（JSON 字符串），供 kazumi 风格 XPath 规则使用。
+    /// 非 HTML 响应或解析失败时为 None。
+    dom: Option<String>,
+}
+
+/// 用 scraper 把 HTML 解析为轻量 DOM JSON 树：
+/// `{t: tag, a: {attr: val}, c: [children], x: 文本}`。
+/// 限制总节点数（防畸形/超大页面拖垮 worker），超过上限截断。
+fn html_to_dom_json(html: &str) -> Option<String> {
+    const MAX_NODES: usize = 30_000;
+    const MAX_DEPTH: usize = 48;
+    let doc = scraper::Html::parse_document(html);
+    let mut nodes = 0usize;
+    let mut truncated = false;
+
+    fn walk(
+        node: &ego_tree::NodeRef<'_, scraper::node::Node>,
+        depth: usize,
+        nodes: &mut usize,
+        truncated: &mut bool,
+    ) -> Option<serde_json::Value> {
+        if *truncated || *nodes >= MAX_NODES || depth >= MAX_DEPTH {
+            *truncated = true;
+            return None;
+        }
+        match node.value() {
+            scraper::node::Node::Element(el) => {
+                *nodes += 1;
+                let mut attrs = serde_json::Map::new();
+                for (k, v) in el.attrs() {
+                    attrs.insert(k.to_string(), serde_json::Value::String(v.to_string()));
+                }
+                let mut children = Vec::new();
+                for child in node.children() {
+                    if let Some(v) = walk(&child, depth + 1, nodes, truncated) {
+                        children.push(v);
+                    }
+                }
+                Some(serde_json::json!({
+                    "t": el.name().to_string(),
+                    "a": serde_json::Value::Object(attrs),
+                    "c": children,
+                }))
+            }
+            scraper::node::Node::Text(t) => {
+                *nodes += 1;
+                let text = t.text.to_string();
+                if text.trim().is_empty() {
+                    return None;
+                }
+                Some(serde_json::json!({ "x": text }))
+            }
+            _ => None,
+        }
+    }
+
+    let mut children = Vec::new();
+    for child in doc.tree.root().children() {
+        if let Some(v) = walk(&child, 0, &mut nodes, &mut truncated) {
+            children.push(v);
+        }
+    }
+    if children.is_empty() {
+        return None;
+    }
+    serde_json::to_string(&serde_json::json!({ "t": "#root", "c": children })).ok()
 }
 
 /// 网络桥接器：在 worker 线程内使用独立的 tokio 当前线程 runtime 阻塞执行 reqwest。
@@ -94,6 +160,16 @@ impl FetchBridge {
                 .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
                 .collect();
             let body = resp.text().await.map_err(|e| e.to_string())?;
+            // 仅对 HTML 响应做 DOM 解析（节省 CPU；JSON/二进制响应跳过）
+            let dom = if body.starts_with('<')
+                || resp_headers
+                    .get("content-type")
+                    .is_some_and(|ct| ct.contains("text/html"))
+            {
+                html_to_dom_json(&body)
+            } else {
+                None
+            };
             tracing::info!(
                 rule_id,
                 url,
@@ -105,6 +181,7 @@ impl FetchBridge {
                 status,
                 body,
                 headers: resp_headers,
+                dom,
             })
         })
     }
@@ -343,6 +420,9 @@ fn build_fetch_function<'js>(
                     let obj = Object::new(ctx.clone())?;
                     obj.set("status", resp.status)?;
                     obj.set("body", resp.body)?;
+                    if let Some(dom) = resp.dom {
+                        obj.set("dom", dom)?;
+                    }
                     let h = Object::new(ctx.clone())?;
                     for (k, v) in &resp.headers {
                         h.set(k.as_str(), v.as_str())?;

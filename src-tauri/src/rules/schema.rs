@@ -20,6 +20,7 @@ pub struct RuleManifest {
     #[serde(alias = "type")]
     pub content_type: ContentType,
     /// 站点根地址
+    #[serde(alias = "baseURL")]
     pub base_url: String,
     /// 语言，默认 "zh-CN"
     #[serde(default)]
@@ -30,10 +31,40 @@ pub struct RuleManifest {
     #[serde(default)]
     pub author: Option<String>,
     /// 生命周期函数 JS 源码（kazumi 风格：函数体字符串）
+    /// kazumi 格式规则（search_url 等字段存在）在加载期由 [`normalize_kazumi`]
+    /// 自动生成，本字段为该生成结果；两者互斥。
+    #[serde(default)]
     pub search: String,
+    #[serde(default)]
     pub detail: String,
+    #[serde(default)]
     pub chapter: String,
+    #[serde(default)]
     pub parse: String,
+
+    // ── kazumi XPath 格式字段（KazumiRules 仓库原始格式，可选）────────
+    /// 搜索 URL 模板（`@keyword` 占位）
+    #[serde(default, alias = "searchURL", skip_serializing_if = "Option::is_none")]
+    pub search_url: Option<String>,
+    #[serde(default, alias = "searchList", skip_serializing_if = "Option::is_none")]
+    pub search_list: Option<String>,
+    #[serde(default, alias = "searchName", skip_serializing_if = "Option::is_none")]
+    pub search_name: Option<String>,
+    #[serde(default, alias = "searchResult", skip_serializing_if = "Option::is_none")]
+    pub search_result: Option<String>,
+    #[serde(default, alias = "chapterRoads", skip_serializing_if = "Option::is_none")]
+    pub chapter_roads: Option<String>,
+    #[serde(default, alias = "chapterResult", skip_serializing_if = "Option::is_none")]
+    pub chapter_result: Option<String>,
+    #[serde(default, alias = "userAgent", skip_serializing_if = "Option::is_none")]
+    pub user_agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub referer: Option<String>,
+    /// kazumi 规则 api 版本（1..=7），仅信息用途
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kazumi_api: Option<String>,
+    #[serde(default, alias = "muliSources", skip_serializing_if = "Option::is_none")]
+    pub muli_sources: Option<bool>,
 }
 
 /// 内容类型
@@ -196,6 +227,154 @@ pub fn file_stem_id(path: &Path) -> String {
         .and_then(|s| s.to_str())
         .map(str::to_string)
         .unwrap_or_else(|| "rule".to_string())
+}
+
+/// kazumi 适配层 JS 源码（mini-XPath + 通用播放页解析），内嵌进每条
+/// kazumi 格式规则的生成脚本。文件与 `scripts/kazumi-adapter.js` 同步维护。
+pub(crate) const KAZUMI_ADAPTER_JS: &str = include_str!("kazumi_adapter.js");
+
+/// kazumi XPath 格式规则 → 标准四函数脚本的加载期包装。
+///
+/// 检测到 `search_url` 等 kazumi 字段时，用内嵌适配层（[`KAZUMI_ADAPTER_JS`]）
+/// 生成 search/detail/chapter/parse 四个完整函数体并写回 manifest。
+/// 之后 `validate_manifest` / `compile_manifest` / 执行路径完全复用 JS 规则流程。
+pub fn normalize_kazumi(m: &mut RuleManifest) -> Result<(), RuleLoadError> {
+    let is_kazumi = m.search_url.is_some()
+        || m.search_list.is_some()
+        || m.chapter_roads.is_some()
+        || m.kazumi_api.is_some();
+    if !is_kazumi {
+        return Ok(());
+    }
+    let missing: Vec<&str> = [
+        ("searchURL", m.search_url.as_deref()),
+        ("searchList", m.search_list.as_deref()),
+        ("searchName", m.search_name.as_deref()),
+        ("searchResult", m.search_result.as_deref()),
+        ("chapterRoads", m.chapter_roads.as_deref()),
+        ("chapterResult", m.chapter_result.as_deref()),
+    ]
+    .iter()
+    .filter(|(_, v)| v.is_none() || v.unwrap().trim().is_empty())
+    .map(|(k, _)| *k)
+    .collect();
+    if !missing.is_empty() {
+        return Err(RuleLoadError::schema(format!(
+            "kazumi 格式规则缺少字段: {}",
+            missing.join(", ")
+        )));
+    }
+
+    let adapter = KAZUMI_ADAPTER_JS;
+    let base = m.base_url.trim().trim_end_matches('/');
+    let ua = m
+        .user_agent
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36");
+    let referer = m
+        .referer
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| base);
+    let s = |v: &Option<String>| {
+        serde_json::to_string(v.as_deref().unwrap_or("")).unwrap_or_else(|_| "\"\"".into())
+    };
+
+    let headers = format!(
+        "{{\"User-Agent\": {}, \"Referer\": {}}}",
+        serde_json::to_string(ua).unwrap_or_default(),
+        serde_json::to_string(referer).unwrap_or_default()
+    );
+    let search_url = s(&m.search_url);
+    let search_list = s(&m.search_list);
+    let search_name = s(&m.search_name);
+    let search_result = s(&m.search_result);
+    let chapter_roads = s(&m.chapter_roads);
+    let chapter_result = s(&m.chapter_result);
+    let base_js = serde_json::to_string(&format!("{base}/")).unwrap_or_default();
+
+    m.search = format!(
+        r#"{adapter}
+function search(kw, page) {{
+  try {{
+    var url = {search_url}.replace('@keyword', encodeURIComponent(kw));
+    return fetch(url, {{ headers: {headers} }}).then(function (r) {{
+      if (r.status !== 200 || !r.dom) return [];
+      var root = JSON.parse(r.dom);
+      var list = kzXPath(root, {search_list});
+      var out = [];
+      for (var i = 0; i < list.length && i < 60; i++) {{
+        var nameEl = kzXPath1(list[i], {search_name});
+        var linkEl = kzXPath1(list[i], {search_result});
+        var title = nameEl ? kzText(nameEl) : '';
+        var href = kzHref(linkEl);
+        if (!href) continue;
+        if (!title) title = decodeURIComponent(href.split('/').pop() || '').replace(/\.html?$/, '');
+        out.push({{ title: title, url: kzAbs({base_js}, href), cover: '', extra: {{}} }});
+      }}
+      return out;
+    }}).catch(function (e) {{ throw new Error('search: ' + e.message); }});
+  }} catch (e) {{ throw new Error('search: ' + e.message); }}
+}}"#,
+        );
+
+    m.detail = format!(
+        r#"{adapter}
+function detail(url) {{
+  return fetch(url, {{ headers: {headers} }}).then(function (r) {{
+    if (r.status !== 200) return {{ title: '未知', cover: null, description: null, extra: {{}} }};
+    var html = r.body || '';
+    var t = /<title[^>]*>([^<]+)/i.exec(html);
+    var og = /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)/i.exec(html)
+         || /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i.exec(html);
+    return {{
+      title: t ? t[1].trim().replace(/\s*[-_|]\s*(第\d+[集话]|全集).*$/, '').trim() : '未知',
+      cover: og ? og[1] : null,
+      description: null,
+      extra: {{}}
+    }};
+  }}).catch(function () {{ return {{ title: '未知', cover: null, description: null, extra: {{}} }}; }});
+}}"#
+    );
+
+    m.chapter = format!(
+        r#"{adapter}
+function chapter(detailUrl) {{
+  return fetch(detailUrl, {{ headers: {headers} }}).then(function (r) {{
+    if (r.status !== 200 || !r.dom) return [];
+    var root = JSON.parse(r.dom);
+    var roads = kzXPath(root, {chapter_roads});
+    var out = [];
+    var idx = 0;
+    var seen = {{}};
+    for (var ri = 0; ri < roads.length && ri < 8; ri++) {{
+      var eps = kzXPath(roads[ri], {chapter_result});
+      for (var ei = 0; ei < eps.length && idx < 500; ei++) {{
+        var href = kzHref(eps[ei]);
+        if (!href) continue;
+        href = kzAbs({base_js}, href);
+        if (seen[href]) continue;
+        seen[href] = true;
+        idx++;
+        var title = kzText(eps[ei]);
+        if (!title) title = '第' + idx + '集';
+        out.push({{ id: String(idx), title: title, url: href, index: idx }});
+      }}
+    }}
+    return out;
+  }}).catch(function (e) {{ throw new Error('chapter: ' + e.message); }});
+}}"#
+    );
+
+    m.parse = format!(
+        r#"{adapter}
+function parse(chapterUrl) {{
+  return kzParsePage(chapterUrl, 0, {headers});
+}}"#
+    );
+
+    Ok(())
 }
 
 /// Schema 校验：必需字段非空、baseUrl 为合法 http(s) URL、脚本含 function 关键字。

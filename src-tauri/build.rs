@@ -396,6 +396,7 @@ const COMMANDS: &[&str] = &[
     "rules_check_and_update",
     "rules_probe_health",
     "rules_get_health",
+    "rules_sync_kazumi",
     // ---- 历史记录 WebDAV 同步（FR-09 / task-05）----
     "sync_now",
     "save_webdav_config",
