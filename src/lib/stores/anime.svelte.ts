@@ -248,7 +248,7 @@ const COLLECT_KEY = "anime-collect";
 
 /** 内置番剧源名（与后端 anime::BUILTIN_RULE_NAMES 保持一致）。
  *  内置源由后端注入且不可删除，前端据此隐藏删除按钮并打「内置」徽标。 */
-export const BUILTIN_RULE_NAMES = ["AGE", "7sefun", "MXdm", "gugu3", "xfdmneo"];
+export const BUILTIN_RULE_NAMES = ["AGE", "MXdm", "gugu3", "xfdmneo"];
 const HISTORY_KEY = "anime-history";
 const BANGUMI_TOKEN_KEY = "bangumi-token";
 const BANGUMI_USERNAME_KEY = "bangumi-username";

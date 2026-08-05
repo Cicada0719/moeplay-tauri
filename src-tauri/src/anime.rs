@@ -200,10 +200,10 @@ pub struct AnimeHistory {
 
 // ── 托管状态 ─────────────────────────────────────────────────────────────
 
-/// 内置番剧源清单（2026-08-05 从 KazumiRules 实测筛选：HTTP 可达 + 搜索可出结果 +
-/// 无 Cloudflare 反爬拦截；DM84 因站点 522 不稳定被剔除）。
-/// 规则内容 1:1 参考 kazumi 社区规则（Predidit/KazumiRules，站点选择器逐条实测通过）。
-pub const BUILTIN_RULE_NAMES: [&str; 5] = ["AGE", "7sefun", "MXdm", "gugu3", "xfdmneo"];
+/// 内置番剧源清单（2026-08-05 从 KazumiRules 实测筛选：搜索 + 详情 + 线路全链路
+/// 真实可用；7sefun 站内搜索空结果、DM84 Cloudflare 522、AGE 偶发 403 风控已标注）。
+/// 规则内容 1:1 参考 kazumi 社区规则（Predidit/KazumiRules，站点选择器逐条实测修正）。
+pub const BUILTIN_RULE_NAMES: [&str; 4] = ["AGE", "MXdm", "gugu3", "xfdmneo"];
 
 /// 编译期内嵌的内置规则 JSON（与 Kazumi JSON 1:1 兼容，AnimeRule 直接反序列化）。
 const BUILTIN_RULES_JSON: &str = include_str!("../resources/builtin_anime_rules.json");
@@ -292,17 +292,20 @@ pub fn xpath_to_css(xpath: &str) -> String {
                     let classes: Vec<&str> = val.split_whitespace().collect();
                     let sel = format!("{}.{}", tag, classes.join("."));
                     css_parts.push(sel);
-                } else if pred.starts_with("contains(@class,")
-                    || pred.starts_with("contains(@class, ")
-                {
-                    let inner = pred
-                        .trim_start_matches("contains(@class,")
-                        .trim_start_matches("contains(@class, ")
+                } else if let Some(rest) = pred.strip_prefix("contains(@") {
+                    // contains(@class,'x') / contains(@href,'x') / contains(@id,'x') …
+                    // → [attr*="x"]（CSS 属性子串匹配）
+                    let (attr, inner) = rest
+                        .split_once(',')
+                        .map(|(a, b)| (a.trim().to_string(), b.to_string()))
+                        .unwrap_or_else(|| (rest.to_string(), String::new()));
+                    let inner = inner
+                        .trim()
                         .trim_end_matches(')')
                         .trim()
                         .trim_matches('"')
                         .trim_matches('\'');
-                    css_parts.push(format!("{}[class*=\"{}\"]", tag, inner));
+                    css_parts.push(format!("{}[{}*=\"{}\"]", tag, attr, inner));
                 } else if pred.starts_with("@id=") {
                     let val = pred
                         .trim_start_matches("@id=")
@@ -843,7 +846,7 @@ mod tests {
     #[test]
     fn builtin_rules_are_complete_and_valid() {
         let rules = builtin_anime_rules();
-        assert_eq!(rules.len(), 5, "内置番剧源应为 5 个（实测筛选）");
+        assert_eq!(rules.len(), 4, "内置番剧源应为 4 个（实测筛选）");
         for r in &rules {
             assert!(!r.name.is_empty());
             assert!(!r.base_url.is_empty());
@@ -866,7 +869,7 @@ mod tests {
     fn merge_with_builtin_keeps_builtins_and_respects_overrides() {
         // 用户推空列表 → 内置源仍在
         let merged = merge_with_builtin(Vec::new());
-        assert_eq!(merged.len(), 5);
+        assert_eq!(merged.len(), 4);
         // 用户推自己的规则 → 内置源补回
         let custom = AnimeRule {
             api: "1".into(),
@@ -895,7 +898,7 @@ mod tests {
             anti_crawler_config: AntiCrawlerConfig::default(),
         };
         let merged = merge_with_builtin(vec![custom.clone()]);
-        assert_eq!(merged.len(), 6);
+        assert_eq!(merged.len(), 5);
         assert!(merged.iter().any(|r| r.name == "我的源"));
         assert!(merged.iter().any(|r| r.name == "AGE"));
         // 同名覆盖：用户自定义的 AGE 优先
@@ -903,7 +906,7 @@ mod tests {
         override_age.name = "AGE".into();
         override_age.base_url = "https://override.example.com".into();
         let merged = merge_with_builtin(vec![override_age.clone()]);
-        assert_eq!(merged.len(), 5);
+        assert_eq!(merged.len(), 4);
         let age = merged.iter().find(|r| r.name == "AGE").unwrap();
         assert_eq!(age.base_url, "https://override.example.com");
     }
