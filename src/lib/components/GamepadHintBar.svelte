@@ -5,12 +5,15 @@
 
   let {
     connected = false,
+    padLabel = "",
     inputMode = "keyboard",
     currentView = "home",
     focusModeAvailable = false,
     focusMode = false,
   }: {
     connected?: boolean;
+    /** 首个已连接手柄的 id（诊断串流/虚拟手柄是否被系统识别） */
+    padLabel?: string;
     inputMode?: GamepadInputMode;
     currentView?: string;
     focusModeAvailable?: boolean;
@@ -69,7 +72,7 @@
         <span class="prompt"><kbd>START</kbd>大屏</span>
       </div>
     {:else}
-      <div class="connected-note"><span class="connected-dot"></span><strong>手柄已连接</strong><small>按任意键显示操作提示</small></div>
+      <div class="connected-note"><span class="connected-dot"></span><strong>手柄已连接{#if padLabel}&nbsp;· {padLabel}{/if}</strong><small>按任意键显示操作提示</small></div>
     {/if}
   </aside>
 {/if}

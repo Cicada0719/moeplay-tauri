@@ -21,6 +21,8 @@ export interface GamepadLike {
   /** 手柄 id（如 "Nintendo Switch Pro Controller"），用于按键布局识别 */
   readonly id?: string;
   readonly mapping?: string;
+  /** 手柄槽位序号（多手柄合并输入时区分滞回状态） */
+  readonly index?: number;
 }
 
 export interface GamepadNavigatorLike {
@@ -175,8 +177,7 @@ export class GamepadFocusRuntime {
   private readonly axisPressThreshold: number;
   private readonly axisReleaseThreshold: number;
   private activeZone: GamepadZone | null = null;
-  private faceLayout: GamepadLayout = "xbox";
-  private faceLayoutCacheKey = "";
+  private faceLayouts = new Map<string, GamepadLayout>();
   private activeScopeId: string | null = null;
   private inputMode: GamepadInputMode = "keyboard";
   private frameHandle: number | null = null;
@@ -185,8 +186,7 @@ export class GamepadFocusRuntime {
   private listenersInstalled = false;
   private awaitingNeutralAfterKeyboard = false;
   private awaitingNeutralAfterScopeChange = false;
-  private horizontalAxis: -1 | 0 | 1 = 0;
-  private verticalAxis: -1 | 0 | 1 = 0;
+  private axisStates = new Map<number, { h: -1 | 0 | 1; v: -1 | 0 | 1 }>();
   private order = 0;
   private sequence = 0;
 
@@ -336,8 +336,8 @@ export class GamepadFocusRuntime {
 
   takeOverWithKeyboard(): void {
     this.setInputMode("keyboard");
-    const pad = this.findPad();
-    this.awaitingNeutralAfterKeyboard = pad ? !this.sampleIsNeutral(this.readSample(pad)) : false;
+    const pads = this.findPads();
+    this.awaitingNeutralAfterKeyboard = pads.length > 0 ? !this.sampleIsNeutral(this.readSample(pads)) : false;
     this.resetInputState();
   }
 
@@ -349,14 +349,13 @@ export class GamepadFocusRuntime {
       return;
     }
 
-    const pad = this.findPad();
-    if (!pad) {
+    const pads = this.findPads();
+    if (pads.length === 0) {
       this.resetInputState();
       return;
     }
 
-    this.resolveFaceLayout(pad);
-    const sample = this.readSample(pad);
+    const sample = this.readSample(pads);
     const scope = this.selectActiveScope();
     if (!scope) {
       this.syncInputState(sample, now);
@@ -444,22 +443,29 @@ export class GamepadFocusRuntime {
     this.running = false;
   }
 
-  /** 按当前手柄 id + 用户偏好解析面键布局（换柄/改设置经缓存键自动重算） */
-  private resolveFaceLayout(pad: GamepadLike): void {
+  /** 按手柄 id + 用户偏好解析该手柄的面键布局（逐手柄缓存，换柄/改设置自动重算） */
+  private faceLayoutFor(pad: GamepadLike): GamepadLayout {
     const override = readGamepadLayoutPreference();
     const key = `${pad.id ?? ""}|${override}`;
-    if (key === this.faceLayoutCacheKey) return;
-    this.faceLayoutCacheKey = key;
-    this.faceLayout = resolveGamepadLayout(pad.id ?? "", override);
+    const cached = this.faceLayouts.get(key);
+    if (cached) return cached;
+    const layout = resolveGamepadLayout(pad.id ?? "", override);
+    this.faceLayouts.set(key, layout);
+    return layout;
+  }
+
+  /** 所有已连接手柄（串流/映射工具常注册多个虚拟手柄，真实手柄可能不在首位） */
+  private findPads(): GamepadLike[] {
+    try {
+      return Array.from(this.environment.navigator.getGamepads() ?? [])
+        .filter((pad): pad is GamepadLike => pad != null && pad.connected !== false);
+    } catch {
+      return [];
+    }
   }
 
   private findPad(): GamepadLike | null {
-    try {
-      return Array.from(this.environment.navigator.getGamepads() ?? [])
-        .find((pad): pad is GamepadLike => pad != null && pad.connected !== false) ?? null;
-    } catch {
-      return null;
-    }
+    return this.findPads()[0] ?? null;
   }
 
   private selectActiveScope(): ScopeEntry | null {
@@ -503,23 +509,39 @@ export class GamepadFocusRuntime {
     return 0;
   }
 
-  private readSample(pad: GamepadLike): InputSample {
-    this.horizontalAxis = this.readAxis(Number(pad.axes[0] ?? 0), this.horizontalAxis);
-    this.verticalAxis = this.readAxis(Number(pad.axes[1] ?? 0), this.verticalAxis);
+  private readSample(pads: GamepadLike[]): InputSample {
+    let left = false;
+    let right = false;
+    let up = false;
+    let down = false;
+    const buttons = new Map<number, boolean>(EDGE_BUTTONS.map((index) => [index, false]));
 
-    let left = safePressed(pad.buttons, BUTTON.DPAD_LEFT) || this.horizontalAxis === -1;
-    let right = safePressed(pad.buttons, BUTTON.DPAD_RIGHT) || this.horizontalAxis === 1;
-    let up = safePressed(pad.buttons, BUTTON.DPAD_UP) || this.verticalAxis === -1;
-    let down = safePressed(pad.buttons, BUTTON.DPAD_DOWN) || this.verticalAxis === 1;
+    for (const pad of pads) {
+      // 方向：十字键 OR 左摇杆（逐槽位滞回状态）
+      const axisKey = typeof pad.index === "number" ? pad.index : 0;
+      const prev = this.axisStates.get(axisKey) ?? { h: 0 as const, v: 0 as const };
+      const h = this.readAxis(Number(pad.axes[0] ?? 0), prev.h);
+      const v = this.readAxis(Number(pad.axes[1] ?? 0), prev.v);
+      this.axisStates.set(axisKey, { h, v });
+
+      left ||= safePressed(pad.buttons, BUTTON.DPAD_LEFT) || h === -1;
+      right ||= safePressed(pad.buttons, BUTTON.DPAD_RIGHT) || h === 1;
+      up ||= safePressed(pad.buttons, BUTTON.DPAD_UP) || v === -1;
+      down ||= safePressed(pad.buttons, BUTTON.DPAD_DOWN) || v === 1;
+
+      // 面键按该手柄的布局（Xbox/任天堂）取物理索引后合并
+      const layout = this.faceLayoutFor(pad);
+      for (const index of EDGE_BUTTONS) {
+        if (safePressed(pad.buttons, mapFaceButton(layout, index))) buttons.set(index, true);
+      }
+    }
 
     if (left && right) left = right = false;
     if (up && down) up = down = false;
 
     return {
       directions: { up, down, left, right } satisfies Record<GamepadDirection, boolean>,
-      buttons: new Map<number, boolean>(
-        EDGE_BUTTONS.map((index) => [index, safePressed(pad.buttons, mapFaceButton(this.faceLayout, index))]),
-      ),
+      buttons,
     };
   }
 
@@ -612,8 +634,7 @@ export class GamepadFocusRuntime {
       this.directionState[direction].nextAt = 0;
     }
     this.buttonState.clear();
-    this.horizontalAxis = 0;
-    this.verticalAxis = 0;
+    this.axisStates.clear();
   }
 }
 

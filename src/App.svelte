@@ -61,6 +61,7 @@
   let isWindowFullscreen = $state(false);
   let gamepadInputMode = $state<GamepadInputMode>("keyboard");
   let gamepadConnected = $state(false);
+  let gamepadLabel = $state("");
   const workspaceFocusAvailable = $derived(workspaceFocusStore.supports(uiStore.currentView));
   const workspaceFocusEnabled = $derived(workspaceFocusStore.isEnabled(uiStore.currentView));
   const taskBadgeStore = createJobsStore();
@@ -149,9 +150,12 @@
   function refreshGamepadConnection() {
     if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") {
       gamepadConnected = false;
+      gamepadLabel = "";
       return;
     }
-    gamepadConnected = Array.from(navigator.getGamepads()).some((gamepad) => Boolean(gamepad?.connected));
+    const first = Array.from(navigator.getGamepads()).find((gamepad) => Boolean(gamepad?.connected));
+    gamepadConnected = Boolean(first);
+    gamepadLabel = first?.id ?? "";
   }
 
   function gamepadNavigationRoot(): ParentNode {
@@ -678,6 +682,7 @@
       {/if}
       <GamepadHintBar
         connected={gamepadConnected}
+        padLabel={gamepadLabel}
         inputMode={gamepadInputMode}
         currentView={uiStore.currentView}
         focusModeAvailable={workspaceFocusAvailable}

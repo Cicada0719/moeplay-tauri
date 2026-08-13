@@ -16,7 +16,6 @@
 
   const wheelStepper = createWheelStepper({ threshold: 64, cooldownMs: 420, gestureIdleMs: 170, axisLockRatio: 1.1 });
   let activeMediaIndex = $state(0);
-  let folded = $state(false);
   let shifting = $state(false);
   let shiftDirection = $state<StepDirection>(1);
   let reducedMotion = $state(false);
@@ -131,9 +130,6 @@
     } else if (event.key === "Enter" && featured) {
       event.preventDefault();
       runAction(featured, "open", onAction);
-    } else if (event.key.toLowerCase() === "f") {
-      event.preventDefault();
-      folded = !folded;
     }
   }
 </script>
@@ -147,7 +143,6 @@
   data-focus-key="game-visual-stage"
   data-gamepad-group
   data-gamepad-activate="打开档案"
-  class:nd-stage--folded={folded}
   class:nd-stage--shifting={shifting}
   class:nd-stage--previous={shiftDirection < 0}
   data-testid="game-unified-stage"
@@ -168,7 +163,6 @@
       <div><span>MOEPLAY / GAME CUBE</span><strong>{String(activeGameIndex + 1).padStart(3, "0")} — {String(uniqueItems.length).padStart(3, "0")}</strong></div>
       <div class="nd-register-actions">
         <span>WHEEL / GAME</span><span>← → / MEDIA</span>
-        <button type="button" data-focus-key="game-visual-fold-toggle" data-gamepad-activate={folded ? "展开档案" : "折叠档案"} aria-pressed={folded} onclick={() => (folded = !folded)}>F / {folded ? "展开" : "折叠"}</button>
       </div>
     </header>
 
@@ -268,7 +262,6 @@
       </div>
     </div>
 
-    <footer class="nd-footer"><span>SCROLL TO ROTATE THE ARCHIVE</span><strong>↑ ↓ 切换游戏 · ← → 切换媒体 · ENTER 打开 · F 折叠</strong></footer>
   {:else}
     <div class="mw-v2-empty nd-empty">
       <span>ARCHIVE 000</span><h1 id="nd-stage-title">建立你的第一份游戏档案</h1><p>导入游戏后，这里会成为可以旋转和切换的私人媒体目录。</p>
