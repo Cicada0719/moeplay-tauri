@@ -119,7 +119,9 @@ pub enum RuleExecError {
 }
 
 /// 规则加载输入
+///（Manifest 变体体积较大，但仅在加载期按值传递一次，允许该 lint）
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum RuleInput {
     Manifest {
         manifest: RuleManifest,

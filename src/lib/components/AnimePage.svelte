@@ -3,10 +3,8 @@
   import { animeStore, COLLECT_TYPES } from "../stores/anime.svelte";
   import type { SearchItem, BangumiSubject } from "../stores/anime.svelte";
   import AnimeDetail from "./anime/AnimeDetail.svelte";
-  import AnimePlayer from "./anime/AnimePlayer.svelte";
   import SearchDrawer from "./anime/SearchDrawer.svelte";
   import SourceSheet from "./anime/SourceSheet.svelte";
-  import ProviderV2Workspace from "./anime/provider-v2/ProviderV2Workspace.svelte";
   import AnimeEditorialHome from "./anime/editorial/AnimeEditorialHome.svelte";
   import { focusRovingItem, nextRovingIndex } from "./anime/a11y";
   import Icon from "./Icon.svelte";
@@ -171,6 +169,8 @@
   onMount(() => {
     window.addEventListener("keydown", onKeydown, { capture: true });
     animeStore.init();
+    // 预取播放器 chunk（hls.js 较大）：进入番剧页即后台编译加载，避免播放时再等
+    void import("./anime/AnimePlayer.svelte").catch(() => {});
     if (animeStore.activeTab === "recommend") {
       animeStore.loadRecommendations();
     }
@@ -267,6 +267,9 @@
                   disabled={animeStore.retryingSources.size > 0}>
                   {animeStore.retryingSources.size > 0 ? "重试中..." : "重试失败源"}
                 </Button>
+              {/if}
+              {#if animeStore.coverFailedCount > 0}
+                <span class="cover-fail-note">· {animeStore.coverFailedCount} 条封面加载失败（Bangumi 连接异常）</span>
               {/if}
             </div>
             {#if showSourceFailures && failedSourceDetails.length > 0}
@@ -705,6 +708,7 @@
             <div class="rules-list">
               <h3 class="rules-title">已安装规则 ({animeStore.rules.length})</h3>
               {#each animeStore.rules as rule (rule.name)}
+                {@const health = animeStore.getSourceHealth(rule.name)}
                 <div class="rule-row">
                   <div class="rule-info">
                     <span class="rule-name">{rule.name}</span>
@@ -714,6 +718,11 @@
                       {#if rule.useWebview}<span class="rule-badge">WebView</span>{/if}
                       {#if rule.adBlocker}<span class="rule-badge">AdBlock</span>{/if}
                       {#if animeStore.isBuiltinRule(rule.name)}<span class="rule-badge rule-badge--builtin">内置</span>{/if}
+                      {#if health.successCount + health.failureCount > 0}
+                        <span class="rule-health" class:unhealthy={health.consecutiveFailures > 0}>
+                          · 成功率 {Math.round(health.successCount / (health.successCount + health.failureCount) * 100)}%{#if health.consecutiveFailures > 0}&nbsp;· 连续失败 {health.consecutiveFailures}{/if}
+                        </span>
+                      {/if}
                     </span>
                   </div>
                   {#if !animeStore.isBuiltinRule(rule.name)}
@@ -734,7 +743,10 @@
   {#if !providerV2Active && (animeStore.view === "detail" || animeStore.view === "player")}
     <div class="overlays">
       {#if animeStore.view === "player"}
-        <AnimePlayer />
+        <!-- 播放器（含 hls.js）按需加载：进入番剧页即预取 chunk，播放时微任务级挂载 -->
+        {#await import("./anime/AnimePlayer.svelte") then { default: AnimePlayer }}
+          <AnimePlayer />
+        {/await}
       {:else}
         <AnimeDetail returnFocus={() => detailReturnFocus} />
       {/if}
@@ -743,7 +755,10 @@
 
   {#if providerV2Active}
     <div class="provider-v2-overlay">
-      <ProviderV2Workspace onExit={closeProviderV2} />
+      <!-- v2 工作台（含 hls.js 的播放器）按需加载 -->
+      {#await import("./anime/provider-v2/ProviderV2Workspace.svelte") then { default: ProviderV2Workspace }}
+        <ProviderV2Workspace onExit={closeProviderV2} />
+      {/await}
     </div>
   {:else}
     <!-- Search drawer (always available in classic mode) -->
@@ -1119,6 +1134,7 @@
   .source-status-error {
     background: none; border: 0; padding: 0; font: inherit; cursor: pointer; color: #ef5b43;
   }
+  .cover-fail-note { color: #ffb020; }
   .source-failure-list {
     margin: -.25rem 0 .75rem; padding: .5rem .75rem; list-style: none;
     border: 1px solid rgba(239,91,67,.3); border-radius: 8px; background: rgba(239,91,67,.06);
@@ -1219,6 +1235,8 @@
     font-size: 11.5px; color: var(--text-muted);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  .rule-health { color: #34d399; }
+  .rule-health.unhealthy { color: #ef5b43; }
   .rule-badge {
     display: inline-block; padding: 1px 6px; border-radius: 4px;
     background: rgba(255,255,255,0.06); font-size: 10px; margin-left: 4px;

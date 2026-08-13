@@ -263,7 +263,7 @@ pub fn run() {
         .manage(secret_store::SecretStore::new())
         .manage(providers::anime::AnimeProviderRegistry::default())
         .manage(providers::comic::ComicProviderRegistry::new())
-        .manage(anime::AnimeState::default())
+        .manage(anime::AnimeState::load_or_default())
         .manage(comic::ComicState::default())
         .manage(AnimeDownloader::new(anime_download_dir))
         .manage(Downloader::new(download_dir, 3))

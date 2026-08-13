@@ -80,7 +80,11 @@ async fn get_text(client: &reqwest::Client, url: &str) -> Result<String, String>
 pub async fn sync_from_kazumi(force: bool) -> KazumiSyncResult {
     let mut result = KazumiSyncResult::default();
     let client = reqwest::Client::builder()
-        .user_agent(concat!("MoeGame/", env!("CARGO_PKG_VERSION"), " (KazumiRules sync)"))
+        .user_agent(concat!(
+            "MoeGame/",
+            env!("CARGO_PKG_VERSION"),
+            " (KazumiRules sync)"
+        ))
         .build()
         .unwrap_or_default();
 
@@ -93,7 +97,9 @@ pub async fn sync_from_kazumi(force: bool) -> KazumiSyncResult {
                 Ok(t) => t,
                 Err(e2) => {
                     result.failed = 1;
-                    result.failures.push(format!("主源与镜像均不可用: {e} / {e2}"));
+                    result
+                        .failures
+                        .push(format!("主源与镜像均不可用: {e} / {e2}"));
                     return result;
                 }
             }
@@ -119,7 +125,8 @@ pub async fn sync_from_kazumi(force: bool) -> KazumiSyncResult {
         }
         // 用 index.json 声明的版本做增量判断；本地无记录或版本不同才拉取
         let local_path = out_dir.join(format!("{name}.json"));
-        let need_fetch = force || !local_path.exists() || !local_version_matches(&local_path, &item.version);
+        let need_fetch =
+            force || !local_path.exists() || !local_version_matches(&local_path, &item.version);
         if !need_fetch {
             result.unchanged += 1;
             continue;
@@ -151,7 +158,11 @@ pub async fn sync_from_kazumi(force: bool) -> KazumiSyncResult {
                 } else {
                     result.added += 1;
                 }
-                tracing::info!("KazumiRules 同步: {name} {} (v{})", if existed { "更新" } else { "新增" }, item.version);
+                tracing::info!(
+                    "KazumiRules 同步: {name} {} (v{})",
+                    if existed { "更新" } else { "新增" },
+                    item.version
+                );
             }
             Err(e) => {
                 result.invalid += 1;
@@ -170,7 +181,11 @@ fn local_version_matches(path: &Path, version: &str) -> bool {
     std::fs::read_to_string(path)
         .ok()
         .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        .and_then(|v| v.get("version").and_then(|x| x.as_str()).map(str::to_string))
+        .and_then(|v| {
+            v.get("version")
+                .and_then(|x| x.as_str())
+                .map(str::to_string)
+        })
         .map(|v| v == version)
         .unwrap_or(false)
 }

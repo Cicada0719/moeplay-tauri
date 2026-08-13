@@ -315,6 +315,9 @@ let _searchToken = 0; // 防止旧的流式监听污染新一次搜索
 // 搜索合并去重 + 封面补全（逻辑见 features/anime-search）
 let _mergedSearchResults = $state<MergedSearchEntry[]>([]);
 let _searchCovers = $state<Record<string, string>>({}); // 合并 key → Bangumi 封面原始 URL
+// 封面补全失败计数（请求异常口径，无匹配图不计）；基线用于只统计本轮搜索
+let _coverFailedCount = $state(0);
+let _coverFailedBaseline = 0;
 // 逐源搜索状态：源名 → ok/empty/error（区分「无匹配」与「源不可用」）
 let _searchSourceStatus = $state<Record<string, AnimeSourceStatus>>({});
 let _retryingSources = $state<Set<string>>(new Set());
@@ -650,6 +653,7 @@ export const animeStore = {
   get searchResults() { return _searchResults; },
   get mergedSearchResults() { return _mergedSearchResults; },
   get searchCovers() { return _searchCovers; },
+  get coverFailedCount() { return _coverFailedCount; },
   get searchSourceStatus() { return _searchSourceStatus; },
   get retryingSources() { return _retryingSources; },
   /** 合并条目的封面 asset URL；未就绪时返回 ""，卡片保持文字形态 */
@@ -966,7 +970,19 @@ export const animeStore = {
       });
       debugLog("[anime-init] rules synced OK");
     } else {
-      console.warn("[anime-init] no rules in localStorage, skipping sync");
+      // localStorage 为空（可能被清理）：后端磁盘持久化/内置源兜底恢复
+      try {
+        const backendRules = await invokeCmd<AnimeRule[]>("anime_get_rules");
+        if (backendRules.length > 0) {
+          _rules = backendRules;
+          saveJson(RULES_KEY, _rules);
+          debugLog(`[anime-init] recovered ${backendRules.length} rules from backend`);
+        } else {
+          console.warn("[anime-init] no rules in localStorage or backend, skipping sync");
+        }
+      } catch (e) {
+        console.warn("[anime-init] backend rules recovery failed:", e);
+      }
     }
 
     // KazumiRules 官方源自动导入（kazumi 更新源后启动即跟进）：
@@ -1350,6 +1366,8 @@ export const animeStore = {
     _searchResults = [];
     _mergedSearchResults = [];
     _searchSourceStatus = {};
+    _coverFailedCount = 0;
+    _coverFailedBaseline = _coverFetcher.failedCount();
     _view = "search";
     const token = ++_searchToken;
 
@@ -1470,6 +1488,10 @@ export const animeStore = {
         _searchCovers = { ..._searchCovers, [key]: image };
         this._proxyImages([image]);
       },
+    }).then(() => {
+      if (token === _searchToken) {
+        _coverFailedCount = _coverFetcher.failedCount() - _coverFailedBaseline;
+      }
     }).catch(() => {});
   },
 

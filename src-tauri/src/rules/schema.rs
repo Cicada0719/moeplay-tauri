@@ -50,11 +50,23 @@ pub struct RuleManifest {
     pub search_list: Option<String>,
     #[serde(default, alias = "searchName", skip_serializing_if = "Option::is_none")]
     pub search_name: Option<String>,
-    #[serde(default, alias = "searchResult", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "searchResult",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub search_result: Option<String>,
-    #[serde(default, alias = "chapterRoads", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "chapterRoads",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub chapter_roads: Option<String>,
-    #[serde(default, alias = "chapterResult", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "chapterResult",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub chapter_result: Option<String>,
     #[serde(default, alias = "userAgent", skip_serializing_if = "Option::is_none")]
     pub user_agent: Option<String>,
@@ -63,7 +75,11 @@ pub struct RuleManifest {
     /// kazumi 规则 api 版本（1..=7），仅信息用途
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kazumi_api: Option<String>,
-    #[serde(default, alias = "muliSources", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "muliSources",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub muli_sources: Option<bool>,
 }
 
@@ -276,7 +292,7 @@ pub fn normalize_kazumi(m: &mut RuleManifest) -> Result<(), RuleLoadError> {
         .referer
         .as_deref()
         .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| base);
+        .unwrap_or(base);
     let s = |v: &Option<String>| {
         serde_json::to_string(v.as_deref().unwrap_or("")).unwrap_or_else(|_| "\"\"".into())
     };
@@ -317,7 +333,7 @@ function search(kw, page) {{
     }}).catch(function (e) {{ throw new Error('search: ' + e.message); }});
   }} catch (e) {{ throw new Error('search: ' + e.message); }}
 }}"#,
-        );
+    );
 
     m.detail = format!(
         r#"{adapter}

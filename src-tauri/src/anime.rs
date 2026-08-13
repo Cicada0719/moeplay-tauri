@@ -242,6 +242,32 @@ impl Default for AnimeState {
     }
 }
 
+impl AnimeState {
+    /// 启动时恢复规则：优先读磁盘持久化（data_dir/moeplay/anime_rules.json），
+    /// 缺失或损坏时回退内置规则库；磁盘内容始终与内置源合并（输入优先，内置补回），
+    /// 保证升级新增的内置源对老用户可见。
+    pub fn load_or_default() -> Self {
+        let disk = std::fs::read_to_string(anime_rules_path())
+            .ok()
+            .and_then(|text| serde_json::from_str::<Vec<AnimeRule>>(&text).ok());
+        let rules = match disk {
+            Some(rules) => merge_with_builtin(rules),
+            None => builtin_anime_rules(),
+        };
+        Self {
+            rules: Mutex::new(rules),
+        }
+    }
+}
+
+/// 规则磁盘持久化路径
+pub fn anime_rules_path() -> std::path::PathBuf {
+    dirs::data_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("moeplay")
+        .join("anime_rules.json")
+}
+
 // ── XPath → CSS 转换（覆盖 Kazumi 社区规则常用模式）─────────────────────
 
 pub fn xpath_to_css(xpath: &str) -> String {
@@ -923,14 +949,27 @@ mod tests {
     fn xpath_to_css_handles_index_predicates() {
         // Kazumi 社区规则常见的绝对路径位置谓词 → :nth-of-type（XPath div[2] 语义 =
         // 同类型第 2 个，等价 CSS :nth-of-type(2)，不等价 :nth-child(2)）
-        assert_eq!(xpath_to_css("//div[2]/div/section/div/div/div/div"),
-                   "div:nth-of-type(2) div section div div div div");
-        assert_eq!(xpath_to_css("//div/div[2]/h5/a"), "div div:nth-of-type(2) h5 a");
-        assert_eq!(xpath_to_css("//div[3]/div[2]/a[1]"), "div:nth-of-type(3) div:nth-of-type(2) a:nth-of-type(1)");
+        assert_eq!(
+            xpath_to_css("//div[2]/div/section/div/div/div/div"),
+            "div:nth-of-type(2) div section div div div div"
+        );
+        assert_eq!(
+            xpath_to_css("//div/div[2]/h5/a"),
+            "div div:nth-of-type(2) h5 a"
+        );
+        assert_eq!(
+            xpath_to_css("//div[3]/div[2]/a[1]"),
+            "div:nth-of-type(3) div:nth-of-type(2) a:nth-of-type(1)"
+        );
         // 原有 class/id/contains 模式不受影响
-        assert_eq!(xpath_to_css("//div[@class='public-list-box search-box flex rel']"),
-                   "div.public-list-box.search-box.flex.rel");
-        assert_eq!(xpath_to_css("//ul[@class='anthology-list-play size']"), "ul.anthology-list-play.size");
+        assert_eq!(
+            xpath_to_css("//div[@class='public-list-box search-box flex rel']"),
+            "div.public-list-box.search-box.flex.rel"
+        );
+        assert_eq!(
+            xpath_to_css("//ul[@class='anthology-list-play size']"),
+            "ul.anthology-list-play.size"
+        );
         // text()/@attr 段跳过
         assert_eq!(xpath_to_css("//div[2]/text()"), "div:nth-of-type(2)");
     }

@@ -133,7 +133,7 @@ test("v0.12 anime search, episode selection, extraction and automatic failover",
     { width: 1920, height: 1080 },
   ]) {
     await page.setViewportSize(viewport);
-    await page.waitForTimeout(120);
+    await page.waitForTimeout(320); // 等媒体帧 180ms 宽高过渡 + ResizeObserver 重测量稳定后再断言
     const bodyBox = await page.locator(".anime-playback-shell__body").boundingBox();
     const videoBox = await page.locator("video.player-video").boundingBox();
     expect(bodyBox?.width).toBeGreaterThan(0);

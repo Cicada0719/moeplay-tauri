@@ -1545,7 +1545,12 @@ async fn kazumi_live_search_chapter_parse() {
         }])
         .await;
     let rule = loaded.first().unwrap();
-    assert_eq!(rule.status, RuleStatus::Ready, "规则应为 Ready: {:?}", rule.error);
+    assert_eq!(
+        rule.status,
+        RuleStatus::Ready,
+        "规则应为 Ready: {:?}",
+        rule.error
+    );
 
     // 1) 搜索
     let items = engine
@@ -1599,8 +1604,21 @@ async fn kazumi_diag_load_appdata() {
             RuleStatus::Invalid => "INVALID",
             _ => "?",
         };
-        let err = r.error.as_ref().map(|e| e.message.clone()).unwrap_or_default();
-        println!("[{status}] {} v{} id={} {}", r.manifest.name, r.manifest.version, r.id,
-            if err.is_empty() { String::new() } else { format!("ERR: {}", &err[..err.len().min(200)]) });
+        let err = r
+            .error
+            .as_ref()
+            .map(|e| e.message.clone())
+            .unwrap_or_default();
+        println!(
+            "[{status}] {} v{} id={} {}",
+            r.manifest.name,
+            r.manifest.version,
+            r.id,
+            if err.is_empty() {
+                String::new()
+            } else {
+                format!("ERR: {}", &err[..err.len().min(200)])
+            }
+        );
     }
 }

@@ -151,6 +151,25 @@ fn sort_by_search_health<T>(
     });
 }
 
+/// 把当前规则集落盘（每次变更后调用；写失败仅告警，不影响内存态）
+fn persist_rules(rules: &[AnimeRule]) {
+    let path = anime::anime_rules_path();
+    if let Some(parent) = path.parent() {
+        if let Err(e) = fs::create_dir_all(parent) {
+            eprintln!("[anime] 创建规则目录失败: {}", e);
+            return;
+        }
+    }
+    match serde_json::to_string_pretty(rules) {
+        Ok(json) => {
+            if let Err(e) = fs::write(&path, json) {
+                eprintln!("[anime] 规则落盘失败: {}", e);
+            }
+        }
+        Err(e) => eprintln!("[anime] 规则序列化失败: {}", e),
+    }
+}
+
 // ── 规则管理 ─────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -168,6 +187,7 @@ pub async fn anime_set_rules(
     // 内置源合并保护：输入规则覆盖/新增，但内置源永不被整体覆盖移除
     // （前端启动时用 localStorage 整体推送规则，若直接覆盖会把内置源清掉）。
     *store = anime::merge_with_builtin(rules);
+    persist_rules(&store);
     Ok(())
 }
 
@@ -179,6 +199,7 @@ pub async fn anime_add_rule(state: State<'_, AnimeState>, rule: AnimeRule) -> Re
     } else {
         store.push(rule);
     }
+    persist_rules(&store);
     Ok(())
 }
 
@@ -189,6 +210,7 @@ pub async fn anime_remove_rule(state: State<'_, AnimeState>, name: String) -> Re
     }
     let mut store = state.rules.lock().map_err(|e| e.to_string())?;
     store.retain(|r| r.name != name);
+    persist_rules(&store);
     Ok(())
 }
 
@@ -208,6 +230,7 @@ pub async fn anime_import_rules(
             store.push(rule);
         }
     }
+    persist_rules(&store);
     Ok(count)
 }
 
@@ -579,6 +602,7 @@ pub async fn anime_install_github_rule(
     } else {
         store.push(rule.clone());
     }
+    persist_rules(&store);
     Ok(rule)
 }
 
@@ -603,6 +627,10 @@ pub async fn anime_install_all_github_rules(
                 tracing::warn!("跳过规则 {}: {}", name, e);
             }
         }
+    }
+    {
+        let store = state.rules.lock().map_err(|e| e.to_string())?;
+        persist_rules(&store);
     }
     Ok(count)
 }
@@ -1252,9 +1280,19 @@ pub async fn anime_import_kazumi_rules(
             match std::fs::read_to_string(&path) {
                 Ok(text) => match serde_json::from_str::<AnimeRule>(&text) {
                     Ok(rule) => imported.push(rule),
-                    Err(e) => errors.push(format!("{}: {e}", path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default())),
+                    Err(e) => errors.push(format!(
+                        "{}: {e}",
+                        path.file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_default()
+                    )),
                 },
-                Err(e) => errors.push(format!("{}: {e}", path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default())),
+                Err(e) => errors.push(format!(
+                    "{}: {e}",
+                    path.file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default()
+                )),
             }
         }
     }
@@ -1268,6 +1306,7 @@ pub async fn anime_import_kazumi_rules(
         }
         upserted += 1;
     }
+    persist_rules(&store);
     drop(store);
     Ok(serde_json::json!({
         "imported": upserted,

@@ -109,4 +109,18 @@ describe("anime-search covers", () => {
     });
     expect(got).toEqual(["u1"]); // 缓存命中投递，未发起新查询
   });
+
+  it("请求异常计入 failedCount，无匹配图不计；clear 复位", async () => {
+    const fetcher = createSearchCoverFetcher();
+    await fetcher.fetch([{ key: "boom", name: "失败番" }, { key: "empty", name: "无图番" }], {
+      searchSubjects: async (kw) => {
+        if (kw === "失败番") throw new Error("network");
+        return [{ image: "" }];
+      },
+      onCover: () => {},
+    });
+    expect(fetcher.failedCount()).toBe(1);
+    fetcher.clear();
+    expect(fetcher.failedCount()).toBe(0);
+  });
 });
