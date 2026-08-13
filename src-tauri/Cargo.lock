@@ -2940,7 +2940,7 @@ dependencies = [
 
 [[package]]
 name = "moeplay"
-version = "0.20.4"
+version = "0.20.5"
 dependencies = [
  "android-native-keyring-store",
  "base64 0.22.1",
