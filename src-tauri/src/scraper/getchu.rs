@@ -66,25 +66,18 @@ pub async fn search_simple(query: &str) -> Result<Vec<ScrapeResult>, String> {
 }
 
 async fn fetch_getchu_page(url: &str) -> Result<String, ScrapeError> {
-    let response = utils::build_client_ja()?
-        .get(url)
-        .header(
-            ACCEPT,
-            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        )
-        .header(REFERER, "https://www.getchu.com/top.html")
-        .header(COOKIE, "getchu_adalt_flag=getchu.com")
-        .send()
-        .await
-        .map_err(|error| ScrapeError::Network(error.to_string()))?;
-
-    let status = response.status();
-    if !status.is_success() {
-        return Err(ScrapeError::Api {
-            status: status.as_u16(),
-            body: String::new(),
-        });
-    }
+    let client = utils::build_client_ja()?;
+    let response = utils::send_with_retry(|| {
+        client
+            .get(url)
+            .header(
+                ACCEPT,
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            )
+            .header(REFERER, "https://www.getchu.com/top.html")
+            .header(COOKIE, "getchu_adalt_flag=getchu.com")
+    })
+    .await?;
 
     let bytes = response
         .bytes()

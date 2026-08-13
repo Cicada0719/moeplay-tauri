@@ -30,6 +30,8 @@
   } from "../utils/game";
 
   let game = $derived(gameStore.selectedGame);
+  // 资料不完整：封面 / 开发商 / 发售年份任一缺失（多为刮削失败或详情补全失败的痕迹）
+  const profileIncomplete = $derived(!!game && (!game.cover || !game.developer || !game.release_year));
   let galleryEl = $state<HTMLElement>();
   const currentArt = $derived(fileSrc(heroImageOf(game)) ?? "");
   const coverSource = $derived(coverOf(game));
@@ -261,6 +263,9 @@
                   <span>{i18n.t("gamedetail.mobile_note")}</span>
                 </div>
               {/if}
+              {#if profileIncomplete}
+                <span class="profile-incomplete-badge" role="status">资料不完整 · 点击刮削补全</span>
+              {/if}
               <Button variant="secondary" press={handleScrape} gamepadActivate="抓取元数据" gamepadSecondaryAction>{i18n.t("button.scrape")}</Button>
               <Button variant="ghost" press={openEdit} gamepadActivate="编辑档案">{i18n.t("gamedetail.edit")}</Button>
             </div>
@@ -362,6 +367,12 @@
 
 <style>
   :global(.game-detail-panel .v2-detail-panel__body) { padding: 0; background: var(--bg-deep); }
+  .profile-incomplete-badge {
+    align-self: center; padding: 4px 10px; border-radius: 999px;
+    border: 1px solid rgba(255, 176, 32, .45); color: #ffb020;
+    font: 650 11px/1.2 var(--font-ui); letter-spacing: .04em;
+    background: rgba(255, 176, 32, .08);
+  }
   :global(.game-detail-panel.v2-detail-panel) { width: 100vw; min-width: 100vw; border-left: 0; }
   :global(.game-detail-panel .v2-detail-panel__header) { min-height: 52px; padding: 10px 22px; background: rgba(7,9,13,.94); backdrop-filter: blur(18px); }
   :global(.game-detail-panel .v2-detail-panel__title) { font: 700 11px/1 var(--font-mono); letter-spacing: .1em; text-transform: uppercase; }

@@ -14,6 +14,9 @@
   let applying = $state(false);
   let error = $state("");
 
+  // 失败的源：原因直接可见，并提供单独重试（成功源走缓存秒回，仅失败源重新请求）
+  const failedSources = $derived(sourceStatus.filter((s) => !s.ok));
+
   // 自动填充游戏名
   $effect(() => {
     if (uiStore.showScrapeDialog && uiStore.scrapeTargetGameId) {
@@ -78,6 +81,7 @@
     try {
       // 搜索结果是浅层的；落库前先取「全量详情」（截图/开发商/发行商/流派/别名…）
       let full: ScrapeResult = selectedResult;
+      let detailFailed = false;
       const baseSource = (selectedResult.source || "").replace("+ai", "").trim();
       if (baseSource && selectedResult.source_id) {
         try {
@@ -93,13 +97,18 @@
             tags: detailed.tags?.length ? detailed.tags : selectedResult.tags,
           };
         } catch (e) {
-          // 详情接口失败 → 用搜索结果兜底，不阻断
+          // 详情接口失败 → 用搜索结果兜底，不阻断，但明确告知用户资料不完整
+          detailFailed = true;
           console.warn("fetch_full_detail failed, applying shallow result:", e);
         }
       }
       await gameStore.scrape(uiStore.scrapeTargetGameId, full);
       const n = full.detail?.screenshots?.length ?? 0;
-      uiStore.notify(n > 0 ? `详情已补全并应用（含 ${n} 张截图）` : "刮削信息已应用！", "success");
+      if (detailFailed) {
+        uiStore.notify("已应用基础信息，但详情补全失败（开发商/发售日等可能缺失），可稍后重新刮削补全", "error");
+      } else {
+        uiStore.notify(n > 0 ? `详情已补全并应用（含 ${n} 张截图）` : "刮削信息已应用！", "success");
+      }
       handleClose();
     } catch (e) {
       error = `应用失败: ${e}`;
@@ -176,6 +185,19 @@
             </span>
           {/each}
         </div>
+
+        {#if failedSources.length > 0}
+          <div class="source-failures">
+            <div class="failure-lines">
+              {#each failedSources as st}
+                <span class="failure-line"><b>{st.source.toUpperCase()}</b>{st.error ?? "连接失败"}</span>
+              {/each}
+            </div>
+            <button type="button" class="retry-failed-btn" onclick={handleSearch} disabled={isSearching}>
+              {isSearching ? "重试中..." : `重试失败源 (${failedSources.length})`}
+            </button>
+          </div>
+        {/if}
       {/if}
 
       {#if error}
@@ -385,6 +407,51 @@
     flex-wrap: wrap;
     gap: 6px;
     padding: 0 24px 12px;
+  }
+
+  .source-failures {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 24px 12px;
+  }
+
+  .failure-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .failure-line {
+    font-size: 12px;
+    color: #ff6b6b;
+    word-break: break-all;
+  }
+
+  .failure-line b {
+    margin-right: 6px;
+  }
+
+  .retry-failed-btn {
+    flex-shrink: 0;
+    padding: 4px 10px;
+    font-size: 12px;
+    border-radius: 6px;
+    border: 1px solid #ff6b6b;
+    background: transparent;
+    color: #ff6b6b;
+    cursor: pointer;
+  }
+
+  .retry-failed-btn:hover:not(:disabled) {
+    background: rgba(255, 107, 107, 0.12);
+  }
+
+  .retry-failed-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 
   .src-st {

@@ -8,11 +8,11 @@
 //! - 速率限制（~10 req/s，安全低于 VNDB 限制）
 //! - 标签分类过滤（排除剧透/色情标签）
 
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::time::{sleep, Duration};
 
 use super::error::ScrapeError;
+use super::utils;
 use crate::models::ScrapeResult;
 
 // ========== 常量 ==========
@@ -22,9 +22,6 @@ const VNDB_API: &str = "https://api.vndb.org/kana/vn";
 
 /// 请求间隔 (ms)，约 10 req/s
 const RATE_LIMIT_MS: u64 = 100;
-
-/// HTTP 请求超时
-const REQUEST_TIMEOUT_SECS: u64 = 15;
 
 /// 搜索请求默认返回数量
 const DEFAULT_PER_PAGE: u32 = 10;
@@ -160,14 +157,6 @@ async fn rate_limit() {
     sleep(Duration::from_millis(RATE_LIMIT_MS)).await;
 }
 
-/// 创建带超时的 HTTP 客户端
-fn build_client() -> Result<Client, ScrapeError> {
-    Client::builder()
-        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .build()
-        .map_err(|e| ScrapeError::Network(e.to_string()))
-}
-
 // ========== 公共 API ==========
 
 /// 搜索 VNDB 视觉小说
@@ -184,7 +173,7 @@ pub async fn search(
 
     rate_limit().await;
 
-    let client = build_client()?;
+    let client = utils::build_client()?;
     let body = VndbQuery {
         filters: vec![
             serde_json::json!("search"),
@@ -197,24 +186,7 @@ pub async fn search(
         sort: "searchrank".to_string(),
     };
 
-    let resp = client
-        .post(VNDB_API)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| ScrapeError::Network(e.to_string()))?;
-
-    let status = resp.status();
-    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-        return Err(ScrapeError::RateLimited);
-    }
-    if !status.is_success() {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(ScrapeError::Api {
-            status: status.as_u16(),
-            body,
-        });
-    }
+    let resp = utils::send_with_retry(|| client.post(VNDB_API).json(&body)).await?;
 
     let text = resp
         .text()
@@ -244,7 +216,7 @@ pub async fn detail(id: &str) -> Result<VndbDetail, ScrapeError> {
 
     rate_limit().await;
 
-    let client = build_client()?;
+    let client = utils::build_client()?;
     let body = VndbQuery {
         filters: vec![
             serde_json::json!("id"),
@@ -257,24 +229,7 @@ pub async fn detail(id: &str) -> Result<VndbDetail, ScrapeError> {
         sort: "id".to_string(),
     };
 
-    let resp = client
-        .post(VNDB_API)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| ScrapeError::Network(e.to_string()))?;
-
-    let status = resp.status();
-    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-        return Err(ScrapeError::RateLimited);
-    }
-    if !status.is_success() {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(ScrapeError::Api {
-            status: status.as_u16(),
-            body,
-        });
-    }
+    let resp = utils::send_with_retry(|| client.post(VNDB_API).json(&body)).await?;
 
     let text = resp
         .text()

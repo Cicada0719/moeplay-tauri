@@ -288,7 +288,7 @@ pub fn apply_scrape_result(
         description,
         cover,
         background,
-        Some(tags),
+        (!tags.is_empty()).then_some(tags),
         rating,
         release_year,
         Some(source.as_str()),

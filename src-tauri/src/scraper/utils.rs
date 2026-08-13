@@ -64,16 +64,17 @@ pub fn build_client_ja() -> Result<Client, ScrapeError> {
         .map_err(|e| ScrapeError::Network(e.to_string()))
 }
 
-/// 带重试的 GET 请求，返回响应字节
-///
-/// 对网络错误和 5xx 状态码进行重试（最多 `MAX_RETRIES` 次），
-/// 4xx 错误（除 429 外）不重试。
-pub async fn fetch_with_retry(url: &str) -> Result<reqwest::Response, ScrapeError> {
-    let client = build_client()?;
+/// 带重试的请求发送：对网络错误和 5xx 状态码重试（最多 `MAX_RETRIES` 次），
+/// 4xx 错误（除 429 外）不重试。每次尝试通过闭包重建请求，GET/POST 等任意请求
+/// 形态均可复用——各数据源统一走这里以获得一致的代理与重试策略。
+pub async fn send_with_retry<F>(mut make_request: F) -> Result<reqwest::Response, ScrapeError>
+where
+    F: FnMut() -> reqwest::RequestBuilder,
+{
     let mut last_error = String::new();
 
     for attempt in 1..=MAX_RETRIES {
-        match client.get(url).send().await {
+        match make_request().send().await {
             Ok(resp) => {
                 let status = resp.status();
                 if status.is_success() {
@@ -100,6 +101,15 @@ pub async fn fetch_with_retry(url: &str) -> Result<reqwest::Response, ScrapeErro
     }
 
     Err(ScrapeError::Network(last_error))
+}
+
+/// 带重试的 GET 请求，返回响应字节
+///
+/// 对网络错误和 5xx 状态码进行重试（最多 `MAX_RETRIES` 次），
+/// 4xx 错误（除 429 外）不重试。
+pub async fn fetch_with_retry(url: &str) -> Result<reqwest::Response, ScrapeError> {
+    let client = build_client()?;
+    send_with_retry(|| client.get(url)).await
 }
 
 /// 带重试的 GET 请求，返回响应文本
@@ -275,5 +285,85 @@ pub fn truncate(s: &str, max_len: usize) -> String {
         s.to_string()
     } else {
         format!("{}...", &s[..max_len])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    /// 迷你 HTTP server：按 statuses 顺序依请求数返回状态码（超出后重复最后一个），
+    /// 通过返回的计数器断言实际收到的请求数。
+    async fn run_test_server(statuses: Vec<u16>) -> (String, Arc<AtomicUsize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = format!("http://{}", listener.local_addr().unwrap());
+        let count = Arc::new(AtomicUsize::new(0));
+        let counter = count.clone();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let n = counter.fetch_add(1, Ordering::SeqCst);
+                let status = statuses[n.min(statuses.len() - 1)];
+                let mut buf = [0u8; 2048];
+                let _ = socket.read(&mut buf).await;
+                let body = "ok";
+                let resp = format!(
+                    "HTTP/1.1 {} X\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    status,
+                    body.len(),
+                    body
+                );
+                if socket.write_all(resp.as_bytes()).await.is_err() {
+                    break;
+                }
+            }
+        });
+        (addr, count)
+    }
+
+    #[tokio::test]
+    async fn send_with_retry_returns_first_success_without_retrying() {
+        let (addr, count) = run_test_server(vec![200]).await;
+        let client = build_client().unwrap();
+        let resp = send_with_retry(|| client.get(&addr)).await.unwrap();
+        assert_eq!(resp.status().as_u16(), 200);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn send_with_retry_retries_server_errors_until_success() {
+        let (addr, count) = run_test_server(vec![500, 200]).await;
+        let client = build_client().unwrap();
+        let resp = send_with_retry(|| client.get(&addr)).await.unwrap();
+        assert_eq!(resp.status().as_u16(), 200);
+        assert_eq!(count.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn send_with_retry_does_not_retry_client_errors() {
+        let (addr, count) = run_test_server(vec![404]).await;
+        let client = build_client().unwrap();
+        let err = send_with_retry(|| client.get(&addr)).await.unwrap_err();
+        assert!(matches!(err, ScrapeError::Api { status: 404, .. }));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn send_with_retry_gives_up_after_max_retries() {
+        let (addr, count) = run_test_server(vec![500, 500, 500, 500, 500]).await;
+        let client = build_client().unwrap();
+        let err = send_with_retry(|| client.get(&addr)).await.unwrap_err();
+        assert!(matches!(err, ScrapeError::Network(_)));
+        assert_eq!(count.load(Ordering::SeqCst), MAX_RETRIES as usize);
     }
 }

@@ -3,18 +3,15 @@
 //! 使用 Bangumi API (https://api.bgm.tv/) 搜索游戏元数据。
 //! type=4 表示游戏类别。
 
-use reqwest::Client;
 use serde::Deserialize;
 use tokio::time::{sleep, Duration};
 
 use super::error::ScrapeError;
+use super::utils;
 use crate::models::ScrapeResult;
 
 /// Bangumi 搜索 API 地址
 const BANGUMI_SEARCH_API: &str = "https://api.bgm.tv/search/subject";
-
-/// HTTP 请求超时
-const REQUEST_TIMEOUT_SECS: u64 = 15;
 
 // ========== 响应类型 ==========
 
@@ -58,10 +55,7 @@ pub async fn search(query: &str) -> Result<Vec<ScrapeResult>, ScrapeError> {
         return Err(ScrapeError::Config("搜索关键词不能为空".into()));
     }
 
-    let client = Client::builder()
-        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .build()
-        .map_err(|e| ScrapeError::Network(e.to_string()))?;
+    let client = utils::build_client()?;
 
     let url = format!(
         "{}/{}?type=4&limit=10",
@@ -72,21 +66,7 @@ pub async fn search(query: &str) -> Result<Vec<ScrapeResult>, ScrapeError> {
     // Bangumi API 有速率限制，简单延迟
     sleep(Duration::from_millis(200)).await;
 
-    let resp = client
-        .get(&url)
-        .header("User-Agent", crate::http_client::app_user_agent())
-        .send()
-        .await
-        .map_err(|e| ScrapeError::Network(e.to_string()))?;
-
-    let status = resp.status();
-    if !status.is_success() {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(ScrapeError::Api {
-            status: status.as_u16(),
-            body,
-        });
-    }
+    let resp = utils::send_with_retry(|| client.get(&url)).await?;
 
     let bgm_resp: BangumiResponse = resp
         .json()
@@ -136,24 +116,14 @@ pub async fn search_simple(query: &str) -> Result<Vec<ScrapeResult>, String> {
 /// Bangumi 详情查询（v0 API）。
 /// 返回更丰富的元数据：中文名、详情图、标签分类、开发商等。
 pub async fn detail(subject_id: &str) -> Result<ScrapeResult, String> {
-    let client = Client::builder()
-        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = utils::build_client().map_err(|e| e.to_string())?;
 
     let url = format!("https://api.bgm.tv/v0/subjects/{}", subject_id);
     sleep(Duration::from_millis(200)).await;
 
-    let resp = client
-        .get(&url)
-        .header("User-Agent", crate::http_client::app_user_agent())
-        .send()
+    let resp = utils::send_with_retry(|| client.get(&url))
         .await
         .map_err(|e| format!("Bangumi detail request failed: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("Bangumi detail HTTP {}", resp.status()));
-    }
 
     let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
 

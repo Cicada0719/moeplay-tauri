@@ -36,6 +36,24 @@ pub fn global_cache() -> &'static ScrapeCache {
     &CACHE
 }
 
+/// 只缓存非空的成功结果：空结果可能是反爬软拦截或限流，
+/// 缓存会让该源在缓存期内一直查不到（此前空结果也会被缓存 1 小时）
+fn should_cache<T>(results: &[T]) -> bool {
+    !results.is_empty()
+}
+
+/// 把 `from` 源的状态镜像给 `alias` 源（touchgal 是 kungal 的纯别名，
+/// 同时启用时只发一次请求，结果只合并一次，但状态栏两源都可见）
+fn mirror_alias_status(statuses: &mut Vec<ScrapeSourceStatus>, alias: &str, from: &str) {
+    let Some(source_status) = statuses.iter().find(|s| s.source == from).cloned() else {
+        return;
+    };
+    statuses.push(ScrapeSourceStatus {
+        source: alias.to_string(),
+        ..source_status
+    });
+}
+
 /// 并发搜索所有已启用的数据源（带缓存 + 超时优化）
 /// 返回 (搜索结果, 各源状态) 以便前端展示哪些源成功/失败
 pub async fn search_all(
@@ -77,7 +95,9 @@ pub async fn search_all(
                         tokio::spawn(async move {
                             let r = $search_fn(&q2).await;
                             if let Ok(ref results) = r {
-                                cache.set(&q2, $name, results.clone());
+                                if should_cache(results) {
+                                    cache.set(&q2, $name, results.clone());
+                                }
                             }
                             r
                         }),
@@ -91,7 +111,13 @@ pub async fn search_all(
     spawn_source!(bangumi_enabled, "bangumi", bangumi::search_simple);
     spawn_source!(dlsite_enabled, "dlsite", dlsite::search_simple);
     spawn_source!(getchu_enabled, "getchu", getchu::search_simple);
-    spawn_source!(touchgal_enabled, "touchgal", touchgal::search_simple);
+    // touchgal 是 kungal 的纯别名（同一 API）：同时启用时只请求 kungal 一次，
+    // 完成后把状态镜像给 touchgal，避免重复请求与双份失败
+    spawn_source!(
+        touchgal_enabled && !kungal_enabled,
+        "touchgal",
+        touchgal::search_simple
+    );
     spawn_source!(
         erogamescape_enabled,
         "erogamescape",
@@ -133,6 +159,11 @@ pub async fn search_all(
                 });
             }
         }
+    }
+
+    // touchgal/kungal 别名镜像：结果只计一次，状态栏两源都可见
+    if touchgal_enabled && kungal_enabled {
+        mirror_alias_status(&mut statuses, "touchgal", "kungal");
     }
 
     (cached_results, statuses)
@@ -256,4 +287,41 @@ pub async fn scrape_game(
     }
 
     (results, statuses)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn status(source: &str, ok: bool, count: usize) -> ScrapeSourceStatus {
+        ScrapeSourceStatus {
+            source: source.to_string(),
+            ok,
+            count,
+            error: if ok { None } else { Some("boom".to_string()) },
+        }
+    }
+
+    #[test]
+    fn should_cache_only_accepts_non_empty_results() {
+        assert!(!should_cache(&[] as &[i32]));
+        assert!(should_cache(&[1]));
+    }
+
+    #[test]
+    fn mirror_alias_status_copies_source_outcome() {
+        let mut statuses = vec![status("kungal", false, 0)];
+        mirror_alias_status(&mut statuses, "touchgal", "kungal");
+        assert_eq!(statuses.len(), 2);
+        assert_eq!(statuses[1].source, "touchgal");
+        assert!(!statuses[1].ok);
+        assert_eq!(statuses[1].error.as_deref(), Some("boom"));
+    }
+
+    #[test]
+    fn mirror_alias_status_noops_when_source_missing() {
+        let mut statuses = vec![status("vndb", true, 3)];
+        mirror_alias_status(&mut statuses, "touchgal", "kungal");
+        assert_eq!(statuses.len(), 1);
+    }
 }
