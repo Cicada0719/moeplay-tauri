@@ -337,4 +337,18 @@
   }
   @media (prefers-reduced-motion:reduce) { .bp-reel-card { transition:none; } }
   :global([data-motion="reduce"]) .bp-reel-card { transition:none; }
+
+  /* ── 掌机适配：卡片与间距同步放大（重叠比与桌面一致 ≈1.3），文字更易读 ── */
+  :global(:root[data-handheld="true"]) .bp-reel-card {
+    width: clamp(190px, 18.5vw, 330px);
+    transform:
+      translateX(calc(-50% + var(--offset) * clamp(148px, 14.2vw, 255px)))
+      translateY(calc(var(--abs) * 22px))
+      rotateY(calc(var(--offset) * -7deg))
+      rotateZ(calc(var(--offset) * 1.4deg))
+      scale(calc(1 - var(--abs) * .145));
+  }
+  :global(:root[data-handheld="true"]) .bp-poster-no { font-size: clamp(12px, 1vw, 16px); }
+  :global(:root[data-handheld="true"]) .bp-reel-index strong { font-size: clamp(18px, 1.35vw, 26px); }
+  :global(:root[data-handheld="true"]) .bp-reel-caption { font-size: 9px; }
 </style>

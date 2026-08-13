@@ -338,4 +338,13 @@
   @media (min-width:2800px) { .bp { --bp-safe-x:clamp(70px,4vw,150px); } }
   @media (prefers-reduced-motion:reduce) { .bp-brand-mark,.bp-nav button::after { transition:none; } }
   :global([data-motion="reduce"]) .bp-brand-mark,:global([data-motion="reduce"]) .bp-nav button::after { transition:none; }
+
+  /* ── 掌机适配（5.5-8 寸 720p-1080p 横屏）：放大字号与操作目标，近距可读 ── */
+  :global(:root[data-handheld="true"]) .bp { --bp-safe-x: clamp(18px, 2.4vw, 44px); }
+  :global(:root[data-handheld="true"]) .bp-nav b { font-size: clamp(14px, 1.1vw, 18px); }
+  :global(:root[data-handheld="true"]) .bp-brand strong { font-size: clamp(16px, 1.3vw, 23px); }
+  :global(:root[data-handheld="true"]) .bp-time strong { font-size: clamp(16px, 1.3vw, 23px); }
+  :global(:root[data-handheld="true"]) .bp-tools button { min-width: 48px; height: 48px; }
+  :global(:root[data-handheld="true"]) .bp-hints { font-size: clamp(12px, .95vw, 15px); min-height: 42px; }
+  :global(:root[data-handheld="true"]) .bp-hints b { min-width: 28px; height: 28px; font-size: 10px; }
 </style>

@@ -140,6 +140,17 @@ test.describe("Big Picture responsive matrix", () => {
     await expectInsideViewport(page.locator(".bp-pos"), page, "wheel position indicator");
   });
 
+  test("1280x800 handheld viewport enables handheld mode without overflow", async ({ appPage: page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop-standard", "run the explicit handheld viewport once");
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expectHomeLayout(page);
+
+    // 掌机自动判定生效（横屏 && 高≤800 && 宽≤1920）
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.handheld)).toBe("true");
+    await expectNoRootOverflow(page);
+    await expectInsideViewport(page.getByRole("toolbar", { name: "游戏操作" }), page, "handheld hero actions");
+  });
+
   test("21:9 ultrawide viewport preserves bounded content and focus", async ({ appPage: page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop-standard", "run the explicit ultrawide viewport once");
     await page.setViewportSize({ width: 3440, height: 1440 });

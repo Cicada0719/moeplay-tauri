@@ -118,4 +118,10 @@
     .gamepad-hints.active { left:10px; }
   }
   @media (prefers-reduced-motion: reduce) { .connected-dot { box-shadow:none; } }
+
+  /* 掌机适配（5.5-8 寸横屏）：提示条与键帽放大 */
+  :global(:root[data-handheld="true"]) .prompt { font-size: 13px; }
+  :global(:root[data-handheld="true"]) kbd { min-width: 28px; height: 28px; font-size: 10px; }
+  :global(:root[data-handheld="true"]) .focus-context strong { font-size: 13px; }
+  :global(:root[data-handheld="true"]) .focus-context span { font-size: 9px; }
 </style>

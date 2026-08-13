@@ -12,6 +12,8 @@
   import SegmentControl from "./ui/SegmentControl.svelte";
   import Switch from "./ui/Switch.svelte";
   import Input from "./ui/Input.svelte";
+  import { readGamepadLayoutPreference, writeGamepadLayoutPreference, type GamepadLayoutPreference } from "../platform/gamepadLayout";
+  import { readHandheldPreference, writeHandheldPreference, type HandheldMode } from "../platform/handheld";
   import Icon from "./Icon.svelte";
   import UpdateDialog from "./UpdateDialog.svelte";
   import { PageHeader, PageShell, StateBoundary, type ViewState } from "./ui-v2";
@@ -46,6 +48,34 @@
     { id: "fullscreen", label: "全屏模式", icon: "maximize" },
     { id: "big-picture", label: "大屏模式", icon: "tv" },
   ];
+
+  // 掌机/手柄偏好：localStorage 即存即用，不入后端 settings
+  let gamepadLayout = $state<GamepadLayoutPreference>(readGamepadLayoutPreference());
+  let handheldMode = $state<HandheldMode>(readHandheldPreference());
+  const gamepadLayoutOptions = $derived([
+    { value: "auto", label: i18n.t("settings.gamepad_layout.auto") },
+    { value: "xbox", label: "Xbox" },
+    { value: "nintendo", label: i18n.t("settings.gamepad_layout.nintendo") },
+  ]);
+  const handheldModeOptions = $derived([
+    { value: "auto", label: i18n.t("settings.handheld.auto") },
+    { value: "on", label: i18n.t("settings.handheld.on") },
+    { value: "off", label: i18n.t("settings.handheld.off") },
+  ]);
+
+  function setGamepadLayout(value: string) {
+    const v: GamepadLayoutPreference = value === "xbox" || value === "nintendo" ? value : "auto";
+    gamepadLayout = v;
+    writeGamepadLayoutPreference(v);
+    uiStore.notify(i18n.t("settings.gamepad_layout_changed"), "success");
+  }
+
+  function setHandheldMode(value: string) {
+    const v: HandheldMode = value === "on" || value === "off" ? value : "auto";
+    handheldMode = v;
+    writeHandheldPreference(v);
+    uiStore.notify(i18n.t("settings.handheld_changed"), "success");
+  }
 
   const languageOptions = [
     { value: "zh", label: "中文" },
@@ -362,6 +392,22 @@
               onChange={setCloseBehavior}
               size="sm"
             />
+          </div>
+
+          <div class="s-divider"></div>
+          <div class="s-row">
+            <div class="s-info">
+              <span class="s-label">{i18n.t("settings.gamepad_layout")}</span>
+              <span class="s-desc">{i18n.t("settings.gamepad_layout_desc")}</span>
+            </div>
+            <SegmentControl options={gamepadLayoutOptions} value={gamepadLayout} onChange={setGamepadLayout} size="sm" />
+          </div>
+          <div class="s-row">
+            <div class="s-info">
+              <span class="s-label">{i18n.t("settings.handheld")}</span>
+              <span class="s-desc">{i18n.t("settings.handheld_desc")}</span>
+            </div>
+            <SegmentControl options={handheldModeOptions} value={handheldMode} onChange={setHandheldMode} size="sm" />
           </div>
           {/if}
 

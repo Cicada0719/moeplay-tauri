@@ -45,6 +45,7 @@
   import { nativeFullscreenHealthy, reassertNativeFullscreen } from "./lib/utils/window-fullscreen";
   import { applyStartupWindowMode } from "./lib/utils/startup-window-mode";
   import { isViewSupportedOnPlatform, orientationStore, platformStore } from "./lib/platform";
+  import { installHandheldWatcher } from "./lib/platform/handheld";
 
   const TOOLS_DRAWER_ID = "tools-drawer";
   const SHORTCUT_HELP_OVERLAY_ID = "shortcut-help";
@@ -421,6 +422,7 @@
       }
     }, 5000);
     let releaseGamepadMode = () => {};
+    const releaseHandheldWatcher = installHandheldWatcher();
     if (!isAndroid) {
       const runtime = getDefaultGamepadFocusRuntime();
       refreshGamepadConnection();
@@ -460,6 +462,7 @@
       window.removeEventListener("gamepaddisconnected", refreshGamepadConnection);
       _detachGamepad();
       releaseGamepadMode();
+      releaseHandheldWatcher();
     };
   });
 

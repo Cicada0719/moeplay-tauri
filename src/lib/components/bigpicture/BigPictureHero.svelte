@@ -223,4 +223,13 @@
   }
   @media (prefers-reduced-motion:reduce) { .bp-actions button { transition:none; } }
   :global([data-motion="reduce"]) .bp-actions button { transition:none; }
+
+  /* ── 掌机适配：标题/操作按钮/事实条放大 ── */
+  :global(:root[data-handheld="true"]) .bp-title { font-size: clamp(40px, 5vw, 76px); }
+  :global(:root[data-handheld="true"]) .bp-meta { font-size: clamp(11px, .8vw, 14px); }
+  :global(:root[data-handheld="true"]) .bp-state { font-size: 9px; }
+  :global(:root[data-handheld="true"]) .bp-play { min-width: clamp(170px, 13vw, 240px); min-height: 52px; }
+  :global(:root[data-handheld="true"]) .bp-play b { font-size: clamp(13px, .95vw, 16px); }
+  :global(:root[data-handheld="true"]) .bp-icon-action { width: clamp(56px, 4vw, 68px); }
+  :global(:root[data-handheld="true"]) .bp-facts b { font-size: clamp(12px, .85vw, 15px); }
 </style>

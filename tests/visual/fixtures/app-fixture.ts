@@ -14,16 +14,19 @@ import {
 
 interface MoePlayFixtures {
   appState: MockAppState;
+  /** 模拟手柄的 id（用于 Xbox/任天堂布局测试），默认通用 Xbox 语义 id */
+  gamepadId: string;
   appPage: Page;
   gamepad: GamepadController;
 }
 
 export const test = base.extend<MoePlayFixtures>({
   appState: [{ ...DEFAULT_APP_STATE }, { option: true }],
+  gamepadId: ["MoePlay Deterministic Gamepad", { option: true }],
 
-  page: async ({ page, appState }, use) => {
+  page: async ({ page, appState, gamepadId }, use) => {
     await installDeterministicEnvironment(page, appState);
-    await installGamepadMock(page);
+    await installGamepadMock(page, { id: gamepadId });
     await use(page);
   },
 

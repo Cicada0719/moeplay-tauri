@@ -50,7 +50,7 @@ async function connectGamepad(gamepad: GamepadController, page: Page): Promise<v
 async function pressGamepad(
   gamepad: GamepadController,
   page: Page,
-  button: GamepadButtonName,
+  button: GamepadButtonName | number,
 ): Promise<void> {
   await gamepad.press(button, 80);
   // The shared runtime intentionally waits for a neutral frame after a zone/scope change.
@@ -105,6 +105,38 @@ test.describe("Big Picture gamepad-only entry", () => {
     await expect(bigPicture(page)).toBeVisible();
     await expect(bigPicture(page)).toHaveAttribute("data-active-zone", "wheel");
     await expectRovingSelection(wheel(page));
+  });
+});
+
+test.describe("Big Picture Nintendo layout", () => {
+  test.use({ appState: bigPictureState, gamepadId: "Nintendo Switch Pro Controller" });
+
+  test("任天堂手柄：物理右键(索引1)=确认、物理下键(索引0)=返回", async ({
+    appPage: page,
+    gamepad,
+  }) => {
+    const root = bigPicture(page);
+    await expect(root).toBeVisible();
+    await expect(root).toHaveAttribute("data-active-zone", "wheel");
+    await connectGamepad(gamepad, page);
+
+    await pressGamepad(gamepad, page, "dpadUp");
+    await expect(root).toHaveAttribute("data-active-zone", "hero");
+    const hero = page.locator('[data-focus-zone="hero"][data-active="true"]');
+    await expect(hero.getByRole("button", { name: "开始游戏" })).toBeFocused();
+
+    // 物理右键（索引1 = 任天堂 A）= 确认 → 启动游戏
+    await pressGamepad(gamepad, page, 1);
+    await expect.poll(async () => (
+      await getInvocationLog(page)
+    ).filter(({ command }) => command === "launch_game").length).toBe(1);
+
+    // 物理下键（索引0 = 任天堂 B）= 返回 → 回到转盘，不再触发启动
+    await pressGamepad(gamepad, page, 0);
+    await expect(root).toHaveAttribute("data-active-zone", "wheel");
+    await expect.poll(async () => (
+      await getInvocationLog(page)
+    ).filter(({ command }) => command === "launch_game").length).toBe(1);
   });
 });
 

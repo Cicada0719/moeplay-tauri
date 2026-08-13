@@ -1,3 +1,10 @@
+import {
+  mapFaceButton,
+  readGamepadLayoutPreference,
+  resolveGamepadLayout,
+  type GamepadLayout,
+} from "../../platform/gamepadLayout";
+
 export type GamepadDirection = "up" | "down" | "left" | "right";
 export type GamepadInputMode = "gamepad" | "keyboard";
 export type GamepadZone = string;
@@ -11,6 +18,9 @@ export interface GamepadLike {
   connected?: boolean;
   buttons: ArrayLike<GamepadButtonLike>;
   axes: ArrayLike<number>;
+  /** 手柄 id（如 "Nintendo Switch Pro Controller"），用于按键布局识别 */
+  readonly id?: string;
+  readonly mapping?: string;
 }
 
 export interface GamepadNavigatorLike {
@@ -165,6 +175,8 @@ export class GamepadFocusRuntime {
   private readonly axisPressThreshold: number;
   private readonly axisReleaseThreshold: number;
   private activeZone: GamepadZone | null = null;
+  private faceLayout: GamepadLayout = "xbox";
+  private faceLayoutCacheKey = "";
   private activeScopeId: string | null = null;
   private inputMode: GamepadInputMode = "keyboard";
   private frameHandle: number | null = null;
@@ -343,6 +355,7 @@ export class GamepadFocusRuntime {
       return;
     }
 
+    this.resolveFaceLayout(pad);
     const sample = this.readSample(pad);
     const scope = this.selectActiveScope();
     if (!scope) {
@@ -431,6 +444,15 @@ export class GamepadFocusRuntime {
     this.running = false;
   }
 
+  /** 按当前手柄 id + 用户偏好解析面键布局（换柄/改设置经缓存键自动重算） */
+  private resolveFaceLayout(pad: GamepadLike): void {
+    const override = readGamepadLayoutPreference();
+    const key = `${pad.id ?? ""}|${override}`;
+    if (key === this.faceLayoutCacheKey) return;
+    this.faceLayoutCacheKey = key;
+    this.faceLayout = resolveGamepadLayout(pad.id ?? "", override);
+  }
+
   private findPad(): GamepadLike | null {
     try {
       return Array.from(this.environment.navigator.getGamepads() ?? [])
@@ -495,7 +517,9 @@ export class GamepadFocusRuntime {
 
     return {
       directions: { up, down, left, right } satisfies Record<GamepadDirection, boolean>,
-      buttons: new Map<number, boolean>(EDGE_BUTTONS.map((index) => [index, safePressed(pad.buttons, index)])),
+      buttons: new Map<number, boolean>(
+        EDGE_BUTTONS.map((index) => [index, safePressed(pad.buttons, mapFaceButton(this.faceLayout, index))]),
+      ),
     };
   }
 

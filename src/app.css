@@ -832,3 +832,6 @@ button.ui-card:focus-visible {
 .app-container[data-workspace-focus="true"][data-workspace-focus-view="records"] .records-index {
   padding-top: 0 !important;
 }
+
+/* 掌机适配（5.5-8 寸横屏）：手柄可激活目标放大到易按尺寸，只覆盖显式标记的目标 */
+:root[data-handheld="true"] [data-gamepad-activate] { min-height: 40px; min-width: 40px; }

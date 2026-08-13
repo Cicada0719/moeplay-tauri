@@ -17,8 +17,8 @@ export const STANDARD_GAMEPAD_BUTTONS = {
 
 export type GamepadButtonName = keyof typeof STANDARD_GAMEPAD_BUTTONS;
 
-export async function installGamepadMock(page: Page): Promise<void> {
-  await page.addInitScript(() => {
+export async function installGamepadMock(page: Page, options: { id?: string } = {}): Promise<void> {
+  await page.addInitScript(({ padId }: { padId: string }) => {
     const buttons = Array.from({ length: 17 }, () => ({
       pressed: false,
       touched: false,
@@ -29,7 +29,7 @@ export async function installGamepadMock(page: Page): Promise<void> {
       buttons,
       connected: false,
       hapticActuators: [],
-      id: "MoePlay Deterministic Gamepad",
+      id: padId,
       index: 0,
       mapping: "standard",
       timestamp: 0,
@@ -92,7 +92,7 @@ export async function installGamepadMock(page: Page): Promise<void> {
       configurable: true,
       value: api,
     });
-  });
+  }, { padId: options.id ?? "MoePlay Deterministic Gamepad" });
 }
 
 export class GamepadController {
