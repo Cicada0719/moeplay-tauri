@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.20.14 - 2026-08-18
+
+### 手柄运行时按需加载
+
+- App 主入口不再静态引入手柄导航/轮询运行时（gamepadFocus/domGamepadNavigation/controllerSurface/useGamepad）：新增 `gamepadApi` 懒加载门面，首次手柄交互时才加载（约 20KB 独立 chunk）；无手柄用户启动更轻。
+- 手柄提示条语义标签、掌机屏幕键盘的 VirtualKeyboard 同步改为按需加载。
+- 主入口 JS chunk 380KB → 360KB。
+
 ## 0.20.13 - 2026-08-18
 
 ### 任务面板移出主包
