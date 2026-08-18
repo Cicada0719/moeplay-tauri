@@ -127,6 +127,7 @@
       up: () => moveVertical(-1),
       down: () => moveVertical(1),
       launch: () => activateFocused(),
+      start: () => activateFocused(),
       activate: () => activateFocused(),
       back: () => onBack(),
       pageLeft: () => onTabPrevious(),
@@ -332,4 +333,15 @@
   }
   @media (prefers-reduced-motion:reduce) { .bp-media-panel{transition:none} }
   :global([data-motion="reduce"]) .bp-media-panel { transition:none; }
+
+  /* ── 掌机适配：媒体区标题/面板/封面放大，近距可读 ── */
+  :global(:root[data-handheld="true"]) .bp-media { padding-top: 92px; padding-bottom: 48px; }
+  :global(:root[data-handheld="true"]) .bp-media-intro h1 { font-size: clamp(34px, 4vw, 54px); }
+  :global(:root[data-handheld="true"]) .bp-media-intro p { font-size: clamp(12px, .95vw, 15px); }
+  :global(:root[data-handheld="true"]) .bp-media-summary strong { font-size: clamp(15px, 1.2vw, 20px); }
+  :global(:root[data-handheld="true"]) .bp-media-summary span { font-size: 10px; }
+  :global(:root[data-handheld="true"]) .bp-cover-thumb { flex-basis: clamp(84px, 7.2vw, 116px); }
+  :global(:root[data-handheld="true"]) .bp-media-panel-head h2 { font-size: clamp(28px, 2.4vw, 40px); }
+  :global(:root[data-handheld="true"]) .bp-media-panel-badge { font-size: 10px; }
+  :global(:root[data-handheld="true"]) .bp-media-panel-hint { font-size: clamp(12px, .95vw, 15px); }
 </style>

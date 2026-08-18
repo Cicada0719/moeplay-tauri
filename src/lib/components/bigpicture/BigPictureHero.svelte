@@ -87,7 +87,7 @@
     scope = attachGamepad({
       left: () => moveAction(-1), right: () => moveAction(1),
       up: () => onMoveToTop(), down: () => onMoveToWheel(),
-      launch: () => activateAction(), activate: () => activateAction(),
+      launch: () => activateAction(), start: () => onLaunch(), activate: () => activateAction(),
       favorite: () => onFavorite(), filter: () => onToggleFilter(), back: () => onMoveToWheel(),
       pageLeft: () => onTabPrevious(), pageRight: () => onTabNext(),
     }, { id: "big-picture-hero", zone: "hero", priority: 20 });
@@ -225,6 +225,7 @@
   :global([data-motion="reduce"]) .bp-actions button { transition:none; }
 
   /* ── 掌机适配：标题/操作按钮/事实条放大 ── */
+  :global(:root[data-handheld="true"]) .bp-copy { width: min(36vw, 500px); }
   :global(:root[data-handheld="true"]) .bp-title { font-size: clamp(40px, 5vw, 76px); }
   :global(:root[data-handheld="true"]) .bp-meta { font-size: clamp(11px, .8vw, 14px); }
   :global(:root[data-handheld="true"]) .bp-state { font-size: 9px; }
@@ -232,4 +233,5 @@
   :global(:root[data-handheld="true"]) .bp-play b { font-size: clamp(13px, .95vw, 16px); }
   :global(:root[data-handheld="true"]) .bp-icon-action { width: clamp(56px, 4vw, 68px); }
   :global(:root[data-handheld="true"]) .bp-facts b { font-size: clamp(12px, .85vw, 15px); }
+  :global(:root[data-handheld="true"]) .bp-description { -webkit-line-clamp: 2; line-clamp: 2; }
 </style>

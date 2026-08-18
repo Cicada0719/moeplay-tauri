@@ -6,14 +6,17 @@
   let {
     connected = false,
     padLabel = "",
+    pads = [],
     inputMode = "keyboard",
     currentView = "home",
     focusModeAvailable = false,
     focusMode = false,
   }: {
     connected?: boolean;
-    /** 首个已连接手柄的 id（诊断串流/虚拟手柄是否被系统识别） */
+    /** 首个已连接手柄的 id（兼容旧调用；优先展示 pads 列表） */
     padLabel?: string;
+    /** 所有已连接手柄的名称与最终布局（供串流/虚拟手柄识别诊断） */
+    pads?: { label: string; layout: "xbox" | "nintendo" }[];
     inputMode?: GamepadInputMode;
     currentView?: string;
     focusModeAvailable?: boolean;
@@ -72,7 +75,23 @@
         <span class="prompt"><kbd>START</kbd>大屏</span>
       </div>
     {:else}
-      <div class="connected-note"><span class="connected-dot"></span><strong>手柄已连接{#if padLabel}&nbsp;· {padLabel}{/if}</strong><small>按任意键显示操作提示</small></div>
+      <div class="connected-note">
+        <span class="connected-dot"></span>
+        {#if pads.length > 0}
+          <div class="connected-pads">
+            <strong>手柄已连接</strong>
+            {#each pads as pad, padIndex (pad.label + padIndex)}
+              <span class="pad-chip" title={pad.label || ("槽位 " + (padIndex + 1))}>
+                <em>{pad.label || ("槽位 " + (padIndex + 1))}</em>
+                <b class:chip-nintendo={pad.layout === "nintendo"}>{pad.layout === "nintendo" ? "任天堂" : "Xbox"}</b>
+              </span>
+            {/each}
+          </div>
+        {:else}
+          <strong>手柄已连接{#if padLabel}&nbsp;· {padLabel}{/if}</strong>
+        {/if}
+        <small>按任意键显示操作提示</small>
+      </div>
     {/if}
   </aside>
 {/if}
@@ -97,6 +116,11 @@
   .connected-note { display:flex; align-items:center; gap:8px; min-height:34px; padding:0 12px; }
   .connected-note strong { font-size:11px; letter-spacing:.06em; }
   .connected-note small { color:rgba(255,255,255,.56); font-size:10px; }
+  .connected-pads { display:flex; align-items:center; gap:8px; min-width:0; flex-wrap:wrap; }
+  .pad-chip { display:inline-flex; align-items:center; gap:6px; max-width:min(46vw,340px); min-width:0; padding:2px 8px; border:1px solid rgba(255,255,255,.16); border-radius:999px; background:rgba(255,255,255,.05); }
+  .pad-chip em { max-width:240px; overflow:hidden; color:rgba(255,255,255,.72); font-size:10px; font-style:normal; text-overflow:ellipsis; white-space:nowrap; }
+  .pad-chip b { padding:1px 6px; border-radius:999px; color:#9fd8ff; background:rgba(96,164,255,.16); font:750 9px var(--font-mono, monospace); letter-spacing:.06em; }
+  .pad-chip b.chip-nintendo { color:#ff9ec4; background:rgba(255,94,148,.16); }
   .connected-dot { width:7px; height:7px; border-radius:50%; background:#79e6a7; box-shadow:0 0 12px rgba(121,230,167,.72); }
   .gamepad-hints.active { left: 18px; display:grid; grid-template-columns:minmax(120px, .34fr) minmax(0, 1fr); }
   .focus-context { min-width:0; display:grid; align-content:center; gap:3px; min-height:42px; padding:7px 12px; border-right:0; }
