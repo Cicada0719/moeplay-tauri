@@ -18,7 +18,7 @@
     /** 首个已连接手柄的 id（兼容旧调用；优先展示 pads 列表） */
     padLabel?: string;
     /** 所有已连接手柄的名称与最终布局（供串流/虚拟手柄识别诊断） */
-    pads?: { label: string; layout: "xbox" | "nintendo" }[];
+    pads?: { label: string; layout: "xbox" | "nintendo" | "playstation" }[];
     inputMode?: GamepadInputMode;
     currentView?: string;
     focusModeAvailable?: boolean;
@@ -46,7 +46,7 @@
     });
     return () => { cancelled = true; };
   });
-  const hintLayout = $derived<"xbox" | "nintendo">(pads[0]?.layout ?? "xbox");
+  const hintLayout = $derived<"xbox" | "nintendo" | "playstation">(pads[0]?.layout ?? "xbox");
   const glyph = (action: GamepadAction) => gamepadGlyphFor(action, hintLayout);
   const controlKind = $derived(
     focused instanceof HTMLInputElement && focused.type === "range"

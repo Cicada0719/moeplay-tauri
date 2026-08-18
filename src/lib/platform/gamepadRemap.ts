@@ -50,6 +50,11 @@ const NINTENDO_LABELS: Record<number, string> = {
   0: "B", 1: "A", 2: "Y", 3: "X", 4: "LB", 5: "RB", 8: "VIEW", 9: "START",
 };
 
+/** PlayStation 布局下的物理按钮标签（下 ✕ / 右 ○ / 左 □ / 上 △） */
+const PLAYSTATION_LABELS: Record<number, string> = {
+  0: "✕", 1: "○", 2: "□", 3: "△", 4: "L1", 5: "R1", 8: "SHARE", 9: "OPTIONS",
+};
+
 let remapRevision = 0;
 
 export function getGamepadRemapRevision(): number {
@@ -110,7 +115,8 @@ export function gamepadGlyphFor(action: GamepadAction, layout: GamepadLayout): s
   const physical = explicit !== undefined
     ? explicit
     : mapFaceButton(layout, ACTION_SEMANTIC_BY_ACTION[action]);
-  return (layout === "nintendo" ? NINTENDO_LABELS : XBOX_LABELS)[physical] ?? String(physical);
+  const labels = layout === "nintendo" ? NINTENDO_LABELS : layout === "playstation" ? PLAYSTATION_LABELS : XBOX_LABELS;
+  return labels[physical] ?? String(physical);
 }
 
 const ACTION_SEMANTIC_BY_ACTION: Record<GamepadAction, number> = {

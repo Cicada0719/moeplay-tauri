@@ -8,7 +8,7 @@
 // 真实手柄完全相同（例如虚拟设备也报 "Xbox 360 Controller (XInput STANDARD GAMEPAD)"），
 // 仅凭 id 无法区分远端实体手柄类型，因此必须允许用户为每个设备单独指定布局。
 
-export type GamepadLayout = "xbox" | "nintendo";
+export type GamepadLayout = "xbox" | "nintendo" | "playstation";
 export type GamepadLayoutPreference = "auto" | GamepadLayout;
 
 const LAYOUT_STORAGE_KEY = "moeplay-gamepad-layout-v1";
@@ -16,6 +16,8 @@ const DEVICE_LAYOUT_STORAGE_KEY = "moeplay-gamepad-layout-devices-v1";
 
 // Switch Pro / Joy-Con / 第三方 Switch 协议手柄（含 vendor 057e）的 id 特征
 const NINTENDO_PATTERN = /nintendo|pro controller|joy-?con|057e/i;
+// PlayStation 手柄（DualShock/DualSense，含 vendor 054c）的 id 特征
+const PLAYSTATION_PATTERN = /playstation|dualshock|dualsense|054c|ps4|ps5/i;
 
 // 布局配置版本号：每次写入全局偏好或逐手柄覆盖时递增。
 // gamepadFocus runtime 用它判断缓存是否失效（避免逐帧读 localStorage）。
@@ -25,9 +27,11 @@ export function getGamepadLayoutRevision(): number {
   return layoutRevision;
 }
 
-/** 按手柄 id 判定布局；非任天堂特征一律按 Xbox/W3C 语义处理 */
+/** 按手柄 id 判定布局：任天堂 > PlayStation > Xbox/W3C */
 export function detectGamepadLayout(id: string): GamepadLayout {
-  return NINTENDO_PATTERN.test(id) ? "nintendo" : "xbox";
+  if (NINTENDO_PATTERN.test(id)) return "nintendo";
+  if (PLAYSTATION_PATTERN.test(id)) return "playstation";
+  return "xbox";
 }
 
 /** 逐手柄覆盖条目的存储键：优先「id#槽位」，无槽位信息时退回「id」 */
@@ -93,6 +97,7 @@ export function resolveGamepadLayout(
  * 方向键、LB/RB、VIEW、START 不经过此函数，保持原索引。
  */
 export function mapFaceButton(layout: GamepadLayout, semanticIndex: number): number {
+  // PlayStation 物理布局（下 ✕/右 ○/左 □/上 △）与 Xbox/W3C 语义顺序一致，无需换位
   if (layout !== "nintendo") return semanticIndex;
   switch (semanticIndex) {
     case 0: return 1;
@@ -107,7 +112,7 @@ export function mapFaceButton(layout: GamepadLayout, semanticIndex: number): num
 export function readGamepadLayoutPreference(): GamepadLayoutPreference {
   if (typeof localStorage === "undefined") return "auto";
   const raw = localStorage.getItem(LAYOUT_STORAGE_KEY);
-  return raw === "xbox" || raw === "nintendo" ? raw : "auto";
+  return raw === "xbox" || raw === "nintendo" || raw === "playstation" ? raw : "auto";
 }
 
 /** 写入用户布局偏好 */

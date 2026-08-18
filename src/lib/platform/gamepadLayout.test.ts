@@ -27,14 +27,22 @@ describe("gamepadLayout", () => {
 
   it("非任天堂特征一律按 Xbox 语义", () => {
     expect(detectGamepadLayout("Xbox 360 Controller (XInput STANDARD GAMEPAD)")).toBe("xbox");
-    expect(detectGamepadLayout("DualSense Wireless Controller")).toBe("xbox");
+    expect(detectGamepadLayout("8BitDo Pro 2 (STANDARD GAMEPAD)")).toBe("xbox");
     expect(detectGamepadLayout("")).toBe("xbox");
+  });
+
+  it("PlayStation 手柄识别为 playstation 布局", () => {
+    expect(detectGamepadLayout("DualSense Wireless Controller")).toBe("playstation");
+    expect(detectGamepadLayout("DualShock 4 Wireless Controller")).toBe("playstation");
+    expect(detectGamepadLayout("Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)")).toBe("playstation");
+    expect(detectGamepadLayout("PS4 Controller")).toBe("playstation");
   });
 
   it("override 优先于自动检测", () => {
     expect(resolveGamepadLayout("Xbox 360 Controller", "nintendo")).toBe("nintendo");
     expect(resolveGamepadLayout("Nintendo Switch Pro Controller", "xbox")).toBe("xbox");
     expect(resolveGamepadLayout("Nintendo Switch Pro Controller", "auto")).toBe("nintendo");
+    expect(resolveGamepadLayout("DualSense Wireless Controller", "auto")).toBe("playstation");
     expect(resolveGamepadLayout("Xbox 360 Controller")).toBe("xbox"); // 默认 auto
   });
 
@@ -50,6 +58,12 @@ describe("gamepadLayout", () => {
   it("xbox 布局原样返回", () => {
     for (const i of [0, 1, 2, 3, 4, 5, 8, 9]) {
       expect(mapFaceButton("xbox", i)).toBe(i);
+    }
+  });
+
+  it("playstation 布局与 Xbox 语义顺序一致，不换位", () => {
+    for (const i of [0, 1, 2, 3, 4, 5, 8, 9]) {
+      expect(mapFaceButton("playstation", i)).toBe(i);
     }
   });
 
@@ -85,7 +99,7 @@ describe("gamepadLayout 逐手柄覆盖（UU远程 等串流虚拟手柄场景�
     expect(resolveGamepadLayout(UU_PAD_ID, "auto", 0)).toBe("nintendo");
     expect(resolveGamepadLayout(UU_PAD_ID, "auto", 3)).toBe("nintendo");
     // 其他手柄不受影响
-    expect(resolveGamepadLayout("DualSense Wireless Controller", "auto", 0)).toBe("xbox");
+    expect(resolveGamepadLayout("8BitDo Pro 2 (STANDARD GAMEPAD)", "auto", 0)).toBe("xbox");
   });
 
   it("写入 null 清除覆盖，回到自动检测", () => {

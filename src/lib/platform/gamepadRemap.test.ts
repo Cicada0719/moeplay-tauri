@@ -56,4 +56,14 @@ describe("gamepadRemap 按键绑定", () => {
     expect(gamepadGlyphFor("launch", "xbox")).toBe("Y");
     expect(gamepadGlyphFor("launch", "nintendo")).toBe("X"); // 物理 3 = 任天堂 X（上键）
   });
+
+  it("PlayStation 布局显示 ○×□△ 符号键帽", () => {
+    expect(gamepadGlyphFor("launch", "playstation")).toBe("✕");
+    expect(gamepadGlyphFor("back", "playstation")).toBe("○");
+    expect(gamepadGlyphFor("favorite", "playstation")).toBe("□");
+    expect(gamepadGlyphFor("activate", "playstation")).toBe("△");
+    expect(gamepadGlyphFor("pageLeft", "playstation")).toBe("L1");
+    expect(gamepadGlyphFor("start", "playstation")).toBe("OPTIONS");
+    expect(physicalButtonFor(0, "playstation")).toBe(0); // 语义顺序一致
+  });
 });

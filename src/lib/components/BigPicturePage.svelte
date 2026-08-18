@@ -20,6 +20,9 @@
 
   type BigPictureTab = "game" | "media";
   type BigPictureZone = "top-nav" | "wheel" | "hero" | "media" | "detail" | "search" | "keyboard";
+  type BigPictureMemory = { tab?: BigPictureTab; focusIdx?: number; filterAll?: boolean };
+
+  const BP_MEMORY_KEY = "moeplay-bigpicture-memory-v1";
 
   let bpTab = $state<BigPictureTab>("game");
   let activeZone = $state<BigPictureZone>("wheel");
@@ -42,7 +45,7 @@
   let searchReturnZone = $state<BigPictureZone>("top-nav");
   let topScope: GamepadAttachment | null = null;
   let padLayoutTag = $state("");
-  let bpPadLayout = $state<"xbox" | "nintendo">("xbox");
+  let bpPadLayout = $state<"xbox" | "nintendo" | "playstation">("xbox");
   const glyph = (action: GamepadAction) => gamepadGlyphFor(action, bpPadLayout);
 
   const allGames = $derived(gameStore.allGames);
@@ -63,6 +66,29 @@
     { accent: "#7bb8ff", paper: "#eef6ff", ink: "#080e16" },
   ] as const;
   const scenePalette = $derived(SCENE_PALETTES[focusIdx % SCENE_PALETTES.length]);
+
+  function readBpMemory(): BigPictureMemory {
+    if (typeof localStorage === "undefined") return {};
+    try {
+      const parsed: unknown = JSON.parse(localStorage.getItem(BP_MEMORY_KEY) ?? "{}");
+      if (typeof parsed !== "object" || parsed === null) return {};
+      const raw = parsed as Record<string, unknown>;
+      const memory: BigPictureMemory = {};
+      if (raw.tab === "game" || raw.tab === "media") memory.tab = raw.tab;
+      if (typeof raw.focusIdx === "number" && Number.isFinite(raw.focusIdx) && raw.focusIdx >= 0) {
+        memory.focusIdx = Math.floor(raw.focusIdx);
+      }
+      if (typeof raw.filterAll === "boolean") memory.filterAll = raw.filterAll;
+      return memory;
+    } catch {
+      return {};
+    }
+  }
+
+  function writeBpMemory() {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(BP_MEMORY_KEY, JSON.stringify({ tab: bpTab, focusIdx, filterAll } as BigPictureMemory));
+  }
 
   function pickBackgroundArt(game: Game | null): string {
     if (!game) return defaultLibraryBackdrop;
@@ -208,6 +234,16 @@
 
   onMount(() => {
     const timer = setInterval(() => (now = new Date()), 30_000);
+    // 大屏状态记忆：恢复上次所在展厅与选中位置（进入时始终落在转盘/媒体区）
+    const memory = readBpMemory();
+    if (memory.tab === "media") {
+      bpTab = "media";
+      topFocusIdx = 1;
+      void animeStore.loadRecommendations();
+    }
+    if (memory.filterAll !== undefined) filterAll = memory.filterAll;
+    if (memory.focusIdx !== undefined) focusIdx = memory.focusIdx;
+    $effect(() => { writeBpMemory(); });
     const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
     const syncMotion = () => {
       prefersReducedMotion = motionQuery.matches || document.documentElement.dataset.motion === "reduce";

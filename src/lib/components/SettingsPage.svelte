@@ -59,6 +59,7 @@
     { value: "auto", label: i18n.t("settings.gamepad_layout.auto") },
     { value: "xbox", label: "Xbox" },
     { value: "nintendo", label: i18n.t("settings.gamepad_layout.nintendo") },
+    { value: "playstation", label: "PlayStation" },
   ]);
   const handheldModeOptions = $derived([
     { value: "auto", label: i18n.t("settings.handheld.auto") },
@@ -67,7 +68,7 @@
   ]);
 
   function setGamepadLayout(value: string) {
-    const v: GamepadLayoutPreference = value === "xbox" || value === "nintendo" ? value : "auto";
+    const v: GamepadLayoutPreference = value === "xbox" || value === "nintendo" || value === "playstation" ? value : "auto";
     gamepadLayout = v;
     writeGamepadLayoutPreference(v);
     uiStore.notify(i18n.t("settings.gamepad_layout_changed"), "success");
@@ -78,14 +79,15 @@
   type ConnectedPadEntry = {
     id: string;
     index: number;
-    layout: "xbox" | "nintendo";
-    deviceOverride: "xbox" | "nintendo" | null;
+    layout: "xbox" | "nintendo" | "playstation";
+    deviceOverride: "xbox" | "nintendo" | "playstation" | null;
   };
   let connectedPads = $state<ConnectedPadEntry[]>([]);
   const padLayoutOptions = [
     { value: "auto", label: i18n.t("settings.gamepad_layout.auto") },
     { value: "xbox", label: "Xbox" },
     { value: "nintendo", label: i18n.t("settings.gamepad_layout.nintendo") },
+    { value: "playstation", label: "PlayStation" },
   ];
 
   function refreshConnectedPads() {
@@ -104,7 +106,7 @@
   function setPadLayout(padIndex: number, value: string) {
     const pad = connectedPads[padIndex];
     if (!pad) return;
-    const next: "xbox" | "nintendo" | null = value === "xbox" || value === "nintendo" ? value : null;
+    const next: "xbox" | "nintendo" | "playstation" | null = value === "xbox" || value === "nintendo" || value === "playstation" ? value : null;
     writeDeviceLayoutPreference(pad.id, next, pad.index);
     refreshConnectedPads();
     uiStore.notify(
@@ -130,7 +132,7 @@
   let captureArmed = false;
   let lastPressed = new Set<string>();
 
-  function remapLayout(): "xbox" | "nintendo" {
+  function remapLayout(): "xbox" | "nintendo" | "playstation" {
     return connectedPads[0]?.layout ?? (gamepadLayout === "nintendo" ? "nintendo" : "xbox");
   }
 

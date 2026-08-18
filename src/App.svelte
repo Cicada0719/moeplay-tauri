@@ -58,7 +58,7 @@
   let gamepadInputMode = $state<GamepadInputMode>("keyboard");
   let gamepadConnected = $state(false);
   let gamepadLabel = $state("");
-  let gamepadPads = $state<{ label: string; layout: "xbox" | "nintendo" }[]>([]);
+  let gamepadPads = $state<{ label: string; layout: "xbox" | "nintendo" | "playstation" }[]>([]);
   let handheldActive = $state(false);
   let handheldHintsAlways = $state(readHandheldHintsPreference());
   const workspaceFocusAvailable = $derived(workspaceFocusStore.supports(uiStore.currentView));
