@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { readHandheldPreference, resolveHandheld } from "./handheld";
+import {
+  readHandheldHintsPreference,
+  readHandheldKeyboardPreference,
+  readHandheldPreference,
+  resolveHandheld,
+  writeHandheldHintsPreference,
+  writeHandheldKeyboardPreference,
+} from "./handheld";
 
 describe("handheld 掌机判定", () => {
   beforeEach(() => {
@@ -39,5 +46,18 @@ describe("handheld 掌机判定", () => {
     expect(readHandheldPreference()).toBe("on");
     localStorage.setItem("moeplay-handheld-mode-v1", "garbage");
     expect(readHandheldPreference()).toBe("auto");
+  });
+
+  it("联动偏好默认开，写入后持久化", () => {
+    expect(readHandheldHintsPreference()).toBe(true);
+    expect(readHandheldKeyboardPreference()).toBe(true);
+    writeHandheldHintsPreference(false);
+    writeHandheldKeyboardPreference(false);
+    expect(readHandheldHintsPreference()).toBe(false);
+    expect(readHandheldKeyboardPreference()).toBe(false);
+    writeHandheldHintsPreference(true);
+    writeHandheldKeyboardPreference(true);
+    expect(readHandheldHintsPreference()).toBe(true);
+    expect(readHandheldKeyboardPreference()).toBe(true);
   });
 });

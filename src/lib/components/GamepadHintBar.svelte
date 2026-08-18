@@ -11,6 +11,8 @@
     currentView = "home",
     focusModeAvailable = false,
     focusMode = false,
+    handheld = false,
+    hintsAlways = true,
   }: {
     connected?: boolean;
     /** 首个已连接手柄的 id（兼容旧调用；优先展示 pads 列表） */
@@ -21,10 +23,14 @@
     currentView?: string;
     focusModeAvailable?: boolean;
     focusMode?: boolean;
+    /** 掌机模式生效中：联动「手柄提示条常显」 */
+    handheld?: boolean;
+    hintsAlways?: boolean;
   } = $props();
 
   let focused = $state<HTMLElement | null>(null);
-  const active = $derived(connected && inputMode === "gamepad");
+  // 掌机模式 + 「手柄提示条常显」：无需先按手柄，直接展示操作提示
+  const active = $derived(connected && (inputMode === "gamepad" || (handheld && hintsAlways)));
   const focusLabel = $derived(gamepadElementLabel(focused));
   const primaryLabel = $derived(gamepadPrimaryActionLabel(focused));
   const secondaryLabel = $derived(gamepadSecondaryActionLabel(focused));

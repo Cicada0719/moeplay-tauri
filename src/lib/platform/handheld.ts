@@ -5,6 +5,47 @@
 export type HandheldMode = "auto" | "on" | "off";
 
 const HANDHELD_STORAGE_KEY = "moeplay-handheld-mode-v1";
+const HANDHELD_HINTS_KEY = "moeplay-handheld-hints-v1";
+const HANDHELD_KEYBOARD_KEY = "moeplay-handheld-keyboard-v1";
+const HANDHELD_PREFS_EVENT = "moeplay-handheld-prefs-changed";
+
+/** 掌机模式联动偏好：手柄提示条常显（默认开） */
+export function readHandheldHintsPreference(): boolean {
+  if (typeof localStorage === "undefined") return true;
+  return localStorage.getItem(HANDHELD_HINTS_KEY) !== "off";
+}
+
+export function writeHandheldHintsPreference(on: boolean): void {
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(HANDHELD_HINTS_KEY, on ? "on" : "off");
+  notifyHandheldPrefsChanged();
+}
+
+/** 掌机模式联动偏好：输入框聚焦自动弹出屏幕键盘（默认开） */
+export function readHandheldKeyboardPreference(): boolean {
+  if (typeof localStorage === "undefined") return true;
+  return localStorage.getItem(HANDHELD_KEYBOARD_KEY) !== "off";
+}
+
+export function writeHandheldKeyboardPreference(on: boolean): void {
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(HANDHELD_KEYBOARD_KEY, on ? "on" : "off");
+  notifyHandheldPrefsChanged();
+}
+
+/** 偏好变更广播：App/键盘覆盖层等跨组件同步读取 */
+export function notifyHandheldPrefsChanged(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(HANDHELD_PREFS_EVENT));
+}
+
+/** 订阅掌机联动偏好变更事件 */
+export function onHandheldPrefsChanged(listener: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const handler = () => listener();
+  window.addEventListener(HANDHELD_PREFS_EVENT, handler);
+  return () => window.removeEventListener(HANDHELD_PREFS_EVENT, handler);
+}
 
 export function readHandheldPreference(): HandheldMode {
   if (typeof localStorage === "undefined") return "auto";
@@ -30,6 +71,8 @@ export function resolveHandheld(
 }
 
 let currentMode: HandheldMode = "auto";
+const activeListeners = new Set<(on: boolean) => void>();
+let lastApplied: boolean | null = null;
 
 function applyHandheld(): void {
   if (typeof document === "undefined" || typeof window === "undefined") return;
@@ -41,6 +84,15 @@ function applyHandheld(): void {
   );
   if (on) document.documentElement.dataset.handheld = "true";
   else delete document.documentElement.dataset.handheld;
+  if (on !== lastApplied) {
+    lastApplied = on;
+    for (const listener of activeListeners) listener(on);
+  }
+}
+
+/** 查询掌机模式当前是否生效（供非响应式代码读取） */
+export function isHandheldActive(): boolean {
+  return lastApplied === true;
 }
 
 /** 写入偏好并立即重新应用 */
@@ -52,11 +104,15 @@ export function writeHandheldPreference(mode: HandheldMode): void {
   applyHandheld();
 }
 
-/** 安装 resize 监听并做初始应用；返回卸载函数 */
-export function installHandheldWatcher(): () => void {
+/** 安装 resize 监听并做初始应用；onChange 在开关切换时收到最新生效状态 */
+export function installHandheldWatcher(onChange?: (on: boolean) => void): () => void {
   currentMode = readHandheldPreference();
+  if (onChange) activeListeners.add(onChange);
   applyHandheld();
   const onResize = () => applyHandheld();
   window.addEventListener("resize", onResize);
-  return () => window.removeEventListener("resize", onResize);
+  return () => {
+    window.removeEventListener("resize", onResize);
+    if (onChange) activeListeners.delete(onChange);
+  };
 }

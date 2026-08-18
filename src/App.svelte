@@ -45,8 +45,9 @@
   import { nativeFullscreenHealthy, reassertNativeFullscreen } from "./lib/utils/window-fullscreen";
   import { applyStartupWindowMode } from "./lib/utils/startup-window-mode";
   import { isViewSupportedOnPlatform, orientationStore, platformStore } from "./lib/platform";
-  import { installHandheldWatcher } from "./lib/platform/handheld";
+  import { installHandheldWatcher, onHandheldPrefsChanged, readHandheldHintsPreference } from "./lib/platform/handheld";
   import { resolveConnectedPadLayouts } from "./lib/platform/gamepadLayout";
+  import HandheldKeyboardOverlay from "./lib/components/HandheldKeyboardOverlay.svelte";
 
   const TOOLS_DRAWER_ID = "tools-drawer";
   const SHORTCUT_HELP_OVERLAY_ID = "shortcut-help";
@@ -64,6 +65,8 @@
   let gamepadConnected = $state(false);
   let gamepadLabel = $state("");
   let gamepadPads = $state<{ label: string; layout: "xbox" | "nintendo" }[]>([]);
+  let handheldActive = $state(false);
+  let handheldHintsAlways = $state(readHandheldHintsPreference());
   const workspaceFocusAvailable = $derived(workspaceFocusStore.supports(uiStore.currentView));
   const workspaceFocusEnabled = $derived(workspaceFocusStore.isEnabled(uiStore.currentView));
   const taskBadgeStore = createJobsStore();
@@ -430,7 +433,8 @@
       }
     }, 5000);
     let releaseGamepadMode = () => {};
-    const releaseHandheldWatcher = installHandheldWatcher();
+    const releaseHandheldWatcher = installHandheldWatcher((on) => { handheldActive = on; });
+    const offHandheldPrefs = onHandheldPrefsChanged(() => { handheldHintsAlways = readHandheldHintsPreference(); });
     if (!isAndroid) {
       const runtime = getDefaultGamepadFocusRuntime();
       refreshGamepadConnection();
@@ -471,6 +475,7 @@
       _detachGamepad();
       releaseGamepadMode();
       releaseHandheldWatcher();
+      offHandheldPrefs();
     };
   });
 
@@ -692,7 +697,10 @@
         currentView={uiStore.currentView}
         focusModeAvailable={workspaceFocusAvailable}
         focusMode={workspaceFocusEnabled}
+        handheld={handheldActive}
+        hintsAlways={handheldHintsAlways}
       />
+      <HandheldKeyboardOverlay />
     {/if}
 
   {:else}
