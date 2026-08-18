@@ -4,6 +4,7 @@
 
   let {
     active = true,
+    scopeId = "big-picture-keyboard",
     onChar,
     onBack,
     onSubmit,
@@ -12,6 +13,8 @@
     onzonechange,
   }: {
     active?: boolean;
+    /** 手柄 scope id：同一页面挂多个键盘实例时必须区分 */
+    scopeId?: string;
     onChar: (char: string) => void;
     onBack: () => void;
     onSubmit: () => void;
@@ -96,7 +99,7 @@
       launch: () => pressCurrent(),
       favorite: () => onBack(),
       back: () => onClose(),
-    }, { id: "big-picture-keyboard", zone: "keyboard", overlay: true, priority: 120, enabled: active });
+    }, { id: scopeId, zone: "keyboard", overlay: true, priority: 120, enabled: active });
     focusCurrent();
     return () => { scope?.(); scope = null; };
   });

@@ -13,7 +13,7 @@
   import Switch from "./ui/Switch.svelte";
   import Input from "./ui/Input.svelte";
   import { readGamepadLayoutPreference, resolveConnectedPadLayouts, writeDeviceLayoutPreference, writeGamepadLayoutPreference, type GamepadLayoutPreference } from "../platform/gamepadLayout";
-  import { readHandheldPreference, writeHandheldPreference, type HandheldMode } from "../platform/handheld";
+  import { readHandheldHintsPreference, readHandheldKeyboardPreference, readHandheldPreference, writeHandheldHintsPreference, writeHandheldKeyboardPreference, writeHandheldPreference, type HandheldMode } from "../platform/handheld";
   import Icon from "./Icon.svelte";
   import UpdateDialog from "./UpdateDialog.svelte";
   import { PageHeader, PageShell, StateBoundary, type ViewState } from "./ui-v2";
@@ -52,6 +52,8 @@
   // 掌机/手柄偏好：localStorage 即存即用，不入后端 settings
   let gamepadLayout = $state<GamepadLayoutPreference>(readGamepadLayoutPreference());
   let handheldMode = $state<HandheldMode>(readHandheldPreference());
+  let handheldHints = $state(readHandheldHintsPreference());
+  let handheldKeyboard = $state(readHandheldKeyboardPreference());
   const gamepadLayoutOptions = $derived([
     { value: "auto", label: i18n.t("settings.gamepad_layout.auto") },
     { value: "xbox", label: "Xbox" },
@@ -115,6 +117,16 @@
     handheldMode = v;
     writeHandheldPreference(v);
     uiStore.notify(i18n.t("settings.handheld_changed"), "success");
+  }
+
+  function setHandheldHints(on: boolean) {
+    handheldHints = on;
+    writeHandheldHintsPreference(on);
+  }
+
+  function setHandheldKeyboard(on: boolean) {
+    handheldKeyboard = on;
+    writeHandheldKeyboardPreference(on);
   }
 
   const languageOptions = [
@@ -481,6 +493,22 @@
             </div>
             <SegmentControl options={handheldModeOptions} value={handheldMode} onChange={setHandheldMode} size="sm" />
           </div>
+          {#if handheldMode !== "off"}
+            <div class="s-row s-row-sub">
+              <div class="s-info">
+                <span class="s-label">{i18n.t("settings.handheld_hints")}</span>
+                <span class="s-desc">{i18n.t("settings.handheld_hints_desc")}</span>
+              </div>
+              <Switch checked={handheldHints} onchange={(e) => setHandheldHints((e.target as HTMLInputElement).checked)} />
+            </div>
+            <div class="s-row s-row-sub">
+              <div class="s-info">
+                <span class="s-label">{i18n.t("settings.handheld_keyboard")}</span>
+                <span class="s-desc">{i18n.t("settings.handheld_keyboard_desc")}</span>
+              </div>
+              <Switch checked={handheldKeyboard} onchange={(e) => setHandheldKeyboard((e.target as HTMLInputElement).checked)} />
+            </div>
+          {/if}
           {/if}
 
         </Card>
@@ -772,6 +800,8 @@
   .theme-pack-card__copy b { font-size: 14px; letter-spacing: .02em; }
 
   /* ── Per-device gamepad layout ── */
+  .s-row-sub { margin-left: 28px; border-bottom-style: dashed; }
+  .s-row-sub .s-label { font-size: 12.5px; }
   .s-pad-list { display: flex; flex-direction: column; gap: 8px; width: min(46vw, 460px); min-width: 0; }
   .s-pad-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-hover); }
   .s-pad-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
