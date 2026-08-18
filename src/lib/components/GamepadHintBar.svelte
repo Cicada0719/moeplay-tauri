@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { gamepadElementLabel, gamepadPrimaryActionLabel, gamepadSecondaryActionLabel } from "../actions/a11y/gamepadSemantics";
   import type { GamepadInputMode } from "../actions/a11y/gamepadFocus";
 
   let {
@@ -31,9 +30,21 @@
   let focused = $state<HTMLElement | null>(null);
   // 掌机模式 + 「手柄提示条常显」：无需先按手柄，直接展示操作提示
   const active = $derived(connected && (inputMode === "gamepad" || (handheld && hintsAlways)));
-  const focusLabel = $derived(gamepadElementLabel(focused));
-  const primaryLabel = $derived(gamepadPrimaryActionLabel(focused));
-  const secondaryLabel = $derived(gamepadSecondaryActionLabel(focused));
+  // 语义标签按需加载（a11y 手柄运行时不在主包，聚焦变化时动态引入计算）
+  let focusLabel = $state("");
+  let primaryLabel = $state("");
+  let secondaryLabel = $state("");
+  $effect(() => {
+    const el = focused;
+    let cancelled = false;
+    void import("../actions/a11y/gamepadSemantics").then((m) => {
+      if (cancelled) return;
+      focusLabel = m.gamepadElementLabel(el);
+      primaryLabel = m.gamepadPrimaryActionLabel(el);
+      secondaryLabel = m.gamepadSecondaryActionLabel(el) ?? "";
+    });
+    return () => { cancelled = true; };
+  });
   const controlKind = $derived(
     focused instanceof HTMLInputElement && focused.type === "range"
       ? "range"

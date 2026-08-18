@@ -18,11 +18,8 @@
   import WorkspaceFocusToggle from "./lib/components/WorkspaceFocusToggle.svelte";
   import Icon from "./lib/components/Icon.svelte";
   import { Drawer } from "./lib/components/ui-v2";
-  import { attachGamepad } from "./lib/components/switch/useGamepad.svelte";
-  import { activateGamepadFocus, activateGamepadSecondaryFocus, collectGamepadFocusable, focusGamepadSearch, moveGamepadFocus } from "./lib/actions/a11y/domGamepadNavigation";
-  import { controllerSurfaceFor, dispatchSurfaceDirection, dispatchSurfaceKey, findControllerSurface } from "./lib/actions/a11y/controllerSurface";
-  import { adjustFocusedGamepadControl } from "./lib/actions/a11y/gamepadSemantics";
-  import { getDefaultGamepadFocusRuntime, type GamepadInputMode } from "./lib/actions/a11y/gamepadFocus";
+  import { loadGamepadApi } from "./lib/actions/a11y/gamepadFacade";
+  import type { GamepadInputMode } from "./lib/actions/a11y/gamepadFocus";
   import { DOCK_ITEMS, PRIMARY_CONTENT_VIEWS, TOOL_ITEMS, getViewLabel } from "./lib/nav";
   import { buildShortcutParameter, type ShortcutActions } from "./lib/shortcuts";
   import {
@@ -182,48 +179,54 @@
   }
 
   function moveNormalModeFocus(direction: "up" | "down" | "left" | "right") {
-    if (adjustFocusedGamepadControl(direction)) return;
-    const root = gamepadNavigationRoot();
-    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    // Inside a controller surface (home visual/scene stage) the stick drives the
-    // stage directly: up/down switch the selected game, left/right step media.
-    // Focus is pinned to the stable surface root so per-game button re-keys can
-    // no longer drop the gamepad context back to the global dock.
-    const surface = controllerSurfaceFor(active);
-    if (surface) {
-      dispatchSurfaceDirection(surface, direction);
-      return;
-    }
-    const focusable = collectGamepadFocusable({ root });
-    const hasUsableFocus = active != null && focusable.includes(active);
-    if (!hasUsableFocus) {
-      // First stick press enters a visible controller surface right away (and
-      // already steps the selection) instead of landing on the dock.
-      const entrySurface = findControllerSurface(root);
-      if (entrySurface) {
-        dispatchSurfaceDirection(entrySurface, direction);
+    // 手柄运行时按需加载（无手柄用户不解析/轮询手柄模块）
+    void loadGamepadApi().then((m) => {
+      if (m.adjustFocusedGamepadControl(direction)) return;
+      const root = gamepadNavigationRoot();
+      const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      // Inside a controller surface (home visual/scene stage) the stick drives the
+      // stage directly: up/down switch the selected game, left/right step media.
+      // Focus is pinned to the stable surface root so per-game button re-keys can
+      // no longer drop the gamepad context back to the global dock.
+      const surface = m.controllerSurfaceFor(active);
+      if (surface) {
+        m.dispatchSurfaceDirection(surface, direction);
         return;
       }
-    }
-    const initial = hasUsableFocus ? active : visibleNavigationTarget(uiStore.currentView) ?? focusable[0] ?? null;
-    if (!initial) return;
-    if (!hasUsableFocus) initial.focus({ preventScroll: true });
-    moveGamepadFocus(direction, { root, activeElement: initial });
+      const focusable = m.collectGamepadFocusable({ root });
+      const hasUsableFocus = active != null && focusable.includes(active);
+      if (!hasUsableFocus) {
+        // First stick press enters a visible controller surface right away (and
+        // already steps the selection) instead of landing on the dock.
+        const entrySurface = m.findControllerSurface(root);
+        if (entrySurface) {
+          m.dispatchSurfaceDirection(entrySurface, direction);
+          return;
+        }
+      }
+      const initial = hasUsableFocus ? active : visibleNavigationTarget(uiStore.currentView) ?? focusable[0] ?? null;
+      if (!initial) return;
+      if (!hasUsableFocus) initial.focus({ preventScroll: true });
+      m.moveGamepadFocus(direction, { root, activeElement: initial });
+    });
   }
 
   function activateNormalModeFocus() {
-    const surface = controllerSurfaceFor(document.activeElement);
-    if (surface) {
-      // A on a home stage behaves like Enter: open the featured archive.
-      dispatchSurfaceKey(surface, "Enter");
-      return;
-    }
-    activateGamepadFocus({ root: gamepadNavigationRoot() });
+    void loadGamepadApi().then((m) => {
+      const surface = m.controllerSurfaceFor(document.activeElement);
+      if (surface) {
+        // A on a home stage behaves like Enter: open the featured archive.
+        m.dispatchSurfaceKey(surface, "Enter");
+        return;
+      }
+      m.activateGamepadFocus({ root: gamepadNavigationRoot() });
+    });
   }
 
   /** B while focused inside a home stage escapes back to the global dock. */
-  function escapeControllerSurface(): boolean {
-    const surface = controllerSurfaceFor(document.activeElement);
+  async function escapeControllerSurface(): Promise<boolean> {
+    const m = await loadGamepadApi();
+    const surface = m.controllerSurfaceFor(document.activeElement);
     if (!surface) return false;
     const target = visibleNavigationTarget(uiStore.currentView);
     if (target) {
@@ -246,12 +249,14 @@
       // Landing on a view with a controller surface (home stages) should hand
       // focus straight to the stage so the next stick press switches games.
       const root = gamepadNavigationRoot();
-      const surface = findControllerSurface(root);
-      const target = surface ?? visibleNavigationTarget(nextView);
-      if (target) {
-        target.focus({ preventScroll: true });
-        target.scrollIntoView({ block: "nearest", inline: "nearest" });
-      }
+      void loadGamepadApi().then((m) => {
+        const surface = m.findControllerSurface(root);
+        const target = surface ?? visibleNavigationTarget(nextView);
+        if (target) {
+          target.focus({ preventScroll: true });
+          target.scrollIntoView({ block: "nearest", inline: "nearest" });
+        }
+      });
     });
   }
 
@@ -433,31 +438,33 @@
     const releaseHandheldWatcher = installHandheldWatcher((on) => { handheldActive = on; });
     const offHandheldPrefs = onHandheldPrefsChanged(() => { handheldHintsAlways = readHandheldHintsPreference(); });
     if (!isAndroid) {
-      const runtime = getDefaultGamepadFocusRuntime();
-      refreshGamepadConnection();
-      window.addEventListener("gamepadconnected", refreshGamepadConnection);
-      window.addEventListener("gamepaddisconnected", refreshGamepadConnection);
-      releaseGamepadMode = runtime?.subscribeInputMode((mode) => {
-        gamepadInputMode = mode;
-        document.documentElement.dataset.inputMode = mode;
-        if (mode === "gamepad") refreshGamepadConnection();
-      }) ?? (() => {});
-      _detachGamepad = attachGamepad({
+      // 手柄运行时按需加载：加载完成后注册连接监听、输入模式订阅与全局 scope
+      void loadGamepadApi().then((m) => {
+        refreshGamepadConnection();
+        window.addEventListener("gamepadconnected", refreshGamepadConnection);
+        window.addEventListener("gamepaddisconnected", refreshGamepadConnection);
+        releaseGamepadMode = m.getDefaultGamepadFocusRuntime()?.subscribeInputMode((mode) => {
+          gamepadInputMode = mode;
+          document.documentElement.dataset.inputMode = mode;
+          if (mode === "gamepad") refreshGamepadConnection();
+        }) ?? (() => {});
+        _detachGamepad = m.attachGamepad({
         up: () => { if (!isBigPicture) moveNormalModeFocus("up"); },
         down: () => { if (!isBigPicture) moveNormalModeFocus("down"); },
         left: () => { if (!isBigPicture) moveNormalModeFocus("left"); },
         right: () => { if (!isBigPicture) moveNormalModeFocus("right"); },
         launch: () => { if (!isBigPicture) activateNormalModeFocus(); },
-        activate: () => { if (!isBigPicture) activateGamepadSecondaryFocus({ root: gamepadNavigationRoot() }); },
-        favorite: () => { if (!isBigPicture) focusGamepadSearch(gamepadNavigationRoot()); },
+        activate: () => { if (!isBigPicture) void loadGamepadApi().then((m) => m.activateGamepadSecondaryFocus({ root: gamepadNavigationRoot() })); },
+        favorite: () => { if (!isBigPicture) void loadGamepadApi().then((m) => m.focusGamepadSearch(gamepadNavigationRoot())); },
         filter: () => { if (!isBigPicture) toggleWorkspaceFocus(); },
         pageLeft: () => { if (!isBigPicture) cyclePrimaryContent(-1); },
         pageRight: () => { if (!isBigPicture) cyclePrimaryContent(1); },
-        back: () => { if (!escapeControllerSurface()) void layeredBack(); },
+        back: () => { void escapeControllerSurface().then((escaped) => { if (!escaped) void layeredBack(); }); },
         start: () => {
           if (!isBigPicture) uiStore.setBigPicture(true);
         },
       }, { id: "app-global-gamepad", priority: 10 });
+      });
     }
     return () => {
       releaseMotion();

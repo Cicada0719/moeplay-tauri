@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import VirtualKeyboard from "./VirtualKeyboard.svelte";
   import { isHandheldActive, onHandheldPrefsChanged, readHandheldKeyboardPreference } from "../platform/handheld";
   import { uiStore } from "../stores/ui.svelte";
   import { backspaceAtCursor, insertTextAtCursor, isTextEntryTarget, type TextTargetLike } from "../utils/textInput";
@@ -66,14 +65,16 @@
 {#if open && target}
   <div class="hkb-overlay" bind:this={rootEl} data-testid="handheld-keyboard">
     <button class="hkb-close" type="button" onclick={onClose} aria-label="关闭屏幕键盘">⌨ ✕</button>
-    <VirtualKeyboard
-      active={true}
-      scopeId="handheld-global-keyboard"
-      onChar={onChar}
-      onBack={onBack}
-      onSubmit={onSubmit}
-      onClose={onClose}
-    />
+    {#await import("./VirtualKeyboard.svelte") then { default: VirtualKeyboard }}
+      <VirtualKeyboard
+        active={true}
+        scopeId="handheld-global-keyboard"
+        onChar={onChar}
+        onBack={onBack}
+        onSubmit={onSubmit}
+        onClose={onClose}
+      />
+    {/await}
   </div>
 {:else if target}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
