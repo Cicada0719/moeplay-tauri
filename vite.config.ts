@@ -10,7 +10,7 @@ export default defineConfig({
     rollupOptions: {
       input: { app: resolve(process.cwd(), "index.html") },
       output: {
-        manualChunks: { gsap: ["gsap"] },
+        manualChunks: { gsap: ["gsap"], pinyin: ["pinyin-pro"] },
       },
     },
   },

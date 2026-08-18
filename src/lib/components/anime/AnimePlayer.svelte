@@ -359,7 +359,7 @@
   // 只有明确禁用原生播放器的源，才直接切源站播放器；useWebview 仅代表规则允许网页能力。
   $effect(() => {
     if ((status === 'extracting' || status === 'error' || status === 'timeout') && !useWebFallback && pageUrl && prefersWebPlayback) {
-      console.log('[播放器] 规则要求网页播放，自动切换源站播放器');
+      debugLog('[播放器] 规则要求网页播放，自动切换源站播放器');
       invokeCmd('frontend_log', { level: 'info', message: '[播放器] 规则要求网页播放，自动切换源站播放器' }).catch(() => {});
       switchToWebFallback(status === 'extracting');
     }
@@ -369,7 +369,7 @@
   // 这是 Kazumi 风格的兼容策略——当内置解析搞不定时，直接用源站播放器。
   $effect(() => {
     if ((status === 'error' || status === 'timeout') && !useWebFallback && pageUrl && animeStore.autoWebFallback) {
-      console.log('[播放器] 内置解析失败，自动切换网页播放兜底');
+      debugLog('[播放器] 内置解析失败，自动切换网页播放兜底');
       invokeCmd('frontend_log', { level: 'info', message: '[播放器] 内置解析失败，自动切换网页播放兜底' }).catch(() => {});
       switchToWebFallback();
     }

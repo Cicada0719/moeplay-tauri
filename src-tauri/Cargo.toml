@@ -1,6 +1,6 @@
 [package]
 name = "moeplay"
-version = "0.20.7"
+version = "0.20.8"
 description = "萌游 MoeGame — 游戏与番剧管理器"
 authors = ["MoeGame Dev"]
 edition = "2021"
@@ -41,7 +41,9 @@ ureq = "2"
 futures-util = "0.3"
 log = "0.4"
 zip = "2"
-tokio = { version = "1", features = ["full"] }
+# 只保留实际使用的特性（rt-multi-thread/macros/sync/time/net/fs/io-util），
+# 替代 full：缩短编译时间、减小最终二进制。
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "fs", "io-util"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 # `parallel`：让 rquickjs 的 Runtime 成为 Send+Sync，从而引擎可持有 worker 的
 # Runtime 句柄并在取消/超时时直接调用 `runtime.set_interrupt_handler` 触发 JS 中断
@@ -96,3 +98,11 @@ keyring-core = "1.0.0"
 # Must stay on the same release as the copy pulled in by
 # android-native-keyring-store so both crates share one global context slot.
 ndk-context = "0.1.1"
+
+# 发布优化：thin LTO + 单 codegen 单元减小二进制并改善启动；strip 去掉符号表。
+# 收益可用 scripts/measure-tauri-startup.ps1 量化对比。
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+opt-level = 3
