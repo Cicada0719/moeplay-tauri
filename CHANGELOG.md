@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.20.16 - 2026-08-18
+
+### PlayStation 布局与大屏记忆
+
+- 手柄自动识别 PlayStation（DualShock/DualSense/vendor 054c）：物理键帽显示 ○×□△ / L1 R1 / SHARE OPTIONS，语义顺序与 Xbox 一致（✕=确认、○=取消）；设置页全局与逐手柄布局选项新增 PlayStation。
+- 大屏模式记忆：记住上次所在展厅（游戏/媒体）、选中位置与筛选状态，重进大屏自动恢复。
+
 ## 0.20.15 - 2026-08-18
 
 ### 手柄按键绑定（重映射）

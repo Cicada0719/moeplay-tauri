@@ -1,4 +1,13 @@
-# 萌游 MoeGame v0.20.15
+# 萌游 MoeGame v0.20.16
+
+## PlayStation 手柄与大屏记忆
+
+- DualShock/DualSense 现在显示 ○×□△ 键帽（✕=确认、○=取消），设置页可手动指定 PlayStation 布局。
+- 大屏模式会记住上次的展厅、位置与筛选状态。
+
+---
+
+# 历史：萌游 MoeGame v0.20.15
 
 ## 手柄按键绑定
 
