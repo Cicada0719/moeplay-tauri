@@ -479,7 +479,8 @@ export class GamepadFocusRuntime {
   /** 语义面键索引 → 物理按钮索引：显式重绑优先，否则按布局默认换位（带 revision 缓存） */
   private physicalFor(semanticIndex: number, layout: GamepadLayout): number {
     const revision = getGamepadRemapRevision();
-    if (revision !== this.remapRevision) {
+    // 缓存为空（runtime 在写入之后才构造）或版本变化时重载
+    if (revision !== this.remapRevision || this.remapCache === null) {
       this.remapCache = readGamepadRemap();
       this.remapRevision = revision;
     }
