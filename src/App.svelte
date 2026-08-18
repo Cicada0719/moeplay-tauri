@@ -14,9 +14,6 @@
   import { GlobalTopNavigation, MobileAppShell } from "./lib/shell";
   import Notifications from "./lib/components/Notifications.svelte";
   import WallpaperStage from "./lib/components/WallpaperStage.svelte";
-  import BigPicturePage from "./lib/components/BigPicturePage.svelte";
-  import ShortcutHelp from "./lib/components/ShortcutHelp.svelte";
-  import UpdateDialog from "./lib/components/UpdateDialog.svelte";
   import GamepadHintBar from "./lib/components/GamepadHintBar.svelte";
   import WorkspaceFocusToggle from "./lib/components/WorkspaceFocusToggle.svelte";
   import Icon from "./lib/components/Icon.svelte";
@@ -704,7 +701,9 @@
     {/if}
 
   {:else}
-    <BigPicturePage />
+    {#await import("./lib/components/BigPicturePage.svelte") then { default: Comp }}
+      <Comp />
+    {/await}
   {/if}
 </div>
 
@@ -721,8 +720,12 @@
 {/if}
 
 {#if !isAndroid}
-  <ShortcutHelp open={showShortcutHelp} onclose={() => setShortcutHelp(false)} />
-  <UpdateDialog bind:open={showUpdateDialog} />
+  {#await import("./lib/components/ShortcutHelp.svelte") then { default: ShortcutHelp }}
+    <ShortcutHelp open={showShortcutHelp} onclose={() => setShortcutHelp(false)} />
+  {/await}
+  {#await import("./lib/components/UpdateDialog.svelte") then { default: UpdateDialog }}
+    <UpdateDialog bind:open={showUpdateDialog} />
+  {/await}
 {/if}
 
 <Notifications />
