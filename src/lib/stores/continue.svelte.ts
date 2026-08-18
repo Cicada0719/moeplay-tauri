@@ -1,6 +1,5 @@
 import { gameStore } from "./games.svelte";
-import { animeStore } from "./anime.svelte";
-import { comicStore } from "./comic.svelte";
+import { continueSource } from "./continue-source.svelte";
 import {
   buildContinueItems,
   buildContinueStats,
@@ -17,8 +16,8 @@ let _started = false;
 function refresh() {
   const items = buildContinueItems(
     gameStore.allGames,
-    animeStore.history,
-    comicStore.readHistory
+    continueSource.animeHistory,
+    continueSource.comicHistory,
   );
   _items = items;
 }
@@ -28,13 +27,19 @@ export const continueStore = {
   start() {
     if (_started) return () => {};
     _started = true;
+    // 主包不再静态加载 anime/comic store：启动后延迟在后台预载，
+    // store 模块加载完成会自动把历史同步进 continueSource。
+    const timer = setTimeout(() => {
+      void import("./anime.svelte");
+      void import("./comic.svelte");
+    }, 1000);
     $effect(() => {
       gameStore.allGames;
-      animeStore.history;
-      comicStore.readHistory;
+      continueSource.animeHistory;
+      continueSource.comicHistory;
       refresh();
     });
-    return () => { _started = false; };
+    return () => { clearTimeout(timer); _started = false; };
   },
 
   get items() { return _items; },
@@ -46,8 +51,8 @@ export const continueStore = {
     return buildContinueStats(
       _items,
       gameStore.allGames,
-      animeStore.history,
-      comicStore.readHistory
+      continueSource.animeHistory,
+      continueSource.comicHistory,
     );
   },
   get topItem(): ContinueItem | null {

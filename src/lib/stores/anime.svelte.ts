@@ -7,6 +7,7 @@ import { mergeSearchResults, type MergedSearchEntry } from "../features/anime-se
 import { createSearchCoverFetcher } from "../features/anime-search/covers";
 import { isRecommendationSnapshotFresh, readRecommendationSnapshot, writeRecommendationSnapshot } from "../features/anime-home/recommendationCache";
 import { normalizeVideoEnhancementMode, type VideoEnhancementMode } from "../features/anime-player/localVideoEnhancement";
+import { continueSource } from "./continue-source.svelte";
 
 // ── 类型 ──────────────────────────────────────────────────────────────────
 
@@ -2389,3 +2390,11 @@ export const animeStore = {
     }
   },
 };
+
+// 主包懒加载解耦：本 store 加载后把历史同步给 continue 数据源（continue store 不再静态依赖本文件）。
+$effect.root(() => {
+  $effect(() => {
+    const snapshot = _history;
+    continueSource.setAnimeHistory(snapshot);
+  });
+});
