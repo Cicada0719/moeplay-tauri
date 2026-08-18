@@ -92,6 +92,7 @@
       down: () => move(1),
       up: () => onMoveToHero(),
       launch: () => onLaunch(focusIdx),
+      start: () => onLaunch(focusIdx),
       activate: () => onActivate(focusIdx),
       favorite: () => onFavorite(focusIdx),
       filter: () => onToggleFilter(),

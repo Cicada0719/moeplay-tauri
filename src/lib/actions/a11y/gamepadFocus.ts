@@ -1,4 +1,5 @@
 import {
+  getGamepadLayoutRevision,
   mapFaceButton,
   readGamepadLayoutPreference,
   resolveGamepadLayout,
@@ -178,6 +179,7 @@ export class GamepadFocusRuntime {
   private readonly axisReleaseThreshold: number;
   private activeZone: GamepadZone | null = null;
   private faceLayouts = new Map<string, GamepadLayout>();
+  private faceLayoutsRevision = getGamepadLayoutRevision();
   private activeScopeId: string | null = null;
   private inputMode: GamepadInputMode = "keyboard";
   private frameHandle: number | null = null;
@@ -307,6 +309,15 @@ export class GamepadFocusRuntime {
 
   getInputMode(): GamepadInputMode {
     return this.inputMode;
+  }
+
+  /** 当前已连接手柄的 id / 槽位 / 最终布局（供提示条与设置页展示、诊断识别结果） */
+  getConnectedPads(): { id: string; index: number; layout: GamepadLayout }[] {
+    return this.findPads().map((pad) => ({
+      id: pad.id ?? "",
+      index: typeof pad.index === "number" ? pad.index : 0,
+      layout: this.faceLayoutFor(pad),
+    }));
   }
 
   subscribeInputMode(listener: (mode: GamepadInputMode) => void): () => void {
@@ -443,13 +454,19 @@ export class GamepadFocusRuntime {
     this.running = false;
   }
 
-  /** 按手柄 id + 用户偏好解析该手柄的面键布局（逐手柄缓存，换柄/改设置自动重算） */
+  /** 按手柄 id + 槽位 + 用户偏好解析该手柄的面键布局（逐手柄缓存，换柄/改设置自动重算） */
   private faceLayoutFor(pad: GamepadLike): GamepadLayout {
     const override = readGamepadLayoutPreference();
-    const key = `${pad.id ?? ""}|${override}`;
+    const revision = getGamepadLayoutRevision();
+    if (revision !== this.faceLayoutsRevision) {
+      this.faceLayouts.clear();
+      this.faceLayoutsRevision = revision;
+    }
+    const index = typeof pad.index === "number" ? pad.index : undefined;
+    const key = (pad.id ?? "") + "|" + (index ?? -1) + "|" + override;
     const cached = this.faceLayouts.get(key);
     if (cached) return cached;
-    const layout = resolveGamepadLayout(pad.id ?? "", override);
+    const layout = resolveGamepadLayout(pad.id ?? "", override, index);
     this.faceLayouts.set(key, layout);
     return layout;
   }

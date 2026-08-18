@@ -12,7 +12,7 @@
   import SegmentControl from "./ui/SegmentControl.svelte";
   import Switch from "./ui/Switch.svelte";
   import Input from "./ui/Input.svelte";
-  import { readGamepadLayoutPreference, writeGamepadLayoutPreference, type GamepadLayoutPreference } from "../platform/gamepadLayout";
+  import { readGamepadLayoutPreference, resolveConnectedPadLayouts, writeDeviceLayoutPreference, writeGamepadLayoutPreference, type GamepadLayoutPreference } from "../platform/gamepadLayout";
   import { readHandheldPreference, writeHandheldPreference, type HandheldMode } from "../platform/handheld";
   import Icon from "./Icon.svelte";
   import UpdateDialog from "./UpdateDialog.svelte";
@@ -68,6 +68,46 @@
     gamepadLayout = v;
     writeGamepadLayoutPreference(v);
     uiStore.notify(i18n.t("settings.gamepad_layout_changed"), "success");
+  }
+
+  // 逐手柄布局覆盖：串流/虚拟手柄工具（UU远程 等）上报的 id 可能与真实手柄完全相同，
+  // 自动识别无法区分远端实体类型，因此允许为每个已连接设备单独指定布局。
+  type ConnectedPadEntry = {
+    id: string;
+    index: number;
+    layout: "xbox" | "nintendo";
+    deviceOverride: "xbox" | "nintendo" | null;
+  };
+  let connectedPads = $state<ConnectedPadEntry[]>([]);
+  const padLayoutOptions = [
+    { value: "auto", label: i18n.t("settings.gamepad_layout.auto") },
+    { value: "xbox", label: "Xbox" },
+    { value: "nintendo", label: i18n.t("settings.gamepad_layout.nintendo") },
+  ];
+
+  function refreshConnectedPads() {
+    if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") {
+      connectedPads = [];
+      return;
+    }
+    connectedPads = resolveConnectedPadLayouts(navigator.getGamepads()).map((pad) => ({
+      id: pad.id,
+      index: pad.index,
+      layout: pad.layout,
+      deviceOverride: pad.deviceOverride,
+    }));
+  }
+
+  function setPadLayout(padIndex: number, value: string) {
+    const pad = connectedPads[padIndex];
+    if (!pad) return;
+    const next: "xbox" | "nintendo" | null = value === "xbox" || value === "nintendo" ? value : null;
+    writeDeviceLayoutPreference(pad.id, next, pad.index);
+    refreshConnectedPads();
+    uiStore.notify(
+      next ? i18n.t("settings.gamepad_layout_device_changed") : i18n.t("settings.gamepad_layout_device_cleared"),
+      "success",
+    );
   }
 
   function setHandheldMode(value: string) {
@@ -166,6 +206,15 @@
   onMount(() => {
     void refreshCacheStats();
     void refreshAiSecretStatus();
+    refreshConnectedPads();
+    const padTimer = setInterval(refreshConnectedPads, 1500);
+    window.addEventListener("gamepadconnected", refreshConnectedPads);
+    window.addEventListener("gamepaddisconnected", refreshConnectedPads);
+    return () => {
+      clearInterval(padTimer);
+      window.removeEventListener("gamepadconnected", refreshConnectedPads);
+      window.removeEventListener("gamepaddisconnected", refreshConnectedPads);
+    };
   });
 
   async function setBooleanSetting(key: "ai_enabled", value: boolean) {
@@ -402,6 +451,29 @@
             </div>
             <SegmentControl options={gamepadLayoutOptions} value={gamepadLayout} onChange={setGamepadLayout} size="sm" />
           </div>
+          {#if connectedPads.length > 0}
+            <div class="s-row">
+              <div class="s-info">
+                <span class="s-label">{i18n.t("settings.gamepad_layout_devices")}</span>
+                <span class="s-desc">{i18n.t("settings.gamepad_layout_devices_desc")}</span>
+              </div>
+              <div class="s-pad-list">
+                {#each connectedPads as pad, padIndex (pad.id + "#" + pad.index + "-" + padIndex)}
+                  <div class="s-pad-item">
+                    <span class="s-pad-name" title={pad.id}>
+                      <b>{pad.id || ("槽位 " + (pad.index + 1))}</b>
+                      <small>
+                        槽位 #{pad.index + 1}
+                        {#if pad.deviceOverride} · 手动覆盖{/if}
+                        {#if pad.layout === "nintendo"} · 任天堂{/if}
+                      </small>
+                    </span>
+                    <SegmentControl options={padLayoutOptions} value={pad.deviceOverride ?? "auto"} onChange={(value) => setPadLayout(padIndex, value)} size="sm" />
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
           <div class="s-row">
             <div class="s-info">
               <span class="s-label">{i18n.t("settings.handheld")}</span>
@@ -699,8 +771,16 @@
   .theme-pack-card__copy { position: absolute; left: 14px; right: 14px; bottom: 12px; display: flex; flex-direction: column; gap: 3px; }
   .theme-pack-card__copy b { font-size: 14px; letter-spacing: .02em; }
 
+  /* ── Per-device gamepad layout ── */
+  .s-pad-list { display: flex; flex-direction: column; gap: 8px; width: min(46vw, 460px); min-width: 0; }
+  .s-pad-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-hover); }
+  .s-pad-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .s-pad-name b { overflow: hidden; font-size: 12px; color: var(--text-primary); text-overflow: ellipsis; white-space: nowrap; }
+  .s-pad-name small { color: var(--text-muted); font-size: 10px; }
+
   /* ── Responsive ── */
   @media (max-width: 720px) {
+    .s-pad-list { width: 100%; }
     .maintenance-grid { grid-template-columns: 1fr; }
     .mode-grid { grid-template-columns: 1fr; }
     .ai-field { grid-template-columns: 1fr; }

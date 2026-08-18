@@ -46,6 +46,7 @@
   import { applyStartupWindowMode } from "./lib/utils/startup-window-mode";
   import { isViewSupportedOnPlatform, orientationStore, platformStore } from "./lib/platform";
   import { installHandheldWatcher } from "./lib/platform/handheld";
+  import { resolveConnectedPadLayouts } from "./lib/platform/gamepadLayout";
 
   const TOOLS_DRAWER_ID = "tools-drawer";
   const SHORTCUT_HELP_OVERLAY_ID = "shortcut-help";
@@ -62,6 +63,7 @@
   let gamepadInputMode = $state<GamepadInputMode>("keyboard");
   let gamepadConnected = $state(false);
   let gamepadLabel = $state("");
+  let gamepadPads = $state<{ label: string; layout: "xbox" | "nintendo" }[]>([]);
   const workspaceFocusAvailable = $derived(workspaceFocusStore.supports(uiStore.currentView));
   const workspaceFocusEnabled = $derived(workspaceFocusStore.isEnabled(uiStore.currentView));
   const taskBadgeStore = createJobsStore();
@@ -151,11 +153,13 @@
     if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") {
       gamepadConnected = false;
       gamepadLabel = "";
+      gamepadPads = [];
       return;
     }
-    const first = Array.from(navigator.getGamepads()).find((gamepad) => Boolean(gamepad?.connected));
-    gamepadConnected = Boolean(first);
-    gamepadLabel = first?.id ?? "";
+    const pads = resolveConnectedPadLayouts(navigator.getGamepads());
+    gamepadConnected = pads.length > 0;
+    gamepadLabel = pads[0]?.id ?? "";
+    gamepadPads = pads.map((pad) => ({ label: pad.id, layout: pad.layout }));
   }
 
   function gamepadNavigationRoot(): ParentNode {
@@ -683,6 +687,7 @@
       <GamepadHintBar
         connected={gamepadConnected}
         padLabel={gamepadLabel}
+        pads={gamepadPads}
         inputMode={gamepadInputMode}
         currentView={uiStore.currentView}
         focusModeAvailable={workspaceFocusAvailable}

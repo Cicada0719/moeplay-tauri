@@ -2940,7 +2940,7 @@ dependencies = [
 
 [[package]]
 name = "moeplay"
-version = "0.20.7"
+version = "0.20.8"
 dependencies = [
  "android-native-keyring-store",
  "base64 0.22.1",
@@ -5716,9 +5716,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio 1.2.1",
- "parking_lot",
  "pin-project-lite",
- "signal-hook-registry",
  "socket2 0.6.4",
  "tokio-macros",
  "windows-sys 0.61.2",

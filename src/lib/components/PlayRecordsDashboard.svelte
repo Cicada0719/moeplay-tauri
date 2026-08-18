@@ -10,6 +10,7 @@
   import { formatPlayTime, getPlaytimeSummary, type Game, type PlaySessionEntry, type PlaytimeSummary } from "../api";
   import { createActivityStore, tauriActivityApi, type ActivityEventPatch, type ActivityEventView, type ActivityFilters, type ContinueCandidate } from "../features/activity";
   import { backfillLegacyGameActivityOnce, shouldFallbackActivityV2 } from "./activity/backfill";
+  import { debugLog } from "../utils/debug";
   import { splitActivityDurations } from "./activity/metrics";
   import ActivityEditorDialog from "./activity/ActivityEditorDialog.svelte";
   import ActivityV2Section from "./activity/ActivityV2Section.svelte";
@@ -97,7 +98,7 @@
   async function loadSummary() {
     loading = true; summaryWarning = null;
     try { summary = await getPlaytimeSummary(30, 12, 10); }
-    catch (error) { summary = null; summaryWarning = "当前环境未连接原生统计服务，已使用本地游戏库数据预览。"; console.debug("[records] playtime summary fallback:", error); }
+    catch (error) { summary = null; summaryWarning = "当前环境未连接原生统计服务，已使用本地游戏库数据预览。"; debugLog("[records] playtime summary fallback:", error); }
     finally { loading = false; }
   }
 
@@ -115,7 +116,7 @@
     } catch (error) {
       activityV2Unavailable = true;
       activityV2LoadError = error instanceof Error ? error.message : "Activity v2 unavailable";
-      console.debug("[records] activity v2 fallback:", error);
+      debugLog("[records] activity v2 fallback:", error);
     }
   }
 

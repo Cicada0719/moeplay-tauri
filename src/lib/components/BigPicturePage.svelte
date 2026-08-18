@@ -14,7 +14,7 @@
   import { hasHeroBackground, heroImageOf as gameHeroImageOf } from "../utils/game";
   import { attachGamepad, type GamepadAttachment } from "./switch/useGamepad.svelte";
   import { getDefaultGamepadFocusRuntime } from "../actions/a11y/gamepadFocus";
-  import defaultLibraryBackdrop from "../assets/default-library-backdrop.png";
+  import defaultLibraryBackdrop from "../assets/default-library-backdrop.webp";
   import { animeStore } from "../stores/anime.svelte";
 
   type BigPictureTab = "game" | "media";
@@ -40,6 +40,7 @@
   let detailReturnZone = $state<BigPictureZone>("wheel");
   let searchReturnZone = $state<BigPictureZone>("top-nav");
   let topScope: GamepadAttachment | null = null;
+  let padLayoutTag = $state("");
 
   const allGames = $derived(gameStore.allGames);
   const installedGames = $derived(gameStore.installedGames);
@@ -148,6 +149,10 @@
     setZone("top-nav");
   }
   function toggleFilter() { filterAll = !filterAll; focusIdx = 0; }
+  function refreshPadLayoutTag() {
+    const pads = getDefaultGamepadFocusRuntime()?.getConnectedPads() ?? [];
+    padLayoutTag = pads[0] ? (pads[0].layout === "nintendo" ? "任天堂布局" : "Xbox 布局") : "";
+  }
   function selectMedia(item: { type: string }) { uiStore.setBigPicture(false); uiStore.currentView = item.type === "anime" ? "anime" : "comic"; }
 
   function onWheel(event: WheelEvent) {
@@ -208,14 +213,22 @@
     motionQuery.addEventListener("change", syncMotion);
     topScope = attachGamepad({
       left: () => moveTop(-1), right: () => moveTop(1), down: () => enterContent(),
-      launch: () => activateTop(), activate: () => activateTop(), back: () => exitBigPicture(),
+      launch: () => activateTop(), activate: () => activateTop(), start: () => activateTop(), back: () => exitBigPicture(),
       pageLeft: () => cycleTab(-1), pageRight: () => cycleTab(1),
       filter: () => { if (bpTab === "game") toggleFilter(); },
     }, { id: "big-picture-top-nav", zone: "top-nav", priority: 20 });
     getDefaultGamepadFocusRuntime()?.setActiveZone(activeZone);
     queueMicrotask(() => setZone(activeZone));
+    refreshPadLayoutTag();
+    const padTimer = setInterval(refreshPadLayoutTag, 1500);
+    const onPadChange = () => refreshPadLayoutTag();
+    window.addEventListener("gamepadconnected", onPadChange);
+    window.addEventListener("gamepaddisconnected", onPadChange);
     return () => {
       clearInterval(timer);
+      clearInterval(padTimer);
+      window.removeEventListener("gamepadconnected", onPadChange);
+      window.removeEventListener("gamepaddisconnected", onPadChange);
       if (bgTimer) clearTimeout(bgTimer);
       motionQuery.removeEventListener("change", syncMotion);
       topScope?.(); topScope = null;
@@ -268,11 +281,11 @@
       <BigPictureWheel games={filteredGames} {focusIdx} {filterAll} {prefersReducedMotion} active={activeZone === "wheel" && !showDetail && !showSearch} onSelect={setFocus} onActivate={(index) => { setFocus(index); openDetail(); }} onLaunch={(index) => { setFocus(index); void launchFocus(); }} onFavorite={(index) => { setFocus(index); void toggleFav(); }} onMoveToHero={() => setZone("hero")} onMoveToTop={() => setZone("top-nav")} onBack={back} onTabPrevious={() => cycleTab(-1)} onTabNext={() => cycleTab(1)} onToggleFilter={toggleFilter} onOpenImport={openImport} />
     </main>
     <footer class="bp-hints" aria-label="手柄快捷操作">
-      <span><b>LS / ← →</b>切换作品</span><span><b class="key-a">A</b>打开档案</span><span><b>Start</b>启动</span><span><b class="key-x">X</b>收藏</span><span><b>LB RB</b>切换展厅</span><span><b>View</b>{filterAll ? "本机安装" : "全部作品"}</span><span><b>B</b>菜单</span><span class="bp-pos">{filteredGames.length ? String(focusIdx + 1).padStart(2,"0") : "00"} / {String(filteredGames.length).padStart(2,"0")}</span>
+      <span><b>LS / ← →</b>切换作品</span><span><b class="key-a">A</b>启动游戏</span><span><b class="key-y">Y</b>打开档案</span><span><b class="key-x">X</b>收藏</span><span><b>LB RB</b>切换展厅</span><span><b>View</b>切换筛选</span><span><b>B</b>菜单</span><span class="bp-pos">{filteredGames.length ? String(focusIdx + 1).padStart(2,"0") : "00"} / {String(filteredGames.length).padStart(2,"0")}{#if padLayoutTag}<em>{padLayoutTag}</em>{/if}</span>
     </footer>
   {:else}
     <main class="bp-media-view"><BigPictureMediaTab active={activeZone === "media" && !showDetail && !showSearch} onSelectMedia={selectMedia} onMoveToTop={() => setZone("top-nav")} onBack={back} onTabPrevious={() => cycleTab(-1)} onTabNext={() => cycleTab(1)} /></main>
-    <footer class="bp-hints" aria-label="手柄快捷操作"><span><b class="key-a">A</b>打开</span><span><b>↑ ↓ ← →</b>浏览</span><span><b>LB RB</b>切换展厅</span><span><b>B</b>菜单</span></footer>
+    <footer class="bp-hints" aria-label="手柄快捷操作"><span><b class="key-a">A</b>打开</span><span><b>↑ ↓ ← →</b>浏览</span><span><b>LB RB</b>切换展厅</span><span><b>B</b>返回</span>{#if padLayoutTag}<span class="bp-pos"><em>{padLayoutTag}</em></span>{/if}</footer>
   {/if}
 
   {#if showDetail && focusGame}<BigPictureDetail game={focusGame} onClose={closeDetail} returnFocus={detailReturnFocus} />{/if}
@@ -296,16 +309,18 @@
   .bp-brand small { color:rgba(255,255,255,.4); font:750 7px var(--font-mono); letter-spacing:.24em; }
 
   .bp-nav { display:flex; align-items:center; gap:clamp(18px,2.4vw,42px); }
-  .bp-nav button { position:relative; display:flex; align-items:baseline; gap:8px; padding:10px 1px; border:0; color:rgba(255,255,255,.4); background:transparent; cursor:pointer; }
+  .bp-nav button { position:relative; display:flex; align-items:baseline; gap:8px; padding:10px 1px; border:0; color:rgba(255,255,255,.4); background:transparent; cursor:pointer; transition:color .18s ease; }
   .bp-nav button::after { content:""; position:absolute; left:0; right:100%; bottom:2px; height:2px; background:var(--scene-accent); transition:right .25s ease; }
   .bp-nav button.active { color:white; }
   .bp-nav button.active::after { right:0; }
+  .bp-nav button:hover { color:rgba(255,255,255,.86); }
   .bp-nav span { color:var(--scene-accent); font:850 8px var(--font-mono); }
   .bp-nav b { font:800 clamp(11px,.85vw,15px) var(--font-ui); }
   .bp-nav button:focus-visible,.bp-tools button:focus-visible { outline:2px solid var(--scene-accent); outline-offset:5px; }
 
   .bp-tools { justify-self:end; display:flex; align-items:center; gap:9px; }
-  .bp-tools button { display:grid; place-items:center; min-width:42px; height:42px; padding:0 11px; border:1px solid rgba(255,255,255,.14); color:rgba(255,255,255,.72); background:rgba(7,8,12,.28); backdrop-filter:blur(12px); cursor:pointer; }
+  .bp-tools button { display:grid; place-items:center; min-width:42px; height:42px; padding:0 11px; border:1px solid rgba(255,255,255,.14); color:rgba(255,255,255,.72); background:rgba(7,8,12,.28); backdrop-filter:blur(12px); cursor:pointer; transition:color .18s ease,border-color .18s ease,background .18s ease; }
+  .bp-tools button:hover { color:white; border-color:rgba(255,255,255,.34); background:rgba(7,8,12,.52); }
   .bp-tools button:first-child { display:flex; gap:8px; }
   .bp-tools button small { font:750 7px var(--font-mono); letter-spacing:.14em; }
   .bp-time { display:grid; justify-items:end; min-width:68px; margin:0 7px; }
@@ -318,8 +333,10 @@
   .bp-hints span { display:flex; align-items:center; gap:6px; }
   .bp-hints b { display:inline-grid; place-items:center; min-width:22px; height:22px; padding:0 6px; border:1px solid rgba(255,255,255,.18); color:white; background:rgba(7,8,12,.56); font:800 8px var(--font-mono); }
   .bp-hints .key-a { border-color:rgba(101,214,158,.6); color:#8be8b8; }
+  .bp-hints .key-y { border-color:rgba(255,199,102,.6); color:#ffd9a3; }
   .bp-hints .key-x { border-color:rgba(105,165,255,.6); color:#90bcff; }
-  .bp-pos { margin-left:auto; color:var(--scene-accent); font:850 10px var(--font-mono); letter-spacing:.12em; }
+  .bp-pos { margin-left:auto; display:flex; align-items:center; gap:10px; color:var(--scene-accent); font:850 10px var(--font-mono); letter-spacing:.12em; }
+  .bp-pos em { padding:2px 8px; border:1px solid rgba(255,255,255,.18); border-radius:999px; color:rgba(255,255,255,.62); font:750 8px var(--font-mono); font-style:normal; letter-spacing:.08em; }
 
   :global(:root[data-input-mode="gamepad"] section.bp :where(button,a,input,select,textarea,[tabindex]):focus-visible) {
     outline-color: var(--scene-accent) !important;

@@ -126,6 +126,11 @@
     .bpmr-track { padding-block: 5px 8px; }
   }
 
+  /* ── 掌机适配：媒体卡片放大，近距可读 ── */
+  :global(:root[data-handheld="true"]) .bpmr-card { flex-basis: clamp(132px, 10vw, 190px); }
+  :global(:root[data-handheld="true"]) .bpmr-name { font-size: clamp(12px, .95vw, 15px); }
+  :global(:root[data-handheld="true"]) .bpmr-progress-label { font-size: 11px; }
+
   @media (prefers-reduced-motion: reduce) {
     .bpmr-card, .bpmr-cover { transition: none; }
   }
