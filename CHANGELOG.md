@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.20.13 - 2026-08-18
+
+### 任务面板移出主包
+
+- App 改为直接引用 `features/jobs/store`，不再经由重导出 UI 组件的 index：任务详情抽屉/徽标随任务中心页面懒加载。主入口 JS chunk 396KB → 380KB。
+
 ## 0.20.12 - 2026-08-18
 
 ### 主包再减负：anime/comic store 懒加载解耦
