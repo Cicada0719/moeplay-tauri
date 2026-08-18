@@ -34,7 +34,7 @@
     openOverlay,
   } from "./lib/stores/router.svelte";
   import { motionStore } from "./lib/stores/motion.svelte";
-  import { createJobsStore } from "./lib/features/jobs";
+  import { createJobsStore } from "./lib/features/jobs/store";
   import { invokeCmd } from "./lib/api/core";
   import { checkAndUpdateRules } from "./lib/api/rules";
   import { wallpaperStore } from "./lib/stores/wallpapers.svelte";
