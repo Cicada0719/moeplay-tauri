@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 const root = process.cwd();
 const replaySource = readFileSync(resolve(root, "src/lib/components/ReplayPage.svelte"), "utf8");
 const drawerSource = readFileSync(resolve(root, "src/lib/components/CommandDrawer.svelte"), "utf8");
-const i18nSource = readFileSync(resolve(root, "src/lib/stores/i18n.svelte.ts"), "utf8");
+const i18nSource = readFileSync(resolve(root, "src/lib/stores/i18n.svelte.ts"), "utf8") + "\n" + readFileSync(resolve(root, "src/lib/stores/i18n.en.ts"), "utf8");
 
 describe("replay page ui-v2 migration contract", () => {
 	it("adopts the ui-v2 shell and header primitives with the grain layer", () => {

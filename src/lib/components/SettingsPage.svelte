@@ -156,7 +156,7 @@
   // 界面语言：i18n store 负责 localStorage 持久化，settings 后端同步 language 字段，
   // 与外观设置一样立即生效并在重启后保持。
   async function setInterfaceLanguage(lang: string) {
-    i18n.lang = lang;
+    await i18n.setLanguage(lang);
     settingsStore.setLanguage(lang);
     await save();
   }

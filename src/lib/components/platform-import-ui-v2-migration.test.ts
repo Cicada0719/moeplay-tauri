@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const root = process.cwd();
 const importSource = readFileSync(resolve(root, "src/lib/components/PlatformImportPage.svelte"), "utf8");
-const i18nSource = readFileSync(resolve(root, "src/lib/stores/i18n.svelte.ts"), "utf8");
+const i18nSource = readFileSync(resolve(root, "src/lib/stores/i18n.svelte.ts"), "utf8") + "\n" + readFileSync(resolve(root, "src/lib/stores/i18n.en.ts"), "utf8");
 
 describe("platform import page ui-v2 migration contract", () => {
 	it("adopts ui-v2 shell, header and state boundary primitives", () => {

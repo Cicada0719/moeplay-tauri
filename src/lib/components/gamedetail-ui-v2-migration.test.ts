@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const root = process.cwd();
 const detailSource = readFileSync(resolve(root, "src/lib/components/GameDetailPage.svelte"), "utf8");
-const i18nSource = readFileSync(resolve(root, "src/lib/stores/i18n.svelte.ts"), "utf8");
+const i18nSource = readFileSync(resolve(root, "src/lib/stores/i18n.svelte.ts"), "utf8") + "\n" + readFileSync(resolve(root, "src/lib/stores/i18n.en.ts"), "utf8");
 
 describe("game detail page ui-v2 migration contract", () => {
 	it("stays on the ui-v2 detail panel and async state primitives", () => {

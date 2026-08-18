@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const root = process.cwd();
 const scraperSource = readFileSync(resolve(root, "src/lib/components/ScraperPage.svelte"), "utf8");
-const i18nSource = readFileSync(resolve(root, "src/lib/stores/i18n.svelte.ts"), "utf8");
+const i18nSource = readFileSync(resolve(root, "src/lib/stores/i18n.svelte.ts"), "utf8") + "\n" + readFileSync(resolve(root, "src/lib/stores/i18n.en.ts"), "utf8");
 
 describe("scraper page ui-v2 migration contract", () => {
 	it("adopts ui-v2 shell, header and async state primitives", () => {

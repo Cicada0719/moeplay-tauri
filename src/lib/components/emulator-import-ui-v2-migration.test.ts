@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const root = process.cwd();
 const emulatorSource = readFileSync(resolve(root, "src/lib/components/EmulatorImportDialog.svelte"), "utf8");
-const i18nSource = readFileSync(resolve(root, "src/lib/stores/i18n.svelte.ts"), "utf8");
+const i18nSource = readFileSync(resolve(root, "src/lib/stores/i18n.svelte.ts"), "utf8") + "\n" + readFileSync(resolve(root, "src/lib/stores/i18n.en.ts"), "utf8");
 
 describe("emulator import dialog ui-v2 migration contract", () => {
 	it("adopts ui-v2 shell, header and async state primitives", () => {
