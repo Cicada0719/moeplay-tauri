@@ -13,6 +13,7 @@
   import Switch from "./ui/Switch.svelte";
   import Input from "./ui/Input.svelte";
   import { readGamepadLayoutPreference, resolveConnectedPadLayouts, writeDeviceLayoutPreference, writeGamepadLayoutPreference, type GamepadLayoutPreference } from "../platform/gamepadLayout";
+  import { GAMEPAD_ACTIONS, gamepadGlyphFor, readGamepadRemap, resetGamepadRemap, writeGamepadRemap, type GamepadAction } from "../platform/gamepadRemap";
   import { readHandheldHintsPreference, readHandheldKeyboardPreference, readHandheldPreference, writeHandheldHintsPreference, writeHandheldKeyboardPreference, writeHandheldPreference, type HandheldMode } from "../platform/handheld";
   import Icon from "./Icon.svelte";
   import UpdateDialog from "./UpdateDialog.svelte";
@@ -110,6 +111,87 @@
       next ? i18n.t("settings.gamepad_layout_device_changed") : i18n.t("settings.gamepad_layout_device_cleared"),
       "success",
     );
+  }
+
+  // ── 手柄按键绑定（重映射）──
+  const ACTION_LABELS: Record<GamepadAction, string> = {
+    launch: "启动 / 确认",
+    back: "返回 / 取消",
+    favorite: "收藏 / 搜索",
+    activate: "档案 / 激活",
+    pageLeft: "左翻页",
+    pageRight: "右翻页",
+    filter: "筛选",
+    start: "开始 / 大屏",
+  };
+  let remap = $state<Record<string, number>>({});
+  let capturingAction = $state<GamepadAction | null>(null);
+  let captureTimer: ReturnType<typeof setInterval> | null = null;
+  let captureArmed = false;
+  let lastPressed = new Set<string>();
+
+  function remapLayout(): "xbox" | "nintendo" {
+    return connectedPads[0]?.layout ?? (gamepadLayout === "nintendo" ? "nintendo" : "xbox");
+  }
+
+  function glyphFor(action: GamepadAction): string {
+    return gamepadGlyphFor(action, remapLayout());
+  }
+
+  function syncRemap() {
+    remap = { ...readGamepadRemap() } as Record<string, number>;
+  }
+
+  function stopCapture() {
+    if (captureTimer) clearInterval(captureTimer);
+    captureTimer = null;
+    capturingAction = null;
+    captureArmed = false;
+    lastPressed = new Set();
+  }
+
+  function startCapture(action: GamepadAction) {
+    stopCapture();
+    capturingAction = action;
+    captureArmed = false;
+    lastPressed = new Set();
+    captureTimer = setInterval(() => {
+      if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") return;
+      const pads = Array.from(navigator.getGamepads()).filter((pad): pad is Gamepad => pad != null && pad.connected);
+      const nowPressed = new Set<string>();
+      for (const pad of pads) {
+        for (let i = 0; i < (pad.buttons?.length ?? 0); i += 1) {
+          const button = pad.buttons[i];
+          if (button && (button.pressed || (button.value ?? 0) >= 0.5)) {
+            nowPressed.add(String(pad.index) + ":" + i);
+          }
+        }
+      }
+      if (!captureArmed) {
+        // 先等所有按键松开，再捕获下一个新按下的按钮
+        if (nowPressed.size === 0) captureArmed = true;
+        lastPressed = nowPressed;
+        return;
+      }
+      for (const key of nowPressed) {
+        if (!lastPressed.has(key)) {
+          const physical = Number(key.split(":")[1]);
+          writeGamepadRemap({ ...readGamepadRemap(), [action]: physical });
+          syncRemap();
+          stopCapture();
+          uiStore.notify(`${ACTION_LABELS[action]} → 按钮 ${physical + 1}`, "success");
+          return;
+        }
+      }
+      lastPressed = nowPressed;
+    }, 50);
+  }
+
+  function resetBindings() {
+    resetGamepadRemap();
+    syncRemap();
+    stopCapture();
+    uiStore.notify(i18n.t("settings.gamepad_remap_reset_done"), "success");
   }
 
   function setHandheldMode(value: string) {
@@ -219,11 +301,13 @@
     void refreshCacheStats();
     void refreshAiSecretStatus();
     refreshConnectedPads();
+    syncRemap();
     const padTimer = setInterval(refreshConnectedPads, 1500);
     window.addEventListener("gamepadconnected", refreshConnectedPads);
     window.addEventListener("gamepaddisconnected", refreshConnectedPads);
     return () => {
       clearInterval(padTimer);
+      stopCapture();
       window.removeEventListener("gamepadconnected", refreshConnectedPads);
       window.removeEventListener("gamepaddisconnected", refreshConnectedPads);
     };
@@ -486,6 +570,31 @@
               </div>
             </div>
           {/if}
+          <div class="s-row">
+            <div class="s-info">
+              <span class="s-label">{i18n.t("settings.gamepad_remap")}</span>
+              <span class="s-desc">{i18n.t("settings.gamepad_remap_desc")}</span>
+            </div>
+            <button class="s-link-btn" onclick={resetBindings}>{i18n.t("settings.gamepad_remap_reset")}</button>
+          </div>
+          <div class="s-remap-list">
+            {#each GAMEPAD_ACTIONS as action}
+              <div class="s-remap-row">
+                <span class="s-remap-name">
+                  <b>{ACTION_LABELS[action]}</b>
+                  <small>{glyphFor(action)}</small>
+                </span>
+                {#if capturingAction === action}
+                  <span class="s-remap-capturing">
+                    {i18n.t("settings.gamepad_remap_press")}
+                    <button onclick={stopCapture}>{i18n.t("settings.gamepad_remap_cancel")}</button>
+                  </span>
+                {:else}
+                  <button class="s-remap-btn" onclick={() => startCapture(action)}>{i18n.t("settings.gamepad_remap_bind")}</button>
+                {/if}
+              </div>
+            {/each}
+          </div>
           <div class="s-row">
             <div class="s-info">
               <span class="s-label">{i18n.t("settings.handheld")}</span>
@@ -800,6 +909,14 @@
   .theme-pack-card__copy b { font-size: 14px; letter-spacing: .02em; }
 
   /* ── Per-device gamepad layout ── */
+  .s-link-btn { border: 0; color: var(--accent); background: transparent; font-size: 12px; font-weight: 650; cursor: pointer; }
+  .s-remap-list { display: flex; flex-direction: column; gap: 6px; width: min(46vw, 460px); min-width: 0; }
+  .s-remap-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-hover); }
+  .s-remap-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .s-remap-name b { font-size: 12px; color: var(--text-primary); }
+  .s-remap-name small { padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-muted); font: 750 10px var(--font-mono); }
+  .s-remap-capturing { display: flex; align-items: center; gap: 8px; color: var(--accent); font-size: 12px; }
+  .s-remap-capturing button, .s-remap-btn { border: 1px solid var(--border); border-radius: 7px; padding: 4px 10px; color: var(--text-secondary); background: var(--bg-elev); font-size: 11px; cursor: pointer; }
   .s-row-sub { margin-left: 28px; border-bottom-style: dashed; }
   .s-row-sub .s-label { font-size: 12.5px; }
   .s-pad-list { display: flex; flex-direction: column; gap: 8px; width: min(46vw, 460px); min-width: 0; }
@@ -811,6 +928,7 @@
   /* ── Responsive ── */
   @media (max-width: 720px) {
     .s-pad-list { width: 100%; }
+    .s-remap-list { width: 100%; }
     .maintenance-grid { grid-template-columns: 1fr; }
     .mode-grid { grid-template-columns: 1fr; }
     .ai-field { grid-template-columns: 1fr; }

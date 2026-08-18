@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { GamepadInputMode } from "../actions/a11y/gamepadFocus";
+  import { gamepadGlyphFor, type GamepadAction } from "../platform/gamepadRemap";
 
   let {
     connected = false,
@@ -45,6 +46,8 @@
     });
     return () => { cancelled = true; };
   });
+  const hintLayout = $derived<"xbox" | "nintendo">(pads[0]?.layout ?? "xbox");
+  const glyph = (action: GamepadAction) => gamepadGlyphFor(action, hintLayout);
   const controlKind = $derived(
     focused instanceof HTMLInputElement && focused.type === "range"
       ? "range"
@@ -82,14 +85,14 @@
     {#if active}
       <div class="focus-context"><span>当前</span><strong>{focusLabel}</strong></div>
       <div class="prompt-list">
-        <span class="prompt prompt--primary"><kbd>A</kbd>{primaryLabel}</span>
-        {#if secondaryLabel}<span class="prompt"><kbd>Y</kbd>{secondaryLabel}</span>{/if}
+        <span class="prompt prompt--primary"><kbd>{glyph("launch")}</kbd>{primaryLabel}</span>
+        {#if secondaryLabel}<span class="prompt"><kbd>{glyph("activate")}</kbd>{secondaryLabel}</span>{/if}
         {#if controlKind === "range" || controlKind === "select"}<span class="prompt"><kbd>◀▶</kbd>调整</span>{/if}
-        <span class="prompt"><kbd>B</kbd>返回</span>
-        <span class="prompt"><kbd>X</kbd>搜索</span>
-        <span class="prompt"><kbd>LB</kbd><kbd>RB</kbd>切换栏目</span>
-        {#if focusModeAvailable}<span class="prompt"><kbd>VIEW</kbd>{focusMode ? "退出专注" : "进入专注"}</span>{/if}
-        <span class="prompt"><kbd>START</kbd>大屏</span>
+        <span class="prompt"><kbd>{glyph("back")}</kbd>返回</span>
+        <span class="prompt"><kbd>{glyph("favorite")}</kbd>搜索</span>
+        <span class="prompt"><kbd>{glyph("pageLeft")}</kbd><kbd>{glyph("pageRight")}</kbd>切换栏目</span>
+        {#if focusModeAvailable}<span class="prompt"><kbd>{glyph("filter")}</kbd>{focusMode ? "退出专注" : "进入专注"}</span>{/if}
+        <span class="prompt"><kbd>{glyph("start")}</kbd>大屏</span>
       </div>
     {:else}
       <div class="connected-note">

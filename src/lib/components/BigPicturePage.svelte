@@ -14,6 +14,7 @@
   import { hasHeroBackground, heroImageOf as gameHeroImageOf } from "../utils/game";
   import { attachGamepad, type GamepadAttachment } from "./switch/useGamepad.svelte";
   import { getDefaultGamepadFocusRuntime } from "../actions/a11y/gamepadFocus";
+  import { gamepadGlyphFor, type GamepadAction } from "../platform/gamepadRemap";
   import defaultLibraryBackdrop from "../assets/default-library-backdrop.webp";
   import { animeStore } from "../stores/anime.svelte";
 
@@ -41,6 +42,8 @@
   let searchReturnZone = $state<BigPictureZone>("top-nav");
   let topScope: GamepadAttachment | null = null;
   let padLayoutTag = $state("");
+  let bpPadLayout = $state<"xbox" | "nintendo">("xbox");
+  const glyph = (action: GamepadAction) => gamepadGlyphFor(action, bpPadLayout);
 
   const allGames = $derived(gameStore.allGames);
   const installedGames = $derived(gameStore.installedGames);
@@ -151,6 +154,7 @@
   function toggleFilter() { filterAll = !filterAll; focusIdx = 0; }
   function refreshPadLayoutTag() {
     const pads = getDefaultGamepadFocusRuntime()?.getConnectedPads() ?? [];
+    bpPadLayout = pads[0]?.layout ?? bpPadLayout;
     padLayoutTag = pads[0] ? (pads[0].layout === "nintendo" ? "任天堂布局" : "Xbox 布局") : "";
   }
   function selectMedia(item: { type: string }) { uiStore.setBigPicture(false); uiStore.currentView = item.type === "anime" ? "anime" : "comic"; }
@@ -281,11 +285,11 @@
       <BigPictureWheel games={filteredGames} {focusIdx} {filterAll} {prefersReducedMotion} active={activeZone === "wheel" && !showDetail && !showSearch} onSelect={setFocus} onActivate={(index) => { setFocus(index); openDetail(); }} onLaunch={(index) => { setFocus(index); void launchFocus(); }} onFavorite={(index) => { setFocus(index); void toggleFav(); }} onMoveToHero={() => setZone("hero")} onMoveToTop={() => setZone("top-nav")} onBack={back} onTabPrevious={() => cycleTab(-1)} onTabNext={() => cycleTab(1)} onToggleFilter={toggleFilter} onOpenImport={openImport} />
     </main>
     <footer class="bp-hints" aria-label="手柄快捷操作">
-      <span><b>LS / ← →</b>切换作品</span><span><b class="key-a">A</b>启动游戏</span><span><b class="key-y">Y</b>打开档案</span><span><b class="key-x">X</b>收藏</span><span><b>LB RB</b>切换展厅</span><span><b>View</b>切换筛选</span><span><b>B</b>菜单</span><span class="bp-pos">{filteredGames.length ? String(focusIdx + 1).padStart(2,"0") : "00"} / {String(filteredGames.length).padStart(2,"0")}{#if padLayoutTag}<em>{padLayoutTag}</em>{/if}</span>
+      <span><b>LS / ← →</b>切换作品</span><span><b class="key-a">{glyph("launch")}</b>启动游戏</span><span><b class="key-y">{glyph("activate")}</b>打开档案</span><span><b class="key-x">{glyph("favorite")}</b>收藏</span><span><b>{glyph("pageLeft")} {glyph("pageRight")}</b>切换展厅</span><span><b>{glyph("filter")}</b>切换筛选</span><span><b>{glyph("back")}</b>菜单</span><span class="bp-pos">{filteredGames.length ? String(focusIdx + 1).padStart(2,"0") : "00"} / {String(filteredGames.length).padStart(2,"0")}{#if padLayoutTag}<em>{padLayoutTag}</em>{/if}</span>
     </footer>
   {:else}
     <main class="bp-media-view"><BigPictureMediaTab active={activeZone === "media" && !showDetail && !showSearch} onSelectMedia={selectMedia} onMoveToTop={() => setZone("top-nav")} onBack={back} onTabPrevious={() => cycleTab(-1)} onTabNext={() => cycleTab(1)} /></main>
-    <footer class="bp-hints" aria-label="手柄快捷操作"><span><b class="key-a">A</b>打开</span><span><b>↑ ↓ ← →</b>浏览</span><span><b>LB RB</b>切换展厅</span><span><b>B</b>返回</span>{#if padLayoutTag}<span class="bp-pos"><em>{padLayoutTag}</em></span>{/if}</footer>
+    <footer class="bp-hints" aria-label="手柄快捷操作"><span><b class="key-a">{glyph("launch")}</b>打开</span><span><b>↑ ↓ ← →</b>浏览</span><span><b>{glyph("pageLeft")} {glyph("pageRight")}</b>切换展厅</span><span><b>{glyph("back")}</b>返回</span>{#if padLayoutTag}<span class="bp-pos"><em>{padLayoutTag}</em></span>{/if}</footer>
   {/if}
 
   {#if showDetail && focusGame}<BigPictureDetail game={focusGame} onClose={closeDetail} returnFocus={detailReturnFocus} />{/if}

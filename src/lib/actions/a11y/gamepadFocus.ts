@@ -5,6 +5,12 @@ import {
   resolveGamepadLayout,
   type GamepadLayout,
 } from "../../platform/gamepadLayout";
+import {
+  ACTION_BY_SEMANTIC,
+  getGamepadRemapRevision,
+  readGamepadRemap,
+  type GamepadRemap,
+} from "../../platform/gamepadRemap";
 
 export type GamepadDirection = "up" | "down" | "left" | "right";
 export type GamepadInputMode = "gamepad" | "keyboard";
@@ -180,6 +186,8 @@ export class GamepadFocusRuntime {
   private activeZone: GamepadZone | null = null;
   private faceLayouts = new Map<string, GamepadLayout>();
   private faceLayoutsRevision = getGamepadLayoutRevision();
+  private remapCache: GamepadRemap | null = null;
+  private remapRevision = getGamepadRemapRevision();
   private activeScopeId: string | null = null;
   private inputMode: GamepadInputMode = "keyboard";
   private frameHandle: number | null = null;
@@ -454,6 +462,20 @@ export class GamepadFocusRuntime {
     this.running = false;
   }
 
+  /** 语义面键索引 → 物理按钮索引：显式重绑优先，否则按布局默认换位（带 revision 缓存） */
+  private physicalFor(semanticIndex: number, layout: GamepadLayout): number {
+    const revision = getGamepadRemapRevision();
+    if (revision !== this.remapRevision) {
+      this.remapCache = readGamepadRemap();
+      this.remapRevision = revision;
+    }
+    const action = ACTION_BY_SEMANTIC[semanticIndex];
+    if (!action) return semanticIndex;
+    const explicit = this.remapCache?.[action];
+    if (explicit !== undefined) return explicit;
+    return mapFaceButton(layout, semanticIndex);
+  }
+
   /** 按手柄 id + 槽位 + 用户偏好解析该手柄的面键布局（逐手柄缓存，换柄/改设置自动重算） */
   private faceLayoutFor(pad: GamepadLike): GamepadLayout {
     const override = readGamepadLayoutPreference();
@@ -546,10 +568,10 @@ export class GamepadFocusRuntime {
       up ||= safePressed(pad.buttons, BUTTON.DPAD_UP) || v === -1;
       down ||= safePressed(pad.buttons, BUTTON.DPAD_DOWN) || v === 1;
 
-      // 面键按该手柄的布局（Xbox/任天堂）取物理索引后合并
+      // 面键按该手柄的布局（Xbox/任天堂）+ 按键绑定（重映射）取物理索引后合并
       const layout = this.faceLayoutFor(pad);
       for (const index of EDGE_BUTTONS) {
-        if (safePressed(pad.buttons, mapFaceButton(layout, index))) buttons.set(index, true);
+        if (safePressed(pad.buttons, this.physicalFor(index, layout))) buttons.set(index, true);
       }
     }
 
