@@ -14,6 +14,7 @@
   import Input from "./ui/Input.svelte";
   import { readGamepadLayoutPreference, resolveConnectedPadLayouts, writeDeviceLayoutPreference, writeGamepadLayoutPreference, type GamepadLayoutPreference } from "../platform/gamepadLayout";
   import { GAMEPAD_ACTIONS, gamepadGlyphFor, readGamepadRemap, resetGamepadRemap, writeGamepadRemap, type GamepadAction } from "../platform/gamepadRemap";
+  import { gamepadTuning, type AxisSensitivity, type RepeatSpeed } from "../platform/gamepadTuning.svelte";
   import { readHandheldHintsPreference, readHandheldKeyboardPreference, readHandheldPreference, writeHandheldHintsPreference, writeHandheldKeyboardPreference, writeHandheldPreference, type HandheldMode } from "../platform/handheld";
   import Icon from "./Icon.svelte";
   import UpdateDialog from "./UpdateDialog.svelte";
@@ -194,6 +195,34 @@
     syncRemap();
     stopCapture();
     uiStore.notify(i18n.t("settings.gamepad_remap_reset_done"), "success");
+  }
+
+  // ── 手柄灵敏度（串流/远程适配）──
+  let sensitivity = $state<AxisSensitivity>(gamepadTuning.sensitivity);
+  let repeatSpeed = $state<RepeatSpeed>(gamepadTuning.repeatSpeed);
+  const sensitivityOptions = $derived([
+    { value: "loose", label: i18n.t("settings.gamepad_tuning.loose") },
+    { value: "standard", label: i18n.t("settings.gamepad_tuning.standard") },
+    { value: "tight", label: i18n.t("settings.gamepad_tuning.tight") },
+  ]);
+  const repeatSpeedOptions = $derived([
+    { value: "slow", label: i18n.t("settings.gamepad_tuning.slow") },
+    { value: "standard", label: i18n.t("settings.gamepad_tuning.standard") },
+    { value: "fast", label: i18n.t("settings.gamepad_tuning.fast") },
+  ]);
+
+  function setSensitivity(value: string) {
+    if (value === "loose" || value === "standard" || value === "tight") {
+      gamepadTuning.sensitivity = value;
+      sensitivity = value;
+    }
+  }
+
+  function setRepeatSpeed(value: string) {
+    if (value === "slow" || value === "standard" || value === "fast") {
+      gamepadTuning.repeatSpeed = value;
+      repeatSpeed = value;
+    }
   }
 
   function setHandheldMode(value: string) {
@@ -596,6 +625,26 @@
                 {/if}
               </div>
             {/each}
+          </div>
+          <div class="s-row">
+            <div class="s-info">
+              <span class="s-label">{i18n.t("settings.gamepad_tuning")}</span>
+              <span class="s-desc">{i18n.t("settings.gamepad_tuning_desc")}</span>
+            </div>
+          </div>
+          <div class="s-row s-row-sub">
+            <div class="s-info">
+              <span class="s-label">{i18n.t("settings.gamepad_tuning_sensitivity")}</span>
+              <span class="s-desc">{i18n.t("settings.gamepad_tuning_sensitivity_desc")}</span>
+            </div>
+            <SegmentControl options={sensitivityOptions} value={sensitivity} onChange={setSensitivity} size="sm" />
+          </div>
+          <div class="s-row s-row-sub">
+            <div class="s-info">
+              <span class="s-label">{i18n.t("settings.gamepad_tuning_repeat")}</span>
+              <span class="s-desc">{i18n.t("settings.gamepad_tuning_repeat_desc")}</span>
+            </div>
+            <SegmentControl options={repeatSpeedOptions} value={repeatSpeed} onChange={setRepeatSpeed} size="sm" />
           </div>
           <div class="s-row">
             <div class="s-info">

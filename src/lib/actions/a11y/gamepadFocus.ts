@@ -11,6 +11,7 @@ import {
   readGamepadRemap,
   type GamepadRemap,
 } from "../../platform/gamepadRemap";
+import { gamepadTuning, getGamepadTuningRevision } from "../../platform/gamepadTuning.svelte";
 
 export type GamepadDirection = "up" | "down" | "left" | "right";
 export type GamepadInputMode = "gamepad" | "keyboard";
@@ -183,11 +184,19 @@ export class GamepadFocusRuntime {
   private readonly repeatIntervalMs: number;
   private readonly axisPressThreshold: number;
   private readonly axisReleaseThreshold: number;
+  private readonly useTuning: boolean;
   private activeZone: GamepadZone | null = null;
   private faceLayouts = new Map<string, GamepadLayout>();
   private faceLayoutsRevision = getGamepadLayoutRevision();
   private remapCache: GamepadRemap | null = null;
   private remapRevision = getGamepadRemapRevision();
+  private tuningRevision = getGamepadTuningRevision();
+  private tuning = {
+    press: gamepadTuning.axisPress,
+    release: gamepadTuning.axisRelease,
+    interval: gamepadTuning.repeatIntervalMs,
+    initial: gamepadTuning.initialDelayMs,
+  };
   private activeScopeId: string | null = null;
   private inputMode: GamepadInputMode = "keyboard";
   private frameHandle: number | null = null;
@@ -225,6 +234,11 @@ export class GamepadFocusRuntime {
     this.repeatIntervalMs = options.repeatIntervalMs ?? 100;
     this.axisPressThreshold = options.axisPressThreshold ?? 0.55;
     this.axisReleaseThreshold = options.axisReleaseThreshold ?? 0.35;
+    // 未显式传参（默认构造/测试常用参数化构造除外）时跟随设置页灵敏度调参
+    this.useTuning = options.initialRepeatDelayMs === undefined
+      && options.repeatIntervalMs === undefined
+      && options.axisPressThreshold === undefined
+      && options.axisReleaseThreshold === undefined;
 
     if (this.initialRepeatDelayMs < 0 || this.repeatIntervalMs <= 0) {
       throw new Error("Gamepad repeat timing must be non-negative with a positive interval");
@@ -476,6 +490,37 @@ export class GamepadFocusRuntime {
     return mapFaceButton(layout, semanticIndex);
   }
 
+  /** 灵敏度调参缓存：设置变更（revision 递增）后刷新 */
+  private syncTuning(): void {
+    const revision = getGamepadTuningRevision();
+    if (revision === this.tuningRevision) return;
+    this.tuningRevision = revision;
+    this.tuning = {
+      press: gamepadTuning.axisPress,
+      release: gamepadTuning.axisRelease,
+      interval: gamepadTuning.repeatIntervalMs,
+      initial: gamepadTuning.initialDelayMs,
+    };
+  }
+
+  private effectiveInitialDelayMs(): number {
+    if (!this.useTuning) return this.initialRepeatDelayMs;
+    this.syncTuning();
+    return this.tuning.initial;
+  }
+
+  private effectiveRepeatIntervalMs(): number {
+    if (!this.useTuning) return this.repeatIntervalMs;
+    this.syncTuning();
+    return this.tuning.interval;
+  }
+
+  private effectiveAxisThresholds(): { press: number; release: number } {
+    if (!this.useTuning) return { press: this.axisPressThreshold, release: this.axisReleaseThreshold };
+    this.syncTuning();
+    return { press: this.tuning.press, release: this.tuning.release };
+  }
+
   /** 按手柄 id + 槽位 + 用户偏好解析该手柄的面键布局（逐手柄缓存，换柄/改设置自动重算） */
   private faceLayoutFor(pad: GamepadLike): GamepadLayout {
     const override = readGamepadLayoutPreference();
@@ -541,10 +586,11 @@ export class GamepadFocusRuntime {
   }
 
   private readAxis(value: number, current: -1 | 0 | 1): -1 | 0 | 1 {
-    if (current === -1 && value <= -this.axisReleaseThreshold) return -1;
-    if (current === 1 && value >= this.axisReleaseThreshold) return 1;
-    if (value <= -this.axisPressThreshold) return -1;
-    if (value >= this.axisPressThreshold) return 1;
+    const { press, release } = this.effectiveAxisThresholds();
+    if (current === -1 && value <= -release) return -1;
+    if (current === 1 && value >= release) return 1;
+    if (value <= -press) return -1;
+    if (value >= press) return 1;
     return 0;
   }
 
@@ -594,7 +640,7 @@ export class GamepadFocusRuntime {
       const held = sample.directions[direction];
       this.directionState[direction] = {
         held,
-        nextAt: held ? now + this.initialRepeatDelayMs : 0,
+        nextAt: held ? now + this.effectiveInitialDelayMs() : 0,
       };
     }
     for (const button of EDGE_BUTTONS) this.buttonState.set(button, Boolean(sample.buttons.get(button)));
@@ -617,11 +663,11 @@ export class GamepadFocusRuntime {
 
       if (!state.held) {
         state.held = true;
-        state.nextAt = now + this.initialRepeatDelayMs;
+        state.nextAt = now + this.effectiveInitialDelayMs();
         scope.handlers[direction]?.();
         dispatched = true;
       } else if (now >= state.nextAt) {
-        state.nextAt += this.repeatIntervalMs;
+        state.nextAt += this.effectiveRepeatIntervalMs();
         scope.handlers[direction]?.();
         dispatched = true;
       }
