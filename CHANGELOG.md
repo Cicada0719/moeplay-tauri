@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.20.27 - 2026-08-18
+
+### 代码健康：anime store 收藏集模块切片
+
+- 将收藏集类型、状态、筛选与 `setCollect`/`getCollectType` 拆到独立模块 `features/anime-home/collection.svelte.ts`；Bangumi 自动同步与跨域统计留在主 store（通过注入详情上下文与 items 读取）。
+- `anime.svelte.ts` 降至约 2150 行。
+
 ## 0.20.26 - 2026-08-18
 
 ### 文档
