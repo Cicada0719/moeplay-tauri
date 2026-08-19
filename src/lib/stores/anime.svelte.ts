@@ -6,11 +6,12 @@ import { findBestEpisodeMatch, rankSearchItems } from "../utils/animeSource";
 import { mergeSearchResults, type MergedSearchEntry } from "../features/anime-search/merge";
 import { createSearchCoverFetcher } from "../features/anime-search/covers";
 import { isRecommendationSnapshotFresh, readRecommendationSnapshot, writeRecommendationSnapshot } from "../features/anime-home/recommendationCache";
-import { normalizeVideoEnhancementMode, type VideoEnhancementMode } from "../features/anime-player/localVideoEnhancement";
+import type { VideoEnhancementMode } from "../features/anime-player/localVideoEnhancement";
 import { episodeCommentsStore, type BangumiEpisodeComment } from "../features/anime-player/episodeComments.svelte";
 import { danmakuStore, type DanmakuAnime, type DanmakuComment, type DanmakuEpisode } from "../features/anime-player/danmaku.svelte";
 import { imageSearchStore, type TraceMoeResult } from "../features/anime-player/imageSearch.svelte";
 import { collectionStore, type AnimeCollect } from "../features/anime-home/collection.svelte";
+import { playerPrefs } from "../features/anime-player/playerPrefs.svelte";
 import { continueSource } from "./continue-source.svelte";
 
 // ── 类型 ──────────────────────────────────────────────────────────────────
@@ -509,13 +510,6 @@ function sortRulesByHealth(rules: AnimeRule[], animeName: string): AnimeRule[] {
 
 // 播放器设置
 let _pendingSeekMs = $state(0); // 续播目标进度（毫秒）
-let _autoNext = $state(loadJson<boolean>('player-auto-next', true)); // 自动连播
-let _playbackRate = $state(loadJson<number>('player-playback-rate', 1)); // 默认倍速
-let _longPressRate = $state(loadJson<number>('player-long-press-rate', 3)); // 长按倍速
-let _skipOpening = $state(loadJson<number>('player-skip-opening', 0)); // 跳片头（秒）
-let _skipEnding = $state(loadJson<number>('player-skip-ending', 0)); // 跳片尾（秒）
-let _autoWebFallback = $state(loadJson<boolean>('player-auto-web-fallback', true)); // parser/playback fallback
-let _videoEnhancementMode = $state<VideoEnhancementMode>(normalizeVideoEnhancementMode(loadJson<unknown>('player-video-enhancement', 'off'))); // 解析/播放失败时自动用网页播放兜底
 
 // 搜索历史（旧版 SearchDrawer 存的是 {keyword,timestamp}[]，自动迁移为 string[]）
 function loadSearchHistory(): string[] {
@@ -791,20 +785,20 @@ export const animeStore = {
   // 播放器设置
   get pendingSeekMs() { return _pendingSeekMs; },
   set pendingSeekMs(v: number) { _pendingSeekMs = v; },
-  get autoNext() { return _autoNext; },
-  set autoNext(v: boolean) { _autoNext = v; saveJson('player-auto-next', v); },
-  get playbackRate() { return _playbackRate; },
-  set playbackRate(v: number) { _playbackRate = v; saveJson('player-playback-rate', v); },
-  get longPressRate() { return _longPressRate; },
-  set longPressRate(v: number) { _longPressRate = v; saveJson('player-long-press-rate', v); },
-  get skipOpening() { return _skipOpening; },
-  set skipOpening(v: number) { _skipOpening = v; saveJson('player-skip-opening', v); },
-  get skipEnding() { return _skipEnding; },
-  set skipEnding(v: number) { _skipEnding = v; saveJson('player-skip-ending', v); },
-  get autoWebFallback() { return _autoWebFallback; },
-  set autoWebFallback(v: boolean) { _autoWebFallback = v; saveJson('player-auto-web-fallback', v); },
-  get videoEnhancementMode() { return _videoEnhancementMode; },
-  set videoEnhancementMode(v: VideoEnhancementMode) { _videoEnhancementMode = normalizeVideoEnhancementMode(v); saveJson('player-video-enhancement', _videoEnhancementMode); },
+  get autoNext() { return playerPrefs.autoNext; },
+  set autoNext(v: boolean) { playerPrefs.autoNext = v; },
+  get playbackRate() { return playerPrefs.playbackRate; },
+  set playbackRate(v: number) { playerPrefs.playbackRate = v; },
+  get longPressRate() { return playerPrefs.longPressRate; },
+  set longPressRate(v: number) { playerPrefs.longPressRate = v; },
+  get skipOpening() { return playerPrefs.skipOpening; },
+  set skipOpening(v: number) { playerPrefs.skipOpening = v; },
+  get skipEnding() { return playerPrefs.skipEnding; },
+  set skipEnding(v: number) { playerPrefs.skipEnding = v; },
+  get autoWebFallback() { return playerPrefs.autoWebFallback; },
+  set autoWebFallback(v: boolean) { playerPrefs.autoWebFallback = v; },
+  get videoEnhancementMode() { return playerPrefs.videoEnhancementMode; },
+  set videoEnhancementMode(v: VideoEnhancementMode) { playerPrefs.videoEnhancementMode = v; },
 
   // 弹幕设置（委托给独立模块）
   get danmakuOpacity() { return danmakuStore.opacity; },
