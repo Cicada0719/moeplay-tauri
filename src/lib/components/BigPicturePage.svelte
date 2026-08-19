@@ -239,10 +239,13 @@
     if (memory.tab === "media") {
       bpTab = "media";
       topFocusIdx = 1;
+      // 媒体展廊下标空间与游戏转盘不同：进入媒体区一律从首项恢复，避免越界
+      focusIdx = 0;
       void animeStore.loadRecommendations();
+    } else if (memory.focusIdx !== undefined) {
+      focusIdx = memory.focusIdx;
     }
     if (memory.filterAll !== undefined) filterAll = memory.filterAll;
-    if (memory.focusIdx !== undefined) focusIdx = memory.focusIdx;
     $effect(() => { writeBpMemory(); });
     const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
     const syncMotion = () => {
