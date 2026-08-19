@@ -8,6 +8,7 @@ import { createSearchCoverFetcher } from "../features/anime-search/covers";
 import { isRecommendationSnapshotFresh, readRecommendationSnapshot, writeRecommendationSnapshot } from "../features/anime-home/recommendationCache";
 import { normalizeVideoEnhancementMode, type VideoEnhancementMode } from "../features/anime-player/localVideoEnhancement";
 import { episodeCommentsStore, type BangumiEpisodeComment } from "../features/anime-player/episodeComments.svelte";
+import { danmakuStore, type DanmakuAnime, type DanmakuComment, type DanmakuEpisode } from "../features/anime-player/danmaku.svelte";
 import { continueSource } from "./continue-source.svelte";
 
 // ── 类型 ──────────────────────────────────────────────────────────────────
@@ -197,25 +198,7 @@ export interface BangumiConnectionStatus {
   configured: boolean;
 }
 
-// ── DanDanPlay 弹幕类型 ─────────────────────────────────────────────────
-
-export interface DanmakuComment {
-  time: number;
-  mode: number; // 1=scroll, 4=bottom, 5=top
-  color: number;
-  text: string;
-}
-
-export interface DanmakuEpisode {
-  episode_id: number;
-  episode_title: string;
-}
-
-export interface DanmakuAnime {
-  anime_id: number;
-  anime_title: string;
-  episodes: DanmakuEpisode[];
-}
+export type { DanmakuAnime, DanmakuComment, DanmakuEpisode } from "../features/anime-player/danmaku.svelte";
 
 // ── trace.moe 图片搜番类型 ──────────────────────────────────────────────
 
@@ -556,17 +539,6 @@ let _skipEnding = $state(loadJson<number>('player-skip-ending', 0)); // 跳片�
 let _autoWebFallback = $state(loadJson<boolean>('player-auto-web-fallback', true)); // parser/playback fallback
 let _videoEnhancementMode = $state<VideoEnhancementMode>(normalizeVideoEnhancementMode(loadJson<unknown>('player-video-enhancement', 'off'))); // 解析/播放失败时自动用网页播放兜底
 
-// 弹幕设置
-let _danmakuEnabled = $state(loadJson<boolean>('danmaku-enabled', true));
-let _danmakuOpacity = $state(loadJson<number>('danmaku-opacity', 1));
-let _danmakuSpeed = $state(loadJson<number>('danmaku-speed', 1));
-let _danmakuFontSize = $state(loadJson<number>('danmaku-font-size', 24));
-let _danmakuArea = $state(loadJson<number>('danmaku-area', 1)); // 0=1/4 1=1/2 2=全屏
-let _danmakuBlockScroll = $state(loadJson<boolean>('danmaku-block-scroll', false));
-let _danmakuBlockTop = $state(loadJson<boolean>('danmaku-block-top', false));
-let _danmakuBlockBottom = $state(loadJson<boolean>('danmaku-block-bottom', false));
-let _danmakuBlockWords = $state<string[]>(loadJson('danmaku-block-words', []));
-
 // 搜索历史（旧版 SearchDrawer 存的是 {keyword,timestamp}[]，自动迁移为 string[]）
 function loadSearchHistory(): string[] {
   const raw = loadJson<unknown[]>('anime-search-history', []);
@@ -575,10 +547,6 @@ function loadSearchHistory(): string[] {
   ).filter(Boolean);
 }
 let _searchHistory = $state<string[]>(loadSearchHistory());
-let _danmakuComments = $state<DanmakuComment[]>([]);
-let _danmakuLoading = $state(false);
-let _danmakuAnimeId = $state(0);
-let _danmakuEpisodeId = $state(0);
 
 // 图片搜番状态
 let _imageSearchResults = $state<TraceMoeResult[]>([]);
@@ -838,13 +806,13 @@ export const animeStore = {
     _sourceSheetOpen = true;
   },
 
-  // 弹幕
-  get danmakuEnabled() { return _danmakuEnabled; },
-  set danmakuEnabled(v: boolean) { _danmakuEnabled = v; saveJson('danmaku-enabled', v); },
-  get danmakuComments() { return _danmakuComments; },
-  get danmakuLoading() { return _danmakuLoading; },
-  get danmakuAnimeId() { return _danmakuAnimeId; },
-  get danmakuEpisodeId() { return _danmakuEpisodeId; },
+  // 弹幕（委托给独立模块）
+  get danmakuEnabled() { return danmakuStore.enabled; },
+  set danmakuEnabled(v: boolean) { danmakuStore.enabled = v; },
+  get danmakuComments() { return danmakuStore.comments; },
+  get danmakuLoading() { return danmakuStore.loading; },
+  get danmakuAnimeId() { return danmakuStore.animeId; },
+  get danmakuEpisodeId() { return danmakuStore.episodeId; },
 
   // 播放器设置
   get pendingSeekMs() { return _pendingSeekMs; },
@@ -864,23 +832,23 @@ export const animeStore = {
   get videoEnhancementMode() { return _videoEnhancementMode; },
   set videoEnhancementMode(v: VideoEnhancementMode) { _videoEnhancementMode = normalizeVideoEnhancementMode(v); saveJson('player-video-enhancement', _videoEnhancementMode); },
 
-  // 弹幕设置
-  get danmakuOpacity() { return _danmakuOpacity; },
-  set danmakuOpacity(v: number) { _danmakuOpacity = v; saveJson('danmaku-opacity', v); },
-  get danmakuSpeed() { return _danmakuSpeed; },
-  set danmakuSpeed(v: number) { _danmakuSpeed = v; saveJson('danmaku-speed', v); },
-  get danmakuFontSize() { return _danmakuFontSize; },
-  set danmakuFontSize(v: number) { _danmakuFontSize = v; saveJson('danmaku-font-size', v); },
-  get danmakuArea() { return _danmakuArea; },
-  set danmakuArea(v: number) { _danmakuArea = v; saveJson('danmaku-area', v); },
-  get danmakuBlockScroll() { return _danmakuBlockScroll; },
-  set danmakuBlockScroll(v: boolean) { _danmakuBlockScroll = v; saveJson('danmaku-block-scroll', v); },
-  get danmakuBlockTop() { return _danmakuBlockTop; },
-  set danmakuBlockTop(v: boolean) { _danmakuBlockTop = v; saveJson('danmaku-block-top', v); },
-  get danmakuBlockBottom() { return _danmakuBlockBottom; },
-  set danmakuBlockBottom(v: boolean) { _danmakuBlockBottom = v; saveJson('danmaku-block-bottom', v); },
-  get danmakuBlockWords() { return _danmakuBlockWords; },
-  set danmakuBlockWords(v: string[]) { _danmakuBlockWords = v; saveJson('danmaku-block-words', v); },
+  // 弹幕设置（委托给独立模块）
+  get danmakuOpacity() { return danmakuStore.opacity; },
+  set danmakuOpacity(v: number) { danmakuStore.opacity = v; },
+  get danmakuSpeed() { return danmakuStore.speed; },
+  set danmakuSpeed(v: number) { danmakuStore.speed = v; },
+  get danmakuFontSize() { return danmakuStore.fontSize; },
+  set danmakuFontSize(v: number) { danmakuStore.fontSize = v; },
+  get danmakuArea() { return danmakuStore.area; },
+  set danmakuArea(v: number) { danmakuStore.area = v; },
+  get danmakuBlockScroll() { return danmakuStore.blockScroll; },
+  set danmakuBlockScroll(v: boolean) { danmakuStore.blockScroll = v; },
+  get danmakuBlockTop() { return danmakuStore.blockTop; },
+  set danmakuBlockTop(v: boolean) { danmakuStore.blockTop = v; },
+  get danmakuBlockBottom() { return danmakuStore.blockBottom; },
+  set danmakuBlockBottom(v: boolean) { danmakuStore.blockBottom = v; },
+  get danmakuBlockWords() { return danmakuStore.blockWords; },
+  set danmakuBlockWords(v: string[]) { danmakuStore.blockWords = v; },
 
   // 搜索历史
   get searchHistory() { return _searchHistory; },
@@ -1961,55 +1929,14 @@ export const animeStore = {
     }
   },
 
-  /** 按番名搜索弹幕库，找到后加载对应集数的弹幕 */
+  /** 按番名搜索弹幕库，找到后加载对应集数的弹幕（委托独立模块） */
   async searchDanmakuForAnime(animeName: string, episodeIdx?: number) {
-    if (!animeName.trim()) return;
-    _danmakuLoading = true;
-    _danmakuComments = [];
-    _danmakuAnimeId = 0;
-    _danmakuEpisodeId = 0;
-    try {
-      const animes = await invokeCmd<DanmakuAnime[]>('anime_danmaku_search', { keyword: animeName });
-      if (animes.length === 0) {
-        _danmakuLoading = false;
-        return;
-      }
-      // 选最佳匹配（第一个结果，DanDanPlay 按相关度排序）
-      const best = animes[0];
-      _danmakuAnimeId = best.anime_id;
-      if (best.episodes.length > 0) {
-        // 尝试用集数索引匹配（DanDanPlay 分集从 1 开始）
-        const epNum = episodeIdx !== undefined ? episodeIdx + 1 : 1;
-        const matchedEp = best.episodes.find(ep => {
-          // 尝试从标题中提取集数
-          const match = ep.episode_title.match(/(\d+)/);
-          return match ? parseInt(match[1]) === epNum : false;
-        }) || best.episodes[Math.min(episodeIdx ?? 0, best.episodes.length - 1)];
-
-        if (matchedEp) {
-          _danmakuEpisodeId = matchedEp.episode_id;
-          await this.loadDanmaku(matchedEp.episode_id);
-        }
-      }
-    } catch (e) {
-      console.warn('弹幕搜索失败:', e);
-    } finally {
-      _danmakuLoading = false;
-    }
+    await danmakuStore.searchForAnime(animeName, episodeIdx);
   },
 
-  /** 加载指定分集的弹幕评论 */
+  /** 加载指定分集的弹幕评论（委托独立模块） */
   async loadDanmaku(episodeId: number) {
-    _danmakuLoading = true;
-    try {
-      _danmakuComments = await invokeCmd<DanmakuComment[]>('anime_danmaku_get_comments', { episodeId });
-      _danmakuEpisodeId = episodeId;
-    } catch (e) {
-      console.warn('弹幕加载失败:', e);
-      _danmakuComments = [];
-    } finally {
-      _danmakuLoading = false;
-    }
+    await danmakuStore.load(episodeId);
   },
 
   closePlayer() {
