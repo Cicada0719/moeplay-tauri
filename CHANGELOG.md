@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.20.19 - 2026-08-18
+
+### 代码健康：api 目录按域拆分
+
+- `api/index.ts`（1405 行）按域拆成 12 个模块（games/scraper/saves/metadata/settings/dashboard/tasks/downloads/format/platformImport/emulators/system），index 变为统一重导出桶，对外行为与包体完全不变。
+- 拆分过程修复了 dashboard 模块既有的重复 `getDashboardData` 定义（保留带数据解析的版本）。
+- 901 单元测试与冒烟/导航/记录页视觉用例全部通过。
+
 ## 0.20.18 - 2026-08-18
 
 ### 运行时测试加固 + 重映射缓存修复
