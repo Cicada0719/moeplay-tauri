@@ -650,7 +650,7 @@
               <Comp />
             {/await}
           {:else}
-            <SwitchHome />
+            <SwitchHome {taskActiveCount} {taskFailedCount} />
           {/if}
         </div>
       {/key}

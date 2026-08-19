@@ -3,7 +3,9 @@
   import { gameStore } from "../../stores/games.svelte";
   import { uiStore } from "../../stores/ui.svelte";
   import { navigateTo } from "../../stores/router.svelte";
-  import { gameLastPlayed, tagsOf } from "../../utils/game";
+  import { gameCompletionStatus, gameLastPlayed, gameTotalSeconds, tagsOf } from "../../utils/game";
+  import { formatPlayTime } from "../../api";
+  import ContinueHeroRail from "./ContinueHeroRail.svelte";
   import type { ViewState } from "../ui-v2";
   import { AsyncState, FilterBar, PageHeader, PageShell } from "../ui-v2";
   import Icon from "../Icon.svelte";
@@ -19,7 +21,7 @@
   import LibraryHealthPanel from "../library/LibraryHealthPanel.svelte";
   import { readLibraryV2Flag } from "../library/feature-flag";
   import { KineticStage, kineticStageStore } from "../../features/kinetic";
-  // ContinueHeroRail 暂时从游戏库页移除（0.19.5），组件保留备用
+  let { taskActiveCount = 0, taskFailedCount = 0 }: { taskActiveCount?: number; taskFailedCount?: number } = $props();
 
   const quickFilters = [
     { id: "", label: "全部" },
@@ -106,6 +108,14 @@
     return [...played, ...fresh].slice(0, 16);
   });
 
+  const homeStats = $derived.by(() => {
+    const games = gameStore.allGames;
+    const total = games.length;
+    const installed = gameStore.installedGames.length;
+    const playing = games.filter((game) => gameCompletionStatus(game) === "playing").length;
+    const playSeconds = games.reduce((sum, game) => sum + gameTotalSeconds(game), 0);
+    return { total, installed, playing, playTime: formatPlayTime(playSeconds) };
+  });
   const selected = $derived(gameStore.selectedGame ?? recent[0] ?? null);
   const clock = $derived(now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }));
   const presentationItems = $derived.by(() => adaptGamesToPresentation(availabilityGames, {
@@ -241,7 +251,24 @@
       >
         {#snippet children()}
           <div class="home-stage">
-          <!-- ContinueHeroRail 已暂时移除（0.19.5） -->
+          {#if showGrid && !searching}
+            <div class="home-overview">
+              <div class="home-stats-row" role="list" aria-label="库概览">
+                <div class="home-stat" role="listitem"><b>{homeStats.total}</b><span>游戏总数</span></div>
+                <div class="home-stat" role="listitem"><b>{homeStats.installed}</b><span>已安装</span></div>
+                <div class="home-stat" role="listitem"><b>{homeStats.playing}</b><span>游玩中</span></div>
+                <div class="home-stat" role="listitem"><b>{homeStats.playTime}</b><span>累计时长</span></div>
+                {#if taskActiveCount > 0 || taskFailedCount > 0}
+                  <button class="home-task-pill" type="button" onclick={() => navigateTo("tasks")}>
+                    <span class="home-task-dot" aria-hidden="true"></span>
+                    任务 {taskActiveCount} 进行中
+                    {#if taskFailedCount > 0}<span class="home-task-fail">{taskFailedCount} 失败</span>{/if}
+                  </button>
+                {/if}
+              </div>
+              <ContinueHeroRail />
+            </div>
+          {/if}
           {#if showGrid}
             <div class="index-workbench" data-module-style="cinematic" data-testid="all-games-panel">
               <section class="index-toolbar" aria-labelledby="library-page-title">
@@ -301,7 +328,18 @@
   :global(.library-page-shell .library-async-state[data-state]:not([data-state="ready"])) { margin: 1.5rem; height: auto; }
   .workspace-view { width: 100%; height: 100%; min-height: 0; overflow: hidden; }
   .home-stage { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-  /* continue-hero 样式随组件一并暂时移除（0.19.5） */
+  .home-overview { flex: 0 0 auto; padding: 14px 26px 4px; display: grid; gap: 12px; background: rgb(5 7 10 / .92); border-bottom: 1px solid rgb(255 255 255 / .12); }
+  .home-stats-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .home-stat { display: inline-flex; align-items: baseline; gap: 6px; padding: 7px 12px; border: 1px solid rgb(255 255 255 / .1); border-radius: 999px; background: rgb(255 255 255 / .03); }
+  .home-stat b { font-family: var(--font-mono); font-size: 1.02rem; color: var(--text-primary); letter-spacing: -.02em; }
+  .home-stat span { color: var(--text-muted); font-size: 10px; letter-spacing: .08em; font-family: var(--font-mono); text-transform: uppercase; }
+  .home-task-pill { min-height: 2.1rem; display: inline-flex; align-items: center; gap: 7px; padding: 0 12px; border: 1px solid rgb(var(--media-accent-rgb, 232 85 127) / .5); border-radius: 999px; background: transparent; color: var(--text-secondary); font: 650 11px/1 var(--font-ui); cursor: pointer; }
+  .home-task-pill:focus-visible { outline: none; box-shadow: 0 0 0 2px rgb(var(--media-accent-rgb, 232 85 127) / .4); }
+  .home-task-dot { width: 6px; height: 6px; border-radius: 999px; background: rgb(var(--media-accent-rgb, 232 85 127)); box-shadow: 0 0 0 0 rgb(var(--media-accent-rgb, 232 85 127) / .5); animation: home-task-pulse 1.6s ease-out infinite; }
+  @keyframes home-task-pulse { 0% { box-shadow: 0 0 0 0 rgb(var(--media-accent-rgb, 232 85 127) / .5); } 70% { box-shadow: 0 0 0 6px rgb(var(--media-accent-rgb, 232 85 127) / 0); } 100% { box-shadow: 0 0 0 0 rgb(var(--media-accent-rgb, 232 85 127) / 0); } }
+  .home-task-fail { color: var(--color-error); }
+  @media (prefers-reduced-motion: reduce) { .home-task-dot { animation: none; } }
+  @media (max-width: 760px) { .home-overview { padding: 12px 14px 2px; } .home-stat { padding: 6px 10px; } }
   .home-stage > .index-workbench,
   .home-stage > .workspace-view { flex: 1 1 auto; height: auto; min-height: 0; }
   .index-workbench { height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); background: rgb(5 7 10 / .92); }
