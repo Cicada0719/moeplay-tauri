@@ -9,6 +9,7 @@ import { isRecommendationSnapshotFresh, readRecommendationSnapshot, writeRecomme
 import { normalizeVideoEnhancementMode, type VideoEnhancementMode } from "../features/anime-player/localVideoEnhancement";
 import { episodeCommentsStore, type BangumiEpisodeComment } from "../features/anime-player/episodeComments.svelte";
 import { danmakuStore, type DanmakuAnime, type DanmakuComment, type DanmakuEpisode } from "../features/anime-player/danmaku.svelte";
+import { imageSearchStore, type TraceMoeResult } from "../features/anime-player/imageSearch.svelte";
 import { continueSource } from "./continue-source.svelte";
 
 // ── 类型 ──────────────────────────────────────────────────────────────────
@@ -200,21 +201,7 @@ export interface BangumiConnectionStatus {
 
 export type { DanmakuAnime, DanmakuComment, DanmakuEpisode } from "../features/anime-player/danmaku.svelte";
 
-// ── trace.moe 图片搜番类型 ──────────────────────────────────────────────
-
-export interface TraceMoeResult {
-  anilist_id: number;
-  filename: string;
-  episode: string;
-  from: number;
-  to: number;
-  similarity: number;
-  video: string;
-  image: string;
-  title_native: string;
-  title_chinese: string;
-  title_english: string;
-}
+export type { TraceMoeResult } from "../features/anime-player/imageSearch.svelte";
 
 // ── Bangumi 章节评论类型 ────────────────────────────────────────────────
 
@@ -549,10 +536,6 @@ function loadSearchHistory(): string[] {
 let _searchHistory = $state<string[]>(loadSearchHistory());
 
 // 图片搜番状态
-let _imageSearchResults = $state<TraceMoeResult[]>([]);
-let _imageSearchLoading = $state(false);
-let _imageSearchError = $state<string | null>(null);
-
 
 // ── 工具函数 ─────────────────────────────────────────────────────────────
 
@@ -868,9 +851,9 @@ export const animeStore = {
   },
 
   // 图片搜番
-  get imageSearchResults() { return _imageSearchResults; },
-  get imageSearchLoading() { return _imageSearchLoading; },
-  get imageSearchError() { return _imageSearchError; },
+  get imageSearchResults() { return imageSearchStore.results; },
+  get imageSearchLoading() { return imageSearchStore.loading; },
+  get imageSearchError() { return imageSearchStore.error; },
 
   // 章节评论（委托给独立模块）
   get episodeComments() { return episodeCommentsStore.comments; },
@@ -2273,26 +2256,14 @@ export const animeStore = {
     _error = null;
   },
 
-  // ── 图片搜番 (trace.moe) ──────────────────────────────────────────────
+  // ── 图片搜番 (trace.moe，委托独立模块) ─────────────────────────────────
 
   async imageSearch(imageUrl: string) {
-    if (!imageUrl.trim()) return;
-    _imageSearchLoading = true;
-    _imageSearchError = null;
-    _imageSearchResults = [];
-    try {
-      _imageSearchResults = await invokeCmd<TraceMoeResult[]>('anime_image_search', { imageUrl });
-    } catch (e) {
-      _imageSearchError = String(e);
-      _imageSearchResults = [];
-    } finally {
-      _imageSearchLoading = false;
-    }
+    await imageSearchStore.search(imageUrl);
   },
 
   clearImageSearch() {
-    _imageSearchResults = [];
-    _imageSearchError = null;
+    imageSearchStore.clear();
   },
 
   // ── 章节评论（委托给独立模块）──────────────────────────────────────────
