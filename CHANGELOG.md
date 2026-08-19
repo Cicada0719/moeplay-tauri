@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.20.34 - 2026-08-18
+
+### 代码健康：anime store 搜索历史切片 + 测试
+
+- 将搜索历史状态与增删清逻辑（含旧格式迁移）拆到独立模块 `features/anime-search/history.svelte.ts`；新增 3 个单元测试（去重/上限 20、空白跳过、remove/clear 持久化）。
+- `anime.svelte.ts` 降至约 2090 行；单元测试总数 929。
+
 ## 0.20.33 - 2026-08-18
 
 ### 测试加固
