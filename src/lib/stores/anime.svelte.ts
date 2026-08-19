@@ -324,6 +324,7 @@ let _installingRules = $state<Set<string>>(new Set());
 // Bangumi 时间表
 let _calendar = $state<BangumiCalendarDay[]>([]);
 let _calendarLoading = $state(false);
+let _calendarError = $state<string | null>(null);
 let _calendarDay = $state(new Date().getDay() || 7); // 1=Mon..7=Sun
 
 // Recommendation home: render last successful snapshot first, then refresh in the background.
@@ -602,6 +603,7 @@ export const animeStore = {
   },
   get calendar() { return _calendar; },
   get calendarLoading() { return _calendarLoading; },
+  get calendarError() { return _calendarError; },
   get calendarDay() { return _calendarDay; },
   set calendarDay(v: number) { _calendarDay = v; },
   get imgCache() { return _imgCache; },
@@ -1037,6 +1039,7 @@ export const animeStore = {
   async loadCalendar() {
     if (_calendar.length > 0 || _calendarLoading) return;
     _calendarLoading = true;
+    _calendarError = null;
     try {
       _calendar = await invokeCmd<BangumiCalendarDay[]>("anime_bangumi_calendar");
       const urls: string[] = [];
@@ -1047,7 +1050,8 @@ export const animeStore = {
       }
       this._proxyImages(urls);
     } catch (e) {
-      _error = String(e);
+      // 放送表失败只记到独立错误位，避免污染搜索/其它面板的全局 _error
+      _calendarError = String(e);
     } finally {
       _calendarLoading = false;
     }

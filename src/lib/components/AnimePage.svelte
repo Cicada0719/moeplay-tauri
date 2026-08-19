@@ -398,11 +398,11 @@
               </div>
             {/each}
           </div>
-        {:else if animeStore.error}
+        {:else if animeStore.calendarError}
           <EmptyState
             icon="x"
             title="加载失败"
-            description={animeStore.error}
+            description={animeStore.calendarError}
             action={{ label: '重试', onclick: () => animeStore.loadCalendar() }}
             class="content-empty"
           />

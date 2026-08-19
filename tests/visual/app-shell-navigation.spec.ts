@@ -37,7 +37,8 @@ test.describe("P0-02 app shell navigation", () => {
     await expect(page).toHaveURL(/#anime$/);
 
     await animeRoot.focus();
-    await page.keyboard.press("Control+K");
+    // 0.22.0：Ctrl/K 改为命令面板，聚焦当前页搜索框移至 Ctrl/Shift/K
+    await page.keyboard.press("Control+Shift+K");
     await expect(animeSearch).toBeFocused();
 
     await page.getByRole("button", { name: "打开设置" }).click();
