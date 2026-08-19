@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.20.24 - 2026-08-18
+
+### 代码健康：anime store 弹幕模块切片
+
+- 将 DanDanPlay 弹幕的类型/偏好设置/评论状态与搜索加载逻辑拆到独立模块 `features/anime-player/danmaku.svelte.ts`；store 对外接口（`animeStore.danmaku*` 所有 getter/setter 与方法）保持不变。
+- `anime.svelte.ts` 从 2384 行降至约 2230 行，配合上轮章节评论切片，按域拆分持续推进。
+
 ## 0.20.23 - 2026-08-18
 
 ### 代码健康：anime store 切片
