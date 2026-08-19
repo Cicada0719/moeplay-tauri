@@ -38,7 +38,17 @@
 
   let cursorRow = $state(0);
   let cursorCol = $state(0);
-  let isSymbols = $state(false);
+  // 记住上次的 123/符号 布局（localStorage 持久化，跨打开/重启保持）
+  let isSymbols = $state(
+    typeof localStorage !== "undefined" && localStorage.getItem("moeplay-vk-symbols-v1") === "on",
+  );
+
+  function keepLayout(next: boolean) {
+    isSymbols = next;
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("moeplay-vk-symbols-v1", next ? "on" : "off");
+    }
+  }
   let boardEl = $state<HTMLDivElement>();
   let scope: GamepadAttachment | null = null;
 
@@ -57,8 +67,8 @@
   function press(key: string) {
     if (key === "⌫") { onBack(); return; }
     if (key === "确定") { onSubmit(); return; }
-    if (key === "123") { isSymbols = true; clampCursor(); focusCurrent(); return; }
-    if (key === "ABC") { isSymbols = false; clampCursor(); focusCurrent(); return; }
+    if (key === "123") { keepLayout(true); clampCursor(); focusCurrent(); return; }
+    if (key === "ABC") { keepLayout(false); clampCursor(); focusCurrent(); return; }
     onChar(key);
   }
 
