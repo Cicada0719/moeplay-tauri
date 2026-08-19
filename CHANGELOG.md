@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.20.28 - 2026-08-18
+
+### 测试加固
+
+- 为重构后的收藏集模块 `features/anime-home/collection.svelte.ts` 新增 5 个单元测试（增删改、extra 覆盖详情、filter/filtered、localStorage 持久化），为后续持续拆分提供回归网。
+- 单元测试总数 912。
+
 ## 0.20.27 - 2026-08-18
 
 ### 代码健康：anime store 收藏集模块切片
