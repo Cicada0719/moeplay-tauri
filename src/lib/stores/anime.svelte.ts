@@ -12,6 +12,7 @@ import { danmakuStore, type DanmakuAnime, type DanmakuComment, type DanmakuEpiso
 import { imageSearchStore, type TraceMoeResult } from "../features/anime-player/imageSearch.svelte";
 import { collectionStore, type AnimeCollect } from "../features/anime-home/collection.svelte";
 import { playerPrefs } from "../features/anime-player/playerPrefs.svelte";
+import { animeSearchHistoryStore } from "../features/anime-search/history.svelte";
 import { continueSource } from "./continue-source.svelte";
 
 // ── 类型 ──────────────────────────────────────────────────────────────────
@@ -511,15 +512,6 @@ function sortRulesByHealth(rules: AnimeRule[], animeName: string): AnimeRule[] {
 // 播放器设置
 let _pendingSeekMs = $state(0); // 续播目标进度（毫秒）
 
-// 搜索历史（旧版 SearchDrawer 存的是 {keyword,timestamp}[]，自动迁移为 string[]）
-function loadSearchHistory(): string[] {
-  const raw = loadJson<unknown[]>('anime-search-history', []);
-  return raw.map(item =>
-    typeof item === 'string' ? item : (item as any)?.keyword ?? ''
-  ).filter(Boolean);
-}
-let _searchHistory = $state<string[]>(loadSearchHistory());
-
 // 图片搜番状态
 
 // ── 工具函数 ─────────────────────────────────────────────────────────────
@@ -818,22 +810,11 @@ export const animeStore = {
   get danmakuBlockWords() { return danmakuStore.blockWords; },
   set danmakuBlockWords(v: string[]) { danmakuStore.blockWords = v; },
 
-  // 搜索历史
-  get searchHistory() { return _searchHistory; },
-  addSearchHistory(keyword: string) {
-    const trimmed = keyword.trim();
-    if (!trimmed) return;
-    _searchHistory = [trimmed, ..._searchHistory.filter(k => k !== trimmed)].slice(0, 20);
-    saveJson('anime-search-history', _searchHistory);
-  },
-  removeSearchHistory(keyword: string) {
-    _searchHistory = _searchHistory.filter(k => k !== keyword);
-    saveJson('anime-search-history', _searchHistory);
-  },
-  clearSearchHistory() {
-    _searchHistory = [];
-    saveJson('anime-search-history', _searchHistory);
-  },
+  // 搜索历史（委托给独立模块）
+  get searchHistory() { return animeSearchHistoryStore.items; },
+  addSearchHistory(keyword: string) { animeSearchHistoryStore.add(keyword); },
+  removeSearchHistory(keyword: string) { animeSearchHistoryStore.remove(keyword); },
+  clearSearchHistory() { animeSearchHistoryStore.clear(); },
 
   // 图片搜番
   get imageSearchResults() { return imageSearchStore.results; },
