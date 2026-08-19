@@ -16,6 +16,7 @@ function actions(): ShortcutActions & Record<string, ReturnType<typeof vi.fn>> {
     focusSearch: vi.fn(),
     toggleHelp: vi.fn(),
     goBack: vi.fn(),
+    openPalette: vi.fn(),
   };
 }
 

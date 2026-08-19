@@ -41,6 +41,7 @@
   import { isViewSupportedOnPlatform, orientationStore, platformStore } from "./lib/platform";
   import { installHandheldWatcher, onHandheldPrefsChanged, readHandheldHintsPreference } from "./lib/platform/handheld";
   import { resolveConnectedPadLayouts } from "./lib/platform/gamepadLayout";
+  import { paletteStore } from "./lib/features/palette/store.svelte";
   import HandheldKeyboardOverlay from "./lib/components/HandheldKeyboardOverlay.svelte";
 
   const TOOLS_DRAWER_ID = "tools-drawer";
@@ -331,6 +332,10 @@
     goBack() {
       if (isBigPicture) return;
       void layeredBack();
+    },
+    openPalette() {
+      if (isBigPicture) return;
+      paletteStore.setOpen(true);
     },
   };
 
@@ -729,6 +734,9 @@
 {#if !isAndroid}
   {#await import("./lib/components/ShortcutHelp.svelte") then { default: ShortcutHelp }}
     <ShortcutHelp open={showShortcutHelp} onclose={() => setShortcutHelp(false)} />
+  {/await}
+  {#await import("./lib/features/palette/CommandPalette.svelte") then { default: CommandPalette }}
+    <CommandPalette />
   {/await}
   {#await import("./lib/components/UpdateDialog.svelte") then { default: UpdateDialog }}
     <UpdateDialog bind:open={showUpdateDialog} />

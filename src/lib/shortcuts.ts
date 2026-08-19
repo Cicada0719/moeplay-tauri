@@ -21,6 +21,7 @@ export interface ShortcutActions {
   focusSearch(): void;
   toggleHelp(): void;
   goBack(): void;
+  openPalette(): void;
 }
 
 /** Parse Digit1..Digit5 / Numpad1..Numpad5 to a zero-based dock index. */
@@ -65,10 +66,17 @@ export function buildShortcutCatalog(): ShortcutDefinition[] {
     },
     {
       id: "focus-search-modk",
-      keys: "Ctrl / Cmd + K",
-      trigger: { code: "KeyK", modifier: ["ctrl", "meta"] },
+      keys: "Ctrl / Cmd + Shift + K",
+      trigger: { code: "KeyK", modifier: ["ctrl", "meta", "shift"] },
       description: "聚焦当前页面搜索框",
       scope: "home",
+    },
+    {
+      id: "palette",
+      keys: "Ctrl / Cmd + K",
+      trigger: { code: "KeyK", modifier: ["ctrl", "meta"] },
+      description: "打开全局命令面板",
+      scope: "global",
     },
     {
       id: "back",
@@ -95,11 +103,14 @@ export function toShortcutTrigger(
 ): { trigger: ShortcutTrigger & { callback: (detail: ShortcutEventDetail) => void } } {
   const callback = (detail: ShortcutEventDetail) => {
     const typing = isTypingTarget(detail.originalEvent.target);
-    if (typing && def.id !== "focus-search-modk") return;
+    if (typing && def.id !== "focus-search-modk" && def.id !== "palette") return;
 
     switch (def.id) {
       case "help":
         actions.toggleHelp();
+        return;
+      case "palette":
+        actions.openPalette();
         return;
       case "back":
         actions.goBack();
