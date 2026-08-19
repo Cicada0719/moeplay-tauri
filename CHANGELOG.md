@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.20.35 - 2026-08-18
+
+### 代码健康：anime store 观看历史切片 + 测试
+
+- 将观看历史类型/状态与 upsert/remove/clear（含 200 条上限）拆到独立模块 `features/anime-player/historyStore.svelte.ts`；`continueSource` 同步与统计、续播读取均改为读取 `historyStore.items`，联动不变。
+- `anime.svelte.ts` 降至约 2060 行；单元测试总数 932。
+
 ## 0.20.34 - 2026-08-18
 
 ### 代码健康：anime store 搜索历史切片 + 测试
