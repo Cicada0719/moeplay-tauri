@@ -400,7 +400,8 @@
     "allow-save-webdav-config",
     "allow-get-sync-config",
     "allow-get-sync-status",
-    "allow-clear-webdav-config"
+    "allow-clear-webdav-config",
+    "allow-open-mini-player"
   ],
   "platforms": [
     "windows"

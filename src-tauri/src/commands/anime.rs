@@ -642,6 +642,47 @@ pub async fn anime_bangumi_calendar() -> Result<Vec<anime::BangumiCalendarDay>, 
     anime::fetch_bangumi_calendar().await
 }
 
+// ── 迷你置顶播放器（小窗）─────────────────────────────────────────────────
+
+/// 打开一个无边框、置顶、跳过任务栏的迷你播放窗（右下角），承载番剧小窗。
+/// 播放参数由前端通过 localStorage（moeplay-mini-session-v1）与窗口握手，
+/// 本命令只负责建窗/复用与定位。
+#[tauri::command]
+pub fn open_mini_player(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+
+    if let Some(win) = app.get_webview_window("mini") {
+        let _ = win.set_focus();
+        return Ok(());
+    }
+
+    let mini = WebviewWindowBuilder::new(&app, "mini", WebviewUrl::App("index.html#mini".into()))
+        .title("萌游 · 迷你播放")
+        .inner_size(420.0, 260.0)
+        .min_inner_size(300.0, 210.0)
+        .resizable(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .closable(true)
+        .build()
+        .map_err(|error| format!("迷你窗口创建失败: {error}"))?;
+
+    // 定位到主显示器工作区右下角（按实际物理尺寸留 16px 边距，兼容 HiDPI）。
+    if let Ok(Some(monitor)) = app.primary_monitor() {
+        let work = monitor.work_area();
+        if let Ok(size) = mini.outer_size() {
+            let margin = 16_i32;
+            let x = (work.position.x + work.size.width as i32 - size.width as i32 - margin)
+                .max(work.position.x);
+            let y = (work.position.y + work.size.height as i32 - size.height as i32 - margin)
+                .max(work.position.y);
+            let _ = mini.set_position(tauri::PhysicalPosition::new(x, y));
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn anime_bangumi_search(
     keyword: String,

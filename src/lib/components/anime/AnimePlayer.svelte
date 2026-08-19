@@ -18,6 +18,7 @@
   import Icon from "../Icon.svelte";
   import DanmakuOverlay from "./DanmakuOverlay.svelte";
   import { animeDownloadEpisode } from "../../api";
+  import { writeMiniSession } from "../../features/mini/session";
   import { debugLog } from "../../utils/debug";
   import { AsyncState } from "../ui-v2";
   import { focusTrap } from "../../actions/a11y/focusTrap";
@@ -1221,6 +1222,26 @@
     }
   }
 
+  /** 打开迷你置顶播放窗：写入会话、暂停主窗播放，再交给 Rust 建窗。 */
+  async function openMiniPlayer() {
+    const source = videoSrc;
+    if (!source || !videoEl) return;
+    videoEl.pause();
+    writeMiniSession({
+      url: source,
+      title: `${animeStore.detailName}${epName ? ` ${epName}` : ""}`.trim() || "番剧播放",
+      isM3u8,
+      time: videoEl.currentTime || 0,
+      updatedAt: Date.now(),
+    });
+    try {
+      await invokeCmd("open_mini_player");
+      uiStore.notify("已在小窗置顶播放");
+    } catch (error) {
+      uiStore.notify(`打开小窗失败：${error instanceof Error ? error.message : String(error)}`, "error");
+    }
+  }
+
 
 </script>
 
@@ -1288,6 +1309,17 @@
             <span class="pip-label">PIP</span>
           </button>
         {/if}
+        <button
+          class="nav-btn mini-window-toggle"
+          data-gamepad-secondary-action
+          data-gamepad-activate="打开迷你播放窗"
+          aria-label="打开迷你置顶播放窗"
+          title="小窗置顶播放（可拖动；再次点击聚焦小窗）"
+          onclick={() => void openMiniPlayer()}
+        >
+          <Icon name="film" size={15} />
+          <span class="pip-label">小窗</span>
+        </button>
         <button
           class="nav-btn enhancement-toggle"
           data-gamepad-secondary-action

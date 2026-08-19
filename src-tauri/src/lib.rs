@@ -648,6 +648,7 @@ pub fn run() {
             commands::anime_install_github_rule,
             commands::anime_install_all_github_rules,
             commands::anime_bangumi_calendar,
+            commands::open_mini_player,
             commands::anime_bangumi_search,
             commands::anime_proxy_image,
             commands::anime_proxy_images_batch,

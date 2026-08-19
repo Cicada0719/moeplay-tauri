@@ -50,6 +50,8 @@
   const UPDATE_OVERLAY_ID = "update-dialog";
 
   continueStore.start();
+  // 迷你置顶播放窗（#mini）：只渲染迷你播放器，跳过主壳与重型初始化
+  const isMiniWindow = $state(typeof window !== "undefined" && window.location.hash.startsWith("#mini"));
   const isAndroid = $derived(platformStore.isAndroid);
   const isBigPicture = $derived(uiStore.bigPictureActive && !isAndroid);
   const toolsDrawerOpen = $derived(uiStore.drawerOpen && uiStore.drawerView === "tools");
@@ -334,7 +336,7 @@
       void layeredBack();
     },
     openPalette() {
-      if (isBigPicture) return;
+      if (isBigPicture || isMiniWindow) return;
       paletteStore.setOpen(true);
     },
   };
@@ -402,6 +404,7 @@
   });
 
   onMount(() => {
+    if (isMiniWindow) return;
     const platformReady = platformStore.initialize();
     void platformReady.then(() => orientationStore.initialize());
     const releaseMotion = motionStore.initialize();
@@ -442,7 +445,7 @@
     let releaseGamepadMode = () => {};
     const releaseHandheldWatcher = installHandheldWatcher((on) => { handheldActive = on; });
     const offHandheldPrefs = onHandheldPrefsChanged(() => { handheldHintsAlways = readHandheldHintsPreference(); });
-    if (!isAndroid) {
+    if (!isAndroid && !isMiniWindow) {
       // 手柄运行时按需加载：加载完成后注册连接监听、输入模式订阅与全局 scope
       void loadGamepadApi().then((m) => {
         refreshGamepadConnection();
@@ -490,14 +493,14 @@
 
   let _wallpaperSyncStarted = false;
   $effect(() => {
-    if (_wallpaperSyncStarted || !settingsStore.loaded) return;
+    if (_wallpaperSyncStarted || isMiniWindow || !settingsStore.loaded) return;
     _wallpaperSyncStarted = true;
     if (!(window as any).__MOEPLAY_TEST__) void wallpaperStore.initialize(settingsStore.appearance, settingsStore.settings.nsfw_display_mode ?? "blur");
   });
 
   let _startupApplied = false;
   $effect(() => {
-    if (_startupApplied) return;
+    if (_startupApplied || isMiniWindow) return;
     if (!settingsStore.loaded) return;
     _startupApplied = true;
 
@@ -531,6 +534,11 @@
 
 <svelte:window use:shortcut={shortcutParameter} />
 
+{#if isMiniWindow}
+  {#await import("./lib/components/mini/MiniPlayer.svelte") then { default: MiniPlayer }}
+    <MiniPlayer />
+  {/await}
+{:else}
 <div
   class="app-container"
   class:fullscreen={isBigPicture}
@@ -744,6 +752,7 @@
 {/if}
 
 <Notifications />
+{/if}
 
 <style>
   .app-container {
