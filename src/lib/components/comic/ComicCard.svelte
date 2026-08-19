@@ -7,12 +7,15 @@
     onclick,
     focusKey,
     selected = false,
+    progress,
     interactiveRef = $bindable<HTMLElement | undefined>(undefined),
   }: {
     comic: ComicSummary;
     onclick?: (event: MouseEvent) => void;
     focusKey?: string;
     selected?: boolean;
+    /** 阅读进度徽标文案（如“读到 第 12 话”）；仅在有本地阅读记录时传入 */
+    progress?: string;
     interactiveRef?: HTMLElement | undefined;
   } = $props();
 
@@ -40,6 +43,7 @@
   {#snippet badges()}
     {#if sourceLabel}<span class="comic-badge comic-badge--source">{sourceLabel}</span>{/if}
     {#if comic.finished}<span class="comic-badge comic-badge--finished">完结</span>{/if}
+    {#if progress}<span class="comic-badge comic-badge--progress">{progress}</span>{/if}
   {/snippet}
   {#snippet meta()}<span class="comic-meta">{metaText}</span>{/snippet}
 </MediaCard>
@@ -91,6 +95,11 @@
     border-color: color-mix(in srgb, var(--v2-color-accent) 58%, transparent);
     background: var(--v2-color-accent);
     color: var(--v2-color-on-accent, #fff);
+  }
+
+  .comic-badge--progress {
+    border-color: color-mix(in srgb, var(--color-info, #60a5fa) 55%, transparent);
+    color: var(--color-info, #60a5fa);
   }
 
   .comic-meta {

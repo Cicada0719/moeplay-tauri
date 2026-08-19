@@ -155,6 +155,12 @@
     return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(date);
   }
 
+  const recentById = $derived.by(() => new Map(comicStore.readHistory.map((record) => [record.id, record])));
+  function progressOf(comicId: string): string | undefined {
+    const record = recentById.get(comicId);
+    return record ? `读到 第 ${record.last_order} 话` : undefined;
+  }
+
   function rememberTrigger(event?: MouseEvent): HTMLElement | null {
     return event?.currentTarget instanceof HTMLElement
       ? event.currentTarget
@@ -317,7 +323,7 @@
                 >
                   <ContentGrid minItemWidth="9.5rem" gap="md" label={`${section.label} 搜索结果`} busy={section.loading}>
                     {#each section.docs as comic (comic.id)}
-                      <ComicCard comic={comic} focusKey={`ordinary:${section.source}:${comic.id}`} onclick={(event) => void openOrdinaryComic(comic, event)} />
+                      <ComicCard comic={comic} focusKey={`ordinary:${section.source}:${comic.id}`} progress={progressOf(comic.id)} onclick={(event) => void openOrdinaryComic(comic, event)} />
                     {/each}
                   </ContentGrid>
                 </AsyncSection>
@@ -325,6 +331,25 @@
             </div>
           {:else if ordinaryState === "ready"}
             <div class="ordinary-home">
+              {#if comicStore.readHistory.length > 0}
+                <section class="ordinary-continue" aria-labelledby="ordinary-continue-title">
+                  <header class="ordinary-continue-head">
+                    <div><span>CONTINUE READING</span><h2 id="ordinary-continue-title">继续阅读</h2></div>
+                    <p>已读 {comicStore.readHistory.length} 本 · 直接从上次的章节续读</p>
+                  </header>
+                  <div class="ordinary-continue-track">
+                    {#each comicStore.readHistory.slice(0, 8) as record (record.id)}
+                      <button class="ordinary-continue-card" type="button" onclick={(event) => void resumeHistory(record, event)}>
+                        <span class="ordinary-continue-art">
+                          {#if record.thumb_url}<img src={record.thumb_url} alt={record.title} loading="lazy" decoding="async" />{:else}<span class="ordinary-continue-empty">{record.title.slice(0, 1)}</span>{/if}
+                          <span class="ordinary-continue-badge">第 {record.last_order} 话</span>
+                        </span>
+                        <span class="ordinary-continue-name"><strong>{record.title}</strong><small>{record.last_title || "继续阅读"} · {fmtDate(record.ts)}</small></span>
+                      </button>
+                    {/each}
+                  </div>
+                </section>
+              {/if}
               <section class="ordinary-lead">
                 <span>01 / SEARCH ARCHIVE</span>
                 <Icon name="search" size={30} />
@@ -337,19 +362,7 @@
               </section>
               <section class="ordinary-side" aria-label="漫画阅读摘要">
                 <div class="source-register"><span>02 / SOURCES</span><strong>4 个公开来源</strong><small>自动并行检索，保留可用结果</small></div>
-                {#if comicStore.readHistory.length}
-                  <div class="recent-reading">
-                    <span>03 / CONTINUE</span>
-                    {#each comicStore.readHistory.slice(0, 3) as record}
-                      <button type="button" onclick={(event) => void resumeHistory(record, event)}>
-                        {#if record.thumb_url}<img src={record.thumb_url} alt="" />{/if}
-                        <span><strong>{record.title}</strong><small>{record.last_title || `第 ${record.last_order} 话`} · {fmtDate(record.ts)}</small></span>
-                      </button>
-                    {/each}
-                  </div>
-                {:else}
-                  <div class="reading-ready"><span>03 / READING LOG</span><strong>阅读记录尚未建立</strong><small>打开章节后自动记录。</small></div>
-                {/if}
+                <div class="reading-count"><span>03 / READING LOG</span><strong>{comicStore.readHistory.length ? `已读 ${comicStore.readHistory.length} 本` : "阅读记录尚未建立"}</strong><small>{comicStore.readHistory.length ? "最近打开的作品见上方「继续阅读」。" : "打开任意章节后自动记录。"}</small></div>
               </section>
             </div>
           {/if}
@@ -478,7 +491,7 @@
             state={picacgState}
             preserveContent={picacgItems.length > 0 || comicStore.readHistory.length > 0}
             details={comicStore.error || undefined}
-            primaryAction={comicStore.error ? { label: "重试", onSelect: retryPicacg } : undefined}
+            primaryAction={comicStore.error ? { label: "重试", onSelect: retryPicacg } : picacgState === "empty" && (comicStore.activeTab === "favorites" || comicStore.activeTab === "history") ? { label: "去探索", onSelect: () => comicStore.setTab("explore") } : undefined}
             loadingDelayMs={0}
             class="picacg-results-section"
           >
@@ -515,7 +528,7 @@
               {/if}
               <ContentGrid minItemWidth="9.5rem" gap="md" label="PicACG 漫画列表" busy={comicStore.loading}>
                 {#each picacgItems as comic, index (comic.id)}
-                  <ComicCard comic={comic} focusKey={`picacg:${comic.id}`} onclick={(event) => void openPicacgComic(comic, event)} selected={comicStore.activeTab === "ranking" && index === 0} />
+                  <ComicCard comic={comic} focusKey={`picacg:${comic.id}`} progress={progressOf(comic.id)} onclick={(event) => void openPicacgComic(comic, event)} selected={comicStore.activeTab === "ranking" && index === 0} />
                 {/each}
               </ContentGrid>
             {/if}
@@ -656,37 +669,43 @@
     .quick-searches { grid-column: 1; }
     .login-actions { flex-direction: column; }
   }
-  .ordinary-home { position:relative; min-height:clamp(330px,48vh,560px); display:grid; grid-template-columns:minmax(0,1.2fr) minmax(260px,.8fr); overflow:hidden; border:1px solid color-mix(in srgb,var(--v2-color-border) 84%,transparent); border-radius:clamp(var(--v2-radius-lg),1.5vw,1.75rem); background:radial-gradient(circle at 12% 18%,color-mix(in srgb,var(--v2-color-accent) 16%,transparent),transparent 28rem),linear-gradient(135deg,color-mix(in srgb,var(--v2-color-surface) 95%,transparent),color-mix(in srgb,var(--v2-color-accent) 7%,var(--v2-color-surface-subtle))); box-shadow:0 1rem 3rem color-mix(in srgb,#020617 14%,transparent); }
+  .ordinary-home { position:relative; min-height:clamp(330px,48vh,560px); display:grid; grid-template-rows:auto minmax(0,1fr); grid-template-columns:minmax(0,1.2fr) minmax(260px,.8fr); overflow:hidden; border:1px solid color-mix(in srgb,var(--v2-color-border) 84%,transparent); border-radius:clamp(var(--v2-radius-lg),1.5vw,1.75rem); background:radial-gradient(circle at 12% 18%,color-mix(in srgb,var(--v2-color-accent) 16%,transparent),transparent 28rem),linear-gradient(135deg,color-mix(in srgb,var(--v2-color-surface) 95%,transparent),color-mix(in srgb,var(--v2-color-accent) 7%,var(--v2-color-surface-subtle))); box-shadow:0 1rem 3rem color-mix(in srgb,#020617 14%,transparent); }
   .ordinary-home::before { position:absolute; inset:0; background:repeating-linear-gradient(125deg,transparent 0 42px,color-mix(in srgb,var(--v2-color-text) 3%,transparent) 42px 43px); content:""; pointer-events:none; }
   .ordinary-lead { position:relative; z-index:1; display:grid; align-content:center; justify-items:start; gap:16px; padding:clamp(28px,5vw,72px); border-right:1px solid var(--v2-color-border); }
-  .ordinary-lead>span,.source-register>span,.recent-reading>span,.reading-ready>span { color:var(--v2-color-accent); font:700 8px/1 var(--font-mono); letter-spacing:.15em; }
+  .ordinary-lead>span,.source-register>span,.reading-count>span,.ordinary-continue-head span { color:var(--v2-color-accent); font:700 8px/1 var(--font-mono); letter-spacing:.15em; }
   .ordinary-lead h2 { margin:0; font:720 clamp(2rem,4vw,4.8rem)/.9 var(--font-display); letter-spacing:-.065em; }
   .ordinary-lead p { max-width:58ch; margin:8px 0 0; color:var(--v2-color-text-secondary); font-size:12px; line-height:1.7; }
   .ordinary-side { position:relative; z-index:1; display:grid; grid-template-rows:auto 1fr; min-width:0; background:color-mix(in srgb,var(--v2-color-surface) 62%,transparent); backdrop-filter:blur(.75rem); }
-  .source-register,.reading-ready { display:grid; align-content:start; gap:8px; padding:22px; border-bottom:1px solid var(--v2-color-border); }
-  .source-register strong,.reading-ready strong { font-size:14px; }
-  .source-register small,.reading-ready small { color:var(--v2-color-text-secondary); font-size:10px; line-height:1.5; }
-  .recent-reading { display:grid; align-content:start; padding:22px; }
-  .recent-reading>span { margin-bottom:12px; }
-  .recent-reading button { min-width:0; display:grid; grid-template-columns:46px minmax(0,1fr); align-items:center; gap:11px; padding:9px 0; border:0; border-top:1px solid var(--v2-color-border); background:transparent; color:var(--v2-color-text); text-align:left; cursor:pointer; transition:padding-left .25s var(--ui-ease-out),color .2s ease; }
-  .recent-reading button:last-child { border-bottom:1px solid var(--v2-color-border); }
-  .recent-reading button:hover { padding-left:6px; color:var(--v2-color-accent); }
-  .recent-reading img { width:46px; aspect-ratio:3/4; object-fit:cover; }
-  .recent-reading button>span { min-width:0; }
-  .recent-reading strong,.recent-reading small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .recent-reading strong { font-size:11px; } .recent-reading small{margin-top:5px;color:var(--v2-color-text-secondary);font-size:9px}
-  @media(max-width:760px){.ordinary-home{grid-template-columns:1fr}.ordinary-lead{border-right:0;border-bottom:1px solid var(--v2-color-border)} }
+  .source-register,.reading-count { display:grid; align-content:start; gap:8px; padding:22px; border-bottom:1px solid var(--v2-color-border); }
+  .source-register strong,.reading-count strong { font-size:14px; }
+  .source-register small,.reading-count small { color:var(--v2-color-text-secondary); font-size:10px; line-height:1.5; }
+  .reading-count { align-content:center; }
+  .ordinary-continue { grid-column:1/-1; display:grid; gap:14px; padding:clamp(20px,3vw,36px) clamp(22px,3.5vw,44px); border-bottom:1px solid var(--v2-color-border); background:linear-gradient(110deg,color-mix(in srgb,var(--v2-color-accent) 9%,transparent),transparent 46%); }
+  .ordinary-continue-head { display:flex; align-items:baseline; justify-content:space-between; gap:14px; flex-wrap:wrap; }
+  .ordinary-continue-head h2 { margin:4px 0 0; font:720 clamp(1.4rem,2.6vw,2.6rem)/1 var(--font-display); letter-spacing:-.05em; }
+  .ordinary-continue-head p { margin:0; color:var(--v2-color-text-secondary); font-size:11px; }
+  .ordinary-continue-track { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(7.5rem,9rem); gap:12px; overflow-x:auto; scrollbar-width:thin; padding-bottom:4px; }
+  .ordinary-continue-card { min-width:0; display:grid; gap:8px; padding:0; border:0; background:transparent; color:var(--v2-color-text); text-align:left; cursor:pointer; }
+  .ordinary-continue-art { position:relative; display:block; aspect-ratio:2/3; overflow:hidden; border:1px solid var(--v2-color-border); border-radius:var(--v2-radius-lg); background:var(--v2-color-surface-subtle); }
+  .ordinary-continue-art img { width:100%; height:100%; object-fit:cover; transition:transform .35s var(--ui-ease-out); }
+  .ordinary-continue-card:hover .ordinary-continue-art img,.ordinary-continue-card:focus-visible .ordinary-continue-art img { transform:scale(1.04); }
+  .ordinary-continue-card:focus-visible { outline:none; }
+  .ordinary-continue-card:focus-visible .ordinary-continue-art { box-shadow:var(--v2-focus-ring); border-color:transparent; }
+  .ordinary-continue-badge { position:absolute; left:.45rem; bottom:.45rem; padding:.2rem .5rem; border-radius:999px; background:color-mix(in srgb,#020617 78%,transparent); color:#fff; font:650 10px/1 var(--font-ui); backdrop-filter:blur(.3rem); }
+  .ordinary-continue-empty { width:100%; height:100%; display:grid; place-items:center; color:var(--v2-color-text-dim); font:700 1.4rem/1 var(--font-ui); }
+  .ordinary-continue-name { min-width:0; display:grid; gap:3px; }
+  .ordinary-continue-name strong,.ordinary-continue-name small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ordinary-continue-name strong { font-size:12px; }
+  .ordinary-continue-name small { color:var(--v2-color-text-secondary); font-size:9px; }
+  @media (hover:hover){ .ordinary-continue-card:hover .ordinary-continue-name strong { color:var(--v2-color-accent); } }
+  @media (prefers-reduced-motion: reduce){ .ordinary-continue-art img { transition:none; } .ordinary-continue-card:hover .ordinary-continue-art img { transform:none; } }
+  @media(max-width:760px){.ordinary-home{grid-template-columns:1fr;grid-template-rows:auto auto auto}.ordinary-lead{border-right:0;border-bottom:1px solid var(--v2-color-border)}.ordinary-continue{padding:16px 14px} }
   @media(max-height:520px) and (orientation:landscape){
     .ordinary-home{min-height:100%;grid-template-columns:minmax(0,1.2fr) minmax(240px,.8fr)}
     .ordinary-lead{padding:20px;border-right:1px solid var(--v2-color-border);border-bottom:0}
     .ordinary-lead h2{font-size:clamp(1.8rem,5vw,3.2rem)}
-    .source-register,.reading-ready,.recent-reading{padding:14px}
+    .source-register,.reading-count,.ordinary-continue{padding:14px}
   }
-
-  @media (prefers-reduced-motion: reduce) {
-    .recent-reading button { transition: none; }
-  }
-  :global([data-motion="reduce"]) .recent-reading button { transition: none; }
 
   @media (max-width: 48rem) {
     .comic-page::after { display: none; }
