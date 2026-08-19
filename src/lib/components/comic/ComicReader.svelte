@@ -596,4 +596,15 @@
     .reader-scroll { scroll-behavior: auto; }
     .comic-img { transition: none; }
   }
+
+  /* ── 掌机适配（data-handheld）：阅读工具栏/按键放大，近距可读可触 ── */
+  :global(:root[data-handheld="true"]) .reader-toolbar { min-height: 3.75rem; }
+  :global(:root[data-handheld="true"]) .reader-tools :global(button),
+  :global(:root[data-handheld="true"]) .reader-toolbar :global(button),
+  :global(:root[data-handheld="true"]) .reader-bottom-nav :global(button) { min-height: 44px; min-width: 44px; }
+  :global(:root[data-handheld="true"]) .toolbar-reveal { width: 44px; height: 44px; }
+  :global(:root[data-handheld="true"]) .chapter-title { font-size: 1rem; }
+  :global(:root[data-handheld="true"]) .zoom-output { min-width: 3rem; }
+  :global(:root[data-handheld="true"]) .page-edge { width: min(30%, 11rem); }
+  :global(:root[data-handheld="true"]) .single-page .img-wrap { min-height: calc(100dvh - 6.75rem); }
 </style>
