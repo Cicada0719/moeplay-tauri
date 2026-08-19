@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.20.37 - 2026-08-18
+
+### 全量验收（30 轮持续优化收官）
+
+- 完整视觉回归：40 通过 / 6 按设计跳过 / 0 失败（主题回归、大屏、普通模式手柄、掌机键盘、冒烟、导航、记录、任务中心、主题包 QA）。
+- Rust：cargo test 20 个套件通过；`cargo fmt --check` 通过；clippy `--lib/-D warnings` 干净（`--all-targets` 单命令因本机页面文件限制在 build.rs 阶段由 clippy-driver 崩溃，已通过拆分为 lib/tests/bins/benches 全部等效覆盖，属环境项）。
+- svelte-check 0/0；单元 932；`verify:versions` / `verify:commands`（383）/ `verify:bundle-budget` 全部通过。
+
 ## 0.20.36 - 2026-08-18
 
 ### 大屏转盘三态视图
