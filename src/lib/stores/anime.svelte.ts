@@ -13,6 +13,7 @@ import { imageSearchStore, type TraceMoeResult } from "../features/anime-player/
 import { collectionStore, type AnimeCollect } from "../features/anime-home/collection.svelte";
 import { playerPrefs } from "../features/anime-player/playerPrefs.svelte";
 import { animeSearchHistoryStore } from "../features/anime-search/history.svelte";
+import { historyStore, type AnimeHistory } from "../features/anime-player/historyStore.svelte";
 import { continueSource } from "./continue-source.svelte";
 
 // ── 类型 ──────────────────────────────────────────────────────────────────
@@ -106,18 +107,7 @@ export interface Road {
 
 export type { AnimeCollect, CollectDetailContext } from "../features/anime-home/collection.svelte";
 
-export interface AnimeHistory {
-  key: string;
-  name: string;
-  image: string;
-  ruleName: string;
-  sourceUrl: string;
-  lastRoad: number;
-  lastEpisode: number;
-  lastEpisodeName: string;
-  progressMs: number;
-  updatedAt: string;
-}
+export type { AnimeHistory } from "../features/anime-player/historyStore.svelte";
 
 export const COLLECT_TYPES: Record<number, string> = {
   0: "未收藏",
@@ -211,7 +201,6 @@ const COLLECT_KEY = "anime-collect";
 /** 内置番剧源名（与后端 anime::BUILTIN_RULE_NAMES 保持一致）。
  *  内置源由后端注入且不可删除，前端据此隐藏删除按钮并打「内置」徽标。 */
 export const BUILTIN_RULE_NAMES = ["AGE", "MXdm", "gugu3", "xfdmneo"];
-const HISTORY_KEY = "anime-history";
 const BANGUMI_TOKEN_KEY = "bangumi-token";
 const BANGUMI_USERNAME_KEY = "bangumi-username";
 const BANGUMI_SYNC_PRIORITY_KEY = "bangumi-sync-priority"; // 0=localFirst, 1=bangumiFirst
@@ -324,7 +313,6 @@ let _playerRoadIdx = $state(0);
 let _playerEpisodeIdx = $state(0);
 
 // 收藏 & 历史
-let _history = $state<AnimeHistory[]>(loadJson(HISTORY_KEY, []));
 let _progressSaveTs = 0; // 上次写 localStorage 的时间戳（节流 5s 一次）
 
 // GitHub 规则仓库
@@ -600,7 +588,7 @@ export const animeStore = {
   get playerRoadIdx() { return _playerRoadIdx; },
   get playerEpisodeIdx() { return _playerEpisodeIdx; },
   get collection() { return collectionStore.items; },
-  get history() { return _history; },
+  get history() { return historyStore.items; },
   get catalog() { return _catalog; },
   get catalogLoading() { return _catalogLoading; },
   get catalogError() { return _catalogError; },
@@ -837,7 +825,7 @@ export const animeStore = {
     const onHold = items.filter(c => c.collectType === 3).length;
     const watched = items.filter(c => c.collectType === 4).length;
     const dropped = items.filter(c => c.collectType === 5).length;
-    const historyCount = _history.length;
+    const historyCount = historyStore.items.length;
     const rulesCount = _rules.length;
     return { total, watching, planned, onHold, watched, dropped, historyCount, rulesCount };
   },
@@ -1507,7 +1495,7 @@ export const animeStore = {
       _pendingSeekMs = seekMs;
     } else {
       const historyKey = `${_detailRuleName}:${_detailName}`;
-      const history = _history.find(h => h.key === historyKey);
+      const history = historyStore.get(historyKey);
       if (history && history.lastRoad === roadIdx && history.lastEpisode === episodeIdx && history.progressMs > 3000) {
         // 超过 3 秒才续播，避免开头误触
         _pendingSeekMs = history.progressMs;
@@ -1962,7 +1950,7 @@ export const animeStore = {
 
   _updateHistory(roadIdx: number, epIdx: number, epName: string, progressMs: number) {
     const key = `${_detailRuleName}:${_detailName}`;
-    const entry: AnimeHistory = {
+    historyStore.upsert({
       key,
       name: _detailName,
       image: _detailImage,
@@ -1973,22 +1961,15 @@ export const animeStore = {
       lastEpisodeName: epName,
       progressMs,
       updatedAt: new Date().toISOString(),
-    };
-    const idx = _history.findIndex((h) => h.key === key);
-    if (idx >= 0) _history[idx] = entry;
-    else _history = [entry, ..._history];
-    if (_history.length > 200) _history = _history.slice(0, 200);
-    saveJson(HISTORY_KEY, _history);
+    });
   },
 
   removeHistory(key: string) {
-    _history = _history.filter((h) => h.key !== key);
-    saveJson(HISTORY_KEY, _history);
+    historyStore.remove(key);
   },
 
   clearHistory() {
-    _history = [];
-    saveJson(HISTORY_KEY, _history);
+    historyStore.clear();
   },
 
   /// 从历史记录恢复播放：打开详情页并直接续播到上次进度。
@@ -2227,7 +2208,7 @@ export const animeStore = {
 // 主包懒加载解耦：本 store 加载后把历史同步给 continue 数据源（continue store 不再静态依赖本文件）。
 $effect.root(() => {
   $effect(() => {
-    const snapshot = _history;
+    const snapshot = historyStore.items;
     continueSource.setAnimeHistory(snapshot);
   });
 });
