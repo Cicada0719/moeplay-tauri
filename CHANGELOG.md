@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.20.32 - 2026-08-18
+
+### 代码健康：anime store 播放器偏好切片
+
+- 将播放器 7 项偏好（自动连播、倍速、长按倍速、跳片头/尾、网页播放兜底、画质增强）的状态与 getter/setter 拆到独立模块 `features/anime-player/playerPrefs.svelte.ts`；`pendingSeekMs`（被续播逻辑直写）保留在主 store。
+- `anime.svelte.ts` 降至约 2130 行。
+
 ## 0.20.31 - 2026-08-18
 
 ### 测试加固
