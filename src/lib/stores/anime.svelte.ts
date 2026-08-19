@@ -10,6 +10,7 @@ import { normalizeVideoEnhancementMode, type VideoEnhancementMode } from "../fea
 import { episodeCommentsStore, type BangumiEpisodeComment } from "../features/anime-player/episodeComments.svelte";
 import { danmakuStore, type DanmakuAnime, type DanmakuComment, type DanmakuEpisode } from "../features/anime-player/danmaku.svelte";
 import { imageSearchStore, type TraceMoeResult } from "../features/anime-player/imageSearch.svelte";
+import { collectionStore, type AnimeCollect } from "../features/anime-home/collection.svelte";
 import { continueSource } from "./continue-source.svelte";
 
 // ── 类型 ──────────────────────────────────────────────────────────────────
@@ -101,15 +102,7 @@ export interface Road {
   episodes: Episode[];
 }
 
-export interface AnimeCollect {
-  key: string;
-  name: string;
-  image: string;
-  collectType: number; // 1=在看 2=想看 3=搁置 4=看过 5=抛弃
-  ruleSource?: string;
-  sourceUrl?: string;
-  updatedAt: string;
-}
+export type { AnimeCollect, CollectDetailContext } from "../features/anime-home/collection.svelte";
 
 export interface AnimeHistory {
   key: string;
@@ -329,7 +322,6 @@ let _playerRoadIdx = $state(0);
 let _playerEpisodeIdx = $state(0);
 
 // 收藏 & 历史
-let _collection = $state<AnimeCollect[]>(loadJson(COLLECT_KEY, []));
 let _history = $state<AnimeHistory[]>(loadJson(HISTORY_KEY, []));
 let _progressSaveTs = 0; // 上次写 localStorage 的时间戳（节流 5s 一次）
 
@@ -371,7 +363,6 @@ let _recLoadGeneration = 0;
 
 // 我的 — 子 tab
 let _mySubTab = $state<"collection" | "history" | "stats">("collection");
-let _collectFilter = $state(0); // 0=全部, 1-5=对应类型
 
 // Bangumi 收藏同步（凭据仅存在 Rust SecretStore）
 let _bangumiConfigured = $state(false);
@@ -622,7 +613,7 @@ export const animeStore = {
   get playerEpisodeName() { return _playerEpisodeName; },
   get playerRoadIdx() { return _playerRoadIdx; },
   get playerEpisodeIdx() { return _playerEpisodeIdx; },
-  get collection() { return _collection; },
+  get collection() { return collectionStore.items; },
   get history() { return _history; },
   get catalog() { return _catalog; },
   get catalogLoading() { return _catalogLoading; },
@@ -735,8 +726,8 @@ export const animeStore = {
   // 我的
   get mySubTab() { return _mySubTab; },
   set mySubTab(v: "collection" | "history" | "stats") { _mySubTab = v; },
-  get collectFilter() { return _collectFilter; },
-  set collectFilter(v: number) { _collectFilter = v; },
+  get collectFilter() { return collectionStore.filter; },
+  set collectFilter(v: number) { collectionStore.filter = v; },
 
   // Bangumi 收藏同步
   get bangumiConfigured() { return _bangumiConfigured; },
@@ -860,17 +851,17 @@ export const animeStore = {
   get episodeCommentsLoading() { return episodeCommentsStore.loading; },
 
   get filteredCollection(): AnimeCollect[] {
-    if (_collectFilter === 0) return _collection;
-    return _collection.filter(c => c.collectType === _collectFilter);
+    return collectionStore.filtered;
   },
 
   get stats() {
-    const total = _collection.length;
-    const watching = _collection.filter(c => c.collectType === 1).length;
-    const planned = _collection.filter(c => c.collectType === 2).length;
-    const onHold = _collection.filter(c => c.collectType === 3).length;
-    const watched = _collection.filter(c => c.collectType === 4).length;
-    const dropped = _collection.filter(c => c.collectType === 5).length;
+    const items = collectionStore.items;
+    const total = items.length;
+    const watching = items.filter(c => c.collectType === 1).length;
+    const planned = items.filter(c => c.collectType === 2).length;
+    const onHold = items.filter(c => c.collectType === 3).length;
+    const watched = items.filter(c => c.collectType === 4).length;
+    const dropped = items.filter(c => c.collectType === 5).length;
     const historyCount = _history.length;
     const rulesCount = _rules.length;
     return { total, watching, planned, onHold, watched, dropped, historyCount, rulesCount };
@@ -1977,26 +1968,11 @@ export const animeStore = {
   // ── 收藏 ──────────────────────────────────────────────────────────────
 
   setCollect(name: string, collectType: number, extra?: Partial<AnimeCollect>) {
-    const key = name;
-    const idx = _collection.findIndex((c) => c.key === key);
-    if (collectType === 0) {
-      if (idx >= 0) {
-        _collection = _collection.filter((c) => c.key !== key);
-      }
-    } else {
-      const entry: AnimeCollect = {
-        key,
-        name,
-        image: extra?.image ?? _detailImage ?? "",
-        collectType,
-        ruleSource: extra?.ruleSource ?? _detailRuleName,
-        sourceUrl: extra?.sourceUrl ?? _detailUrl,
-        updatedAt: new Date().toISOString(),
-      };
-      if (idx >= 0) _collection[idx] = entry;
-      else _collection = [entry, ..._collection];
-    }
-    saveJson(COLLECT_KEY, _collection);
+    collectionStore.setCollect(name, collectType, extra, {
+      image: _detailImage ?? "",
+      ruleName: _detailRuleName,
+      sourceUrl: _detailUrl,
+    });
     // Auto-sync to Bangumi if connected (fire-and-forget)
     if (_bangumiConfigured && _bangumiUsername && collectType > 0) {
       this.syncToBangumi(name, collectType);
@@ -2004,7 +1980,7 @@ export const animeStore = {
   },
 
   getCollectType(name: string): number {
-    return _collection.find((c) => c.key === name)?.collectType ?? 0;
+    return collectionStore.getType(name);
   },
 
   // ── 历史 ──────────────────────────────────────────────────────────────
@@ -2190,7 +2166,7 @@ export const animeStore = {
     let synced = 0;
     let failed = 0;
     // 需要 bangumiId 才能上传 — 只同步有 subject 的条目
-    for (const c of _collection) {
+    for (const c of collectionStore.items) {
       // 从 bangumiCollections 中查找对应的 subject_id
       const remote = _bangumiCollections.find(
         r => r.subject_name === c.name || r.subject_name_cn === c.name
