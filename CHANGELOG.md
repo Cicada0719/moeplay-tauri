@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.20.25 - 2026-08-18
+
+### 代码健康：anime store 图片搜番模块切片
+
+- 将 trace.moe 图片搜番的类型/状态/搜索与清除逻辑拆到独立模块 `features/anime-player/imageSearch.svelte.ts`；store 对外接口（`animeStore.imageSearch*` 与 `imageSearch`/`clearImageSearch`）保持不变。
+- `anime.svelte.ts` 降至约 2200 行。
+
 ## 0.20.24 - 2026-08-18
 
 ### 代码健康：anime store 弹幕模块切片
