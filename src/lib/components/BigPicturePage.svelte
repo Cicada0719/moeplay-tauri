@@ -20,7 +20,8 @@
 
   type BigPictureTab = "game" | "media";
   type BigPictureZone = "top-nav" | "wheel" | "hero" | "media" | "detail" | "search" | "keyboard";
-  type BigPictureMemory = { tab?: BigPictureTab; focusIdx?: number; filterAll?: boolean };
+  type BigPictureMemory = { tab?: BigPictureTab; focusIdx?: number; filterAll?: boolean; filterMode?: "all" | "local" | "recent" };
+  type FilterMode = "all" | "local" | "recent";
 
   const BP_MEMORY_KEY = "moeplay-bigpicture-memory-v1";
 
@@ -28,7 +29,7 @@
   let activeZone = $state<BigPictureZone>("wheel");
   let focusIdx = $state(0);
   let topFocusIdx = $state(0);
-  let filterAll = $state(true);
+  let filterMode = $state<FilterMode>("all");
   let showDetail = $state(false);
   let showSearch = $state(false);
   let now = $state(new Date());
@@ -50,7 +51,14 @@
 
   const allGames = $derived(gameStore.allGames);
   const installedGames = $derived(gameStore.installedGames);
-  const filteredGames = $derived(filterAll ? allGames : installedGames);
+  const filteredGames = $derived.by(() => {
+    if (filterMode === "local") return installedGames;
+    if (filterMode === "recent") {
+      const lastPlayedOf = (g: Game) => g.play_tracker?.last_played ?? g.last_played ?? "";
+      return [...allGames].sort((a, b) => String(lastPlayedOf(b)).localeCompare(String(lastPlayedOf(a))));
+    }
+    return allGames;
+  });
   const focusGame = $derived(filteredGames[focusIdx] ?? null);
   const backgroundArt = $derived(pickBackgroundArt(focusGame));
   const isHeroBg = $derived(hasHeroBackground(focusGame));
@@ -78,7 +86,7 @@
       if (typeof raw.focusIdx === "number" && Number.isFinite(raw.focusIdx) && raw.focusIdx >= 0) {
         memory.focusIdx = Math.floor(raw.focusIdx);
       }
-      if (typeof raw.filterAll === "boolean") memory.filterAll = raw.filterAll;
+      if (raw.filterMode === "all" || raw.filterMode === "local" || raw.filterMode === "recent") memory.filterMode = raw.filterMode;
       return memory;
     } catch {
       return {};
@@ -87,7 +95,7 @@
 
   function writeBpMemory() {
     if (typeof localStorage === "undefined") return;
-    localStorage.setItem(BP_MEMORY_KEY, JSON.stringify({ tab: bpTab, focusIdx, filterAll } as BigPictureMemory));
+    localStorage.setItem(BP_MEMORY_KEY, JSON.stringify({ tab: bpTab, focusIdx, filterMode } as BigPictureMemory));
   }
 
   function pickBackgroundArt(game: Game | null): string {
@@ -177,7 +185,10 @@
     if (activeZone === "top-nav") { exitBigPicture(); return; }
     setZone("top-nav");
   }
-  function toggleFilter() { filterAll = !filterAll; focusIdx = 0; }
+  function toggleFilter() {
+    filterMode = filterMode === "all" ? "local" : filterMode === "local" ? "recent" : "all";
+    focusIdx = 0;
+  }
   function refreshPadLayoutTag() {
     const pads = getDefaultGamepadFocusRuntime()?.getConnectedPads() ?? [];
     bpPadLayout = pads[0]?.layout ?? bpPadLayout;
@@ -245,7 +256,7 @@
     } else if (memory.focusIdx !== undefined) {
       focusIdx = memory.focusIdx;
     }
-    if (memory.filterAll !== undefined) filterAll = memory.filterAll;
+    if (memory.filterMode) filterMode = memory.filterMode; else if (memory.filterAll !== undefined) filterMode = memory.filterAll ? "all" : "local";
     $effect(() => { writeBpMemory(); });
     const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
     const syncMotion = () => {
@@ -321,7 +332,7 @@
       {#if focusGame}
         <BigPictureHero game={focusGame} {weekHours} active={activeZone === "hero" && !showDetail && !showSearch} onLaunch={launchFocus} onFavorite={toggleFav} onDetail={openDetail} onMoveToWheel={() => setZone("wheel")} onMoveToTop={() => setZone("top-nav")} onTabPrevious={() => cycleTab(-1)} onTabNext={() => cycleTab(1)} onToggleFilter={toggleFilter} />
       {/if}
-      <BigPictureWheel games={filteredGames} {focusIdx} {filterAll} {prefersReducedMotion} active={activeZone === "wheel" && !showDetail && !showSearch} onSelect={setFocus} onActivate={(index) => { setFocus(index); openDetail(); }} onLaunch={(index) => { setFocus(index); void launchFocus(); }} onFavorite={(index) => { setFocus(index); void toggleFav(); }} onMoveToHero={() => setZone("hero")} onMoveToTop={() => setZone("top-nav")} onBack={back} onTabPrevious={() => cycleTab(-1)} onTabNext={() => cycleTab(1)} onToggleFilter={toggleFilter} onOpenImport={openImport} />
+      <BigPictureWheel games={filteredGames} {focusIdx} {filterMode} {prefersReducedMotion} active={activeZone === "wheel" && !showDetail && !showSearch} onSelect={setFocus} onActivate={(index) => { setFocus(index); openDetail(); }} onLaunch={(index) => { setFocus(index); void launchFocus(); }} onFavorite={(index) => { setFocus(index); void toggleFav(); }} onMoveToHero={() => setZone("hero")} onMoveToTop={() => setZone("top-nav")} onBack={back} onTabPrevious={() => cycleTab(-1)} onTabNext={() => cycleTab(1)} onToggleFilter={toggleFilter} onOpenImport={openImport} />
     </main>
     <footer class="bp-hints" aria-label="手柄快捷操作">
       <span><b>LS / ← →</b>切换作品</span><span><b class="key-a">{glyph("launch")}</b>启动游戏</span><span><b class="key-y">{glyph("activate")}</b>打开档案</span><span><b class="key-x">{glyph("favorite")}</b>收藏</span><span><b>{glyph("pageLeft")} {glyph("pageRight")}</b>切换展厅</span><span><b>{glyph("filter")}</b>切换筛选</span><span><b>{glyph("back")}</b>菜单</span><span class="bp-pos">{filteredGames.length ? String(focusIdx + 1).padStart(2,"0") : "00"} / {String(filteredGames.length).padStart(2,"0")}{#if padLayoutTag}<em>{padLayoutTag}</em>{/if}</span>

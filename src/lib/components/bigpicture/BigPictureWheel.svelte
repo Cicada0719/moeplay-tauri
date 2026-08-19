@@ -9,7 +9,7 @@
   let {
     games,
     focusIdx,
-    filterAll,
+    filterMode = "all",
     prefersReducedMotion,
     active = false,
     onSelect,
@@ -26,7 +26,8 @@
   }: {
     games: Game[];
     focusIdx: number;
-    filterAll: boolean;
+    /** 转盘视图：全部 / 本机已装 / 最近游玩 */
+    filterMode?: "all" | "local" | "recent";
     prefersReducedMotion: boolean;
     active?: boolean;
     onSelect: (idx: number) => void;
@@ -111,7 +112,7 @@
   <div class="bp-reel-caption" aria-hidden="true">
     <span>LEFT STICK / D-PAD</span>
     <i></i>
-    <b>左右手动切换 · {filterAll ? "全作品" : "本机安装"}</b>
+    <b>左右手动切换 · {filterMode === "all" ? "全作品" : filterMode === "local" ? "本机安装" : "最近游玩"}</b>
   </div>
 
   <div class="bp-reel-window" bind:this={reelEl} role="listbox" aria-label="大屏游戏列表">
@@ -165,9 +166,9 @@
       <span></span>
       <em>{numberLabel(games.length - 1)}</em>
     </div>
-    <button class="bp-filter-stamp" onclick={onToggleFilter} tabindex="-1" aria-label={filterAll ? "当前：全部，点击仅看已安装" : "当前：已安装，点击查看全部"}>
-      <span>{filterAll ? "ALL" : "LOCAL"}</span>
-      <small>{filterAll ? "全部作品" : "本机安装"}</small>
+    <button class="bp-filter-stamp" onclick={onToggleFilter} tabindex="-1" aria-label="切换转盘视图（全部/本机/最近游玩）">
+      <span>{filterMode === "all" ? "ALL" : filterMode === "local" ? "LOCAL" : "RECENT"}</span>
+      <small>{filterMode === "all" ? "全部作品" : filterMode === "local" ? "本机安装" : "最近游玩"}</small>
     </button>
   {/if}
 </aside>
