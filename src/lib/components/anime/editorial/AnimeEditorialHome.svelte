@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AnimeHistory, BangumiSubject } from "../../../stores/anime.svelte";
+  import type { AnimeHistory, BangumiSubject, BangumiCalendarDay } from "../../../stores/anime.svelte";
 
   interface Props {
     history?: readonly AnimeHistory[];
@@ -18,6 +18,11 @@
     onMoreSeasonal?: () => void | Promise<void>;
     onMoreTrending?: () => void | Promise<void>;
     onMoreTopRated?: () => void | Promise<void>;
+    /** Bangumi 放送表（7 天）；主页只展示「今日」条目 */
+    schedule?: readonly BangumiCalendarDay[];
+    scheduleLoading?: boolean;
+    onOpenScheduleSubject?: (subject: BangumiSubject, trigger: HTMLElement) => void;
+    onOpenCalendarTab?: () => void;
   }
 
   let {
@@ -37,6 +42,10 @@
     onMoreSeasonal,
     onMoreTrending,
     onMoreTopRated,
+    schedule,
+    scheduleLoading = false,
+    onOpenScheduleSubject,
+    onOpenCalendarTab,
   }: Props = $props();
 
   const continueItem = $derived(history[0] ?? null);
@@ -64,6 +73,10 @@
   function imageOf(subject: BangumiSubject): string {
     return subject.image ? getImage(subject.image) : "";
   }
+
+  // 「今日放送」：按本地日期取出今日条目，放送表未就绪时返回空数组
+  const todayWeekday = $derived(new Date().getDay() || 7);
+  const todayItems = $derived((schedule ?? []).find((day) => day.weekday === todayWeekday)?.items ?? []);
 </script>
 
 <div class="editorial-home" data-testid="anime-editorial-home">
@@ -91,6 +104,35 @@
       <small>WATCH RECORDS</small>
     </aside>
   </section>
+
+  {#if scheduleLoading || todayItems.length > 0}
+    <section class="editorial-today" aria-labelledby="editorial-today-title">
+      <header class="section-heading section-heading--light">
+        <div><span>{scheduleLoading ? "LOADING" : "TODAY"}</span><h2 id="editorial-today-title">今日放送</h2></div>
+        <p>按本地日期汇总的 Bangumi 放送表；点选右侧链接进入完整时间表。</p>
+      </header>
+      {#if todayItems.length}
+        <div class="today-grid">
+          {#each todayItems.slice(0, 12) as subject, index (subject.id)}
+            <button class="today-card" type="button" onclick={(event) => onOpenScheduleSubject?.(subject, event.currentTarget)}>
+              <span class="today-art">
+                {#if imageOf(subject)}<img src={imageOf(subject)} alt="" loading="lazy" decoding="async" />{:else}<span class="today-art-empty">NO ART</span>{/if}
+                <span class="today-order">{String(index + 1).padStart(2, "0")}</span>
+              </span>
+              <span class="today-name"><strong>{subject.name_cn || subject.name}</strong><small>{subject.eps_count > 0 ? subject.eps_count + " 话" : "连载"}{subject.rating > 0 ? " · " + subject.rating.toFixed(1) : ""}</small></span>
+            </button>
+          {/each}
+        </div>
+        {#if onOpenCalendarTab}
+          <div class="today-actions">
+            <button class="more-action" type="button" onclick={() => onOpenCalendarTab?.()}>查看完整时间表 <span aria-hidden="true">&#8594;</span></button>
+          </div>
+        {/if}
+      {:else}
+        <div class="editorial-empty editorial-empty--dark" role="status">正在装配今日放送…</div>
+      {/if}
+    </section>
+  {/if}
 
   <section class="editorial-index" aria-labelledby="editorial-index-title">
     <header class="section-heading">
@@ -153,7 +195,8 @@
   .lead-copy{position:relative;z-index:3;align-self:center;margin-left:clamp(-7rem,-6vw,-3rem);padding:4rem clamp(2rem,5vw,6rem) 4rem 0}.lead-kicker{display:flex;align-items:center;gap:.8rem;font:650 .62rem/1 var(--font-mono,monospace);letter-spacing:.16em}.lead-kicker span{color:var(--ed-accent)}.lead-kicker i{width:3rem;height:1px;background:currentColor}.lead-meta{margin:clamp(2rem,5vh,4rem) 0 .8rem;color:rgba(255,255,255,.56);font:600 .68rem/1.4 var(--font-mono,monospace);letter-spacing:.11em;text-transform:uppercase}.lead-copy h1{max-width:9ch;margin:0;font:800 clamp(3.6rem,7vw,7.8rem)/.82 var(--font-display,"Outfit",sans-serif);letter-spacing:-.075em;text-wrap:balance}.lead-description{max-width:37rem;margin:1.7rem 0 2rem;color:rgba(255,255,255,.65);font-size:.94rem;line-height:1.7;display:-webkit-box;overflow:hidden;line-clamp:3;-webkit-line-clamp:3;-webkit-box-orient:vertical}.lead-action{display:inline-flex;align-items:center;justify-content:space-between;gap:3rem;min-width:12rem;min-height:3rem;padding:0 1.1rem;border:1px solid var(--ed-accent);border-radius:0;background:var(--ed-accent);color:#0b0c0e;font-weight:750;cursor:pointer}.lead-action i{position:relative;width:2rem;height:1px;background:currentColor}.lead-action i::after{content:"";position:absolute;right:0;top:-3px;width:7px;height:7px;border-top:1px solid;border-right:1px solid;transform:rotate(45deg)}.lead-action:disabled{opacity:.45;cursor:not-allowed}.lead-folio{position:absolute;z-index:4;right:1.5rem;top:1.5rem;display:grid;justify-items:end;gap:.25rem;font-family:var(--font-mono,monospace)}.lead-folio span,.lead-folio small{font-size:.55rem;letter-spacing:.14em;color:rgba(255,255,255,.48)}.lead-folio strong{font-size:2.2rem;line-height:1}
   .editorial-index{padding:clamp(3rem,7vw,7rem);background:var(--ed-paper);color:var(--ed-ink)}.section-heading{display:grid;grid-template-columns:1fr minmax(16rem,.42fr);gap:2rem;align-items:end;margin-bottom:2.4rem;padding-bottom:1.25rem;border-bottom:1px solid currentColor}.section-heading span{font:700 .62rem/1 var(--font-mono,monospace);letter-spacing:.18em}.section-heading h2{margin:.65rem 0 0;font:800 clamp(2.5rem,5vw,5.6rem)/.86 var(--font-display,"Outfit",sans-serif);letter-spacing:-.065em}.section-heading p{justify-self:end;max-width:28rem;margin:0;font-size:.84rem;line-height:1.6;opacity:.62}.index-table{border-top:1px solid rgba(16,17,18,.25)}.index-table button{width:100%;display:grid;grid-template-columns:3.2rem minmax(12rem,1fr) 8rem 5rem 3rem 1.5rem;align-items:center;gap:1rem;min-height:4.7rem;padding:.65rem 0;border:0;border-bottom:1px solid rgba(16,17,18,.2);background:transparent;color:inherit;text-align:left;cursor:pointer;transition:padding 180ms ease,background 180ms ease}.index-table button:hover,.index-table button:focus-visible{padding-inline:1rem;background:#d8d1c3;outline:none}.index-no,.index-air,.index-eps,.index-score{font:650 .65rem/1.3 var(--font-mono,monospace)}.index-no{color:var(--ed-accent)}.index-title{display:grid;gap:.2rem;min-width:0}.index-title strong{overflow:hidden;font-size:1.05rem;text-overflow:ellipsis;white-space:nowrap}.index-title small{overflow:hidden;opacity:.45;font:600 .58rem/1.2 var(--font-mono,monospace);letter-spacing:.08em;text-overflow:ellipsis;white-space:nowrap}.index-score{font-size:1rem}.index-arrow{font-size:1.1rem}.more-action{margin-top:1.5rem;min-height:2.7rem;padding:0 1rem;border:1px solid currentColor;background:transparent;color:inherit;font-weight:700;cursor:pointer}
   .editorial-mosaic{padding:clamp(3rem,6vw,6rem);background:#090b0e}.section-heading--light{color:#f3f0e9;border-color:rgba(255,255,255,.3)}.mosaic-grid{display:grid;grid-template-columns:1.2fr .75fr .75fr 1fr;grid-template-rows:repeat(2,minmax(12rem,22vw));gap:1px;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.18)}.mosaic-item{position:relative;min-width:0;overflow:hidden;padding:0;border:0;background:#1a1c20;color:white;text-align:left;cursor:pointer}.mosaic-item--1{grid-row:1/3}.mosaic-item--2{grid-column:2/4}.mosaic-item img{width:100%;height:100%;display:block;object-fit:cover;filter:saturate(.72) contrast(1.08);transition:transform .55s cubic-bezier(.2,.8,.2,1),filter .2s ease}.mosaic-item:hover img,.mosaic-item:focus-visible img{transform:scale(1.035);filter:saturate(.9) contrast(1.04)}.mosaic-item:focus-visible{outline:2px solid var(--ed-accent);outline-offset:-2px}.mosaic-shade{position:absolute;inset:0;background:linear-gradient(0deg,rgba(4,5,7,.9),transparent 65%)}.mosaic-caption{position:absolute;right:1rem;bottom:1rem;left:1rem;display:grid;gap:.35rem}.mosaic-caption small{font:600 .55rem/1 var(--font-mono,monospace);letter-spacing:.1em;color:rgba(255,255,255,.55)}.mosaic-caption strong{font-size:clamp(.9rem,1.7vw,1.55rem);line-height:1.05}.mosaic-item--1 .mosaic-caption strong{font-size:clamp(1.8rem,3.7vw,4.3rem);letter-spacing:-.05em}.mosaic-fallback{height:100%;display:grid;place-items:center;color:rgba(255,255,255,.25);font:700 .65rem/1 var(--font-mono,monospace);letter-spacing:.15em}.mosaic-actions{display:flex;justify-content:flex-end;gap:.6rem;margin-top:1.2rem}.mosaic-actions button{min-height:2.5rem;padding:0 .9rem;border:1px solid rgba(255,255,255,.3);background:transparent;color:white;font-weight:650;cursor:pointer}.editorial-empty{padding:4rem 1rem;border-block:1px solid rgba(16,17,18,.22);font:650 .75rem/1 var(--font-mono,monospace);letter-spacing:.12em;text-align:center}.editorial-empty--dark{border-color:rgba(255,255,255,.2);color:rgba(255,255,255,.55)}
+  .editorial-today{padding:clamp(3rem,6vw,6rem);background:#090b0e}.today-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(9rem,1fr));gap:1.4rem 1rem}.today-card{display:grid;gap:.55rem;min-width:0;padding:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}.today-art{position:relative;display:block;aspect-ratio:2/3;overflow:hidden;background:#1a1c20;border:1px solid rgba(255,255,255,.12)}.today-art img{width:100%;height:100%;display:block;object-fit:cover;filter:saturate(.72) contrast(1.08);transition:transform .4s cubic-bezier(.2,.8,.2,1)}.today-card:hover .today-art img,.today-card:focus-visible .today-art img{transform:scale(1.04)}.today-card:focus-visible{outline:none}.today-card:focus-visible .today-art{outline:2px solid var(--ed-accent);outline-offset:2px}.today-order{position:absolute;left:.5rem;bottom:.5rem;padding:.15rem .4rem;background:rgba(4,5,7,.72);color:#fff;font:650 .58rem/1 var(--font-mono,monospace);letter-spacing:.08em}.today-art-empty{height:100%;display:grid;place-items:center;color:rgba(255,255,255,.25);font:700 .6rem/1 var(--font-mono,monospace);letter-spacing:.14em}.today-name{display:grid;gap:.25rem;min-width:0}.today-name strong{overflow:hidden;font-size:.88rem;text-overflow:ellipsis;white-space:nowrap}.today-name small{overflow:hidden;opacity:.55;font:600 .6rem/1.2 var(--font-mono,monospace);letter-spacing:.06em;text-overflow:ellipsis;white-space:nowrap}.today-actions{display:flex;justify-content:flex-end;margin-top:1.4rem}
   @media(max-width:1000px){.editorial-lead{grid-template-columns:1fr;min-height:auto}.lead-media{height:58vh;min-height:28rem}.lead-copy{margin:-10rem 0 0;padding:3rem 2rem 4rem;background:linear-gradient(0deg,var(--ed-night) 76%,transparent)}.lead-copy h1{font-size:clamp(3.5rem,10vw,6rem)}.lead-folio{display:none}.index-table button{grid-template-columns:2.5rem minmax(0,1fr) 5rem 3rem}.index-air,.index-eps{display:none}.mosaic-grid{grid-template-columns:1.1fr .9fr;grid-template-rows:22rem 14rem 14rem}.mosaic-item--1{grid-row:1/3}.mosaic-item--2{grid-column:2;grid-row:1}.mosaic-item:nth-child(n+6){display:none}}
   @media(max-width:680px){.lead-media{height:52vh;min-height:24rem}.lead-copy{margin-top:-8rem;padding-inline:1rem}.lead-copy h1{font-size:clamp(3rem,17vw,5rem)}.lead-description{font-size:.86rem}.editorial-index,.editorial-mosaic{padding:3rem 1rem}.section-heading{grid-template-columns:1fr}.section-heading p{justify-self:start}.index-table button{grid-template-columns:2rem minmax(0,1fr) 2.5rem 1rem;gap:.5rem}.index-title small{display:none}.mosaic-grid{grid-template-columns:1fr 1fr;grid-template-rows:18rem 11rem}.mosaic-item--1{grid-column:1/3;grid-row:1}.mosaic-item--2{grid-column:1;grid-row:2}.mosaic-item:nth-child(n+4){display:none}.mosaic-item--1 .mosaic-caption strong{font-size:2rem}}
-  @media(prefers-reduced-motion:reduce){.index-table button,.mosaic-item img{transition:none}.mosaic-item:hover img,.mosaic-item:focus-visible img{transform:none}}
+  @media(prefers-reduced-motion:reduce){.index-table button,.mosaic-item img,.today-card .today-art img{transition:none}.mosaic-item:hover img,.mosaic-item:focus-visible img,.today-card:hover .today-art img,.today-card:focus-visible .today-art img{transform:none}}
 </style>

@@ -174,6 +174,8 @@
     if (animeStore.activeTab === "recommend") {
       animeStore.loadRecommendations();
     }
+    // 预取放送表：主页「今日放送」rail 与时间表 tab 共用同一份数据（幂等）
+    void animeStore.loadCalendar();
     return () => window.removeEventListener("keydown", onKeydown, { capture: true });
   });
 
@@ -332,6 +334,10 @@
             onMoreSeasonal={() => animeStore.loadMoreSeasonal()}
             onMoreTrending={() => animeStore.loadMoreTrending()}
             onMoreTopRated={() => animeStore.loadMoreTopRated()}
+            schedule={animeStore.calendar.length ? animeStore.calendar : undefined}
+            scheduleLoading={animeStore.calendarLoading}
+            onOpenScheduleSubject={(subject, trigger) => { detailReturnFocus = trigger; searchBangumi(subject, trigger); }}
+            onOpenCalendarTab={() => animeStore.setTab("calendar")}
           />
         </div>
 

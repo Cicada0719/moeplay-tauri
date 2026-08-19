@@ -1035,7 +1035,7 @@ export const animeStore = {
   // ── Bangumi 时间表 ──────────────────────────────────────────────────
 
   async loadCalendar() {
-    if (_calendar.length > 0) return;
+    if (_calendar.length > 0 || _calendarLoading) return;
     _calendarLoading = true;
     try {
       _calendar = await invokeCmd<BangumiCalendarDay[]>("anime_bangumi_calendar");

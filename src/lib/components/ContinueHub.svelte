@@ -1,9 +1,11 @@
 <script lang="ts">
   import { continueStore, type ContinueItem, type ContinueStats } from "../stores/continue.svelte";
+  import { animeStore } from "../stores/anime.svelte";
   import { gameStore } from "../stores/games.svelte";
   import { uiStore } from "../stores/ui.svelte";
   import ContinueCard from "./ContinueCard.svelte";
   import StatBlock from "./activity/StatBlock.svelte";
+  import Icon from "./Icon.svelte";
   import { AsyncSection, ContentGrid, PageHeader, PageShell } from "./ui-v2";
 
   type ContinueFilter = "all" | "game" | "anime" | "comic";
@@ -32,6 +34,15 @@
   }
   function goTo(view: string) { uiStore.currentView = view; }
   function titleFor(type: ContinueFilter): string { return type === "game" ? "最近在玩" : type === "anime" ? "最近在看" : type === "comic" ? "最近在读" : "全部继续项目"; }
+  const todayWeekday = $derived(new Date().getDay() || 7);
+  const todaySchedule = $derived(animeStore.calendar.find((day) => day.weekday === todayWeekday)?.items ?? []);
+  const calendarLoading = $derived(animeStore.calendarLoading && animeStore.calendar.length === 0);
+  $effect(() => { void animeStore.loadCalendar(); });
+  function openScheduleTab() {
+    animeStore.calendarDay = todayWeekday;
+    animeStore.setTab("calendar");
+    uiStore.currentView = "anime";
+  }
 </script>
 
 <PageShell as="div" ariaLabel="今日继续" width="content" class="continue-hub-shell">
@@ -49,6 +60,32 @@
       <StatBlock label="漫画" value={stats.comicCount} />
     </ContentGrid>
   </AsyncSection>
+
+  {#if todaySchedule.length > 0}
+    <AsyncSection title="今日放送" description="今日在播番剧来自 Bangumi 放送表；点击进入完整时间表。" state="ready" class="continue-section">
+      <div class="today-schedule">
+        <div class="today-schedule-summary">
+          <StatBlock label="今日在播" value={todaySchedule.length} detail="部" tone="accent" />
+          <button class="today-schedule-link" type="button" onclick={openScheduleTab}>查看完整时间表 &#8594;</button>
+        </div>
+        <div class="today-schedule-covers">
+          {#each todaySchedule.slice(0, 3) as sub (sub.id)}
+            <button class="today-schedule-card" type="button" onclick={openScheduleTab}>
+              {#if animeStore.getImg(sub.image)}
+                <img src={animeStore.getImg(sub.image)} alt={sub.name_cn || sub.name} loading="lazy" decoding="async" />
+              {:else}
+                <div class="today-schedule-fallback"><Icon name="film" /></div>
+              {/if}
+              <span>{sub.name_cn || sub.name}</span>
+            </button>
+          {/each}
+        </div>
+        {#if calendarLoading}
+          <p class="today-schedule-loading" role="status">正在加载放送表…</p>
+        {/if}
+      </div>
+    </AsyncSection>
+  {/if}
 
   {#if topItem}
     <AsyncSection title="优先继续" description="综合最近活动、媒体类型和完成进度推荐。" state="ready" class="continue-section">
@@ -82,6 +119,17 @@
   .continue-filters button[aria-pressed="true"] { border-color: var(--v2-color-accent); background: color-mix(in srgb, var(--v2-color-accent) 16%, var(--v2-color-surface)); color: var(--v2-color-text); }
   .continue-filters button:focus-visible { outline: none; box-shadow: var(--v2-focus-ring); }
   .continue-filters span { min-width: 1.4rem; padding: .1rem .35rem; border-radius: 999px; background: color-mix(in srgb, var(--v2-color-text) 8%, transparent); font-family: var(--v2-font-mono); font-size: .68rem; text-align: center; }
+  .today-schedule { display: grid; gap: var(--v2-space-4); }
+  .today-schedule-summary { display: flex; align-items: center; justify-content: space-between; gap: var(--v2-space-3); flex-wrap: wrap; }
+  .today-schedule-link { min-height: 2.5rem; padding: .45rem .85rem; border: 1px solid var(--v2-color-border); border-radius: 999px; background: var(--v2-color-surface-subtle); color: var(--v2-color-text-secondary); font: inherit; font-weight: 700; cursor: pointer; }
+  .today-schedule-link:focus-visible { outline: none; box-shadow: var(--v2-focus-ring); }
+  .today-schedule-covers { display: grid; grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr)); gap: var(--v2-space-3); }
+  .today-schedule-card { display: grid; gap: var(--v2-space-2); min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+  .today-schedule-card img { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; border-radius: var(--v2-radius-lg); background: var(--v2-color-surface-subtle); }
+  .today-schedule-fallback { display: grid; place-items: center; width: 100%; aspect-ratio: 2 / 3; border-radius: var(--v2-radius-lg); background: var(--v2-color-surface-subtle); color: var(--v2-color-text-dim); }
+  .today-schedule-card span { overflow: hidden; font-size: var(--v2-text-sm); font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+  .today-schedule-card:focus-visible img, .today-schedule-card:focus-visible .today-schedule-fallback { outline: none; box-shadow: var(--v2-focus-ring); }
+  .today-schedule-loading { margin: 0; color: var(--v2-color-text-secondary); font-family: var(--v2-font-mono); font-size: var(--v2-text-xs); }
   .continue-group { display: grid; gap: var(--v2-space-3); margin-top: var(--v2-space-5); } .continue-group:first-child { margin-top: 0; } .continue-group header { display: flex; align-items: baseline; justify-content: space-between; gap: var(--v2-space-3); } .continue-group h3 { margin: 0; font-size: var(--v2-text-md); } .continue-group header > span { color: var(--v2-color-text-secondary); font-family: var(--v2-font-mono); font-size: var(--v2-text-xs); }
   @media (max-width: 42rem) { .continue-filters { width: 100%; } .continue-filters button { flex: 1 1 auto; justify-content: center; } }
 </style>
