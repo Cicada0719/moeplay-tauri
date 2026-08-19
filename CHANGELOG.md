@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.20.23 - 2026-08-18
+
+### 代码健康：anime store 切片
+
+- 将「章节评论」状态与加载逻辑从 `anime.svelte.ts` 拆到独立模块 `features/anime-player/episodeComments.svelte.ts`，store 对外接口（`animeStore.episodeComments` / `episodeCommentsLoading` / `loadEpisodeComments`）与类型重导出保持不变。
+- 开始 `anime.svelte.ts`（2391 行）按域拆分的第一步。
+
 ## 0.20.22 - 2026-08-18
 
 ### 测试加固
