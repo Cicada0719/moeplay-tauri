@@ -2,7 +2,10 @@ import { invokeCmd } from "./core";
 import type {
   Collection,
   DashboardData,
+  Game,
   MonthActivity,
+  Recommendation,
+  ThumbnailInfo,
 } from "./types";
 
 export type { DashboardData } from "./types";
@@ -150,4 +153,39 @@ export function toCollectionCountItems(collections: Collection[]): CollectionCou
     name: collection.name,
     count: collection.game_count,
   }));
+}
+
+export async function getRecommendations(
+  seedGameId: string | null = null,
+  limit = 12
+): Promise<Recommendation[]> {
+  return invokeCmd("get_recommendations", { seedGameId, limit });
+}
+
+
+export async function getSmartCollections(): Promise<Collection[]> {
+  return invokeCmd("get_smart_collections");
+}
+
+
+export async function getCollectionGames(collectionId: string): Promise<Game[]> {
+  return invokeCmd("get_collection_games", { collectionId });
+}
+
+
+export async function cacheThumbnail(
+  key: string,
+  source: string
+): Promise<ThumbnailInfo> {
+  return invokeCmd("cache_thumbnail", { key, source });
+}
+
+
+export async function getThumbnail(key: string): Promise<ThumbnailInfo | null> {
+  return invokeCmd("get_thumbnail", { key });
+}
+
+
+export async function clearThumbnailCache(): Promise<number> {
+  return invokeCmd("clear_thumbnail_cache");
 }
