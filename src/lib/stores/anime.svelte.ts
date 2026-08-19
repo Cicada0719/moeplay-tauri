@@ -7,6 +7,7 @@ import { mergeSearchResults, type MergedSearchEntry } from "../features/anime-se
 import { createSearchCoverFetcher } from "../features/anime-search/covers";
 import { isRecommendationSnapshotFresh, readRecommendationSnapshot, writeRecommendationSnapshot } from "../features/anime-home/recommendationCache";
 import { normalizeVideoEnhancementMode, type VideoEnhancementMode } from "../features/anime-player/localVideoEnhancement";
+import { episodeCommentsStore, type BangumiEpisodeComment } from "../features/anime-player/episodeComments.svelte";
 import { continueSource } from "./continue-source.svelte";
 
 // ── 类型 ──────────────────────────────────────────────────────────────────
@@ -234,12 +235,7 @@ export interface TraceMoeResult {
 
 // ── Bangumi 章节评论类型 ────────────────────────────────────────────────
 
-export interface BangumiEpisodeComment {
-  user: string;
-  avatar: string;
-  comment: string;
-  date: string;
-}
+export type { BangumiEpisodeComment } from "../features/anime-player/episodeComments.svelte";
 
 // ── localStorage 键 ──────────────────────────────────────────────────────
 
@@ -589,9 +585,6 @@ let _imageSearchResults = $state<TraceMoeResult[]>([]);
 let _imageSearchLoading = $state(false);
 let _imageSearchError = $state<string | null>(null);
 
-// 章节评论状态
-let _episodeComments = $state<BangumiEpisodeComment[]>([]);
-let _episodeCommentsLoading = $state(false);
 
 // ── 工具函数 ─────────────────────────────────────────────────────────────
 
@@ -911,9 +904,9 @@ export const animeStore = {
   get imageSearchLoading() { return _imageSearchLoading; },
   get imageSearchError() { return _imageSearchError; },
 
-  // 章节评论
-  get episodeComments() { return _episodeComments; },
-  get episodeCommentsLoading() { return _episodeCommentsLoading; },
+  // 章节评论（委托给独立模块）
+  get episodeComments() { return episodeCommentsStore.comments; },
+  get episodeCommentsLoading() { return episodeCommentsStore.loading; },
 
   get filteredCollection(): AnimeCollect[] {
     if (_collectFilter === 0) return _collection;
@@ -2375,19 +2368,10 @@ export const animeStore = {
     _imageSearchError = null;
   },
 
-  // ── 章节评论 ──────────────────────────────────────────────────────────
+  // ── 章节评论（委托给独立模块）──────────────────────────────────────────
 
   async loadEpisodeComments(episodeId: number) {
-    _episodeCommentsLoading = true;
-    _episodeComments = [];
-    try {
-      _episodeComments = await invokeCmd<BangumiEpisodeComment[]>('anime_bangumi_episode_comments', { episodeId });
-    } catch (e) {
-      console.warn('章节评论加载失败:', e);
-      _episodeComments = [];
-    } finally {
-      _episodeCommentsLoading = false;
-    }
+    await episodeCommentsStore.load(episodeId);
   },
 };
 
