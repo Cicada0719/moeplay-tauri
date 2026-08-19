@@ -58,7 +58,26 @@
 
   const animeStart = $derived(0);
   const comicStart = $derived(continueAnime.length);
-  const panelStart = $derived(continueAnime.length + continueComics.length);
+  // 完整收藏网格：追番合集 / 漫画收藏 位于继续行之后、探索面板之前
+  const collectionAnime = $derived<MediaItem[]>(
+    animeStore.collection.slice(0, 24).map((item) => ({
+      id: "anime-col-" + item.key,
+      title: item.name || item.key,
+      cover: item.image ? animeStore.getImg(item.image) || item.image : null,
+      type: "anime" as const,
+    })),
+  );
+  const favoriteComics = $derived<MediaItem[]>(
+    comicStore.favorites.slice(0, 24).map((favorite) => ({
+      id: "comic-fav-" + favorite.id,
+      title: favorite.title,
+      cover: favorite.thumb_url || null,
+      type: "comic" as const,
+    })),
+  );
+  const collectionAnimeStart = $derived(comicStart + continueComics.length);
+  const collectionComicStart = $derived(collectionAnimeStart + collectionAnime.length);
+  const panelStart = $derived(collectionComicStart + favoriteComics.length);
   const itemCount = $derived(panelStart + 2);
   const continueCount = $derived(continueAnime.length + continueComics.length);
 
@@ -66,6 +85,8 @@
     const result: number[][] = [];
     if (continueAnime.length) result.push(Array.from({ length: continueAnime.length }, (_, index) => animeStart + index));
     if (continueComics.length) result.push(Array.from({ length: continueComics.length }, (_, index) => comicStart + index));
+    if (collectionAnime.length) result.push(Array.from({ length: collectionAnime.length }, (_, index) => collectionAnimeStart + index));
+    if (favoriteComics.length) result.push(Array.from({ length: favoriteComics.length }, (_, index) => collectionComicStart + index));
     result.push([panelStart, panelStart + 1]);
     return result;
   });
@@ -179,6 +200,28 @@
         title="继续阅读"
         items={continueComics}
         startIndex={comicStart}
+        activeIndex={focusIdx}
+        zoneActive={active}
+        onfocusitem={setFocus}
+        onselect={onSelectMedia}
+      />
+    {/if}
+    {#if collectionAnime.length > 0}
+      <BPMediaRail
+        title="追番合集"
+        items={collectionAnime}
+        startIndex={collectionAnimeStart}
+        activeIndex={focusIdx}
+        zoneActive={active}
+        onfocusitem={setFocus}
+        onselect={onSelectMedia}
+      />
+    {/if}
+    {#if favoriteComics.length > 0}
+      <BPMediaRail
+        title="漫画收藏"
+        items={favoriteComics}
+        startIndex={collectionComicStart}
         activeIndex={focusIdx}
         zoneActive={active}
         onfocusitem={setFocus}
