@@ -533,7 +533,7 @@ fn decode_base64_html(value: &str) -> Option<String> {
         return None;
     }
     let mut output = Vec::with_capacity(value.len() / 4 * 3);
-    for chunk in value.as_bytes().chunks_exact(4) {
+    for chunk in value.as_bytes().as_chunks::<4>().0 {
         let mut values = [0u8; 4];
         let mut padding = 0usize;
         for (index, byte) in chunk.iter().copied().enumerate() {
