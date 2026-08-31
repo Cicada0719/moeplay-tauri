@@ -131,7 +131,7 @@
   let activeHls: Hls | null = null;
   // 当前实际加载到媒体元素上的源地址：媒体初始化 effect 开始加载时记录；switchQuality
   // 据此判断 targetSrc 是否真正变化——纯增强模式切换（同源）只更新 enhancement 管线状态，
-  // 不重载媒体，避免同源 m3u8 全量重缓冲（Kimi K3 复审 medium）。
+  // 不重载媒体，避免同源 m3u8 全量重缓冲。
   let loadedMediaSrc = "";
   let pendingQualitySeek = $state(0);
   let pendingQualitySeekSrc = $state("");
@@ -831,7 +831,7 @@
    * effect——HLS.js 复用同一实例 `loadSource`，原生则重新 `src + load`；idleTimer 因
    * 绑定在稳定的全屏容器上无需重建，从而根治超清切换后控制栏不再隐藏的问题。
    *
-   * Kimi K3 复审（medium）：画质档位是本地超清化 enhancement 管线状态，与视频源无关。
+   * 画质档位是本地超清化 enhancement 管线状态，与视频源无关。
    * `targetSrc`（animeStore.playerVideoSrc）未变化时只更新 enhancement 管线状态
    * （VideoEnhancementCanvas 响应 videoEnhancementMode），绝不重载媒体，避免同源
    * m3u8 全量重缓冲；仅当 `targetSrc` 相对当前已加载源（loadedMediaSrc）真正变化时
@@ -865,7 +865,7 @@
         loadedMediaSrc = targetSrc;
       } catch {
         // 重载失败路径：清理残留的 pendingQualitySeek，避免被后续无关加载误消费旧进度
-        // （Kimi K3 非阻塞建议）。
+        // （非阻塞错误恢复）。
         pendingQualitySeek = 0;
         pendingQualitySeekSrc = "";
         resumeAfterQualityLoad = true;

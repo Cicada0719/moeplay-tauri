@@ -48,7 +48,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"
 tokio-util = { version = "0.7", features = ["rt"] }
 # `parallel`：让 rquickjs 的 Runtime 成为 Send+Sync，从而引擎可持有 worker 的
 # Runtime 句柄并在取消/超时时直接调用 `runtime.set_interrupt_handler` 触发 JS 中断
-# （spec §3.3 / DeepSeek 复审第 7 项）。
+# （spec §3.3 / 并发取消回归契约）。
 rquickjs = { version = "0.8", features = ["loader", "macro", "array-buffer", "futures", "parallel"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }

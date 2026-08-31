@@ -3,7 +3,7 @@
 //! 迁移门控约定：`history_*` 系列命令在迁移状态非 `Completed | NotNeeded`
 //! 时返回 `"MIGRATION_PENDING"`，前端据此展示迁移进度页而非历史列表。
 //!
-//! 门控必须**非阻塞**（第 4 轮 DeepSeek 审核 item 2）：`history_*` 入口先读内存
+//! 门控必须**非阻塞**：`history_*` 入口先读内存
 //! 门控，非放行态时用 `Migrator::try_check`（`try_lock`）核对落盘；后台迁移持有
 //! 数据库连接锁时立即返回 `MIGRATION_PENDING`，绝不等待锁释放。
 
@@ -41,7 +41,7 @@ pub(crate) fn set_gate(gate: &Arc<RwLock<MigrationStatus>>, status: MigrationSta
     }
 }
 
-/// 历史读写命令的统一门控入口（spec §3.5 + 第 4 轮 DeepSeek 审核 item 2）。
+/// 历史读写命令的统一门控入口（spec §3.5）。
 ///
 /// 顺序：
 /// 1. **先读内存门控**（`RwLock` 读锁，非阻塞）——非 `Completed | NotNeeded`
@@ -161,7 +161,7 @@ pub async fn history_list(
     state: State<'_, AppState>,
 ) -> Result<Vec<HistoryRecord>, String> {
     // 非阻塞门控：先查内存状态、非放行态时用 try_lock 核对落盘，后台迁移持锁
-    // 立即返回 MIGRATION_PENDING 而非阻塞（第 4 轮 DeepSeek 审核 item 2）。
+    // 立即返回 MIGRATION_PENDING 而非阻塞。
     gate_history(&state)?;
 
     let history = history(&state)?;
@@ -187,7 +187,7 @@ pub async fn history_list(
 #[tauri::command]
 pub async fn history_delete(id: String, state: State<'_, AppState>) -> Result<(), String> {
     // 非阻塞门控：先查内存状态、非放行态时用 try_lock 核对落盘，后台迁移持锁
-    // 立即返回 MIGRATION_PENDING 而非阻塞（第 4 轮 DeepSeek 审核 item 2）。
+    // 立即返回 MIGRATION_PENDING 而非阻塞。
     gate_history(&state)?;
 
     let history = history(&state)?;

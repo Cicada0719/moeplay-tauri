@@ -152,7 +152,7 @@ pub const V2_SCHEMA_VERSION: i64 = 2;
 ///
 /// 事件名统一为 `migration://progress`：spec §4.2 步骤 8 明文定义为
 /// `migration://progress`，步骤 7 的示例文本写作 `migration-progress`（连字符）属笔误。
-/// 实现以步骤 8 为准；spec 属"禁止修改清单"（第 4 轮 DeepSeek 审核 item 1）已还原，
+/// 实现以步骤 8 为准；spec 属"禁止修改清单"已还原，
 /// 口径差异以本注释 + PR 说明表达，不再改动 spec 文件。
 pub const MIGRATION_PROGRESS_EVENT: &str = "migration://progress";
 
@@ -231,7 +231,7 @@ pub struct Migrator {
     ///
     /// setup 钩子的 `spawn_blocking` 迁移与 `migration_run` / `migration_restore_backup`
     /// 命令克隆共享同一个 `Arc`，两个 run 并发时后到的一方阻塞等待，避免交错写库 /
-    /// 更新 `migration_state` / 推送进度（第 3 轮 DeepSeek 审核 item 2）。
+    /// 更新 `migration_state` / 推送进度（并发迁移回归契约）。
     run_lock: Arc<Mutex<()>>,
 }
 
@@ -284,14 +284,14 @@ impl Migrator {
     ///
     /// 阻塞语义：`check()` 会获取数据库连接锁（可能等待后台迁移写库结束），
     /// 适合启动流程与 `migration_status` 这类"专查状态"的入口；`history_*`
-    /// 命令入口必须用 [`Self::try_check`] 的非阻塞变体（第 4 轮审核 item 2）。
+    /// 命令入口必须用 [`Self::try_check`] 的非阻塞变体。
     pub fn check(&self) -> Result<MigrationStatus, MigrationError> {
         let conn = self.db.conn();
         let guard = lock_conn(&conn)?;
         status_from_state(&guard, &self.app_data_dir)
     }
 
-    /// 非阻塞状态检查：`history_*` 命令入口专用（第 4 轮 DeepSeek 审核 item 2）。
+    /// 非阻塞状态检查：`history_*` 命令入口专用。
     ///
     /// 若后台迁移正持有数据库连接锁（分批写库中），返回 `Ok(None)` 表示
     /// "落盘状态此刻不可读"，调用方不得等待，应按"迁移进行中"返回
@@ -332,7 +332,7 @@ impl Migrator {
     /// 与 `run` 共享 `run_lock`，避免与并发迁移交错执行。
     ///
     /// 恢复成功后会把备份内容**写回 v1 路径**（`<app_data_dir>/history.json`，
-    /// 第 4 轮 DeepSeek 审核 item 4）：迁移状态虽已 `completed`，但用户能直接看到
+    /// 恢复成功后：迁移状态虽已 `completed`，但用户能直接看到
     /// v1 数据文件"回来了"，避免误以为恢复失败。
     pub fn restore_from_backup(
         &self,
@@ -391,7 +391,7 @@ impl Migrator {
     /// 迁移主体（`run` 与 `restore_from_backup` 共用）。
     fn run_with_source(&self, source: &Path) -> Result<MigrationReport, MigrationError> {
         if !source.exists() {
-            // 边界（Kimi K3 复审 item 2）：迁移中断（in_progress）/ 失败（rolled_back 等）
+            // 边界：迁移中断（in_progress）/ 失败（rolled_back 等）
             // 后 v1 源文件被外部删除或移动。此时续迁或重试都不可能完成，若不清理陈旧
             // 状态，`check()` 会因落盘 `migration_state` 恒返回 InProgress / Pending，
             // 门控永久卡死、`history_*` 命令永远 `MIGRATION_PENDING` 且无恢复入口。
@@ -480,7 +480,7 @@ impl Migrator {
         // 非续迁场景 staging 刚清空，基线即当前行数；断点续迁时 staging 保留了此前批次
         // INSERT 的 id，减去后得到真正的迁移前基线。最终校验只统计“本次迁移新写入的行”
         // （staging `kind='inserted'`）+ 基线，避免把迁移前已存在的记录误判为本次写入
-        // （第 3 轮 DeepSeek 审核 item 3）。
+        // （迁移条数回归契约）。
         let baseline = {
             let guard = lock_conn(&conn)?;
             let current: i64 =
@@ -736,7 +736,7 @@ impl Migrator {
         match outcome {
             Ok(report) => Ok(report),
             // 回滚时保留本次备份路径：备份文件不因失败而"孤儿化"，下次重试直接复用
-            // 该备份（第 4 轮 DeepSeek 审核 item 5：rolled_back 后 check() 返回 Pending，
+            // 该备份（rolled_back 后 check() 返回 Pending，
             // 重试不应再生成第二份备份）。
             Err(error) => Err(self.fail_and_rollback(&error.to_string(), backup_str.clone())),
         }
@@ -851,7 +851,7 @@ impl Migrator {
                 migrated_count: 0,
                 last_offset: 0,
                 // 保留本次备份路径：check() 据此返回 Pending（重试），重试的 run()
-                // 复用该备份而不再生成第二份（第 4 轮 DeepSeek 审核 item 5）。
+                // 复用该备份而不再生成第二份。
                 backup_path: Some(backup_path),
                 error_message: Some(message.to_string()),
                 started_at: None,

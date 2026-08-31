@@ -66,7 +66,7 @@ export const sourceSwitchState: Writable<SourceSwitchState> = writable({
 let callSeq = 0;
 
 /** 最近一次 switchSource 的 invocation scope（"play:{contentId}:{seq}"）。新调用用它
- *  作废旧调用的 search/chapters/parse（Kimi K3 复审第 7 项）。 */
+ *  作废旧调用的 search/chapters/parse。 */
 let activeInvocation: string | null = null;
 
 /**
@@ -89,7 +89,7 @@ export function normalizeTitle(s: string): string {
 }
 
 /** 竞态丢弃文案：前序切换被更新的切换请求取代。spec §5 要求 status='failed' 时必有
- *  message，此处以固定文案让消费方区分「被取代的丢弃结果」与真实失败（Kimi K3 复审第 4 项）。 */
+ *  message，此处以固定文案让消费方区分「被取代的丢弃结果」与真实失败。 */
 export const SWITCH_SUPERSEDED_MESSAGE = "请求已被更新请求取代";
 
 /** 构造一个全新的 failed 结果（每次返回新对象，避免共享引用被外部修改）。
@@ -127,7 +127,7 @@ function describeSwitchError(err: unknown): string {
  * 单位契约：`SwitchResult.resumeSec` 是秒（spec §3.5，来自 `SwitchContext.positionSec`），
  * 而播放器容器的 `_pendingSeekMs` / `playDirectVideoSource(…, seekMs)` 是毫秒——这里统一
  * 换算为 `resumeMs`（`resumeSec * 1000`），避免调用方把秒当毫秒传入导致续播点缩水 1000 倍
- * （Kimi K3 复审第 6 项 high）。
+ * （单位回归契约）。
  */
 export function switchResultToPlayback(result: SwitchResult): {
   url: string | null;
@@ -155,7 +155,7 @@ export function switchResultToPlayback(result: SwitchResult): {
  * 切换源并保持上下文。并发调用时仅最后一次生效。
  * 全程 try/catch，绝不向上抛未捕获异常（防白屏）。
  *
- * 并发契约（Kimi K3 复审第 7 项）：每次调用生成**独立** invocation scope
+ * 并发契约：每次调用生成**独立** invocation scope
  * （`play:{contentId}:{seq}`），search/chapters/parse 全程绑定该 scope。scope 按调用唯一 →
  * 旧调用迟到的 parse 不会取消最新调用已注册的 token；新调用通过 `cancelScope(旧 invocation)`
  * 把旧调用整体作废（而非 parse 单独注册共享 play scope）。
@@ -173,7 +173,7 @@ export async function switchSource(
 
   try {
     // 1. 作废旧 invocation（其 search/chapters/parse 一起取消）。首次调用无前序，跳过。
-    //    取消失败静默降级（Kimi K3 复审第 8 项）：取消旧调用的 IPC 异常不应阻断本次
+    //    取消失败静默降级：取消旧调用的 IPC 异常不应阻断本次
     //    全新切换，也不把旧调用的原始错误透进 lastError——旧调用最终仍会被 callSeq
     //    校验静默丢弃，不需要向用户展示取消链路上的底层错误。
     if (prevInvocation) {
@@ -187,14 +187,14 @@ export async function switchSource(
     // 2. 搜索匹配条目（spec §3.5 第 2 步）。
     //    §3.6 的置灰在 UI 层拦截禁用源（primary guard）；这里仍处理运行期错误路径：
     //    搜索无结果（notFound）与规则被禁用/不存在（RuleNotFound，由 describeSwitchError
-    //    转可读文案），两层并存不冲突。（DeepSeek 复审第 2 项）
+    //    转可读文案），两层并存不冲突。
     const items = await search(targetRuleId, ctx.title, 1, invocation);
     if (items.length === 0) {
       throw Object.assign(new Error("新源未找到该条目，请检查关键词或稍后重试"), {
         kind: "notFound",
       });
     }
-    // 标题归一化比较后取首个匹配项；找不到再回退 items[0]（Kimi K3 复审第 3 项：
+    // 标题归一化比较后取首个匹配项；找不到再回退 items[0]（标题匹配回归契约：
     // 源返回的条目标题常有全角/空白/标点差异，固定取 items[0] 可能命中无关条目）。
     const normalized = normalizeTitle(ctx.title);
     const matched = items.find((item) => normalizeTitle(item.title) === normalized);

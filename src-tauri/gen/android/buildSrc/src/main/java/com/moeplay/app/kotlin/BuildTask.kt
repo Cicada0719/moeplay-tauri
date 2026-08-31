@@ -16,7 +16,7 @@ open class BuildTask : DefaultTask() {
 
     @TaskAction
     fun assemble() {
-        val executable = """E:\soft\Kimi\resources\resources\runtime\node""";
+        val executable = resolveNodeExecutable()
         try {
             runTauriCli(executable)
         } catch (e: Exception) {
@@ -44,14 +44,31 @@ open class BuildTask : DefaultTask() {
         }
     }
 
+    private fun resolveNodeExecutable(): String {
+        val configured = System.getenv("MOEPLAY_NODE")?.trim()
+        if (!configured.isNullOrEmpty()) {
+            return configured
+        }
+        return if (Os.isFamily(Os.FAMILY_WINDOWS)) "node.exe" else "node"
+    }
+
     fun runTauriCli(executable: String) {
         val rootDirRel = rootDirRel ?: throw GradleException("rootDirRel cannot be null")
         val target = target ?: throw GradleException("target cannot be null")
         val release = release ?: throw GradleException("release cannot be null")
-        val args = listOf("tauri", "android", "android-studio-script");
+        val rustRoot = File(project.projectDir, rootDirRel).canonicalFile
+        val workspaceRoot = rustRoot.parentFile
+            ?: throw GradleException("Unable to resolve workspace root from rootDirRel")
+        val tauriCli = File(workspaceRoot, "node_modules/@tauri-apps/cli/tauri.js")
+        if (!tauriCli.isFile) {
+            throw GradleException(
+                "Tauri CLI not found at ${tauriCli.absolutePath}; install the project npm dependencies first"
+            )
+        }
+        val args = listOf(tauriCli.absolutePath, "android", "android-studio-script")
 
         project.exec {
-            workingDir(File(project.projectDir, rootDirRel))
+            workingDir(rustRoot)
             executable(executable)
             args(args)
             if (project.logger.isEnabled(LogLevel.DEBUG)) {

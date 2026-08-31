@@ -220,7 +220,7 @@ impl RuleManifest {
 ///
 /// 用于无文件名可用的 [`RuleInput::Manifest`](crate::rules::engine::RuleInput::Manifest)
 /// 输入（程序化/测试加载）：同一 manifest 值无论加载多少次都得到同一 id，
-/// 重复加载天然 upsert（Kimi K3 复审第 2 项）。
+/// 重复加载天然 upsert。
 ///
 /// 用「规范化序列化」而非原始文件字节：字段顺序固定（struct 声明序），同一
 /// manifest 值恒等序列化，保证 id 与文件格式（JSON/YAML）、缩进无关。
@@ -231,7 +231,7 @@ pub fn stable_rule_id(manifest: &RuleManifest) -> String {
 
 /// 从规则文件路径取稳定 id：文件 stem（不含扩展名）。
 ///
-/// 自定义规则的 id 采用文件名 stem（Kimi K3 复审第 1 项，`rules_import` 落盘为
+/// 自定义规则的 id 采用文件名 stem（`rules_import` 落盘为
 /// `custom_rules/{stem}.json`，`rules_load_all` 以同一文件重载时 id 恒等）：
 /// - 幂等：无论加载多少次、重启多少次，id 都与磁盘文件名一一对应；
 /// - 删除链路不断裂：`rules_remove_custom` 按 `{rule_id}.json` 定位文件删除，

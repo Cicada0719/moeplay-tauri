@@ -28,12 +28,12 @@ const WORKER_COUNT: usize = 4;
 
 /// 编译阶段并发上限（信号量）：`compile_manifest` 每条规则单独 `std::thread::spawn` +
 /// 新建 Sandbox（QuickJS runtime），而 `load_rules` 用 `join_all` 无并发上限——几十上
-/// 百条规则会瞬间派生等量线程并各建一个 runtime（Kimi K3 复审第 6 项）。用信号量把
+/// 百条规则会瞬间派生等量线程并各建一个 runtime。用信号量把
 /// 同时编译的规则数限制到与执行 worker 一致的数量，超出者等待而非并发开线程。
 const COMPILE_CONCURRENCY: usize = WORKER_COUNT;
 
 /// 取消/超时后等待 worker 真正退出当前任务的宽限期；超时则回收重建该 worker，
-/// 避免其永久占用导致后续任务堆积（DeepSeek 审核项 1）。
+/// 避免其永久占用导致后续任务堆积。
 const CANCEL_RECYCLE_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// 硬中断安装的同步宽限：worker 正常退出后等待 `hard_interrupt_js` 的 spawn_blocking
@@ -156,7 +156,7 @@ struct WorkerHandle {
 /// 单 worker 槽位：句柄的读取（派发）与替换（回收）用**每槽独立 Mutex** 保护，
 /// 而非全局池锁。任何临界区都不含 `.await`（只做 `tx`/`interrupt` 克隆或句柄替换），
 /// 因此 `wait_worker_exit` 期间 `recycle_worker` 替换句柄不会与派发路径发生
-/// 锁顺序死锁（DeepSeek 审核第 3 项）。
+/// 锁顺序死锁。
 struct WorkerSlot {
     handle: Mutex<WorkerHandle>,
 }
@@ -246,7 +246,7 @@ impl RuleEngine {
     }
 
     /// 测试专用：注入硬中断安装延迟，复现「取消后硬中断迟到执行」的竞态
-    /// （Kimi K3 复审项，见 `hard_interrupt_late_install_does_not_poison_next_task`）。
+    /// （见 `hard_interrupt_late_install_does_not_poison_next_task`）。
     #[cfg(test)]
     pub(crate) fn with_hard_interrupt_delay(mut self, delay: Duration) -> Self {
         self.hard_interrupt_delay = delay;
@@ -254,7 +254,7 @@ impl RuleEngine {
     }
 
     /// 测试专用：暴露编译并发门闩，用于验证 `compile_manifest` 的并发上限
-    /// （Kimi K3 复审第 6 项，见 `compile_concurrency_bounded_by_semaphore`）。
+    /// （见 `compile_concurrency_bounded_by_semaphore`）。
     #[cfg(test)]
     pub(crate) fn compile_permits(&self) -> Arc<tokio::sync::Semaphore> {
         self.compile_permits.clone()
@@ -269,12 +269,12 @@ impl RuleEngine {
     async fn load_one(&self, input: RuleInput) -> LoadedRule {
         let (id, manifest, origin) = match input {
             RuleInput::Manifest { manifest, origin } => {
-                // 无文件名可用的输入 → 内容 hash 稳定 id（Kimi K3 复审第 2 项：重复
+                // 无文件名可用的输入 → 内容 hash 稳定 id：重复
                 // 加载同一 manifest 得同一 id，天然 upsert）。
                 (stable_rule_id(&manifest), manifest, origin)
             }
             RuleInput::File { path, origin } => {
-                // 文件规则 id = 文件名 stem（Kimi K3 复审第 1 项）：幂等且与磁盘文件
+                // 文件规则 id = 文件名 stem：幂等且与磁盘文件
                 // 一一对应，就地编辑内容也不变，删除链路 `custom_rules/{id}.json` 不断裂。
                 let id = file_stem_id(&path);
                 let format = match RuleFileFormat::from_path(&path) {
@@ -490,7 +490,7 @@ impl RuleEngine {
 
     /// 取消指定 scope（如 "play:{contentId}"）下所有未完成任务。
     ///
-    /// 取消后把该 scope 条目从表内移除（Kimi K3 复审第 7 项）：换源竞态修复后每次调用
+    /// 取消后把该 scope 条目从表内移除：换源竞态修复后每次调用
     /// 生成**独立** invocation scope（`play:{contentId}:{seq}`），若不移除，每次换源都会在
     /// `scopes` 表残留一个已取消的 token 条目，长会话无界增长。`new_scope_token` 对已移除
     /// 的 scope 会创建全新 token（旧调用迟到的操作可重新注册，但被前端 seq 校验丢弃），
@@ -534,7 +534,7 @@ impl RuleEngine {
 
     /// 查询 id 是否已注册（Ready 与 Invalid 均计入）。
     ///
-    /// 供 `rules_import` 规避同名覆盖（Kimi K3 复审第 4 项）：导入前检查目标 id 是否
+    /// 供 `rules_import` 规避同名覆盖：导入前检查目标 id 是否
     /// 已被注册，是则改用追加后缀的新 id，绝不静默覆盖既有规则的注册表条目。
     pub fn is_registered(&self, rule_id: &str) -> bool {
         self.rules.read().unwrap().contains_key(rule_id)
@@ -544,7 +544,7 @@ impl RuleEngine {
     ///
     /// Invalid 规则（含解析失败生成的占位 manifest）不参与导出：其脚本字段为空/残缺，
     /// 导出后再导入会因 schema 校验失败，破坏「导出后导入条数一致」的往返契约
-    /// （Kimi K3 复审项；spec §6.1 测试 13）。
+    /// （spec §6.1 测试 13）。
     pub fn all_manifests(&self) -> Vec<RuleManifest> {
         self.rules
             .read()
@@ -557,7 +557,7 @@ impl RuleEngine {
 
     /// 生成一个**仅覆盖单次调用生命周期**的取消 token（不注册进 scope 表）。
     ///
-    /// 并发 scope 修复（Kimi K3 复审项）：`rules_search`/`rules_detail`/`rules_chapters`
+    /// 并发 scope 修复：`rules_search`/`rules_detail`/`rules_chapters`
     /// 是过程性子操作（翻页/详情/章节），同一规则上的并发调用（如翻页 page=1 与 page=2）
     /// 不应互相取消。只有真正需要按 scope 取消的任务（如 `rules_parse` 的 `play:{contentId}`，
     /// 用于 FR-02 源切换竞态）才用 `new_scope_token` 注册进 scope 表。
@@ -568,7 +568,7 @@ impl RuleEngine {
     /// 为一次调用生成取消 token：`invocation` 非空时注册进 scope 表（换源竞态契约），
     /// 为空时退化为 per-call token（互不取消）。
     ///
-    /// 换源并发契约（Kimi K3 复审第 7 项）：每次 `switchSource` 调用生成**独立** invocation
+    /// 换源并发契约：每次 `switchSource` 调用生成**独立** invocation
     /// scope（如 `play:{contentId}:{seq}`），search/chapters/parse 全程绑定该 scope。scope
     /// 按调用唯一 → 旧调用迟到的 `new_scope_token` 不会取消最新调用已注册的 token；新调用
     /// 通过 `cancel_scope(旧 invocation)` 把旧调用的 search/chapters/parse 整体作废。
@@ -661,7 +661,7 @@ impl RuleEngine {
                 // spec §3.3：真正调用 runtime.set_interrupt_handler 发 JS 中断（不只看标志位）。
                 let hard_join = self.hard_interrupt_js(&runtime, &interrupt);
                 let recycled = self.wait_worker_exit(slot_idx, &mut result_fut).await;
-                // Kimi K3 复审项：worker 正常退出后 runtime 内部锁已空闲，这里有界
+                // worker 正常退出后 runtime 内部锁已空闲，这里有界
                 // join/await 硬中断安装完成再返回，保证硬中断不晚于 worker 下一次 rearm；
                 // 超时则 detach（flag 处理器保证迟到安装也绝不污染下一任务）。回收分支
                 // 跳过等待——旧 worker 可能仍被 fetch 阻塞持有锁，等待会拖慢取消路径。
@@ -690,7 +690,7 @@ impl RuleEngine {
     /// async 取消路径。因此放进 `tokio::task::spawn_blocking` 异步执行：锁空闲时立即
     /// 生效，被占用时等锁释放后生效（AtomicBool 中断已先行触发 JS 中止并释放锁）。
     ///
-    /// 竞态修复（Kimi K3 复审）：安装的是 **flag 驱动**处理器而非恒 `true`。恒 `true`
+    /// 竞态修复：安装的是 **flag 驱动**处理器而非恒 `true`。恒 `true`
     /// 处理器若延迟到 worker 已为下一任务 `rearm_interrupt`（复位 flag 并重装处理器）
     /// 之后才安装，会把 always-true 中断装到下一任务上，令其被无条件中断。flag 处理器
     /// 在 rearm 复位后读到 `false`，迟到安装只会覆盖成与 rearm 相同的处理器，绝无残留
@@ -754,7 +754,7 @@ impl RuleEngine {
 }
 
 /// 解析/读取失败时的占位 manifest：用文件 stem 作 name，避免列表/导出出现无名条目
-/// （Kimi K3 复审非阻塞项）。
+/// （非阻塞错误恢复）。
 fn placeholder_manifest(path: &Path) -> RuleManifest {
     RuleManifest {
         name: file_stem_id(path),
