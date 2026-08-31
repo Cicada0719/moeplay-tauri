@@ -16,6 +16,7 @@
   import { platformStore } from "../platform/runtime.svelte";
   import { navigateTo } from "../stores/router.svelte";
   import HandheldMediaShell from "../features/handheld/HandheldMediaShell.svelte";
+  import HandheldAnimeHub from "../features/handheld/HandheldAnimeHub.svelte";
   import HandheldStatePanel from "../features/handheld/HandheldStatePanel.svelte";
 
   let searchInput = $state("");
@@ -54,6 +55,11 @@
     isSearching = true;
     await animeStore.search(searchInput.trim());
     isSearching = false;
+  }
+
+  async function searchFromHandheld(keyword: string) {
+    searchInput = keyword;
+    await animeStore.search(keyword);
   }
 
   function clearSearch() {
@@ -135,8 +141,8 @@
     activateMainTab(MAIN_TABS[next].id, next);
   }
 
-  function openProviderV2(event: MouseEvent) {
-    providerV2ReturnFocus = event.currentTarget as HTMLElement;
+  function openProviderV2(event?: MouseEvent) {
+    providerV2ReturnFocus = event?.currentTarget instanceof HTMLElement ? event.currentTarget : document.activeElement instanceof HTMLElement ? document.activeElement : null;
     providerV2Active = true;
   }
 
@@ -806,6 +812,23 @@
   </section>
 {/snippet}
 
+{#snippet handheldAnimeOverlay()}
+  {#if providerV2Active}
+    <div class="provider-v2-overlay handheld-provider-overlay">
+      {#await import("./anime/provider-v2/ProviderV2Workspace.svelte") then { default: ProviderV2Workspace }}
+        <ProviderV2Workspace onExit={closeProviderV2} />
+      {/await}
+    </div>
+  {:else if animeStore.view === "player"}
+    {#await import("./anime/AnimePlayer.svelte") then { default: AnimePlayer }}
+      <AnimePlayer />
+    {/await}
+  {:else if animeStore.view === "detail"}
+    <AnimeDetail returnFocus={() => detailReturnFocus} />
+  {/if}
+  <SourceSheet />
+{/snippet}
+
 <PageShell as="div" ariaLabel="番剧主内容" width="full" class="anime-page">
   {#if platformStore.isAndroid}
     <HandheldMediaShell
@@ -815,8 +838,19 @@
       chromeMode={animeStore.view === "player" ? "auto" : "persistent"}
       artwork={{ role: "anime" }}
       onback={closeAnimeSurface}
+      overlay={handheldAnimeOverlay}
     >
-      {#snippet children()}{@render animePageContent()}{/snippet}
+      {#snippet children()}
+        <HandheldAnimeHub
+          onSearch={searchFromHandheld}
+          onOpenResult={openResult}
+          onOpenSubject={searchBangumi}
+          onResumeHistory={(item, trigger) => { detailReturnFocus = trigger ?? null; void animeStore.resumeHistory(item); }}
+          onOpenRules={() => animeStore.setTab("rules")}
+          onOpenProvider={openProviderV2}
+          onBack={closeAnimeSurface}
+        />
+      {/snippet}
     </HandheldMediaShell>
   {:else}
     {@render animePageContent()}

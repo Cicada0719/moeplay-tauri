@@ -83,7 +83,7 @@
   function mediaHandlers(): GamepadHandlers {
     const result: GamepadHandlers = {};
     const available = { ...handlers, ...(handlers.back || !onback ? {} : { back: onback }) };
-    for (const action of ["up", "down", "left", "right", "pageLeft", "pageRight", "activate", "launch", "favorite", "filter", "back", "start"] as const) {
+    for (const action of ["up", "down", "left", "right", "pageLeft", "pageRight", "categoryLeft", "categoryRight", "activate", "launch", "favorite", "filter", "back", "start"] as const) {
       if (available[action]) result[action] = () => callHandler(action);
     }
     return result;

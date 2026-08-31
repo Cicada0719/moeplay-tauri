@@ -1470,11 +1470,43 @@ export const animeStore = {
     _detailUrl = sourceUrl;
   },
 
+  /**
+   * 详情页已经知道来源时，先直接读取线路。
+   *
+   * 搜索结果进入详情不应该再要求用户重复搜索一次；如果来源暂时不可用，
+   * 调用方仍可回退到 SourceSheet 选择其它来源。只有当前详情仍对应这次请求
+   * 时才写入 roads，避免快速切换作品后旧请求污染新详情。
+   */
+  async loadRoadsForSource(ruleName: string, sourceUrl: string): Promise<Road[]> {
+    if (!ruleName || !sourceUrl) return [];
+    const requestName = _detailName;
+    const roads = await invokeCmd<Road[]>("anime_fetch_roads", {
+      ruleName,
+      pageUrl: sourceUrl,
+    });
+    if (_detailName === requestName && _detailRuleName === ruleName && _detailUrl === sourceUrl) {
+      _roads = Array.isArray(roads) ? roads : [];
+    }
+    return Array.isArray(roads) ? roads : [];
+  },
+
   async playEpisode(roadIdx: number, episodeIdx: number, seekMs?: number) {
     const road = _roads[roadIdx];
-    if (!road) return;
+    if (!road) {
+      _playerExtractStatus = 'error';
+      _playerFailureKind = 'roadEmpty';
+      _playerFailureMessage = '当前播放线路不可用，请重新选择来源';
+      _sourceSheetOpen = true;
+      return false;
+    }
     const ep = road.episodes[episodeIdx];
-    if (!ep) return;
+    if (!ep) {
+      _playerExtractStatus = 'error';
+      _playerFailureKind = 'roadEmpty';
+      _playerFailureMessage = '当前剧集不存在，请重新选择剧集';
+      _sourceSheetOpen = true;
+      return false;
+    }
 
     _playerRoadIdx = roadIdx;
     _playerEpisodeIdx = episodeIdx;

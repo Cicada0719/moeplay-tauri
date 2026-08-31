@@ -8,6 +8,7 @@ import { invokeCmd } from '../../api/core';
   import { focusRovingItem, nextRovingIndex } from './a11y';
   import { debugLog } from '../../utils/debug';
   import { rankSearchItems } from '../../utils/animeSource';
+  import { platformStore } from '../../platform/runtime.svelte';
 
   const rules = $derived(animeStore.rules);
   const detailName = $derived(animeStore.detailName);
@@ -45,6 +46,7 @@ import { invokeCmd } from '../../api/core';
   $effect(() => {
     const nonce = animeStore.sourceSheetNonce;
     const open = animeStore.sourceSheetOpen;
+    const ruleCount = rules.length;
     if (open && nonce !== readyNonce && animeStore.detailName) {
       step = 'search';
       episodeRoads = [];
@@ -53,11 +55,18 @@ import { invokeCmd } from '../../api/core';
       loadError = null;
       readyNonce = nonce;
       startSearch();
+    } else if (open && nonce === readyNonce && animeStore.detailName && ruleCount > 0 && searchResults.size === 0) {
+      // 规则可能正在页面启动时从后端/规则仓库恢复。旧逻辑在 0 条规则时
+      // 静默退出，恢复完成后也没有第二次触发，最终表现为「开始观看没反应」。
+      startSearch();
     }
   });
 
   function startSearch() {
-    if (!detailName || rules.length === 0) {
+    if (!detailName) {
+      return;
+    }
+    if (rules.length === 0) {
       console.warn('[SourceSheet] startSearch bail:', { detailName, rulesLen: rules.length });
       return;
     }
@@ -161,10 +170,18 @@ import { invokeCmd } from '../../api/core';
         loadError = '未能解析到播放线路';
       }
     } catch (e) {
-      loadError = String(e);
+      loadError = sourceErrorMessage(e);
     } finally {
       loadingRoads = false;
     }
+  }
+
+  function sourceErrorMessage(error: unknown): string {
+    const message = String(error ?? '').toLowerCase();
+    if (message.includes('timeout') || message.includes('超时')) return '来源响应超时，请重试或切换其它来源';
+    if (message.includes('captcha') || message.includes('验证')) return '来源需要完成验证后才能读取剧集';
+    if (message.includes('network') || message.includes('连接') || message.includes('fetch')) return '来源暂时无法连接，请检查网络后重试';
+    return '读取剧集失败，请重试或切换其它来源';
   }
 
   // 在选集步点某一集 → 设置线路数据、关面板、播放该集
@@ -242,8 +259,9 @@ import { invokeCmd } from '../../api/core';
   title={step === 'episodes' ? (episodeItemName || '选择剧集') : '选择播放源'}
   description={step === 'episodes' ? '选择线路与剧集；关闭播放器后会回到当前剧集。' : `正在为“${detailName}”检查可用经典来源。`}
   actions={sheetActions}
-  side="bottom"
+  side={platformStore.isAndroid ? "right" : "bottom"}
   size="lg"
+  density={platformStore.isAndroid ? "couch" : "comfortable"}
   onClose={closeSheet}
   initialFocus={step === 'episodes' ? `[data-episode-key="${activeRoadIdx}-${Math.max(lastWatchedEp, 0)}"]` : '[data-source-tab]'}
   returnFocus
@@ -330,6 +348,13 @@ import { invokeCmd } from '../../api/core';
         <div class="source-results" id="anime-source-results" role="tabpanel">
           {#if loadingRoads}
             <AsyncState state="loading" title="正在读取线路" description="来源已匹配，正在获取可播放剧集。" compact loadingDelayMs={0} />
+          {:else if rules.length === 0}
+            <EmptyState
+              icon="settings"
+              title="还没有可用播放源"
+              description="规则正在恢复，或尚未安装任何来源。关闭面板后到规则页安装来源。"
+              class="source-empty"
+            />
           {:else if !currentResult || currentResult.status === 'pending'}
             <AsyncState state="loading" title="正在检索来源" description="可先切换其他来源查看已返回结果。" compact loadingDelayMs={0} />
           {:else if currentResult.status === 'verifying'}
@@ -383,6 +408,27 @@ import { invokeCmd } from '../../api/core';
 <style>
   :global(.v2-drawer.anime-source-drawer) { width: min(62rem, calc(100vw - 1rem)); max-height: min(82vh, 54rem); }
   :global(.v2-drawer.anime-source-drawer .v2-drawer__body) { padding: 0; }
+  @media (orientation: landscape) and (max-width: 900px) {
+    :global(.v2-drawer--right.anime-source-drawer) {
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: auto;
+      width: min(390px, 86vw);
+      min-width: 300px;
+      max-height: none;
+      border-radius: 0;
+    }
+    :global(.v2-drawer--right.anime-source-drawer .v2-drawer__header) { padding: 10px 14px; }
+    :global(.v2-drawer--right.anime-source-drawer .v2-drawer__heading h2) { font-size: 1.05rem; }
+    :global(.v2-drawer--right.anime-source-drawer .v2-drawer__heading p) { font-size: .72rem; }
+    :global(.v2-drawer--right.anime-source-drawer .source-sheet) { height: 100%; }
+    .source-tabs { width: 116px; }
+    .source-tab { padding-inline: 10px; font-size: 12px; }
+    .episode-scroll { padding-inline: 12px; }
+    .episode-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+    .episode-btn { min-height: 44px; padding-inline: 5px; font-size: 12px; }
+  }
   .source-back { min-height: 2.5rem; display: inline-flex; align-items: center; gap: .35rem; border: 1px solid var(--v2-color-border); border-radius: .55rem; background: transparent; color: var(--v2-color-text); padding: .45rem .7rem; cursor: pointer; }
   .road-tab { min-height: 2.5rem; padding: .45rem .8rem; border: 1px solid rgba(255,255,255,.1); border-radius: .6rem; background: rgba(255,255,255,.03); color: rgba(255,255,255,.7); cursor: pointer; }
   .road-tab.active { color: #fff; border-color: rgba(232,85,127,.55); background: rgba(232,85,127,.12); }

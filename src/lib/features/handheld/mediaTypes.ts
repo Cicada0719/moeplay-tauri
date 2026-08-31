@@ -11,6 +11,8 @@ export type HandheldMediaAction =
   | "right"
   | "pageLeft"
   | "pageRight"
+  | "categoryLeft"
+  | "categoryRight"
   | "activate"
   | "launch"
   | "favorite"
