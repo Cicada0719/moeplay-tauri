@@ -4,6 +4,7 @@
   import { attachGamepad, type GamepadHandlers } from "../../components/switch/useGamepad.svelte";
   import { gamepadGlyphFor } from "../../platform/gamepadRemap";
   import { orientationStore, platformStore } from "../../platform";
+  import { navigateTo } from "../../stores/router.svelte";
   import HandheldArtworkStage from "./HandheldArtworkStage.svelte";
   import HandheldStatePanel from "./HandheldStatePanel.svelte";
   import type { HandheldMediaKind, HandheldMediaShellProps } from "./mediaTypes";
@@ -40,6 +41,13 @@
   };
 
   const media = $derived(labels[kind]);
+  const routeNav = [
+    { id: "home", label: "主屏幕", icon: "home", view: "home" },
+    { id: "game-library", label: "游戏库", icon: "gamepad", view: "game-library" },
+    { id: "anime", label: "番剧", icon: "tv", view: "anime" },
+    { id: "comic", label: "漫画", icon: "image", view: "comic" },
+    { id: "novel", label: "小说", icon: "book", view: "novel" },
+  ] as const;
   const safeProgress = $derived(Math.min(1, Math.max(0, Number.isFinite(progress) ? progress : 0)));
   const isAndroid = $derived(platformStore.isAndroid);
   const autoChrome = $derived(chromeMode === "auto");
@@ -78,6 +86,11 @@
   function callHandler(action: keyof GamepadHandlers) {
     revealChrome();
     handlers[action]?.();
+  }
+
+  function navigateRoute(view: string) {
+    if (view === kind) return;
+    navigateTo(view);
   }
 
   function mediaHandlers(): GamepadHandlers {
@@ -152,19 +165,31 @@
   {/if}
 
   <header class="hms-chrome hms-header">
-    <div class="hms-header-main">
+    <div class="hms-header-main hms-brand-group">
       {#if onback}
         <button class="hms-back" type="button" aria-label="返回" data-gamepad-activate="返回" onclick={onback}>
           <Icon name="arrowLeft" size={18} />
         </button>
       {/if}
+      <button class="hms-brand" type="button" aria-label="返回掌机主屏幕" onclick={() => navigateTo("home")}>
+        <strong>萌游</strong><small>PORTABLE / XMB</small>
+      </button>
       <div class="hms-title-block">
         <div class="hms-eyebrow"><span>{media.eyebrow}</span><b>{media.label}</b></div>
         <strong>{title || media.label}</strong>
         {#if subtitle}<small>{subtitle}</small>{/if}
       </div>
     </div>
+    <nav class="hms-nav" aria-label="掌机主导航">
+      {#each routeNav as item (item.id)}
+        <button type="button" class:active={item.id === kind} aria-current={item.id === kind ? "page" : undefined} onclick={() => navigateRoute(item.view)}>
+          <Icon name={item.icon} size={14} /><span>{item.label}</span>
+        </button>
+      {/each}
+    </nav>
     <div class="hms-header-side">
+      <button class="hms-quick-action" type="button" aria-label="打开模拟器导入" onclick={() => navigateTo("handheld-import")}><Icon name="database" size={14} /><span>导入</span></button>
+      <button class="hms-quick-action" type="button" aria-label="打开掌机设置" onclick={() => navigateTo("settings")}><Icon name="settings" size={15} /><span>设置</span></button>
       {#if progressLabel}<span class="hms-progress-label">{progressLabel}</span>{/if}
       {#if headerActions}{@render headerActions()}{/if}
     </div>
@@ -252,10 +277,10 @@
   .chrome-hidden .hms-footer { opacity: 0; transform: translateY(105%); pointer-events: none; }
 
   .hms-header {
-    display: flex;
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr) max-content;
     align-items: center;
-    justify-content: space-between;
-    gap: 16px;
+    gap: clamp(8px, 1.4vw, 18px);
     min-height: 64px;
     padding: max(8px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) 8px max(14px, env(safe-area-inset-left));
     border-bottom: 1px solid rgba(255, 255, 255, .1);
@@ -263,8 +288,8 @@
     backdrop-filter: blur(14px) saturate(1.1);
   }
   .hms-header-main, .hms-header-side, .hms-eyebrow, .hms-hints { display: flex; align-items: center; }
-  .hms-header-main { min-width: 0; gap: 12px; }
-  .hms-header-side { flex: 0 0 auto; gap: 9px; }
+  .hms-header-main { min-width: 0; gap: 10px; }
+  .hms-header-side { flex: 0 0 auto; gap: 6px; min-width: max-content; }
   .hms-back {
     display: grid;
     width: 44px;
@@ -278,6 +303,56 @@
     cursor: pointer;
   }
   .hms-back:hover { border-color: var(--hms-accent); background: color-mix(in srgb, var(--hms-accent) 14%, transparent); }
+  .hms-brand {
+    display: grid;
+    gap: 3px;
+    min-width: 78px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+  }
+  .hms-brand strong { color: var(--hms-accent); font: 850 1.08rem/1 var(--font-display, system-ui); letter-spacing: .05em; text-shadow: 0 0 18px color-mix(in srgb, var(--hms-accent) 34%, transparent); }
+  .hms-brand small { color: rgba(255, 255, 255, .42); font: 700 7px/1 var(--font-mono, monospace); letter-spacing: .1em; white-space: nowrap; }
+  .hms-nav { display: flex; align-items: center; justify-content: center; gap: 3px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .hms-nav::-webkit-scrollbar { display: none; }
+  .hms-nav button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-width: 58px;
+    min-height: 40px;
+    padding: 0 7px;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    background: transparent;
+    color: rgba(255, 255, 255, .48);
+    font: 700 .66rem/1 var(--font-ui, system-ui);
+    white-space: nowrap;
+    cursor: pointer;
+    transition: color 160ms ease, background 160ms ease, border-color 160ms ease, transform 160ms ease;
+  }
+  .hms-nav button:hover { color: #fff; background: rgba(255, 255, 255, .04); }
+  .hms-nav button.active { border-color: color-mix(in srgb, var(--hms-accent) 68%, transparent); background: color-mix(in srgb, var(--hms-accent) 14%, transparent); color: #fff; transform: translateY(-1px); }
+  .hms-quick-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-height: 36px;
+    padding: 0 8px;
+    border: 1px solid rgba(255, 255, 255, .14);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, .04);
+    color: rgba(255, 255, 255, .72);
+    font: 700 .64rem/1 var(--font-ui, system-ui);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .hms-quick-action:first-child { border-color: color-mix(in srgb, var(--hms-accent) 50%, transparent); color: var(--hms-accent); }
+  .hms-quick-action:hover, .hms-quick-action:focus-visible { border-color: var(--hms-accent); color: #fff; background: color-mix(in srgb, var(--hms-accent) 12%, transparent); }
   .hms-back-dock {
     position: absolute;
     z-index: 25;
@@ -300,6 +375,7 @@
   .hms-back-dock.visible { opacity: 1; pointer-events: auto; transform: none; }
   .hms-back-dock:hover { border-color: var(--hms-accent); background: color-mix(in srgb, var(--hms-accent) 14%, rgba(7, 9, 12, .78)); }
   .hms-title-block { min-width: 0; display: grid; gap: 3px; }
+  .hms-title-block { max-width: min(22vw, 220px); }
   .hms-title-block strong, .hms-title-block small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hms-title-block strong { font: 750 15px/1.15 var(--font-display, system-ui); letter-spacing: -.02em; }
   .hms-title-block small { color: rgba(255, 255, 255, .54); font-size: 10px; }
@@ -324,6 +400,10 @@
 
   @media (max-width: 760px) {
     .hms-header { min-height: 58px; gap: 8px; padding-inline: max(10px, env(safe-area-inset-left)) max(10px, env(safe-area-inset-right)); }
+    .hms-nav { justify-content: flex-start; }
+    .hms-nav button { min-width: 54px; padding-inline: 5px; }
+    .hms-quick-action span { display: none; }
+    .hms-quick-action { width: 34px; padding-inline: 0; }
     .hms-title-block strong { font-size: 13px; }
     .hms-progress-label { display: none; }
     .hms-hints { gap: 6px 9px; font-size: 9px; }
@@ -333,6 +413,10 @@
   @media (max-height: 560px) and (orientation: landscape) {
     .hms-header { min-height: 50px; padding-block: max(5px, env(safe-area-inset-top)) 5px; }
     .hms-back { width: 38px; height: 38px; border-radius: 9px; }
+    .hms-brand { min-width: 70px; }
+    .hms-brand strong { font-size: 1rem; }
+    .hms-nav button { min-height: 36px; min-width: 54px; padding-inline: 5px; font-size: .6rem; }
+    .hms-quick-action { min-height: 32px; padding-inline: 7px; }
     .hms-back-dock { width: 40px; height: 40px; border-radius: 9px; }
     .hms-title-block strong { font-size: 13px; }
     .hms-eyebrow { font-size: 7px; }
@@ -342,6 +426,6 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .hms-chrome { transition: none; }
+    .hms-chrome, .hms-nav button { transition: none; }
   }
 </style>

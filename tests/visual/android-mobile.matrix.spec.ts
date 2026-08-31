@@ -15,9 +15,9 @@ for (const viewport of mobileViewports) {
     await expect(page.getByTestId("handheld-page")).toBeVisible();
     await expect(page.locator(".mobile-bottom-nav, .mobile-rail")).toHaveCount(0);
     await page.goto("/?skip_wizard&platform=android#game-library");
-    const nav = viewport.nav === "bottom" ? page.locator(".mobile-bottom-nav") : page.locator(".mobile-rail");
-    await expect(nav).toBeVisible();
-    await expect(nav.getByText("游戏", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("handheld-route-shell")).toBeVisible();
+    await expect(page.locator("[data-testid='handheld-route-shell'][data-route-active='game-library']")).toBeVisible();
+    await expect(page.locator(".mobile-bottom-nav, .mobile-rail")).toHaveCount(0);
     await expect(page.getByTestId("main-content")).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(1);
@@ -96,6 +96,7 @@ test("Android home keeps the game library and emulator import as first-class act
 test("Android settings hides desktop platform integrations", async ({ page }) => {
   await page.setViewportSize({ width: 412, height: 915 });
   await page.goto("/?skip_wizard&platform=android#settings");
+  await expect(page.getByTestId("handheld-route-shell")).toBeVisible();
   await expect(page.locator('[data-route-view="settings"]').last()).toBeVisible();
   await expect(page.getByTestId("android-settings-center")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText("设备偏好", { exact: true })).toBeVisible();
@@ -105,10 +106,29 @@ test("Android settings hides desktop platform integrations", async ({ page }) =>
   await expect(page.getByRole("button", { name: "横屏", exact: true })).toBeVisible();
 });
 
+test("Android utility routes share one top navigation and utility drawer", async ({ page }) => {
+  await page.setViewportSize({ width: 808, height: 454 });
+  await page.goto("/?skip_wizard&platform=android#settings");
+
+  const shell = page.getByTestId("handheld-route-shell");
+  await expect(shell).toBeVisible();
+  await expect(shell.getByRole("navigation", { name: "掌机主导航" })).toBeVisible();
+  await shell.getByRole("button", { name: "打开全部功能" }).click();
+  await expect(shell.getByRole("dialog", { name: "全部功能" })).toBeVisible();
+  await expect(shell.getByText("模拟器导入", { exact: true })).toBeVisible();
+  await shell.getByRole("dialog", { name: "全部功能" }).getByRole("button", { name: "关闭全部功能" }).click();
+  await shell.getByRole("button", { name: "返回掌机主屏幕" }).first().click();
+  await expect(page).toHaveURL(/#home$/);
+});
+
 test("Android media browse shell keeps a touch back affordance", async ({ page }) => {
   await page.setViewportSize({ width: 800, height: 360 });
   await page.goto("/?skip_wizard&platform=android#anime");
   await expect(page.getByTestId("handheld-media-shell")).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "掌机主导航" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "打开模拟器导入" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "打开掌机设置" })).toBeVisible();
+  await expect(page.locator(".mobile-bottom-nav, .mobile-rail")).toHaveCount(0);
   const backDock = page.locator(".hms-back");
   await expect(backDock).toBeVisible({ timeout: 5_000 });
   const rect = await backDock.boundingBox();

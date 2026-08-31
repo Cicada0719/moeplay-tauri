@@ -49,6 +49,7 @@
   import { resolveConnectedPadLayouts } from "./lib/platform/gamepadLayout";
   import { paletteStore } from "./lib/features/palette/store.svelte";
   import HandheldKeyboardOverlay from "./lib/components/HandheldKeyboardOverlay.svelte";
+  import HandheldRouteShell, { type HandheldRouteId } from "./lib/features/handheld/HandheldRouteShell.svelte";
 
   const TOOLS_DRAWER_ID = "tools-drawer";
   const SHORTCUT_HELP_OVERLAY_ID = "shortcut-help";
@@ -60,10 +61,22 @@
   const isMiniWindow = $state(typeof window !== "undefined" && window.location.hash.startsWith("#mini"));
   const isAndroid = $derived(platformStore.isAndroid);
   const isBigPicture = $derived(uiStore.bigPictureActive && !isAndroid);
-  // Android 首页就是统一掌机中心；旧 handheld hash 仍走同一页面并在路由 effect 中归一化。
-  // 游戏库保留普通移动壳，作为独立的游戏档案入口。
-  const isHandheldView = $derived(isAndroid && (uiStore.currentView === "home" || uiStore.currentView === "handheld" || uiStore.currentView === "handheld-import"));
   const isMediaView = $derived(isAndroid && (uiStore.currentView === "anime" || uiStore.currentView === "comic" || uiStore.currentView === "novel"));
+  // Android 所有非媒体路由都使用统一掌机外壳；媒体播放/阅读页由各自的沉浸式媒体壳接管。
+  // 旧 handheld hash 仍走统一首页并在路由 effect 中归一化。
+  const isHandheldView = $derived(isAndroid && !isMediaView);
+  const isHandheldUtilityView = $derived(isHandheldView && uiStore.currentView !== "home" && uiStore.currentView !== "handheld");
+  const handheldRouteActive = $derived<HandheldRouteId>(
+    uiStore.currentView === "game-library" || uiStore.currentView === "game-detail" || uiStore.currentView === "handheld-import"
+      ? "game-library"
+      : uiStore.currentView === "settings" ? "settings"
+      : uiStore.currentView === "anime" ? "anime"
+      : uiStore.currentView === "comic" ? "comic"
+      : uiStore.currentView === "novel" ? "novel"
+      : uiStore.currentView === "home" || uiStore.currentView === "handheld" ? "home"
+      : "more",
+  );
+  const handheldRouteTitle = $derived(getViewLabel(uiStore.currentView));
   const toolsDrawerOpen = $derived(uiStore.drawerOpen && uiStore.drawerView === "tools");
   const managementViews = new Set(["scraper","tasks","sources","downloads","backup","stats","diagnostics","settings","steam-import","emulator"]);
   const wallpaperSurface = $derived(managementViews.has(uiStore.currentView) ? "management" : uiStore.currentView === "game-detail" ? "immersive" : "browse");
@@ -617,6 +630,107 @@
   });
 </script>
 
+{#snippet appRouteContent()}
+  {#key uiStore.currentView}
+    <div
+      class="view-wrapper"
+      data-route-root
+      data-route-view={uiStore.currentView}
+      data-module-style={uiStore.currentView === "home" || uiStore.currentView === "game-detail" ? "cinematic" : uiStore.currentView === "anime" || uiStore.currentView === "novel" ? "editorial" : uiStore.currentView === "comic" ? "kinetic" : "system"}
+      aria-label={getViewLabel(uiStore.currentView)}
+      tabindex="-1"
+      in:fade={{ duration: 240, easing: cubicOut }}
+      out:fade={{ duration: 160 }}
+    >
+      {#if uiStore.currentView === "scraper"}
+        {#await import("./lib/components/ScraperPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "tasks"}
+        {#await import("./lib/features/jobs/TaskCenterPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "sources"}
+        {#await import("./lib/features/sources/SourceCenterPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "downloads"}
+        {#await import("./lib/components/DownloadPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "backup"}
+        {#await import("./lib/components/BackupPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "stats"}
+        {#await import("./lib/components/StatsPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "discovery"}
+        {#await import("./lib/components/DiscoveryPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "records"}
+        {#await import("./lib/components/PlayRecordsDashboard.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "anime"}
+        {#await import("./lib/components/AnimePage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "continue"}
+        {#await import("./lib/components/ContinueHub.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "comic"}
+        {#await import("./lib/components/ComicPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "novel"}
+        {#await import("./lib/components/NovelPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "diagnostics"}
+        {#await import("./lib/components/DiagnosticsPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "settings"}
+        {#await import("./lib/components/SettingsPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "game-detail"}
+        {#await import("./lib/components/GameDetailPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "steam-import"}
+        {#await import("./lib/components/SteamImportDialog.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "emulator"}
+        {#await import("./lib/components/EmulatorImportDialog.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "home" && isAndroid}
+        {#await import("./lib/features/handheld/HandheldPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "handheld"}
+        {#await import("./lib/features/handheld/HandheldPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "game-library"}
+        <SwitchHome {taskActiveCount} {taskFailedCount} />
+      {:else if uiStore.currentView === "handheld-import"}
+        {#await import("./lib/features/handheld/HandheldImportPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else}
+        <SwitchHome {taskActiveCount} {taskFailedCount} />
+      {/if}
+    </div>
+  {/key}
+{/snippet}
+
 <svelte:window use:shortcut={shortcutParameter} />
 
 {#if isMiniWindow}
@@ -672,104 +786,19 @@
     {/if}
 
     <div id="main-content" class="main-content" data-testid="main-content">
-      {#key uiStore.currentView}
-        <div
-          class="view-wrapper"
-          data-route-root
-          data-route-view={uiStore.currentView}
-          data-module-style={uiStore.currentView === "home" || uiStore.currentView === "game-detail" ? "cinematic" : uiStore.currentView === "anime" || uiStore.currentView === "novel" ? "editorial" : uiStore.currentView === "comic" ? "kinetic" : "system"}
-          aria-label={getViewLabel(uiStore.currentView)}
-          tabindex="-1"
-          in:fade={{ duration: 240, easing: cubicOut }}
-          out:fade={{ duration: 160 }}
+      {#if isHandheldUtilityView}
+        <HandheldRouteShell
+          active={handheldRouteActive}
+          title={handheldRouteTitle}
+          subtitle={handheldRouteActive === "more" ? "横屏掌机 · 功能与维护入口已统一收纳" : "横屏掌机 · 内容与操作保持同一层级"}
+          onBack={() => navigateTo("home")}
+          onNavigate={pickDock}
         >
-          {#if uiStore.currentView === "scraper"}
-            {#await import("./lib/components/ScraperPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "tasks"}
-            {#await import("./lib/features/jobs/TaskCenterPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "sources"}
-            {#await import("./lib/features/sources/SourceCenterPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "downloads"}
-            {#await import("./lib/components/DownloadPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "backup"}
-            {#await import("./lib/components/BackupPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "stats"}
-            {#await import("./lib/components/StatsPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "discovery"}
-            {#await import("./lib/components/DiscoveryPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "records"}
-            {#await import("./lib/components/PlayRecordsDashboard.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "anime"}
-            {#await import("./lib/components/AnimePage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "continue"}
-            {#await import("./lib/components/ContinueHub.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "comic"}
-            {#await import("./lib/components/ComicPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "novel"}
-            {#await import("./lib/components/NovelPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "diagnostics"}
-            {#await import("./lib/components/DiagnosticsPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "settings"}
-            {#await import("./lib/components/SettingsPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "game-detail"}
-            {#await import("./lib/components/GameDetailPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "steam-import"}
-            {#await import("./lib/components/SteamImportDialog.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "emulator"}
-            {#await import("./lib/components/EmulatorImportDialog.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "home" && isAndroid}
-            {#await import("./lib/features/handheld/HandheldPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "handheld"}
-            {#await import("./lib/features/handheld/HandheldPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "game-library"}
-            <SwitchHome {taskActiveCount} {taskFailedCount} />
-          {:else if uiStore.currentView === "handheld-import"}
-            {#await import("./lib/features/handheld/HandheldImportPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else}
-            <SwitchHome {taskActiveCount} {taskFailedCount} />
-          {/if}
-        </div>
-      {/key}
+          {#snippet children()}{@render appRouteContent()}{/snippet}
+        </HandheldRouteShell>
+      {:else}
+        {@render appRouteContent()}
+      {/if}
     </div>
 
     {#if !isAndroid}
