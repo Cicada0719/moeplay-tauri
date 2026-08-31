@@ -4,9 +4,9 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 export const DEFAULT_BUDGET = Object.freeze({
-  // v0.15.0 re-baseline: ui-v2 迁移完成 + Kinetic 舞台（three 独立懒加载 chunk ~480KB，按需拉取）。
-  // 主壳 app chunk ~1.02MB；总量含 KineticScene/AnimePage 等按需 chunk。
-  totalJavaScriptBytes: 2_900_000,
+  // v0.22.0 re-baseline: 掌机 XMB 共享壳层、双层肩键导航与媒体入口整合完成。
+  // KineticScene、播放器和媒体页仍按需拆分；单 chunk 限制继续独立约束。
+  totalJavaScriptBytes: 3_100_000,
   largestChunkBytes: 1_100_000,
   animeChunkBytes: 700_000,
   comicChunkBytes: 100_000,
