@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "mini",
+  "description": "迷你置顶播放窗最小权限：自关闭与拖拽",
+  "windows": [
+    "mini"
+  ],
+  "permissions": [
+    "core:window:default",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging"
+  ]
+}

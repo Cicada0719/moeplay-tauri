@@ -56,7 +56,7 @@ describe("discovery UI-v2 migration contract", () => {
 
   it("wires the i18n store into the page and ships discovery.* keys in both dictionaries", () => {
     const page = source("src/lib/components/DiscoveryPage.svelte");
-    const i18nStore = source("src/lib/stores/i18n.svelte.ts");
+    const i18nStore = source("src/lib/stores/i18n.svelte.ts") + source("src/lib/stores/i18n.en.ts");
     expect(page).toContain('from "../stores/i18n.svelte"');
     expect(page).toContain('i18n.t("discovery.title")');
     for (const key of [

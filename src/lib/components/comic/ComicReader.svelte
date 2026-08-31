@@ -1,20 +1,28 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import { focusTrap } from "../../actions/a11y/focusTrap";
   import {
     getReaderKeyboardCommand,
     moveReaderPage,
+    moveReaderSpread,
     nextReadingDirection,
     normalizeReaderZoom,
+    normalizeSpread,
     readerDirectionLabel,
     readerSwipePageDelta,
+    spreadStepSize,
+    spreadWindowPages,
+    spreadWindowStart,
     READER_ZOOM_STEP,
     type ComicReadingDirection,
+    type ComicReaderSpread,
   } from "../../features/comic/reader";
   import { comicStore } from "../../stores/comic.svelte";
   import Icon from "../Icon.svelte";
   import { Button } from "../ui";
   import { AsyncState } from "../ui-v2";
+  import { attachGamepad } from "../switch/useGamepad.svelte";
+  import { platformStore } from "../../platform/runtime.svelte";
 
   let {
     onclose,
@@ -34,9 +42,28 @@
   const hasPrev = $derived(chapterIdx > 0);
   const hasNext = $derived(chapterIdx >= 0 && chapterIdx < chapters.length - 1);
 
+  const COMIC_READER_PREFS_KEY = "moeplay-comic-reader-prefs-v1";
+
+  function readReaderPrefs(key = COMIC_READER_PREFS_KEY): { direction: ComicReadingDirection; spread: ComicReaderSpread } | null {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      const directionish = parsed?.direction;
+      const direction = directionish === "vertical" || directionish === "left-to-right" || directionish === "right-to-left" ? directionish : null;
+      if (!direction) return null;
+      return { direction, spread: normalizeSpread(parsed?.spread) };
+    } catch {
+      return null;
+    }
+  }
+
+  const readerContentKey = comicStore.currentComic?.id ? `${COMIC_READER_PREFS_KEY}:${comicStore.currentComic.id}` : COMIC_READER_PREFS_KEY;
+  const savedReaderPrefs = readReaderPrefs(readerContentKey) ?? readReaderPrefs();
   let readerRoot = $state<HTMLElement>();
   let scrollRoot = $state<HTMLElement>();
-  let direction = $state<ComicReadingDirection>("vertical");
+  let direction = $state<ComicReadingDirection>(savedReaderPrefs?.direction ?? (platformStore.isAndroid ? "right-to-left" : "vertical"));
+  let spread = $state<ComicReaderSpread>(savedReaderPrefs?.spread ?? (platformStore.isAndroid ? "double" : "single"));
   let zoom = $state(100);
   let toolbarVisible = $state(true);
   let currentPage = $state(0);
@@ -46,10 +73,18 @@
   let swipePointerId = $state<number | null>(null);
   let swipeStartX = $state(0);
   let swipeStartY = $state(0);
+  let chapterPanelOpen = $state(false);
+  let toolbarTimer: ReturnType<typeof setTimeout> | null = null;
+  let pad: ReturnType<typeof attachGamepad> | null = null;
 
   const pageCount = $derived(images.length);
   const directionLabel = $derived(readerDirectionLabel(direction));
   const pageStatus = $derived(pageCount > 0 ? `${Math.min(currentPage + 1, pageCount)} / ${pageCount}` : "0 / 0");
+  const isDouble = $derived(spread === "double" && direction !== "vertical");
+  const spreadLabel = $derived(spread === "double" ? "双页" : "单页");
+  const visiblePages = $derived(isDouble ? spreadWindowPages(currentPage, pageCount, "double") : [currentPage]);
+  const progressPercent = $derived(pageCount > 0 ? Math.round(((Math.max(...visiblePages) + 1) / pageCount) * 100) : 0);
+  const pageRangeLabel = $derived(visiblePages.length > 1 ? `第 ${visiblePages[0] + 1}–${visiblePages[1] + 1} 页` : `第 ${Math.min(visiblePages[0] ?? 0, pageCount) + 1} 页`);
 
   $effect(() => {
     images;
@@ -81,7 +116,7 @@
 
   function movePage(delta: number) {
     if (pageCount === 0) return;
-    const next = moveReaderPage(currentPage, delta, pageCount);
+    const next = isDouble ? moveReaderSpread(currentPage, delta, pageCount, "double") : moveReaderPage(currentPage, delta, pageCount);
     if (next === currentPage && direction !== "vertical") return;
     currentPage = next;
     if (direction === "vertical") {
@@ -91,8 +126,45 @@
 
   function jumpPage(index: number) {
     if (pageCount === 0) return;
-    currentPage = moveReaderPage(0, index, pageCount);
+    currentPage = isDouble ? spreadWindowStart(moveReaderPage(0, index, pageCount)) : moveReaderPage(0, index, pageCount);
     if (direction === "vertical") pageElement(currentPage)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function writeReaderPrefs() {
+    try {
+      localStorage.setItem(readerContentKey, JSON.stringify({ direction, spread }));
+    } catch {
+      // 隐私模式等场景忽略持久化失败
+    }
+  }
+
+  function clearToolbarTimer() {
+    if (toolbarTimer !== null) {
+      clearTimeout(toolbarTimer);
+      toolbarTimer = null;
+    }
+  }
+
+  function revealToolbar() {
+    toolbarVisible = true;
+    clearToolbarTimer();
+    toolbarTimer = setTimeout(() => {
+      toolbarTimer = null;
+      if (!chapterPanelOpen && !loading) toolbarVisible = false;
+    }, 3000);
+  }
+
+  function toggleChapterPanel() {
+    chapterPanelOpen = !chapterPanelOpen;
+    if (chapterPanelOpen) revealToolbar();
+  }
+
+  function toggleSpread() {
+    spread = spread === "double" ? "single" : "double";
+    if (spread === "double" && direction !== "vertical") {
+      currentPage = spreadWindowStart(currentPage);
+    }
+    writeReaderPrefs();
   }
 
   async function changeChapter(delta: -1 | 1) {
@@ -107,6 +179,7 @@
   function cycleDirection() {
     direction = nextReadingDirection(direction);
     currentPage = Math.min(currentPage, Math.max(0, pageCount - 1));
+    writeReaderPrefs();
     queueMicrotask(() => pageElement(currentPage)?.focus({ preventScroll: true }));
   }
 
@@ -186,11 +259,35 @@
     if (command === "first_page") return jumpPage(0);
     if (command === "last_page") return jumpPage(pageCount - 1);
     if (command === "cycle_direction") return cycleDirection();
+    if (command === "cycle_spread") { toggleSpread(); return; }
     if (command === "zoom_in") return changeZoom(READER_ZOOM_STEP);
     if (command === "zoom_out") return changeZoom(-READER_ZOOM_STEP);
     if (command === "reset_zoom") { zoom = 100; return; }
     if (command === "toggle_toolbar") toolbarVisible = !toolbarVisible;
   }
+
+  onMount(() => {
+    revealToolbar();
+    pad = attachGamepad({
+      left: () => { revealToolbar(); movePage(-1); },
+      right: () => { revealToolbar(); movePage(1); },
+      pageLeft: () => { revealToolbar(); movePage(-1); },
+      pageRight: () => { revealToolbar(); movePage(1); },
+      up: () => revealToolbar(),
+      down: () => revealToolbar(),
+      launch: () => { revealToolbar(); movePage(1); },
+      activate: () => revealToolbar(),
+      favorite: toggleChapterPanel,
+      back: () => { if (chapterPanelOpen) chapterPanelOpen = false; else void closeReader(); },
+      start: toggleChapterPanel,
+    }, { id: "comic-reader", zone: "content", priority: 100 });
+  });
+
+  onDestroy(() => {
+    pad?.();
+    pad = null;
+    clearToolbarTimer();
+  });
 </script>
 
 <div
@@ -211,6 +308,8 @@
     onEscape: () => void closeReader(),
   }}
   onkeydown={handleKeydown}
+  onpointermove={revealToolbar}
+  onpointerdown={revealToolbar}
 >
   {#if toolbarVisible}
     <header class="reader-toolbar" aria-label="漫画阅读控制栏">
@@ -228,6 +327,9 @@
         <Button variant="quiet" size="sm" press={cycleDirection} title="按 D 切换阅读方向" ariaLabel={`阅读方向：${directionLabel}`} gamepadActivate="切换阅读方向">
           <Icon name="layers" size={14} />{directionLabel}
         </Button>
+        <Button variant="quiet" size="sm" press={toggleSpread} disabled={direction === "vertical"} title={direction === "vertical" ? "纵向滚动不支持双页" : "按 S 切换单双页"} ariaLabel={`阅读模式：${spreadLabel}`} gamepadActivate="切换单双页">
+          {spreadLabel}
+        </Button>
         <Button variant="quiet" size="sm" press={() => changeZoom(-READER_ZOOM_STEP)} disabled={zoom <= 60} ariaLabel="缩小漫画" gamepadActivate="缩小">−</Button>
         <output class="zoom-output" aria-label="当前缩放">{zoom}%</output>
         <Button variant="quiet" size="sm" press={() => changeZoom(READER_ZOOM_STEP)} disabled={zoom >= 200} ariaLabel="放大漫画" gamepadActivate="放大">＋</Button>
@@ -242,8 +344,29 @@
     </button>
   {/if}
 
+  {#if chapterPanelOpen}
+    <aside class="chapter-panel" aria-label="章节列表">
+      <div class="chapter-panel-head">
+        <strong>章节</strong>
+        <button type="button" aria-label="关闭章节列表" onclick={() => (chapterPanelOpen = false)}><Icon name="x" size={16} /></button>
+      </div>
+      <div class="chapter-panel-list">
+        {#each chapters as chapter (chapter.order)}
+          <button
+            type="button"
+            class:current={chapter.order === order}
+            disabled={loading}
+            onclick={async () => { chapterPanelOpen = false; await comicStore.openChapter(chapter.order, chapter.title); }}
+          >
+            <span>{chapter.order}</span><strong>{chapter.title || `第 ${chapter.order} 话`}</strong>
+          </button>
+        {/each}
+      </div>
+    </aside>
+  {/if}
+
   <p id="comic-reader-help" class="sr-only">
-    Escape 退出，方向键或 PageUp/PageDown 翻页，方括号切换章节，D 切换阅读方向，加减号缩放，T 显示或隐藏工具栏。
+    Escape 退出，方向键或 PageUp/PageDown 翻页，方括号切换章节，D 切换阅读方向，S 切换单双页，加减号缩放，T 显示或隐藏工具栏。
   </p>
 
   <div
@@ -278,9 +401,9 @@
         secondaryAction={{ label: "返回章节", onSelect: () => void closeReader() }}
       />
     {:else}
-      <div class="images-list" class:single-page={direction !== "vertical"} aria-live="polite">
+      <div class="images-list" class:single-page={direction !== "vertical"} class:spread={isDouble} class:rtl={isDouble && direction === "right-to-left"} aria-live="polite">
         {#each images as image, index (image.id)}
-          {#if direction === "vertical" || index === currentPage}
+          {#if direction === "vertical" || visiblePages.includes(index)}
             <article
               class="img-wrap"
               class:page-failed={Boolean(failedPages[image.id])}
@@ -331,6 +454,11 @@
         {/if}
       </div>
 
+      <div class="reader-progress" role="status" aria-label="阅读进度">
+        <div class="reader-progress-track" aria-hidden="true"><div class="reader-progress-fill" style={`width:${progressPercent}%`}></div></div>
+        <span class="reader-progress-text">{pageRangeLabel} · {pageStatus} · {progressPercent}%</span>
+      </div>
+
       <nav class="reader-bottom-nav" aria-label="漫画阅读导航" data-gamepad-group>
         <Button variant="ghost" size="md" press={() => movePage(-1)} disabled={currentPage === 0} gamepadActivate="上一页">
           <Icon name="chevronLeft" size={16} />上一页
@@ -352,14 +480,14 @@
     inset: 0;
     z-index: 50;
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
     overflow: hidden;
     background: #090b10;
     color: var(--v2-color-text, var(--text-primary));
     outline: none;
   }
 
-  .reader-overlay.toolbar-hidden { grid-template-rows: minmax(0, 1fr); }
+  .reader-overlay.toolbar-hidden { grid-template-rows: minmax(0, 1fr) auto; }
 
   .reader-toolbar {
     z-index: 2;
@@ -373,6 +501,30 @@
     background: rgba(10, 12, 18, 0.94);
     backdrop-filter: blur(0.8rem);
   }
+
+  .chapter-panel {
+    position: absolute;
+    z-index: 8;
+    top: max(4.25rem, calc(3.75rem + env(safe-area-inset-top)));
+    right: max(0.75rem, env(safe-area-inset-right));
+    bottom: max(0.75rem, env(safe-area-inset-bottom));
+    display: flex;
+    width: min(26rem, 42vw);
+    min-width: 15rem;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.16);
+    background: rgba(10, 12, 18, 0.97);
+    box-shadow: 0 1.5rem 4rem rgba(0,0,0,.42);
+  }
+  .chapter-panel-head { display: flex; align-items: center; justify-content: space-between; min-height: 3.25rem; padding: 0 .9rem; border-bottom: 1px solid rgba(255,255,255,.1); color: #fff; }
+  .chapter-panel-head button { display: grid; width: 2.75rem; height: 2.75rem; place-items: center; border: 0; background: transparent; color: #fff; cursor: pointer; }
+  .chapter-panel-list { min-height: 0; overflow: auto; padding: .45rem; }
+  .chapter-panel-list button { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr); align-items: center; gap: .45rem; width: 100%; min-height: 2.75rem; padding: .35rem .55rem; border: 1px solid transparent; background: transparent; color: var(--v2-color-text-secondary, #b8bdc9); text-align: left; cursor: pointer; }
+  .chapter-panel-list button:hover, .chapter-panel-list button:focus-visible { border-color: var(--v2-color-accent, #e8557f); color: #fff; outline: none; }
+  .chapter-panel-list button.current { border-color: color-mix(in srgb, var(--v2-color-accent, #e8557f) 60%, transparent); background: color-mix(in srgb, var(--v2-color-accent, #e8557f) 14%, transparent); color: #fff; }
+  .chapter-panel-list button > span { color: var(--v2-color-accent, #e8557f); font: 700 .7rem/1 var(--font-mono, monospace); }
+  .chapter-panel-list button > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .75rem; font-weight: 600; }
 
   .chapter-info { min-width: 0; text-align: center; }
   .chapter-title,
@@ -488,6 +640,53 @@
     object-fit: contain;
   }
 
+  .images-list.single-page.spread { gap: 0.5rem; }
+  .single-page.spread .img-wrap {
+    flex: 0 0 50%;
+    max-width: 50%;
+    height: calc(100dvh - 10rem);
+    min-height: calc(100dvh - 10rem);
+  }
+  .single-page.spread .comic-img {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    object-fit: contain;
+  }
+  .images-list.single-page.spread.rtl { flex-direction: row-reverse; }
+
+  .reader-progress {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-height: 2.1rem;
+    padding: 0 1rem;
+    border-top: 1px solid var(--v2-color-border, rgba(255,255,255,0.08));
+    background: rgba(10, 12, 18, 0.88);
+  }
+  .reader-progress-track {
+    position: relative;
+    flex: 1 1 auto;
+    height: 4px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.12);
+  }
+  .reader-progress-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--v2-color-accent, #e8557f), color-mix(in srgb, var(--v2-color-accent, #e8557f) 55%, #fff));
+    transition: width 140ms ease;
+  }
+  .reader-progress-text {
+    flex: 0 0 auto;
+    color: var(--v2-color-text-secondary, var(--text-muted));
+    font-size: var(--v2-text-xs, 0.75rem);
+    white-space: nowrap;
+  }
+  @media (prefers-reduced-motion: reduce) { .reader-progress-fill { transition: none; } }
+
   .comic-img.is-loaded { min-height: 0; opacity: 1; }
 
   .page-error {
@@ -596,4 +795,19 @@
     .reader-scroll { scroll-behavior: auto; }
     .comic-img { transition: none; }
   }
+
+  /* ── 掌机适配（data-handheld）：阅读工具栏/按键放大，近距可读可触 ── */
+  :global(:root[data-handheld="true"]) .reader-toolbar { min-height: 3.75rem; }
+  :global(:root[data-handheld="true"]) .reader-tools :global(button),
+  :global(:root[data-handheld="true"]) .reader-toolbar :global(button),
+  :global(:root[data-handheld="true"]) .reader-bottom-nav :global(button) { min-height: 44px; min-width: 44px; }
+  :global(:root[data-handheld="true"]) .toolbar-reveal { width: 44px; height: 44px; }
+  :global(:root[data-handheld="true"]) .chapter-title { font-size: 1rem; }
+  :global(:root[data-handheld="true"]) .zoom-output { min-width: 3rem; }
+  :global(:root[data-handheld="true"]) .page-edge { width: min(30%, 11rem); }
+  :global(:root[data-handheld="true"]) .single-page .img-wrap { min-height: calc(100dvh - 6.75rem); }
+  :global(html.is-mobile-platform) .reader-overlay { background: #080b10; }
+  :global(html.is-mobile-platform) .reader-toolbar { min-height: 4rem; }
+  :global(html.is-mobile-platform) .reader-tools :global(button) { min-width: 44px; min-height: 44px; }
+  :global(html.is-mobile-platform) .chapter-panel { width: min(25rem, 48vw); }
 </style>

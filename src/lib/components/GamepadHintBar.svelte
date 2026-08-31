@@ -1,30 +1,53 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { gamepadElementLabel, gamepadPrimaryActionLabel, gamepadSecondaryActionLabel } from "../actions/a11y/gamepadSemantics";
   import type { GamepadInputMode } from "../actions/a11y/gamepadFocus";
+  import { gamepadGlyphFor, type GamepadAction } from "../platform/gamepadRemap";
 
   let {
     connected = false,
     padLabel = "",
+    pads = [],
     inputMode = "keyboard",
     currentView = "home",
     focusModeAvailable = false,
     focusMode = false,
+    handheld = false,
+    hintsAlways = true,
   }: {
     connected?: boolean;
-    /** 首个已连接手柄的 id（诊断串流/虚拟手柄是否被系统识别） */
+    /** 首个已连接手柄的 id（兼容旧调用；优先展示 pads 列表） */
     padLabel?: string;
+    /** 所有已连接手柄的名称与最终布局（供串流/虚拟手柄识别诊断） */
+    pads?: { label: string; layout: "xbox" | "nintendo" | "playstation" }[];
     inputMode?: GamepadInputMode;
     currentView?: string;
     focusModeAvailable?: boolean;
     focusMode?: boolean;
+    /** 掌机模式生效中：联动「手柄提示条常显」 */
+    handheld?: boolean;
+    hintsAlways?: boolean;
   } = $props();
 
   let focused = $state<HTMLElement | null>(null);
-  const active = $derived(connected && inputMode === "gamepad");
-  const focusLabel = $derived(gamepadElementLabel(focused));
-  const primaryLabel = $derived(gamepadPrimaryActionLabel(focused));
-  const secondaryLabel = $derived(gamepadSecondaryActionLabel(focused));
+  // 掌机模式 + 「手柄提示条常显」：无需先按手柄，直接展示操作提示
+  const active = $derived(connected && (inputMode === "gamepad" || (handheld && hintsAlways)));
+  // 语义标签按需加载（a11y 手柄运行时不在主包，聚焦变化时动态引入计算）
+  let focusLabel = $state("");
+  let primaryLabel = $state("");
+  let secondaryLabel = $state("");
+  $effect(() => {
+    const el = focused;
+    let cancelled = false;
+    void import("../actions/a11y/gamepadSemantics").then((m) => {
+      if (cancelled) return;
+      focusLabel = m.gamepadElementLabel(el);
+      primaryLabel = m.gamepadPrimaryActionLabel(el);
+      secondaryLabel = m.gamepadSecondaryActionLabel(el) ?? "";
+    });
+    return () => { cancelled = true; };
+  });
+  const hintLayout = $derived<"xbox" | "nintendo" | "playstation">(pads[0]?.layout ?? "xbox");
+  const glyph = (action: GamepadAction) => gamepadGlyphFor(action, hintLayout);
   const controlKind = $derived(
     focused instanceof HTMLInputElement && focused.type === "range"
       ? "range"
@@ -62,17 +85,33 @@
     {#if active}
       <div class="focus-context"><span>当前</span><strong>{focusLabel}</strong></div>
       <div class="prompt-list">
-        <span class="prompt prompt--primary"><kbd>A</kbd>{primaryLabel}</span>
-        {#if secondaryLabel}<span class="prompt"><kbd>Y</kbd>{secondaryLabel}</span>{/if}
+        <span class="prompt prompt--primary"><kbd>{glyph("launch")}</kbd>{primaryLabel}</span>
+        {#if secondaryLabel}<span class="prompt"><kbd>{glyph("activate")}</kbd>{secondaryLabel}</span>{/if}
         {#if controlKind === "range" || controlKind === "select"}<span class="prompt"><kbd>◀▶</kbd>调整</span>{/if}
-        <span class="prompt"><kbd>B</kbd>返回</span>
-        <span class="prompt"><kbd>X</kbd>搜索</span>
-        <span class="prompt"><kbd>LB</kbd><kbd>RB</kbd>切换栏目</span>
-        {#if focusModeAvailable}<span class="prompt"><kbd>VIEW</kbd>{focusMode ? "退出专注" : "进入专注"}</span>{/if}
-        <span class="prompt"><kbd>START</kbd>大屏</span>
+        <span class="prompt"><kbd>{glyph("back")}</kbd>返回</span>
+        <span class="prompt"><kbd>{glyph("favorite")}</kbd>搜索</span>
+        <span class="prompt"><kbd>{glyph("pageLeft")}</kbd><kbd>{glyph("pageRight")}</kbd>切换栏目</span>
+        {#if focusModeAvailable}<span class="prompt"><kbd>{glyph("filter")}</kbd>{focusMode ? "退出专注" : "进入专注"}</span>{/if}
+        <span class="prompt"><kbd>{glyph("start")}</kbd>大屏</span>
       </div>
     {:else}
-      <div class="connected-note"><span class="connected-dot"></span><strong>手柄已连接{#if padLabel}&nbsp;· {padLabel}{/if}</strong><small>按任意键显示操作提示</small></div>
+      <div class="connected-note">
+        <span class="connected-dot"></span>
+        {#if pads.length > 0}
+          <div class="connected-pads">
+            <strong>手柄已连接</strong>
+            {#each pads as pad, padIndex (pad.label + padIndex)}
+              <span class="pad-chip" title={pad.label || ("槽位 " + (padIndex + 1))}>
+                <em>{pad.label || ("槽位 " + (padIndex + 1))}</em>
+                <b class:chip-nintendo={pad.layout === "nintendo"}>{pad.layout === "nintendo" ? "任天堂" : "Xbox"}</b>
+              </span>
+            {/each}
+          </div>
+        {:else}
+          <strong>手柄已连接{#if padLabel}&nbsp;· {padLabel}{/if}</strong>
+        {/if}
+        <small>按任意键显示操作提示</small>
+      </div>
     {/if}
   </aside>
 {/if}
@@ -97,6 +136,11 @@
   .connected-note { display:flex; align-items:center; gap:8px; min-height:34px; padding:0 12px; }
   .connected-note strong { font-size:11px; letter-spacing:.06em; }
   .connected-note small { color:rgba(255,255,255,.56); font-size:10px; }
+  .connected-pads { display:flex; align-items:center; gap:8px; min-width:0; flex-wrap:wrap; }
+  .pad-chip { display:inline-flex; align-items:center; gap:6px; max-width:min(46vw,340px); min-width:0; padding:2px 8px; border:1px solid rgba(255,255,255,.16); border-radius:999px; background:rgba(255,255,255,.05); }
+  .pad-chip em { max-width:240px; overflow:hidden; color:rgba(255,255,255,.72); font-size:10px; font-style:normal; text-overflow:ellipsis; white-space:nowrap; }
+  .pad-chip b { padding:1px 6px; border-radius:999px; color:#9fd8ff; background:rgba(96,164,255,.16); font:750 9px var(--font-mono, monospace); letter-spacing:.06em; }
+  .pad-chip b.chip-nintendo { color:#ff9ec4; background:rgba(255,94,148,.16); }
   .connected-dot { width:7px; height:7px; border-radius:50%; background:#79e6a7; box-shadow:0 0 12px rgba(121,230,167,.72); }
   .gamepad-hints.active { left: 18px; display:grid; grid-template-columns:minmax(120px, .34fr) minmax(0, 1fr); }
   .focus-context { min-width:0; display:grid; align-content:center; gap:3px; min-height:42px; padding:7px 12px; border-right:0; }

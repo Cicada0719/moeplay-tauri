@@ -18,6 +18,7 @@
   import Icon from "../Icon.svelte";
   import DanmakuOverlay from "./DanmakuOverlay.svelte";
   import { animeDownloadEpisode } from "../../api";
+  import { writeMiniSession } from "../../features/mini/session";
   import { debugLog } from "../../utils/debug";
   import { AsyncState } from "../ui-v2";
   import { focusTrap } from "../../actions/a11y/focusTrap";
@@ -26,6 +27,7 @@
   import VideoEnhancementCanvas from "./VideoEnhancementCanvas.svelte";
   import type { VideoEnhancementMode, VideoEnhancementStatus } from "../../features/anime-player/localVideoEnhancement";
   import { orientationStore, platformStore } from "../../platform";
+  import { attachGamepad } from "../switch/useGamepad.svelte";
   import { idleTimer } from "../../actions/idleTimer";
   import {
     clearPlayerError,
@@ -52,6 +54,7 @@
   } from "../../services/sourceSwitch";
   import ErrorOverlay from "../player/ErrorOverlay.svelte";
   import SourceSuggestSheet from "../player/SourceSuggestSheet.svelte";
+  import { shouldPreferHls } from "./playerTransport";
 
   const status = $derived(animeStore.playerExtractStatus); // extracting | found | timeout | error
   const videoSrc = $derived(animeStore.playerVideoSrc);
@@ -110,6 +113,7 @@
   let mediaDuration = $state(0);
   let mediaVolume = $state(1);
   let overlayEl = $state<HTMLDivElement | null>(null);
+  let handheldPad: ReturnType<typeof attachGamepad> | null = null;
   let useWebFallback = $state(false); // 用户选择「用网页播放」时加载站点自带播放器
   let webFrameLoaded = $state(false);
   let webFrameTimedOut = $state(false);
@@ -294,6 +298,25 @@
     setRetryHandler(handleRetry);
     setSourceSwitchHandler(handleSwitchSourceService);
     setSourceProvider(buildSuggestSources);
+    if (platformStore.isAndroid) {
+      handheldPad = attachGamepad({
+        left: () => { if (videoEl) seekMedia(Math.max(0, videoEl.currentTime - 10)); },
+        right: () => { if (videoEl) seekMedia(Math.min(mediaDuration || videoEl.duration || 0, videoEl.currentTime + 10)); },
+        up: () => { if (videoEl) setMediaVolume(Math.min(1, videoEl.volume + 0.1)); },
+        down: () => { if (videoEl) setMediaVolume(Math.max(0, videoEl.volume - 0.1)); },
+        pageLeft: goPrev,
+        pageRight: goNext,
+        launch: toggleMediaPlayback,
+        activate: () => { showDanmakuSettings = !showDanmakuSettings; showSpeedMenu = false; },
+        favorite: toggleEpisodePanel,
+        back: () => {
+          if (showEpisodePanel) showEpisodePanel = false;
+          else if (showCommentsPanel) showCommentsPanel = false;
+          else void closePlayer();
+        },
+        start: toggleCommentsPanel,
+      }, { id: "anime-player", zone: "content", priority: 110 });
+    }
     if (platformStore.capabilities.desktopWindowControl) {
       hostWindowWasFullscreen = ["fullscreen", "big-picture"].includes(settingsStore.settings.startup_mode ?? "fullscreen");
       try {
@@ -317,6 +340,8 @@
     setRetryHandler(null);
     setSourceSwitchHandler(null);
     setSourceProvider(null);
+    handheldPad?.();
+    handheldPad = null;
     openMenuCount.set(0);
     controlsVisible.set(true);
     clearPlayerError();
@@ -359,7 +384,7 @@
   // 只有明确禁用原生播放器的源，才直接切源站播放器；useWebview 仅代表规则允许网页能力。
   $effect(() => {
     if ((status === 'extracting' || status === 'error' || status === 'timeout') && !useWebFallback && pageUrl && prefersWebPlayback) {
-      console.log('[播放器] 规则要求网页播放，自动切换源站播放器');
+      debugLog('[播放器] 规则要求网页播放，自动切换源站播放器');
       invokeCmd('frontend_log', { level: 'info', message: '[播放器] 规则要求网页播放，自动切换源站播放器' }).catch(() => {});
       switchToWebFallback(status === 'extracting');
     }
@@ -369,7 +394,7 @@
   // 这是 Kazumi 风格的兼容策略——当内置解析搞不定时，直接用源站播放器。
   $effect(() => {
     if ((status === 'error' || status === 'timeout') && !useWebFallback && pageUrl && animeStore.autoWebFallback) {
-      console.log('[播放器] 内置解析失败，自动切换网页播放兜底');
+      debugLog('[播放器] 内置解析失败，自动切换网页播放兜底');
       invokeCmd('frontend_log', { level: 'info', message: '[播放器] 内置解析失败，自动切换网页播放兜底' }).catch(() => {});
       switchToWebFallback();
     }
@@ -514,8 +539,15 @@
     // ErrorOverlay 展示 / 复制日志携带完整链路。
     const failureContext: PlaybackFailureRecord[] = [];
     const nativeHls = v.canPlayType("application/vnd.apple.mpegurl") !== "";
-    // 首选方式：能用 hls.js 且看着像 m3u8 就先 hls，否则先原生
-    const firstIsHls = m3u8 && !nativeHls && Hls.isSupported();
+    // Android WebView 经常对 HLS 返回 `maybe`，但对带 Referer/CORS 代理的
+    // m3u8 实际无法完成首个分片请求。让 Android 优先走 hls.js，保留原生
+    // video 作为第二次尝试；桌面端继续尊重原生 HLS 能力。
+    const firstIsHls = shouldPreferHls({
+      isM3u8: m3u8,
+      nativeHls,
+      hlsSupported: Hls.isSupported(),
+      isAndroid: platformStore.isAndroid,
+    });
 
     const clearWatchdog = () => { if (watchdog !== null) { clearTimeout(watchdog); watchdog = null; } };
     const clearPlaybackWatchdog = () => {
@@ -1221,6 +1253,26 @@
     }
   }
 
+  /** 打开迷你置顶播放窗：写入会话、暂停主窗播放，再交给 Rust 建窗。 */
+  async function openMiniPlayer() {
+    const source = videoSrc;
+    if (!source || !videoEl) return;
+    videoEl.pause();
+    writeMiniSession({
+      url: source,
+      title: `${animeStore.detailName}${epName ? ` ${epName}` : ""}`.trim() || "番剧播放",
+      isM3u8,
+      time: videoEl.currentTime || 0,
+      updatedAt: Date.now(),
+    });
+    try {
+      await invokeCmd("open_mini_player");
+      uiStore.notify("已在小窗置顶播放");
+    } catch (error) {
+      uiStore.notify(`打开小窗失败：${error instanceof Error ? error.message : String(error)}`, "error");
+    }
+  }
+
 
 </script>
 
@@ -1288,6 +1340,17 @@
             <span class="pip-label">PIP</span>
           </button>
         {/if}
+        <button
+          class="nav-btn mini-window-toggle"
+          data-gamepad-secondary-action
+          data-gamepad-activate="打开迷你播放窗"
+          aria-label="打开迷你置顶播放窗"
+          title="小窗置顶播放（可拖动；再次点击聚焦小窗）"
+          onclick={() => void openMiniPlayer()}
+        >
+          <Icon name="film" size={15} />
+          <span class="pip-label">小窗</span>
+        </button>
         <button
           class="nav-btn enhancement-toggle"
           data-gamepad-secondary-action

@@ -27,6 +27,7 @@
 
   const primaryItems: readonly MobileNavItem[] = [
     { id: "home", label: "首页", icon: "home", view: "home" },
+    { id: "game-library", label: "游戏", icon: "gamepad", view: "game-library" },
     { id: "anime", label: "番剧", icon: "film", view: "anime" },
     { id: "comic", label: "漫画", icon: "book", view: "comic" },
     { id: "novel", label: "小说", icon: "collection", view: "novel" },
@@ -144,7 +145,7 @@
   .top-actions button, .mobile-more-sheet header button { position: relative; width: 48px; height: 48px; display: grid; place-items: center; border: 0; background: transparent; color: var(--text-secondary); }
   .alert-dot { position: absolute; top: 10px; right: 9px; width: 7px; height: 7px; border-radius: 50%; background: var(--danger, #ff5f6d); }
 
-  .mobile-bottom-nav { left: 0; right: 0; bottom: 0; min-height: calc(64px + env(safe-area-inset-bottom)); padding: 0 max(4px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(4px, env(safe-area-inset-left)); display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-top: 1px solid var(--border); }
+  .mobile-bottom-nav { left: 0; right: 0; bottom: 0; min-height: calc(64px + env(safe-area-inset-bottom)); padding: 0 max(4px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(4px, env(safe-area-inset-left)); display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border-top: 1px solid var(--border); }
   .mobile-bottom-nav button, .mobile-rail button { position: relative; min-width: 0; min-height: 56px; display: grid; place-items: center; align-content: center; gap: 5px; border: 0; background: transparent; color: var(--text-muted); font: 650 9px/1 var(--font-ui); letter-spacing: .05em; }
   .mobile-bottom-nav button.active, .mobile-rail button.active { color: var(--text-primary); }
   .mobile-bottom-nav button.active::before { content: ""; position: absolute; top: 0; left: 24%; right: 24%; height: 2px; background: var(--accent); }
@@ -167,7 +168,7 @@
 
   @media (orientation: landscape) and (max-height: 600px) {
     .mobile-topbar, .mobile-bottom-nav { display: none; }
-    .mobile-rail { top: 0; bottom: 0; left: 0; width: calc(72px + env(safe-area-inset-left)); padding: max(8px, env(safe-area-inset-top)) 0 max(8px, env(safe-area-inset-bottom)) env(safe-area-inset-left); display: grid; grid-template-rows: repeat(5, minmax(52px, 1fr)); border-right: 1px solid var(--border); }
+    .mobile-rail { top: 0; bottom: 0; left: 0; width: calc(72px + env(safe-area-inset-left)); padding: max(8px, env(safe-area-inset-top)) 0 max(8px, env(safe-area-inset-bottom)) env(safe-area-inset-left); display: grid; grid-template-rows: repeat(6, minmax(52px, 1fr)); border-right: 1px solid var(--border); }
     .mobile-rail button.active::before { content: ""; position: absolute; left: 0; top: 25%; bottom: 25%; width: 2px; background: var(--accent); }
     .mobile-more-sheet { left: calc(80px + env(safe-area-inset-left)); bottom: max(8px, env(safe-area-inset-bottom)); max-width: 540px; }
   }

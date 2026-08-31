@@ -14,18 +14,12 @@
   import { GlobalTopNavigation, MobileAppShell } from "./lib/shell";
   import Notifications from "./lib/components/Notifications.svelte";
   import WallpaperStage from "./lib/components/WallpaperStage.svelte";
-  import BigPicturePage from "./lib/components/BigPicturePage.svelte";
-  import ShortcutHelp from "./lib/components/ShortcutHelp.svelte";
-  import UpdateDialog from "./lib/components/UpdateDialog.svelte";
   import GamepadHintBar from "./lib/components/GamepadHintBar.svelte";
   import WorkspaceFocusToggle from "./lib/components/WorkspaceFocusToggle.svelte";
   import Icon from "./lib/components/Icon.svelte";
   import { Drawer } from "./lib/components/ui-v2";
-  import { attachGamepad } from "./lib/components/switch/useGamepad.svelte";
-  import { activateGamepadFocus, activateGamepadSecondaryFocus, collectGamepadFocusable, focusGamepadSearch, moveGamepadFocus } from "./lib/actions/a11y/domGamepadNavigation";
-  import { controllerSurfaceFor, dispatchSurfaceDirection, dispatchSurfaceKey, findControllerSurface } from "./lib/actions/a11y/controllerSurface";
-  import { adjustFocusedGamepadControl } from "./lib/actions/a11y/gamepadSemantics";
-  import { getDefaultGamepadFocusRuntime, type GamepadInputMode } from "./lib/actions/a11y/gamepadFocus";
+  import { loadGamepadApi } from "./lib/actions/a11y/gamepadFacade";
+  import type { GamepadInputMode } from "./lib/actions/a11y/gamepadFocus";
   import { DOCK_ITEMS, PRIMARY_CONTENT_VIEWS, TOOL_ITEMS, getViewLabel } from "./lib/nav";
   import { buildShortcutParameter, type ShortcutActions } from "./lib/shortcuts";
   import {
@@ -37,7 +31,7 @@
     openOverlay,
   } from "./lib/stores/router.svelte";
   import { motionStore } from "./lib/stores/motion.svelte";
-  import { createJobsStore } from "./lib/features/jobs";
+  import { createJobsStore } from "./lib/features/jobs/store";
   import { invokeCmd } from "./lib/api/core";
   import { checkAndUpdateRules } from "./lib/api/rules";
   import { wallpaperStore } from "./lib/stores/wallpapers.svelte";
@@ -45,7 +39,16 @@
   import { nativeFullscreenHealthy, reassertNativeFullscreen } from "./lib/utils/window-fullscreen";
   import { applyStartupWindowMode } from "./lib/utils/startup-window-mode";
   import { isViewSupportedOnPlatform, orientationStore, platformStore } from "./lib/platform";
-  import { installHandheldWatcher } from "./lib/platform/handheld";
+  import {
+    installHandheldWatcher,
+    onHandheldPrefsChanged,
+    readHandheldHintsPreference,
+    readHandheldImmersivePreference,
+  } from "./lib/platform/handheld";
+  import { setHandheldSystemBars } from "./lib/features/handheld/api";
+  import { resolveConnectedPadLayouts } from "./lib/platform/gamepadLayout";
+  import { paletteStore } from "./lib/features/palette/store.svelte";
+  import HandheldKeyboardOverlay from "./lib/components/HandheldKeyboardOverlay.svelte";
 
   const TOOLS_DRAWER_ID = "tools-drawer";
   const SHORTCUT_HELP_OVERLAY_ID = "shortcut-help";
@@ -53,8 +56,14 @@
   const UPDATE_OVERLAY_ID = "update-dialog";
 
   continueStore.start();
+  // 迷你置顶播放窗（#mini）：只渲染迷你播放器，跳过主壳与重型初始化
+  const isMiniWindow = $state(typeof window !== "undefined" && window.location.hash.startsWith("#mini"));
   const isAndroid = $derived(platformStore.isAndroid);
   const isBigPicture = $derived(uiStore.bigPictureActive && !isAndroid);
+  // Android 首页就是统一掌机中心；旧 handheld hash 仍走同一页面并在路由 effect 中归一化。
+  // 游戏库保留普通移动壳，作为独立的游戏档案入口。
+  const isHandheldView = $derived(isAndroid && (uiStore.currentView === "home" || uiStore.currentView === "handheld" || uiStore.currentView === "handheld-import"));
+  const isMediaView = $derived(isAndroid && (uiStore.currentView === "anime" || uiStore.currentView === "comic" || uiStore.currentView === "novel"));
   const toolsDrawerOpen = $derived(uiStore.drawerOpen && uiStore.drawerView === "tools");
   const managementViews = new Set(["scraper","tasks","sources","downloads","backup","stats","diagnostics","settings","steam-import","emulator"]);
   const wallpaperSurface = $derived(managementViews.has(uiStore.currentView) ? "management" : uiStore.currentView === "game-detail" ? "immersive" : "browse");
@@ -62,6 +71,18 @@
   let gamepadInputMode = $state<GamepadInputMode>("keyboard");
   let gamepadConnected = $state(false);
   let gamepadLabel = $state("");
+  let gamepadPads = $state<{ label: string; layout: "xbox" | "nintendo" | "playstation" }[]>([]);
+  let handheldActive = $state(false);
+  let handheldHintsAlways = $state(readHandheldHintsPreference());
+  let handheldImmersive = $state(readHandheldImmersivePreference());
+  let androidStartupNormalized = $state(false);
+
+  function applyAndroidSystemBars() {
+    if (platformStore.isAndroid) {
+      void setHandheldSystemBars(readHandheldImmersivePreference()).catch(() => {});
+    }
+  }
+
   const workspaceFocusAvailable = $derived(workspaceFocusStore.supports(uiStore.currentView));
   const workspaceFocusEnabled = $derived(workspaceFocusStore.isEnabled(uiStore.currentView));
   const taskBadgeStore = createJobsStore();
@@ -151,11 +172,13 @@
     if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") {
       gamepadConnected = false;
       gamepadLabel = "";
+      gamepadPads = [];
       return;
     }
-    const first = Array.from(navigator.getGamepads()).find((gamepad) => Boolean(gamepad?.connected));
-    gamepadConnected = Boolean(first);
-    gamepadLabel = first?.id ?? "";
+    const pads = resolveConnectedPadLayouts(navigator.getGamepads());
+    gamepadConnected = pads.length > 0;
+    gamepadLabel = pads[0]?.id ?? "";
+    gamepadPads = pads.map((pad) => ({ label: pad.id, layout: pad.layout }));
   }
 
   function gamepadNavigationRoot(): ParentNode {
@@ -178,48 +201,54 @@
   }
 
   function moveNormalModeFocus(direction: "up" | "down" | "left" | "right") {
-    if (adjustFocusedGamepadControl(direction)) return;
-    const root = gamepadNavigationRoot();
-    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    // Inside a controller surface (home visual/scene stage) the stick drives the
-    // stage directly: up/down switch the selected game, left/right step media.
-    // Focus is pinned to the stable surface root so per-game button re-keys can
-    // no longer drop the gamepad context back to the global dock.
-    const surface = controllerSurfaceFor(active);
-    if (surface) {
-      dispatchSurfaceDirection(surface, direction);
-      return;
-    }
-    const focusable = collectGamepadFocusable({ root });
-    const hasUsableFocus = active != null && focusable.includes(active);
-    if (!hasUsableFocus) {
-      // First stick press enters a visible controller surface right away (and
-      // already steps the selection) instead of landing on the dock.
-      const entrySurface = findControllerSurface(root);
-      if (entrySurface) {
-        dispatchSurfaceDirection(entrySurface, direction);
+    // 手柄运行时按需加载（无手柄用户不解析/轮询手柄模块）
+    void loadGamepadApi().then((m) => {
+      if (m.adjustFocusedGamepadControl(direction)) return;
+      const root = gamepadNavigationRoot();
+      const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      // Inside a controller surface (home visual/scene stage) the stick drives the
+      // stage directly: up/down switch the selected game, left/right step media.
+      // Focus is pinned to the stable surface root so per-game button re-keys can
+      // no longer drop the gamepad context back to the global dock.
+      const surface = m.controllerSurfaceFor(active);
+      if (surface) {
+        m.dispatchSurfaceDirection(surface, direction);
         return;
       }
-    }
-    const initial = hasUsableFocus ? active : visibleNavigationTarget(uiStore.currentView) ?? focusable[0] ?? null;
-    if (!initial) return;
-    if (!hasUsableFocus) initial.focus({ preventScroll: true });
-    moveGamepadFocus(direction, { root, activeElement: initial });
+      const focusable = m.collectGamepadFocusable({ root });
+      const hasUsableFocus = active != null && focusable.includes(active);
+      if (!hasUsableFocus) {
+        // First stick press enters a visible controller surface right away (and
+        // already steps the selection) instead of landing on the dock.
+        const entrySurface = m.findControllerSurface(root);
+        if (entrySurface) {
+          m.dispatchSurfaceDirection(entrySurface, direction);
+          return;
+        }
+      }
+      const initial = hasUsableFocus ? active : visibleNavigationTarget(uiStore.currentView) ?? focusable[0] ?? null;
+      if (!initial) return;
+      if (!hasUsableFocus) initial.focus({ preventScroll: true });
+      m.moveGamepadFocus(direction, { root, activeElement: initial });
+    });
   }
 
   function activateNormalModeFocus() {
-    const surface = controllerSurfaceFor(document.activeElement);
-    if (surface) {
-      // A on a home stage behaves like Enter: open the featured archive.
-      dispatchSurfaceKey(surface, "Enter");
-      return;
-    }
-    activateGamepadFocus({ root: gamepadNavigationRoot() });
+    void loadGamepadApi().then((m) => {
+      const surface = m.controllerSurfaceFor(document.activeElement);
+      if (surface) {
+        // A on a home stage behaves like Enter: open the featured archive.
+        m.dispatchSurfaceKey(surface, "Enter");
+        return;
+      }
+      m.activateGamepadFocus({ root: gamepadNavigationRoot() });
+    });
   }
 
   /** B while focused inside a home stage escapes back to the global dock. */
-  function escapeControllerSurface(): boolean {
-    const surface = controllerSurfaceFor(document.activeElement);
+  async function escapeControllerSurface(): Promise<boolean> {
+    const m = await loadGamepadApi();
+    const surface = m.controllerSurfaceFor(document.activeElement);
     if (!surface) return false;
     const target = visibleNavigationTarget(uiStore.currentView);
     if (target) {
@@ -242,12 +271,14 @@
       // Landing on a view with a controller surface (home stages) should hand
       // focus straight to the stage so the next stick press switches games.
       const root = gamepadNavigationRoot();
-      const surface = findControllerSurface(root);
-      const target = surface ?? visibleNavigationTarget(nextView);
-      if (target) {
-        target.focus({ preventScroll: true });
-        target.scrollIntoView({ block: "nearest", inline: "nearest" });
-      }
+      void loadGamepadApi().then((m) => {
+        const surface = m.findControllerSurface(root);
+        const target = surface ?? visibleNavigationTarget(nextView);
+        if (target) {
+          target.focus({ preventScroll: true });
+          target.scrollIntoView({ block: "nearest", inline: "nearest" });
+        }
+      });
     });
   }
 
@@ -323,11 +354,30 @@
       if (isBigPicture) return;
       void layeredBack();
     },
+    openPalette() {
+      if (isBigPicture || isMiniWindow) return;
+      paletteStore.setOpen(true);
+    },
   };
 
   const shortcutParameter = $derived(buildShortcutParameter(shortcutActions));
 
   $effect(() => {
+    // Android has one canonical landing surface. The router may restore the
+    // last desktop/media hash before the native capability probe completes;
+    // normalize that single initial route after Android is known, without
+    // hijacking later user navigation.
+    if (isAndroid && !androidStartupNormalized) {
+      androidStartupNormalized = true;
+      if (uiStore.currentView !== "home") {
+        navigateTo("home", { replace: true });
+        return;
+      }
+    }
+    if (isAndroid && uiStore.currentView === "handheld") {
+      navigateTo("home", { replace: true });
+      return;
+    }
     if (isAndroid && !isViewSupportedOnPlatform(uiStore.currentView, platformStore.capabilities)) {
       navigateTo("home", { replace: true });
       return;
@@ -335,6 +385,21 @@
     if (uiStore.currentView === "game-detail" && !gameStore.selectedGame && gameStore.games[0]) {
       gameStore.selectGame(gameStore.games[0].id);
     }
+  });
+
+  // Android 全局采用同一套沉浸式系统栏策略。媒体页、设置页和掌机首页
+  // 不应因为路由切换重新露出机身底部导航栏；偏好变化通过本地事件立即同步。
+  $effect(() => {
+    // Read storage at call time as well as keeping the reactive mirror. This
+    // covers WebViews that create localStorage after the initial module pass.
+    const preference = handheldImmersive;
+    const immersive = isAndroid && (preference || readHandheldImmersivePreference());
+    if (!isAndroid) return;
+    // Reading the effective mode makes this policy rerun after media/video
+    // orientation scopes change, including the configuration transition that
+    // can restore Android system bars.
+    void orientationStore.effectiveMode;
+    void setHandheldSystemBars(immersive).catch(() => {});
   });
 
   $effect(() => {
@@ -388,8 +453,27 @@
   });
 
   onMount(() => {
+    if (isMiniWindow) return;
     const platformReady = platformStore.initialize();
+    const systemBarRetryTimers: number[] = [];
     void platformReady.then(() => orientationStore.initialize());
+    void platformReady.then(async () => {
+      // platformStore.initialize() may be the first point at which a native
+      // WebView is known to be Android. Apply the persisted preference here
+      // as well as in the reactive effect, whose first run can happen before
+      // the Tauri plugin bridge is ready. Keep this independent from the
+      // orientation listener setup so a listener failure cannot expose bars.
+      if (platformStore.isAndroid) {
+        await setHandheldSystemBars(readHandheldImmersivePreference()).catch(() => {});
+        // A few Android WebViews apply the inset change after the orientation
+        // callback has returned. Retry at the end of the startup transition;
+        // each retry rereads the preference so disabling immersive remains
+        // immediate and is not overwritten by a stale value.
+        for (const delay of [250, 1000]) {
+          systemBarRetryTimers.push(window.setTimeout(applyAndroidSystemBars, delay));
+        }
+      }
+    });
     const releaseMotion = motionStore.initialize();
     if (!booted) {
       booted = true;
@@ -426,33 +510,51 @@
       }
     }, 5000);
     let releaseGamepadMode = () => {};
-    const releaseHandheldWatcher = installHandheldWatcher();
-    if (!isAndroid) {
-      const runtime = getDefaultGamepadFocusRuntime();
-      refreshGamepadConnection();
-      window.addEventListener("gamepadconnected", refreshGamepadConnection);
-      window.addEventListener("gamepaddisconnected", refreshGamepadConnection);
-      releaseGamepadMode = runtime?.subscribeInputMode((mode) => {
-        gamepadInputMode = mode;
-        document.documentElement.dataset.inputMode = mode;
-        if (mode === "gamepad") refreshGamepadConnection();
-      }) ?? (() => {});
-      _detachGamepad = attachGamepad({
+    const releaseHandheldWatcher = installHandheldWatcher((on) => { handheldActive = on; });
+    const offHandheldPrefs = onHandheldPrefsChanged(() => {
+      handheldHintsAlways = readHandheldHintsPreference();
+      handheldImmersive = readHandheldImmersivePreference();
+    });
+    document.addEventListener("visibilitychange", applyAndroidSystemBars);
+    window.addEventListener("moeplay-orientation-applied", applyAndroidSystemBars);
+    if (!isMiniWindow) {
+      // 手柄运行时按需加载：加载完成后注册连接监听、输入模式订阅与全局 scope。
+      // Android 掌机同样需要全局 dpad 空间导航（漫画/番剧/小说等页面）；
+      // 内容区页面（掌机模式、阅读器）以 zone/overlay scope 优先于全局兜底。
+      void loadGamepadApi().then((m) => {
+        refreshGamepadConnection();
+        window.addEventListener("gamepadconnected", refreshGamepadConnection);
+        window.addEventListener("gamepaddisconnected", refreshGamepadConnection);
+        releaseGamepadMode = m.getDefaultGamepadFocusRuntime()?.subscribeInputMode((mode) => {
+          gamepadInputMode = mode;
+          document.documentElement.dataset.inputMode = mode;
+          if (mode === "gamepad") refreshGamepadConnection();
+        }) ?? (() => {});
+        if (isAndroid) {
+          // 让 zone:"content" 的页面 scope（掌机模式等）优先于全局兜底 scope
+          m.getDefaultGamepadFocusRuntime()?.setActiveZone("content");
+        }
+        _detachGamepad = m.attachGamepad({
         up: () => { if (!isBigPicture) moveNormalModeFocus("up"); },
         down: () => { if (!isBigPicture) moveNormalModeFocus("down"); },
         left: () => { if (!isBigPicture) moveNormalModeFocus("left"); },
         right: () => { if (!isBigPicture) moveNormalModeFocus("right"); },
         launch: () => { if (!isBigPicture) activateNormalModeFocus(); },
-        activate: () => { if (!isBigPicture) activateGamepadSecondaryFocus({ root: gamepadNavigationRoot() }); },
-        favorite: () => { if (!isBigPicture) focusGamepadSearch(gamepadNavigationRoot()); },
+        activate: () => { if (!isBigPicture) void loadGamepadApi().then((m) => m.activateGamepadSecondaryFocus({ root: gamepadNavigationRoot() })); },
+        favorite: () => { if (!isBigPicture) void loadGamepadApi().then((m) => m.focusGamepadSearch(gamepadNavigationRoot())); },
         filter: () => { if (!isBigPicture) toggleWorkspaceFocus(); },
         pageLeft: () => { if (!isBigPicture) cyclePrimaryContent(-1); },
         pageRight: () => { if (!isBigPicture) cyclePrimaryContent(1); },
-        back: () => { if (!escapeControllerSurface()) void layeredBack(); },
+        back: () => { void escapeControllerSurface().then((escaped) => { if (!escaped) void layeredBack(); }); },
         start: () => {
-          if (!isBigPicture) uiStore.setBigPicture(true);
+          // Android 掌机无大屏模式：START 聚焦当前模块搜索框
+          if (isBigPicture) return;
+          if (isAndroid) focusCurrentSearch();
+          else uiStore.setBigPicture(true);
         },
-      }, { id: "app-global-gamepad", priority: 10 });
+        // Android 上作为页面级 zone/overlay scope 的兜底（低优先级）
+      }, { id: "app-global-gamepad", priority: isAndroid ? -10 : 10 });
+      });
     }
     return () => {
       releaseMotion();
@@ -467,19 +569,23 @@
       _detachGamepad();
       releaseGamepadMode();
       releaseHandheldWatcher();
+      offHandheldPrefs();
+      document.removeEventListener("visibilitychange", applyAndroidSystemBars);
+      window.removeEventListener("moeplay-orientation-applied", applyAndroidSystemBars);
+      for (const timer of systemBarRetryTimers) window.clearTimeout(timer);
     };
   });
 
   let _wallpaperSyncStarted = false;
   $effect(() => {
-    if (_wallpaperSyncStarted || !settingsStore.loaded) return;
+    if (_wallpaperSyncStarted || isMiniWindow || !settingsStore.loaded) return;
     _wallpaperSyncStarted = true;
     if (!(window as any).__MOEPLAY_TEST__) void wallpaperStore.initialize(settingsStore.appearance, settingsStore.settings.nsfw_display_mode ?? "blur");
   });
 
   let _startupApplied = false;
   $effect(() => {
-    if (_startupApplied) return;
+    if (_startupApplied || isMiniWindow) return;
     if (!settingsStore.loaded) return;
     _startupApplied = true;
 
@@ -513,10 +619,17 @@
 
 <svelte:window use:shortcut={shortcutParameter} />
 
+{#if isMiniWindow}
+  {#await import("./lib/components/mini/MiniPlayer.svelte") then { default: MiniPlayer }}
+    <MiniPlayer />
+  {/await}
+{:else}
 <div
   class="app-container"
   class:fullscreen={isBigPicture}
   class:mobile-shell={isAndroid}
+  class:handheld-full={isAndroid && isHandheldView}
+  class:media-full={isMediaView}
   class:topnav-hidden={uiStore.topNavHidden}
   data-testid="app-shell"
   data-ui-ready={booted ? "true" : "false"}
@@ -529,13 +642,15 @@
     <WallpaperStage surface={wallpaperSurface} />
 
     {#if isAndroid}
-      <MobileAppShell
-        currentView={uiStore.currentView}
-        onNavigate={pickDock}
-        onSearch={focusCurrentSearch}
-        {taskActiveCount}
-        {taskFailedCount}
-      />
+      {#if !isHandheldView && !isMediaView}
+        <MobileAppShell
+          currentView={uiStore.currentView}
+          onNavigate={pickDock}
+          onSearch={focusCurrentSearch}
+          {taskActiveCount}
+          {taskFailedCount}
+        />
+      {/if}
     {:else}
       <div class="global-top-navigation">
         <GlobalTopNavigation
@@ -636,8 +751,22 @@
             {#await import("./lib/components/EmulatorImportDialog.svelte") then { default: Comp }}
               <Comp />
             {/await}
+          {:else if uiStore.currentView === "home" && isAndroid}
+            {#await import("./lib/features/handheld/HandheldPage.svelte") then { default: Comp }}
+              <Comp />
+            {/await}
+          {:else if uiStore.currentView === "handheld"}
+            {#await import("./lib/features/handheld/HandheldPage.svelte") then { default: Comp }}
+              <Comp />
+            {/await}
+          {:else if uiStore.currentView === "game-library"}
+            <SwitchHome {taskActiveCount} {taskFailedCount} />
+          {:else if uiStore.currentView === "handheld-import"}
+            {#await import("./lib/features/handheld/HandheldImportPage.svelte") then { default: Comp }}
+              <Comp />
+            {/await}
           {:else}
-            <SwitchHome />
+            <SwitchHome {taskActiveCount} {taskFailedCount} />
           {/if}
         </div>
       {/key}
@@ -683,15 +812,21 @@
       <GamepadHintBar
         connected={gamepadConnected}
         padLabel={gamepadLabel}
+        pads={gamepadPads}
         inputMode={gamepadInputMode}
         currentView={uiStore.currentView}
         focusModeAvailable={workspaceFocusAvailable}
         focusMode={workspaceFocusEnabled}
+        handheld={handheldActive}
+        hintsAlways={handheldHintsAlways}
       />
+      <HandheldKeyboardOverlay />
     {/if}
 
   {:else}
-    <BigPicturePage />
+    {#await import("./lib/components/BigPicturePage.svelte") then { default: Comp }}
+      <Comp />
+    {/await}
   {/if}
 </div>
 
@@ -708,11 +843,19 @@
 {/if}
 
 {#if !isAndroid}
-  <ShortcutHelp open={showShortcutHelp} onclose={() => setShortcutHelp(false)} />
-  <UpdateDialog bind:open={showUpdateDialog} />
+  {#await import("./lib/components/ShortcutHelp.svelte") then { default: ShortcutHelp }}
+    <ShortcutHelp open={showShortcutHelp} onclose={() => setShortcutHelp(false)} />
+  {/await}
+  {#await import("./lib/features/palette/CommandPalette.svelte") then { default: CommandPalette }}
+    <CommandPalette />
+  {/await}
+  {#await import("./lib/components/UpdateDialog.svelte") then { default: UpdateDialog }}
+    <UpdateDialog bind:open={showUpdateDialog} />
+  {/await}
 {/if}
 
 <Notifications />
+{/if}
 
 <style>
   .app-container {
@@ -735,6 +878,8 @@
   .app-container.topnav-hidden .global-top-navigation { opacity: 0; pointer-events: none; }
   .app-container.mobile-shell { display: block; height: 100dvh; min-height: 100svh; }
   .app-container.mobile-shell .main-content { position: absolute; inset: calc(56px + env(safe-area-inset-top)) 0 calc(64px + env(safe-area-inset-bottom)); overflow: hidden; }
+  .app-container.mobile-shell.handheld-full .main-content { inset: 0; }
+  .app-container.mobile-shell.media-full .main-content { inset: 0; }
   .app-container.mobile-shell .view-wrapper { touch-action: pan-x pan-y; }
   .global-top-navigation { grid-column: 1; grid-row: 1; position: relative; z-index: 95; min-width: 0; overflow: hidden; min-height: 0; transition: opacity 200ms ease; }
   .main-content { grid-column: 1; grid-row: 2; min-width: 0; min-height: 0; max-width: 100%; position: relative; z-index: 1; overflow: hidden; isolation: isolate; }

@@ -188,7 +188,15 @@
     statusError = "";
     try {
       await settingsStore.load();
-      status = await getPlatformImportStatus();
+      status = (await getPlatformImportStatus()) ?? {
+        steam_path: null,
+        steam_id: null,
+        has_steam_api_key: false,
+        steam_api_key_validated: false,
+        steam_can_sync_account: false,
+        epic_manifest_path: null,
+        epic_manifest_available: false,
+      };
       steamIdInput = settingsStore.settings.steam_id || status.steam_id || "";
       apiKeyInput = "";
       steamLoginMessage = steamIdInput ? "已保存 SteamID" : "未连接";

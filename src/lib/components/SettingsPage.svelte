@@ -12,8 +12,11 @@
   import SegmentControl from "./ui/SegmentControl.svelte";
   import Switch from "./ui/Switch.svelte";
   import Input from "./ui/Input.svelte";
-  import { readGamepadLayoutPreference, writeGamepadLayoutPreference, type GamepadLayoutPreference } from "../platform/gamepadLayout";
-  import { readHandheldPreference, writeHandheldPreference, type HandheldMode } from "../platform/handheld";
+  import { readGamepadLayoutPreference, resolveConnectedPadLayouts, writeDeviceLayoutPreference, writeGamepadLayoutPreference, type GamepadLayoutPreference } from "../platform/gamepadLayout";
+  import { GAMEPAD_ACTIONS, gamepadGlyphFor, readGamepadRemap, resetGamepadRemap, writeGamepadRemap, type GamepadAction } from "../platform/gamepadRemap";
+  import { gamepadTuning, type AxisSensitivity, type RepeatSpeed } from "../platform/gamepadTuning.svelte";
+  import { readHandheldHintsPreference, readHandheldImmersivePreference, readHandheldKeyboardPreference, readHandheldPreference, writeHandheldHintsPreference, writeHandheldImmersivePreference, writeHandheldKeyboardPreference, writeHandheldPreference, type HandheldMode } from "../platform/handheld";
+  import { setHandheldSystemBars } from "../features/handheld/api";
   import Icon from "./Icon.svelte";
   import UpdateDialog from "./UpdateDialog.svelte";
   import { PageHeader, PageShell, StateBoundary, type ViewState } from "./ui-v2";
@@ -28,6 +31,7 @@
   import { orientationStore, platformStore, type OrientationMode } from "../platform";
   import { kineticStageStore } from "../features/kinetic";
   import { applyStartupWindowMode } from "../utils/startup-window-mode";
+  import HandheldSettingsControlCenter from "./settings/HandheldSettingsControlCenter.svelte";
 
   let showUpdateDialog = $state(false);
   const appVersion = APP_VERSION;
@@ -52,10 +56,14 @@
   // 掌机/手柄偏好：localStorage 即存即用，不入后端 settings
   let gamepadLayout = $state<GamepadLayoutPreference>(readGamepadLayoutPreference());
   let handheldMode = $state<HandheldMode>(readHandheldPreference());
+  let handheldHints = $state(readHandheldHintsPreference());
+  let handheldKeyboard = $state(readHandheldKeyboardPreference());
+  let handheldImmersive = $state(readHandheldImmersivePreference());
   const gamepadLayoutOptions = $derived([
     { value: "auto", label: i18n.t("settings.gamepad_layout.auto") },
     { value: "xbox", label: "Xbox" },
     { value: "nintendo", label: i18n.t("settings.gamepad_layout.nintendo") },
+    { value: "playstation", label: "PlayStation" },
   ]);
   const handheldModeOptions = $derived([
     { value: "auto", label: i18n.t("settings.handheld.auto") },
@@ -64,10 +72,162 @@
   ]);
 
   function setGamepadLayout(value: string) {
-    const v: GamepadLayoutPreference = value === "xbox" || value === "nintendo" ? value : "auto";
+    const v: GamepadLayoutPreference = value === "xbox" || value === "nintendo" || value === "playstation" ? value : "auto";
     gamepadLayout = v;
     writeGamepadLayoutPreference(v);
     uiStore.notify(i18n.t("settings.gamepad_layout_changed"), "success");
+  }
+
+  // 逐手柄布局覆盖：串流/虚拟手柄工具（UU远程 等）上报的 id 可能与真实手柄完全相同，
+  // 自动识别无法区分远端实体类型，因此允许为每个已连接设备单独指定布局。
+  type ConnectedPadEntry = {
+    id: string;
+    index: number;
+    layout: "xbox" | "nintendo" | "playstation";
+    deviceOverride: "xbox" | "nintendo" | "playstation" | null;
+  };
+  let connectedPads = $state<ConnectedPadEntry[]>([]);
+  const padLayoutOptions = [
+    { value: "auto", label: i18n.t("settings.gamepad_layout.auto") },
+    { value: "xbox", label: "Xbox" },
+    { value: "nintendo", label: i18n.t("settings.gamepad_layout.nintendo") },
+    { value: "playstation", label: "PlayStation" },
+  ];
+
+  function refreshConnectedPads() {
+    if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") {
+      connectedPads = [];
+      return;
+    }
+    connectedPads = resolveConnectedPadLayouts(navigator.getGamepads()).map((pad) => ({
+      id: pad.id,
+      index: pad.index,
+      layout: pad.layout,
+      deviceOverride: pad.deviceOverride,
+    }));
+  }
+
+  function setPadLayout(padIndex: number, value: string) {
+    const pad = connectedPads[padIndex];
+    if (!pad) return;
+    const next: "xbox" | "nintendo" | "playstation" | null = value === "xbox" || value === "nintendo" || value === "playstation" ? value : null;
+    writeDeviceLayoutPreference(pad.id, next, pad.index);
+    refreshConnectedPads();
+    uiStore.notify(
+      next ? i18n.t("settings.gamepad_layout_device_changed") : i18n.t("settings.gamepad_layout_device_cleared"),
+      "success",
+    );
+  }
+
+  // ── 手柄按键绑定（重映射）──
+  const ACTION_LABELS: Record<GamepadAction, string> = {
+    launch: "启动 / 确认",
+    back: "返回 / 取消",
+    favorite: "收藏 / 搜索",
+    activate: "档案 / 激活",
+    pageLeft: "左翻页",
+    pageRight: "右翻页",
+    categoryLeft: "上一级频道",
+    categoryRight: "下一级频道",
+    filter: "筛选",
+    start: "开始 / 大屏",
+  };
+  let remap = $state<Record<string, number>>({});
+  let capturingAction = $state<GamepadAction | null>(null);
+  let captureTimer: ReturnType<typeof setInterval> | null = null;
+  let captureArmed = false;
+  let lastPressed = new Set<string>();
+
+  function remapLayout(): "xbox" | "nintendo" | "playstation" {
+    return connectedPads[0]?.layout ?? (gamepadLayout === "nintendo" ? "nintendo" : "xbox");
+  }
+
+  function glyphFor(action: GamepadAction): string {
+    return gamepadGlyphFor(action, remapLayout());
+  }
+
+  function syncRemap() {
+    remap = { ...readGamepadRemap() } as Record<string, number>;
+  }
+
+  function stopCapture() {
+    if (captureTimer) clearInterval(captureTimer);
+    captureTimer = null;
+    capturingAction = null;
+    captureArmed = false;
+    lastPressed = new Set();
+  }
+
+  function startCapture(action: GamepadAction) {
+    stopCapture();
+    capturingAction = action;
+    captureArmed = false;
+    lastPressed = new Set();
+    captureTimer = setInterval(() => {
+      if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") return;
+      const pads = Array.from(navigator.getGamepads()).filter((pad): pad is Gamepad => pad != null && pad.connected);
+      const nowPressed = new Set<string>();
+      for (const pad of pads) {
+        for (let i = 0; i < (pad.buttons?.length ?? 0); i += 1) {
+          const button = pad.buttons[i];
+          if (button && (button.pressed || (button.value ?? 0) >= 0.5)) {
+            nowPressed.add(String(pad.index) + ":" + i);
+          }
+        }
+      }
+      if (!captureArmed) {
+        // 先等所有按键松开，再捕获下一个新按下的按钮
+        if (nowPressed.size === 0) captureArmed = true;
+        lastPressed = nowPressed;
+        return;
+      }
+      for (const key of nowPressed) {
+        if (!lastPressed.has(key)) {
+          const physical = Number(key.split(":")[1]);
+          writeGamepadRemap({ ...readGamepadRemap(), [action]: physical });
+          syncRemap();
+          stopCapture();
+          uiStore.notify(`${ACTION_LABELS[action]} → 按钮 ${physical + 1}`, "success");
+          return;
+        }
+      }
+      lastPressed = nowPressed;
+    }, 50);
+  }
+
+  function resetBindings() {
+    resetGamepadRemap();
+    syncRemap();
+    stopCapture();
+    uiStore.notify(i18n.t("settings.gamepad_remap_reset_done"), "success");
+  }
+
+  // ── 手柄灵敏度（串流/远程适配）──
+  let sensitivity = $state<AxisSensitivity>(gamepadTuning.sensitivity);
+  let repeatSpeed = $state<RepeatSpeed>(gamepadTuning.repeatSpeed);
+  const sensitivityOptions = $derived([
+    { value: "loose", label: i18n.t("settings.gamepad_tuning.loose") },
+    { value: "standard", label: i18n.t("settings.gamepad_tuning.standard") },
+    { value: "tight", label: i18n.t("settings.gamepad_tuning.tight") },
+  ]);
+  const repeatSpeedOptions = $derived([
+    { value: "slow", label: i18n.t("settings.gamepad_tuning.slow") },
+    { value: "standard", label: i18n.t("settings.gamepad_tuning.standard") },
+    { value: "fast", label: i18n.t("settings.gamepad_tuning.fast") },
+  ]);
+
+  function setSensitivity(value: string) {
+    if (value === "loose" || value === "standard" || value === "tight") {
+      gamepadTuning.sensitivity = value;
+      sensitivity = value;
+    }
+  }
+
+  function setRepeatSpeed(value: string) {
+    if (value === "slow" || value === "standard" || value === "fast") {
+      gamepadTuning.repeatSpeed = value;
+      repeatSpeed = value;
+    }
   }
 
   function setHandheldMode(value: string) {
@@ -75,6 +235,28 @@
     handheldMode = v;
     writeHandheldPreference(v);
     uiStore.notify(i18n.t("settings.handheld_changed"), "success");
+  }
+
+  function setHandheldHints(on: boolean) {
+    handheldHints = on;
+    writeHandheldHintsPreference(on);
+  }
+
+  function setHandheldKeyboard(on: boolean) {
+    handheldKeyboard = on;
+    writeHandheldKeyboardPreference(on);
+  }
+
+  async function setHandheldImmersive(on: boolean) {
+    handheldImmersive = on;
+    writeHandheldImmersivePreference(on);
+    if (platformStore.isAndroid) {
+      try {
+        await setHandheldSystemBars(on);
+      } catch {
+        uiStore.notify("系统栏设置将在下次进入掌机页时生效", "info");
+      }
+    }
   }
 
   const languageOptions = [
@@ -104,7 +286,7 @@
   // 界面语言：i18n store 负责 localStorage 持久化，settings 后端同步 language 字段，
   // 与外观设置一样立即生效并在重启后保持。
   async function setInterfaceLanguage(lang: string) {
-    i18n.lang = lang;
+    await i18n.setLanguage(lang);
     settingsStore.setLanguage(lang);
     await save();
   }
@@ -166,6 +348,17 @@
   onMount(() => {
     void refreshCacheStats();
     void refreshAiSecretStatus();
+    refreshConnectedPads();
+    syncRemap();
+    const padTimer = setInterval(refreshConnectedPads, 1500);
+    window.addEventListener("gamepadconnected", refreshConnectedPads);
+    window.addEventListener("gamepaddisconnected", refreshConnectedPads);
+    return () => {
+      clearInterval(padTimer);
+      stopCapture();
+      window.removeEventListener("gamepadconnected", refreshConnectedPads);
+      window.removeEventListener("gamepaddisconnected", refreshConnectedPads);
+    };
   });
 
   async function setBooleanSetting(key: "ai_enabled", value: boolean) {
@@ -288,6 +481,9 @@
       description={i18n.t("settings.subtitle")}
     />
 
+    {#if platformStore.isAndroid}
+      <HandheldSettingsControlCenter />
+    {:else}
     <div class="stg-workspace">
       <aside class="stg-index" aria-label={i18n.t("settings.title")}>
         <span>SETTINGS / INDEX</span>
@@ -402,6 +598,74 @@
             </div>
             <SegmentControl options={gamepadLayoutOptions} value={gamepadLayout} onChange={setGamepadLayout} size="sm" />
           </div>
+          {#if connectedPads.length > 0}
+            <div class="s-row">
+              <div class="s-info">
+                <span class="s-label">{i18n.t("settings.gamepad_layout_devices")}</span>
+                <span class="s-desc">{i18n.t("settings.gamepad_layout_devices_desc")}</span>
+              </div>
+              <div class="s-pad-list">
+                {#each connectedPads as pad, padIndex (pad.id + "#" + pad.index + "-" + padIndex)}
+                  <div class="s-pad-item">
+                    <span class="s-pad-name" title={pad.id}>
+                      <b>{pad.id || ("槽位 " + (pad.index + 1))}</b>
+                      <small>
+                        槽位 #{pad.index + 1}
+                        {#if pad.deviceOverride} · 手动覆盖{/if}
+                        {#if pad.layout === "nintendo"} · 任天堂{/if}
+                      </small>
+                    </span>
+                    <SegmentControl options={padLayoutOptions} value={pad.deviceOverride ?? "auto"} onChange={(value) => setPadLayout(padIndex, value)} size="sm" />
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
+          <div class="s-row">
+            <div class="s-info">
+              <span class="s-label">{i18n.t("settings.gamepad_remap")}</span>
+              <span class="s-desc">{i18n.t("settings.gamepad_remap_desc")}</span>
+            </div>
+            <button class="s-link-btn" onclick={resetBindings}>{i18n.t("settings.gamepad_remap_reset")}</button>
+          </div>
+          <div class="s-remap-list">
+            {#each GAMEPAD_ACTIONS as action}
+              <div class="s-remap-row">
+                <span class="s-remap-name">
+                  <b>{ACTION_LABELS[action]}</b>
+                  <small>{glyphFor(action)}</small>
+                </span>
+                {#if capturingAction === action}
+                  <span class="s-remap-capturing">
+                    {i18n.t("settings.gamepad_remap_press")}
+                    <button onclick={stopCapture}>{i18n.t("settings.gamepad_remap_cancel")}</button>
+                  </span>
+                {:else}
+                  <button class="s-remap-btn" onclick={() => startCapture(action)}>{i18n.t("settings.gamepad_remap_bind")}</button>
+                {/if}
+              </div>
+            {/each}
+          </div>
+          <div class="s-row">
+            <div class="s-info">
+              <span class="s-label">{i18n.t("settings.gamepad_tuning")}</span>
+              <span class="s-desc">{i18n.t("settings.gamepad_tuning_desc")}</span>
+            </div>
+          </div>
+          <div class="s-row s-row-sub">
+            <div class="s-info">
+              <span class="s-label">{i18n.t("settings.gamepad_tuning_sensitivity")}</span>
+              <span class="s-desc">{i18n.t("settings.gamepad_tuning_sensitivity_desc")}</span>
+            </div>
+            <SegmentControl options={sensitivityOptions} value={sensitivity} onChange={setSensitivity} size="sm" />
+          </div>
+          <div class="s-row s-row-sub">
+            <div class="s-info">
+              <span class="s-label">{i18n.t("settings.gamepad_tuning_repeat")}</span>
+              <span class="s-desc">{i18n.t("settings.gamepad_tuning_repeat_desc")}</span>
+            </div>
+            <SegmentControl options={repeatSpeedOptions} value={repeatSpeed} onChange={setRepeatSpeed} size="sm" />
+          </div>
           <div class="s-row">
             <div class="s-info">
               <span class="s-label">{i18n.t("settings.handheld")}</span>
@@ -409,6 +673,69 @@
             </div>
             <SegmentControl options={handheldModeOptions} value={handheldMode} onChange={setHandheldMode} size="sm" />
           </div>
+          {#if platformStore.isAndroid}
+            <div class="s-row s-row-sub">
+              <div class="s-info">
+                <span class="s-label">掌机沉浸式显示</span>
+                <span class="s-desc">隐藏 Android 状态栏与底部导航栏，为封面网格和模拟器启动腾出完整横屏空间</span>
+              </div>
+              <Switch checked={handheldImmersive} onchange={(e) => void setHandheldImmersive((e.target as HTMLInputElement).checked)} />
+            </div>
+          {/if}
+          {#if handheldMode !== "off"}
+            <div class="s-row s-row-sub">
+              <div class="s-info">
+                <span class="s-label">{i18n.t("settings.handheld_hints")}</span>
+                <span class="s-desc">{i18n.t("settings.handheld_hints_desc")}</span>
+              </div>
+              <Switch checked={handheldHints} onchange={(e) => setHandheldHints((e.target as HTMLInputElement).checked)} />
+            </div>
+            <div class="s-row s-row-sub">
+              <div class="s-info">
+                <span class="s-label">{i18n.t("settings.handheld_keyboard")}</span>
+                <span class="s-desc">{i18n.t("settings.handheld_keyboard_desc")}</span>
+              </div>
+              <Switch checked={handheldKeyboard} onchange={(e) => setHandheldKeyboard((e.target as HTMLInputElement).checked)} />
+            </div>
+          {/if}
+          {/if}
+
+          {#if platformStore.isAndroid}
+            <div class="s-divider"></div>
+            <div class="s-info" style="padding-bottom: 12px;">
+              <span class="s-label">掌机适配</span>
+              <span class="s-desc">为横屏掌机提供更大的操作目标，并管理系统栏显示方式</span>
+            </div>
+            <div class="s-row">
+              <div class="s-info">
+                <span class="s-label">掌机模式</span>
+                <span class="s-desc">自动识别横屏掌机，也可以强制开启或关闭</span>
+              </div>
+              <SegmentControl options={handheldModeOptions} value={handheldMode} onChange={setHandheldMode} size="sm" />
+            </div>
+            <div class="s-row s-row-sub">
+              <div class="s-info">
+                <span class="s-label">沉浸式显示</span>
+                <span class="s-desc">进入掌机页时隐藏 Android 状态栏与底部导航栏；从边缘滑动仍可临时呼出</span>
+              </div>
+              <Switch checked={handheldImmersive} onchange={(e) => void setHandheldImmersive((e.target as HTMLInputElement).checked)} />
+            </div>
+            {#if handheldMode !== "off"}
+              <div class="s-row s-row-sub">
+                <div class="s-info">
+                  <span class="s-label">手柄提示条常显</span>
+                  <span class="s-desc">连接手柄后直接显示掌机操作提示</span>
+                </div>
+                <Switch checked={handheldHints} onchange={(e) => setHandheldHints((e.target as HTMLInputElement).checked)} />
+              </div>
+              <div class="s-row s-row-sub">
+                <div class="s-info">
+                  <span class="s-label">自动屏幕键盘</span>
+                  <span class="s-desc">输入框聚焦时自动弹出系统键盘</span>
+                </div>
+                <Switch checked={handheldKeyboard} onchange={(e) => setHandheldKeyboard((e.target as HTMLInputElement).checked)} />
+              </div>
+            {/if}
           {/if}
 
         </Card>
@@ -548,6 +875,7 @@
         </StateBoundary>
       </main>
     </div>
+    {/if}
   </div>
 </PageShell>
 
@@ -699,8 +1027,27 @@
   .theme-pack-card__copy { position: absolute; left: 14px; right: 14px; bottom: 12px; display: flex; flex-direction: column; gap: 3px; }
   .theme-pack-card__copy b { font-size: 14px; letter-spacing: .02em; }
 
+  /* ── Per-device gamepad layout ── */
+  .s-link-btn { border: 0; color: var(--accent); background: transparent; font-size: 12px; font-weight: 650; cursor: pointer; }
+  .s-remap-list { display: flex; flex-direction: column; gap: 6px; width: min(46vw, 460px); min-width: 0; }
+  .s-remap-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-hover); }
+  .s-remap-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .s-remap-name b { font-size: 12px; color: var(--text-primary); }
+  .s-remap-name small { padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-muted); font: 750 10px var(--font-mono); }
+  .s-remap-capturing { display: flex; align-items: center; gap: 8px; color: var(--accent); font-size: 12px; }
+  .s-remap-capturing button, .s-remap-btn { border: 1px solid var(--border); border-radius: 7px; padding: 4px 10px; color: var(--text-secondary); background: var(--bg-elev); font-size: 11px; cursor: pointer; }
+  .s-row-sub { margin-left: 28px; border-bottom-style: dashed; }
+  .s-row-sub .s-label { font-size: 12.5px; }
+  .s-pad-list { display: flex; flex-direction: column; gap: 8px; width: min(46vw, 460px); min-width: 0; }
+  .s-pad-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-hover); }
+  .s-pad-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .s-pad-name b { overflow: hidden; font-size: 12px; color: var(--text-primary); text-overflow: ellipsis; white-space: nowrap; }
+  .s-pad-name small { color: var(--text-muted); font-size: 10px; }
+
   /* ── Responsive ── */
   @media (max-width: 720px) {
+    .s-pad-list { width: 100%; }
+    .s-remap-list { width: 100%; }
     .maintenance-grid { grid-template-columns: 1fr; }
     .mode-grid { grid-template-columns: 1fr; }
     .ai-field { grid-template-columns: 1fr; }

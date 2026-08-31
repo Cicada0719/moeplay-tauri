@@ -7,6 +7,10 @@
   import { i18n } from "../stores/i18n.svelte";
   import Icon from "./Icon.svelte";
   import { PageShell, PageHeader, FilterBar, AsyncState } from "./ui-v2";
+  import { platformStore } from "../platform/runtime.svelte";
+  import { navigateTo } from "../stores/router.svelte";
+  import HandheldMediaShell from "../features/handheld/HandheldMediaShell.svelte";
+  import type { NovelReadingMode } from "../features/handheld/mediaTypes";
 
   const READER_PREFS_KEY = "moeplay-novel-reader-prefs-v1";
 
@@ -16,7 +20,9 @@
   let fontSize = $state(19);
   let lineHeight = $state(1.9);
   let readerTheme = $state<"dark" | "paper" | "sepia">("dark");
+  let readingMode = $state<NovelReadingMode>("scroll");
   let selectedSource = $state<NovelSource>(novelStore.source);
+  let lastChapterAttempt = $state<NovelChapter | null>(null);
   let progressFrame = 0;
 
   const sourceOptions = $derived<Array<{ id: NovelSource; label: string; hint: string }>>([
@@ -46,8 +52,13 @@
     restoredReaderKey = key;
     const saved = novelStore.progressFor(book, content.chapter.id);
     requestAnimationFrame(() => {
-      const available = Math.max(0, element.scrollHeight - element.clientHeight);
-      element.scrollTop = available * saved;
+      if (readingMode === "paged") {
+        const available = Math.max(0, element.scrollWidth - element.clientWidth);
+        element.scrollLeft = available * saved;
+      } else {
+        const available = Math.max(0, element.scrollHeight - element.clientHeight);
+        element.scrollTop = available * saved;
+      }
     });
   });
 
@@ -57,14 +68,33 @@
         fontSize?: number;
         lineHeight?: number;
         theme?: "dark" | "paper" | "sepia";
+        readingMode?: NovelReadingMode;
       };
       if (typeof saved.fontSize === "number") fontSize = Math.max(15, Math.min(30, saved.fontSize));
       if (typeof saved.lineHeight === "number") lineHeight = Math.max(1.45, Math.min(2.5, saved.lineHeight));
       if (saved.theme === "dark" || saved.theme === "paper" || saved.theme === "sepia") readerTheme = saved.theme;
+      if (saved.readingMode === "paged" || saved.readingMode === "scroll") {
+        readingMode = saved.readingMode;
+      } else {
+        readingMode = platformStore.isAndroid ? "paged" : "scroll";
+      }
     } catch {
       // Invalid local preferences should never prevent opening the reader.
+      readingMode = platformStore.isAndroid ? "paged" : "scroll";
     }
     const handleKeydown = (event: KeyboardEvent) => {
+      if (novelStore.view === "reader" && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+        if (readingMode === "paged") {
+          event.preventDefault();
+          moveReaderPage(event.key === "ArrowLeft" ? -1 : 1);
+        }
+        return;
+      }
+      if (novelStore.view === "reader" && (event.key === "ArrowUp" || event.key === "ArrowDown") && readingMode === "scroll") {
+        event.preventDefault();
+        moveReaderScroll(event.key === "ArrowUp" ? -1 : 1);
+        return;
+      }
       if (event.key !== "Escape") return;
       if (novelStore.view === "reader") {
         event.stopImmediatePropagation();
@@ -75,7 +105,16 @@
       }
     };
     window.addEventListener("keydown", handleKeydown, { capture: true });
-    return () => window.removeEventListener("keydown", handleKeydown, { capture: true });
+    const handleResize = () => {
+      // Reflowing paged columns changes the scrollable width; the next effect
+      // restores the same content ratio instead of the same pixel offset.
+      if (novelStore.view === "reader") restoredReaderKey = "";
+    };
+    window.addEventListener("resize", handleResize, { passive: true });
+    return () => {
+      window.removeEventListener("keydown", handleKeydown, { capture: true });
+      window.removeEventListener("resize", handleResize);
+    };
   });
 
   onDestroy(() => {
@@ -85,7 +124,7 @@
 
   function persistReaderPrefs() {
     if (typeof localStorage === "undefined") return;
-    localStorage.setItem(READER_PREFS_KEY, JSON.stringify({ fontSize, lineHeight, theme: readerTheme }));
+    localStorage.setItem(READER_PREFS_KEY, JSON.stringify({ fontSize, lineHeight, theme: readerTheme, readingMode }));
   }
 
   async function submitSearch(event?: SubmitEvent) {
@@ -163,8 +202,11 @@
   function saveReaderProgress() {
     const element = readerElement;
     if (!element || novelStore.view !== "reader") return;
-    const available = element.scrollHeight - element.clientHeight;
-    novelStore.setProgress(available <= 0 ? 1 : element.scrollTop / available);
+    const available = readingMode === "paged"
+      ? element.scrollWidth - element.clientWidth
+      : element.scrollHeight - element.clientHeight;
+    const position = readingMode === "paged" ? element.scrollLeft : element.scrollTop;
+    novelStore.setProgress(available <= 0 ? 1 : Math.min(1, Math.max(0, position / available)));
   }
 
   function handleReaderScroll() {
@@ -178,6 +220,7 @@
   async function readChapter(chapter: NovelChapter) {
     saveReaderProgress();
     restoredReaderKey = "";
+    lastChapterAttempt = chapter;
     await novelStore.readChapter(chapter);
   }
 
@@ -186,8 +229,54 @@
     const next = chapters[chapterIndex + offset];
     if (next) await readChapter(next);
   }
+
+  function setReadingMode(mode: NovelReadingMode) {
+    if (mode === readingMode) return;
+    saveReaderProgress();
+    readingMode = mode;
+    restoredReaderKey = "";
+    persistReaderPrefs();
+  }
+
+  function moveReaderPage(direction: -1 | 1) {
+    const element = readerElement;
+    if (!element || readingMode !== "paged") return;
+    element.scrollBy({ left: direction * Math.max(element.clientWidth * 0.92, 240), behavior: "smooth" });
+  }
+
+  function moveReaderScroll(direction: -1 | 1) {
+    const element = readerElement;
+    if (!element || readingMode !== "scroll") return;
+    element.scrollBy({ top: direction * Math.max(element.clientHeight * 0.7, 220), behavior: "smooth" });
+  }
+
+  function closeNovelSurface() {
+    if (novelStore.view === "reader") {
+      saveReaderProgress();
+      novelStore.showDetail();
+    } else if (novelStore.view === "detail") {
+      novelStore.showHome();
+    } else navigateTo("home");
+  }
+
+  const novelMediaHandlers = $derived.by(() => {
+    if (novelStore.view !== "reader") return {};
+    return {
+      left: () => readingMode === "paged" ? moveReaderPage(-1) : moveReaderScroll(-1),
+      right: () => readingMode === "paged" ? moveReaderPage(1) : moveReaderScroll(1),
+      up: () => moveReaderScroll(-1),
+      down: () => moveReaderScroll(1),
+      pageLeft: () => readingMode === "paged" ? moveReaderPage(-1) : void moveChapter(-1),
+      pageRight: () => readingMode === "paged" ? moveReaderPage(1) : void moveChapter(1),
+      launch: () => moveReaderPage(1),
+      activate: () => setReadingMode(readingMode === "paged" ? "scroll" : "paged"),
+      favorite: () => novelStore.showDetail(),
+      start: () => novelStore.showDetail(),
+    };
+  });
 </script>
 
+{#snippet novelPageContent()}
 <PageShell as="div" width="full" scrollable={false} class="novel-v2-shell" ariaLabel={i18n.t("novel.title")}>
   <div class="novel-page" data-testid="novel-page">
     <div class="v2-grain nv-grain" aria-hidden="true"></div>
@@ -204,6 +293,13 @@
             <span>{novelStore.content.chapter.title}</span>
           </div>
           <div class="reader-controls" aria-label={i18n.t("novel.controls_aria")}>
+            <label class="reader-mode-control">
+              <span class="sr-only">阅读模式</span>
+              <select aria-label="阅读模式" value={readingMode} onchange={(event) => setReadingMode((event.currentTarget as HTMLSelectElement).value as NovelReadingMode)}>
+                <option value="paged">分页</option>
+                <option value="scroll">连续</option>
+              </select>
+            </label>
             <button type="button" aria-label={i18n.t("novel.font_decrease")} data-gamepad-activate="减小字号" disabled={fontSize <= 15} onclick={() => { fontSize -= 1; persistReaderPrefs(); }}>A−</button>
             <output aria-label={i18n.t("novel.font_size_aria")}>{fontSize}</output>
             <button type="button" aria-label={i18n.t("novel.font_increase")} data-gamepad-activate="增大字号" disabled={fontSize >= 30} onclick={() => { fontSize += 1; persistReaderPrefs(); }}>A+</button>
@@ -228,9 +324,13 @@
 
         <div
           class="reader-scroll"
+          class:paged={readingMode === "paged"}
           bind:this={readerElement}
           onscroll={handleReaderScroll}
           data-route-scroll
+          role="region"
+          aria-label="小说正文"
+          tabindex="-1"
           style={`--reader-font-size:${fontSize}px;--reader-line-height:${lineHeight}`}
         >
           <article class="reader-article">
@@ -287,6 +387,15 @@
               {/if}
               <button type="button" data-gamepad-activate="打开原文" onclick={() => openSource(novelStore.detail!.book)}><Icon name="externalLink" size={17} />{i18n.t("novel.view_source")}</button>
             </div>
+            {#if novelStore.error}
+              <div class="chapter-error" role="alert">
+                <Icon name="info" size={17} />
+                <span>{novelStore.error}</span>
+                {#if lastChapterAttempt}
+                  <button type="button" disabled={novelStore.loading} onclick={() => readChapter(lastChapterAttempt!)}>重试本章</button>
+                {/if}
+              </div>
+            {/if}
             <p class="rights-note">{i18n.t(rightsKey(novelStore.detail.book.source))}</p>
           </div>
         </section>
@@ -408,6 +517,23 @@
     {/if}
   </div>
 </PageShell>
+{/snippet}
+
+{#if platformStore.isAndroid}
+  <HandheldMediaShell
+    kind="novel"
+    title={novelStore.view === "reader" ? "正在阅读" : novelStore.view === "detail" ? "小说详情" : "小说媒体中心"}
+    subtitle="横屏阅读 · 手柄优先 · LB/RB 翻页 · X 章节 · Y 显示"
+    chromeMode={novelStore.view === "reader" ? "auto" : "persistent"}
+    artwork={{ role: "novel" }}
+    onback={closeNovelSurface}
+    handlers={novelMediaHandlers}
+  >
+    {#snippet children()}{@render novelPageContent()}{/snippet}
+  </HandheldMediaShell>
+{:else}
+  {@render novelPageContent()}
+{/if}
 
 <style>
   :global(.novel-v2-shell) { height: 100%; }
@@ -502,6 +628,9 @@
   .book-tags span.verified { border-color: rgba(124,190,146,.5); color: #9dd3af; }
   .hero-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 30px; }
   .hero-actions .primary-action { border-color: #c69b7a; background: #c69b7a; }
+  .chapter-error { display: flex; align-items: center; gap: 10px; max-width: 70ch; margin-top: 14px; padding: 11px 13px; border: 1px solid rgba(239,93,93,.5); background: rgba(128,22,22,.18); color: #f2b2b2; font-size: 12px; line-height: 1.5; }
+  .chapter-error span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+  .chapter-error button { min-height: 34px; padding: 0 12px; border: 1px solid currentColor; background: transparent; color: inherit; cursor: pointer; }
   .rights-note { max-width: 70ch; margin: 16px 0 0; color: var(--text-muted); font-size: 10px; line-height: 1.6; }
   .catalog-section { padding: clamp(36px, 5vw, 72px) 0; }
   .download-only { min-height: 120px; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 24px; color: var(--text-muted); text-align: center; }
@@ -528,13 +657,19 @@
   .reader-controls button { min-width: 38px; padding: 0 8px; cursor: pointer; }
   .reader-controls output { min-width: 26px; color: var(--reader-muted); font: 700 10px/1 var(--font-mono); text-align: center; }
   .reader-controls select { padding: 0 8px; }
+  .reader-mode-control select { border-color: color-mix(in srgb, var(--reader-accent) 60%, var(--reader-line)); color: var(--reader-accent); font-weight: 700; }
   .reader-controls option { background: #181818; color: #eee; }
   .reader-scroll { min-height: 0; overflow: auto; overscroll-behavior: contain; scroll-behavior: smooth; }
+  .reader-scroll.paged { overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; }
   .reader-article { width: min(100% - 36px, 820px); min-height: 100%; margin: 0 auto; padding: clamp(48px, 8vh, 100px) 0 max(80px, env(safe-area-inset-bottom)); }
+  .reader-scroll.paged .reader-article { width: max-content; min-width: 100%; height: 100%; min-height: 0; margin: 0; padding: clamp(28px, 5vh, 64px) max(7vw, 44px) max(44px, env(safe-area-inset-bottom)); scroll-snap-align: start; }
   .reader-kicker { margin: 0 0 16px; color: var(--reader-accent); }
   .reader-article h1 { margin: 0; font: 550 clamp(28px, 4vw, 50px)/1.12 var(--font-display); letter-spacing: -.04em; }
   .reader-rule { width: 74px; height: 2px; margin: 28px 0 42px; background: var(--reader-accent); }
   .reader-prose { white-space: pre-wrap; color: var(--reader-text); font-family: "Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif; font-size: var(--reader-font-size); line-height: var(--reader-line-height); letter-spacing: .018em; overflow-wrap: anywhere; }
+  .reader-scroll.paged .reader-prose { height: calc(100% - 138px); max-width: none; column-width: min(68vw, 700px); column-gap: clamp(34px, 5vw, 72px); column-fill: auto; overflow-wrap: normal; }
+  .reader-scroll.paged .reader-prose::first-letter { font-size: 1.12em; }
+  .reader-scroll.paged .chapter-navigation { width: calc(100vw - 14vw); min-width: calc(100vw - 14vw); break-before: column; }
   .chapter-navigation { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 80px; border-top: 1px solid var(--reader-line); border-bottom: 1px solid var(--reader-line); }
   .chapter-navigation button { min-height: 58px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-right: 1px solid var(--reader-line); background: transparent; cursor: pointer; }
   .chapter-navigation button:last-child { border-right: 0; }

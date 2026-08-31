@@ -504,7 +504,11 @@ fn parse_biquge_chapter_content(html: &str) -> String {
 
 fn parse_biquge_base64_paragraphs(html: &str) -> Vec<String> {
     let script_pattern = Regex::new(
-        r#"document\.writeln\s*\(\s*uvbrpleo\.drhunkab\s*\(\s*['\"]([A-Za-z0-9+/=\s]+)['\"]\s*\)\s*\)"#,
+        // Biquge periodically renames the obfuscation function.  The current
+        // site uses `stm.vskeaov(...)`, while older pages used
+        // `uvbrpleo.drhunkab(...)`; only accept a plain identifier/member
+        // expression so the capture cannot span arbitrary JavaScript.
+        r#"document\.writeln\s*\(\s*[A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)*\s*\(\s*['\"]([A-Za-z0-9+/=\s]+)['\"]\s*\)\s*\)"#,
     )
     .expect("valid Biquge Base64 script regex");
     let paragraph_selector = Selector::parse("p").expect("valid Biquge decoded paragraph selector");
@@ -2111,6 +2115,21 @@ mod tests {
         assert_eq!(
             parse_biquge_next_page(html).as_deref(),
             Some("/udtuju/chapter_a_1.html")
+        );
+    }
+
+    #[test]
+    fn parses_biquge_current_obfuscated_base64_chapter_content() {
+        // The live source currently emits `stm.vskeaov`, rather than the
+        // historical `uvbrpleo.drhunkab` function name.
+        let html = r#"
+            <div class="txt" id="txt">
+              <script>document.writeln(stm.vskeaov('PHA+5b2T5YmN5rqQ55qE56ug6IqC5q2j5paH44CCPC9wPjxwPui/meaYr+esrOS6jOauteOAgjwvcD4='));</script>
+            </div>
+        "#;
+        assert_eq!(
+            parse_biquge_chapter_content(html),
+            "当前源的章节正文。\n\n这是第二段。"
         );
     }
 

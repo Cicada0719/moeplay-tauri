@@ -6,7 +6,16 @@ import { findBestEpisodeMatch, rankSearchItems } from "../utils/animeSource";
 import { mergeSearchResults, type MergedSearchEntry } from "../features/anime-search/merge";
 import { createSearchCoverFetcher } from "../features/anime-search/covers";
 import { isRecommendationSnapshotFresh, readRecommendationSnapshot, writeRecommendationSnapshot } from "../features/anime-home/recommendationCache";
-import { normalizeVideoEnhancementMode, type VideoEnhancementMode } from "../features/anime-player/localVideoEnhancement";
+import type { VideoEnhancementMode } from "../features/anime-player/localVideoEnhancement";
+import { episodeCommentsStore, type BangumiEpisodeComment } from "../features/anime-player/episodeComments.svelte";
+import { danmakuStore, type DanmakuAnime, type DanmakuComment, type DanmakuEpisode } from "../features/anime-player/danmaku.svelte";
+import { imageSearchStore, type TraceMoeResult } from "../features/anime-player/imageSearch.svelte";
+import { collectionStore, type AnimeCollect } from "../features/anime-home/collection.svelte";
+import { friendlyRecommendationError } from "../features/anime-home/recommendationError";
+import { playerPrefs } from "../features/anime-player/playerPrefs.svelte";
+import { animeSearchHistoryStore } from "../features/anime-search/history.svelte";
+import { historyStore, type AnimeHistory } from "../features/anime-player/historyStore.svelte";
+import { continueSource } from "./continue-source.svelte";
 
 // ── 类型 ──────────────────────────────────────────────────────────────────
 
@@ -97,28 +106,9 @@ export interface Road {
   episodes: Episode[];
 }
 
-export interface AnimeCollect {
-  key: string;
-  name: string;
-  image: string;
-  collectType: number; // 1=在看 2=想看 3=搁置 4=看过 5=抛弃
-  ruleSource?: string;
-  sourceUrl?: string;
-  updatedAt: string;
-}
+export type { AnimeCollect, CollectDetailContext } from "../features/anime-home/collection.svelte";
 
-export interface AnimeHistory {
-  key: string;
-  name: string;
-  image: string;
-  ruleName: string;
-  sourceUrl: string;
-  lastRoad: number;
-  lastEpisode: number;
-  lastEpisodeName: string;
-  progressMs: number;
-  updatedAt: string;
-}
+export type { AnimeHistory } from "../features/anime-player/historyStore.svelte";
 
 export const COLLECT_TYPES: Record<number, string> = {
   0: "未收藏",
@@ -195,50 +185,13 @@ export interface BangumiConnectionStatus {
   configured: boolean;
 }
 
-// ── DanDanPlay 弹幕类型 ─────────────────────────────────────────────────
+export type { DanmakuAnime, DanmakuComment, DanmakuEpisode } from "../features/anime-player/danmaku.svelte";
 
-export interface DanmakuComment {
-  time: number;
-  mode: number; // 1=scroll, 4=bottom, 5=top
-  color: number;
-  text: string;
-}
-
-export interface DanmakuEpisode {
-  episode_id: number;
-  episode_title: string;
-}
-
-export interface DanmakuAnime {
-  anime_id: number;
-  anime_title: string;
-  episodes: DanmakuEpisode[];
-}
-
-// ── trace.moe 图片搜番类型 ──────────────────────────────────────────────
-
-export interface TraceMoeResult {
-  anilist_id: number;
-  filename: string;
-  episode: string;
-  from: number;
-  to: number;
-  similarity: number;
-  video: string;
-  image: string;
-  title_native: string;
-  title_chinese: string;
-  title_english: string;
-}
+export type { TraceMoeResult } from "../features/anime-player/imageSearch.svelte";
 
 // ── Bangumi 章节评论类型 ────────────────────────────────────────────────
 
-export interface BangumiEpisodeComment {
-  user: string;
-  avatar: string;
-  comment: string;
-  date: string;
-}
+export type { BangumiEpisodeComment } from "../features/anime-player/episodeComments.svelte";
 
 // ── localStorage 键 ──────────────────────────────────────────────────────
 
@@ -249,7 +202,6 @@ const COLLECT_KEY = "anime-collect";
 /** 内置番剧源名（与后端 anime::BUILTIN_RULE_NAMES 保持一致）。
  *  内置源由后端注入且不可删除，前端据此隐藏删除按钮并打「内置」徽标。 */
 export const BUILTIN_RULE_NAMES = ["AGE", "MXdm", "gugu3", "xfdmneo"];
-const HISTORY_KEY = "anime-history";
 const BANGUMI_TOKEN_KEY = "bangumi-token";
 const BANGUMI_USERNAME_KEY = "bangumi-username";
 const BANGUMI_SYNC_PRIORITY_KEY = "bangumi-sync-priority"; // 0=localFirst, 1=bangumiFirst
@@ -362,8 +314,6 @@ let _playerRoadIdx = $state(0);
 let _playerEpisodeIdx = $state(0);
 
 // 收藏 & 历史
-let _collection = $state<AnimeCollect[]>(loadJson(COLLECT_KEY, []));
-let _history = $state<AnimeHistory[]>(loadJson(HISTORY_KEY, []));
 let _progressSaveTs = 0; // 上次写 localStorage 的时间戳（节流 5s 一次）
 
 // GitHub 规则仓库
@@ -375,6 +325,7 @@ let _installingRules = $state<Set<string>>(new Set());
 // Bangumi 时间表
 let _calendar = $state<BangumiCalendarDay[]>([]);
 let _calendarLoading = $state(false);
+let _calendarError = $state<string | null>(null);
 let _calendarDay = $state(new Date().getDay() || 7); // 1=Mon..7=Sun
 
 // Recommendation home: render last successful snapshot first, then refresh in the background.
@@ -404,7 +355,6 @@ let _recLoadGeneration = 0;
 
 // 我的 — 子 tab
 let _mySubTab = $state<"collection" | "history" | "stats">("collection");
-let _collectFilter = $state(0); // 0=全部, 1-5=对应类型
 
 // Bangumi 收藏同步（凭据仅存在 Rust SecretStore）
 let _bangumiConfigured = $state(false);
@@ -551,46 +501,8 @@ function sortRulesByHealth(rules: AnimeRule[], animeName: string): AnimeRule[] {
 
 // 播放器设置
 let _pendingSeekMs = $state(0); // 续播目标进度（毫秒）
-let _autoNext = $state(loadJson<boolean>('player-auto-next', true)); // 自动连播
-let _playbackRate = $state(loadJson<number>('player-playback-rate', 1)); // 默认倍速
-let _longPressRate = $state(loadJson<number>('player-long-press-rate', 3)); // 长按倍速
-let _skipOpening = $state(loadJson<number>('player-skip-opening', 0)); // 跳片头（秒）
-let _skipEnding = $state(loadJson<number>('player-skip-ending', 0)); // 跳片尾（秒）
-let _autoWebFallback = $state(loadJson<boolean>('player-auto-web-fallback', true)); // parser/playback fallback
-let _videoEnhancementMode = $state<VideoEnhancementMode>(normalizeVideoEnhancementMode(loadJson<unknown>('player-video-enhancement', 'off'))); // 解析/播放失败时自动用网页播放兜底
-
-// 弹幕设置
-let _danmakuEnabled = $state(loadJson<boolean>('danmaku-enabled', true));
-let _danmakuOpacity = $state(loadJson<number>('danmaku-opacity', 1));
-let _danmakuSpeed = $state(loadJson<number>('danmaku-speed', 1));
-let _danmakuFontSize = $state(loadJson<number>('danmaku-font-size', 24));
-let _danmakuArea = $state(loadJson<number>('danmaku-area', 1)); // 0=1/4 1=1/2 2=全屏
-let _danmakuBlockScroll = $state(loadJson<boolean>('danmaku-block-scroll', false));
-let _danmakuBlockTop = $state(loadJson<boolean>('danmaku-block-top', false));
-let _danmakuBlockBottom = $state(loadJson<boolean>('danmaku-block-bottom', false));
-let _danmakuBlockWords = $state<string[]>(loadJson('danmaku-block-words', []));
-
-// 搜索历史（旧版 SearchDrawer 存的是 {keyword,timestamp}[]，自动迁移为 string[]）
-function loadSearchHistory(): string[] {
-  const raw = loadJson<unknown[]>('anime-search-history', []);
-  return raw.map(item =>
-    typeof item === 'string' ? item : (item as any)?.keyword ?? ''
-  ).filter(Boolean);
-}
-let _searchHistory = $state<string[]>(loadSearchHistory());
-let _danmakuComments = $state<DanmakuComment[]>([]);
-let _danmakuLoading = $state(false);
-let _danmakuAnimeId = $state(0);
-let _danmakuEpisodeId = $state(0);
 
 // 图片搜番状态
-let _imageSearchResults = $state<TraceMoeResult[]>([]);
-let _imageSearchLoading = $state(false);
-let _imageSearchError = $state<string | null>(null);
-
-// 章节评论状态
-let _episodeComments = $state<BangumiEpisodeComment[]>([]);
-let _episodeCommentsLoading = $state(false);
 
 // ── 工具函数 ─────────────────────────────────────────────────────────────
 
@@ -677,8 +589,8 @@ export const animeStore = {
   get playerEpisodeName() { return _playerEpisodeName; },
   get playerRoadIdx() { return _playerRoadIdx; },
   get playerEpisodeIdx() { return _playerEpisodeIdx; },
-  get collection() { return _collection; },
-  get history() { return _history; },
+  get collection() { return collectionStore.items; },
+  get history() { return historyStore.items; },
   get catalog() { return _catalog; },
   get catalogLoading() { return _catalogLoading; },
   get catalogError() { return _catalogError; },
@@ -692,6 +604,7 @@ export const animeStore = {
   },
   get calendar() { return _calendar; },
   get calendarLoading() { return _calendarLoading; },
+  get calendarError() { return _calendarError; },
   get calendarDay() { return _calendarDay; },
   set calendarDay(v: number) { _calendarDay = v; },
   get imgCache() { return _imgCache; },
@@ -790,8 +703,8 @@ export const animeStore = {
   // 我的
   get mySubTab() { return _mySubTab; },
   set mySubTab(v: "collection" | "history" | "stats") { _mySubTab = v; },
-  get collectFilter() { return _collectFilter; },
-  set collectFilter(v: number) { _collectFilter = v; },
+  get collectFilter() { return collectionStore.filter; },
+  set collectFilter(v: number) { collectionStore.filter = v; },
 
   // Bangumi 收藏同步
   get bangumiConfigured() { return _bangumiConfigured; },
@@ -844,89 +757,78 @@ export const animeStore = {
     _sourceSheetOpen = true;
   },
 
-  // 弹幕
-  get danmakuEnabled() { return _danmakuEnabled; },
-  set danmakuEnabled(v: boolean) { _danmakuEnabled = v; saveJson('danmaku-enabled', v); },
-  get danmakuComments() { return _danmakuComments; },
-  get danmakuLoading() { return _danmakuLoading; },
-  get danmakuAnimeId() { return _danmakuAnimeId; },
-  get danmakuEpisodeId() { return _danmakuEpisodeId; },
+  // 弹幕（委托给独立模块）
+  get danmakuEnabled() { return danmakuStore.enabled; },
+  set danmakuEnabled(v: boolean) { danmakuStore.enabled = v; },
+  get danmakuComments() { return danmakuStore.comments; },
+  get danmakuLoading() { return danmakuStore.loading; },
+  get danmakuAnimeId() { return danmakuStore.animeId; },
+  get danmakuEpisodeId() { return danmakuStore.episodeId; },
 
   // 播放器设置
   get pendingSeekMs() { return _pendingSeekMs; },
   set pendingSeekMs(v: number) { _pendingSeekMs = v; },
-  get autoNext() { return _autoNext; },
-  set autoNext(v: boolean) { _autoNext = v; saveJson('player-auto-next', v); },
-  get playbackRate() { return _playbackRate; },
-  set playbackRate(v: number) { _playbackRate = v; saveJson('player-playback-rate', v); },
-  get longPressRate() { return _longPressRate; },
-  set longPressRate(v: number) { _longPressRate = v; saveJson('player-long-press-rate', v); },
-  get skipOpening() { return _skipOpening; },
-  set skipOpening(v: number) { _skipOpening = v; saveJson('player-skip-opening', v); },
-  get skipEnding() { return _skipEnding; },
-  set skipEnding(v: number) { _skipEnding = v; saveJson('player-skip-ending', v); },
-  get autoWebFallback() { return _autoWebFallback; },
-  set autoWebFallback(v: boolean) { _autoWebFallback = v; saveJson('player-auto-web-fallback', v); },
-  get videoEnhancementMode() { return _videoEnhancementMode; },
-  set videoEnhancementMode(v: VideoEnhancementMode) { _videoEnhancementMode = normalizeVideoEnhancementMode(v); saveJson('player-video-enhancement', _videoEnhancementMode); },
+  get autoNext() { return playerPrefs.autoNext; },
+  set autoNext(v: boolean) { playerPrefs.autoNext = v; },
+  get playbackRate() { return playerPrefs.playbackRate; },
+  set playbackRate(v: number) { playerPrefs.playbackRate = v; },
+  get longPressRate() { return playerPrefs.longPressRate; },
+  set longPressRate(v: number) { playerPrefs.longPressRate = v; },
+  get skipOpening() { return playerPrefs.skipOpening; },
+  set skipOpening(v: number) { playerPrefs.skipOpening = v; },
+  get skipEnding() { return playerPrefs.skipEnding; },
+  set skipEnding(v: number) { playerPrefs.skipEnding = v; },
+  get autoWebFallback() { return playerPrefs.autoWebFallback; },
+  set autoWebFallback(v: boolean) { playerPrefs.autoWebFallback = v; },
+  get videoEnhancementMode() { return playerPrefs.videoEnhancementMode; },
+  set videoEnhancementMode(v: VideoEnhancementMode) { playerPrefs.videoEnhancementMode = v; },
 
-  // 弹幕设置
-  get danmakuOpacity() { return _danmakuOpacity; },
-  set danmakuOpacity(v: number) { _danmakuOpacity = v; saveJson('danmaku-opacity', v); },
-  get danmakuSpeed() { return _danmakuSpeed; },
-  set danmakuSpeed(v: number) { _danmakuSpeed = v; saveJson('danmaku-speed', v); },
-  get danmakuFontSize() { return _danmakuFontSize; },
-  set danmakuFontSize(v: number) { _danmakuFontSize = v; saveJson('danmaku-font-size', v); },
-  get danmakuArea() { return _danmakuArea; },
-  set danmakuArea(v: number) { _danmakuArea = v; saveJson('danmaku-area', v); },
-  get danmakuBlockScroll() { return _danmakuBlockScroll; },
-  set danmakuBlockScroll(v: boolean) { _danmakuBlockScroll = v; saveJson('danmaku-block-scroll', v); },
-  get danmakuBlockTop() { return _danmakuBlockTop; },
-  set danmakuBlockTop(v: boolean) { _danmakuBlockTop = v; saveJson('danmaku-block-top', v); },
-  get danmakuBlockBottom() { return _danmakuBlockBottom; },
-  set danmakuBlockBottom(v: boolean) { _danmakuBlockBottom = v; saveJson('danmaku-block-bottom', v); },
-  get danmakuBlockWords() { return _danmakuBlockWords; },
-  set danmakuBlockWords(v: string[]) { _danmakuBlockWords = v; saveJson('danmaku-block-words', v); },
+  // 弹幕设置（委托给独立模块）
+  get danmakuOpacity() { return danmakuStore.opacity; },
+  set danmakuOpacity(v: number) { danmakuStore.opacity = v; },
+  get danmakuSpeed() { return danmakuStore.speed; },
+  set danmakuSpeed(v: number) { danmakuStore.speed = v; },
+  get danmakuFontSize() { return danmakuStore.fontSize; },
+  set danmakuFontSize(v: number) { danmakuStore.fontSize = v; },
+  get danmakuArea() { return danmakuStore.area; },
+  set danmakuArea(v: number) { danmakuStore.area = v; },
+  get danmakuBlockScroll() { return danmakuStore.blockScroll; },
+  set danmakuBlockScroll(v: boolean) { danmakuStore.blockScroll = v; },
+  get danmakuBlockTop() { return danmakuStore.blockTop; },
+  set danmakuBlockTop(v: boolean) { danmakuStore.blockTop = v; },
+  get danmakuBlockBottom() { return danmakuStore.blockBottom; },
+  set danmakuBlockBottom(v: boolean) { danmakuStore.blockBottom = v; },
+  get danmakuBlockWords() { return danmakuStore.blockWords; },
+  set danmakuBlockWords(v: string[]) { danmakuStore.blockWords = v; },
 
-  // 搜索历史
-  get searchHistory() { return _searchHistory; },
-  addSearchHistory(keyword: string) {
-    const trimmed = keyword.trim();
-    if (!trimmed) return;
-    _searchHistory = [trimmed, ..._searchHistory.filter(k => k !== trimmed)].slice(0, 20);
-    saveJson('anime-search-history', _searchHistory);
-  },
-  removeSearchHistory(keyword: string) {
-    _searchHistory = _searchHistory.filter(k => k !== keyword);
-    saveJson('anime-search-history', _searchHistory);
-  },
-  clearSearchHistory() {
-    _searchHistory = [];
-    saveJson('anime-search-history', _searchHistory);
-  },
+  // 搜索历史（委托给独立模块）
+  get searchHistory() { return animeSearchHistoryStore.items; },
+  addSearchHistory(keyword: string) { animeSearchHistoryStore.add(keyword); },
+  removeSearchHistory(keyword: string) { animeSearchHistoryStore.remove(keyword); },
+  clearSearchHistory() { animeSearchHistoryStore.clear(); },
 
   // 图片搜番
-  get imageSearchResults() { return _imageSearchResults; },
-  get imageSearchLoading() { return _imageSearchLoading; },
-  get imageSearchError() { return _imageSearchError; },
+  get imageSearchResults() { return imageSearchStore.results; },
+  get imageSearchLoading() { return imageSearchStore.loading; },
+  get imageSearchError() { return imageSearchStore.error; },
 
-  // 章节评论
-  get episodeComments() { return _episodeComments; },
-  get episodeCommentsLoading() { return _episodeCommentsLoading; },
+  // 章节评论（委托给独立模块）
+  get episodeComments() { return episodeCommentsStore.comments; },
+  get episodeCommentsLoading() { return episodeCommentsStore.loading; },
 
   get filteredCollection(): AnimeCollect[] {
-    if (_collectFilter === 0) return _collection;
-    return _collection.filter(c => c.collectType === _collectFilter);
+    return collectionStore.filtered;
   },
 
   get stats() {
-    const total = _collection.length;
-    const watching = _collection.filter(c => c.collectType === 1).length;
-    const planned = _collection.filter(c => c.collectType === 2).length;
-    const onHold = _collection.filter(c => c.collectType === 3).length;
-    const watched = _collection.filter(c => c.collectType === 4).length;
-    const dropped = _collection.filter(c => c.collectType === 5).length;
-    const historyCount = _history.length;
+    const items = collectionStore.items;
+    const total = items.length;
+    const watching = items.filter(c => c.collectType === 1).length;
+    const planned = items.filter(c => c.collectType === 2).length;
+    const onHold = items.filter(c => c.collectType === 3).length;
+    const watched = items.filter(c => c.collectType === 4).length;
+    const dropped = items.filter(c => c.collectType === 5).length;
+    const historyCount = historyStore.items.length;
     const rulesCount = _rules.length;
     return { total, watching, planned, onHold, watched, dropped, historyCount, rulesCount };
   },
@@ -1136,8 +1038,9 @@ export const animeStore = {
   // ── Bangumi 时间表 ──────────────────────────────────────────────────
 
   async loadCalendar() {
-    if (_calendar.length > 0) return;
+    if (_calendar.length > 0 || _calendarLoading) return;
     _calendarLoading = true;
+    _calendarError = null;
     try {
       _calendar = await invokeCmd<BangumiCalendarDay[]>("anime_bangumi_calendar");
       const urls: string[] = [];
@@ -1148,7 +1051,8 @@ export const animeStore = {
       }
       this._proxyImages(urls);
     } catch (e) {
-      _error = String(e);
+      // 放送表失败只记到独立错误位，避免污染搜索/其它面板的全局 _error
+      _calendarError = String(e);
     } finally {
       _calendarLoading = false;
     }
@@ -1207,7 +1111,9 @@ export const animeStore = {
     if (failures.length > 0) {
       const first = failures[0]?.reason;
       const detail = first instanceof Error ? first.message : String(first ?? "unknown error");
-      _recError = hasData ? `部分节目刷新失败，正在显示最近缓存：${detail}` : `番剧首页加载失败：${detail}`;
+      _recError = hasData
+        ? `部分节目刷新失败，正在显示最近缓存：${friendlyRecommendationError(detail, "请稍后重试")}`
+        : `番剧首页加载失败：${friendlyRecommendationError(detail, "请检查网络或规则源后重试")}`;
     }
     if (!hasData && failures.length === results.length) _recInitialized = false;
   },
@@ -1229,7 +1135,7 @@ export const animeStore = {
       _recTrendingOffset = offset + items.length;
       this._proxyImages(items.filter(i => i.image).map(i => i.image));
     } catch (error) {
-      throw new Error(`热门节目：${String(error)}`);
+      throw new Error(`热门节目：${friendlyRecommendationError(error, "请求失败")}`);
     } finally {
       _recTrendingLoading = false;
     }
@@ -1250,7 +1156,7 @@ export const animeStore = {
       _recSeasonalOffset = offset + items.length;
       this._proxyImages(items.filter(i => i.image).map(i => i.image));
     } catch (error) {
-      throw new Error(`本季新番：${String(error)}`);
+      throw new Error(`本季新番：${friendlyRecommendationError(error, "请求失败")}`);
     } finally {
       _recSeasonalLoading = false;
     }
@@ -1269,7 +1175,7 @@ export const animeStore = {
       _recTopRatedOffset = offset + items.length;
       this._proxyImages(items.filter(i => i.image).map(i => i.image));
     } catch (error) {
-      throw new Error(`高分节目：${String(error)}`);
+      throw new Error(`高分节目：${friendlyRecommendationError(error, "请求失败")}`);
     } finally {
       _recTopRatedLoading = false;
     }
@@ -1596,7 +1502,7 @@ export const animeStore = {
       _pendingSeekMs = seekMs;
     } else {
       const historyKey = `${_detailRuleName}:${_detailName}`;
-      const history = _history.find(h => h.key === historyKey);
+      const history = historyStore.get(historyKey);
       if (history && history.lastRoad === roadIdx && history.lastEpisode === episodeIdx && history.progressMs > 3000) {
         // 超过 3 秒才续播，避免开头误触
         _pendingSeekMs = history.progressMs;
@@ -1967,55 +1873,14 @@ export const animeStore = {
     }
   },
 
-  /** 按番名搜索弹幕库，找到后加载对应集数的弹幕 */
+  /** 按番名搜索弹幕库，找到后加载对应集数的弹幕（委托独立模块） */
   async searchDanmakuForAnime(animeName: string, episodeIdx?: number) {
-    if (!animeName.trim()) return;
-    _danmakuLoading = true;
-    _danmakuComments = [];
-    _danmakuAnimeId = 0;
-    _danmakuEpisodeId = 0;
-    try {
-      const animes = await invokeCmd<DanmakuAnime[]>('anime_danmaku_search', { keyword: animeName });
-      if (animes.length === 0) {
-        _danmakuLoading = false;
-        return;
-      }
-      // 选最佳匹配（第一个结果，DanDanPlay 按相关度排序）
-      const best = animes[0];
-      _danmakuAnimeId = best.anime_id;
-      if (best.episodes.length > 0) {
-        // 尝试用集数索引匹配（DanDanPlay 分集从 1 开始）
-        const epNum = episodeIdx !== undefined ? episodeIdx + 1 : 1;
-        const matchedEp = best.episodes.find(ep => {
-          // 尝试从标题中提取集数
-          const match = ep.episode_title.match(/(\d+)/);
-          return match ? parseInt(match[1]) === epNum : false;
-        }) || best.episodes[Math.min(episodeIdx ?? 0, best.episodes.length - 1)];
-
-        if (matchedEp) {
-          _danmakuEpisodeId = matchedEp.episode_id;
-          await this.loadDanmaku(matchedEp.episode_id);
-        }
-      }
-    } catch (e) {
-      console.warn('弹幕搜索失败:', e);
-    } finally {
-      _danmakuLoading = false;
-    }
+    await danmakuStore.searchForAnime(animeName, episodeIdx);
   },
 
-  /** 加载指定分集的弹幕评论 */
+  /** 加载指定分集的弹幕评论（委托独立模块） */
   async loadDanmaku(episodeId: number) {
-    _danmakuLoading = true;
-    try {
-      _danmakuComments = await invokeCmd<DanmakuComment[]>('anime_danmaku_get_comments', { episodeId });
-      _danmakuEpisodeId = episodeId;
-    } catch (e) {
-      console.warn('弹幕加载失败:', e);
-      _danmakuComments = [];
-    } finally {
-      _danmakuLoading = false;
-    }
+    await danmakuStore.load(episodeId);
   },
 
   closePlayer() {
@@ -2073,26 +1938,11 @@ export const animeStore = {
   // ── 收藏 ──────────────────────────────────────────────────────────────
 
   setCollect(name: string, collectType: number, extra?: Partial<AnimeCollect>) {
-    const key = name;
-    const idx = _collection.findIndex((c) => c.key === key);
-    if (collectType === 0) {
-      if (idx >= 0) {
-        _collection = _collection.filter((c) => c.key !== key);
-      }
-    } else {
-      const entry: AnimeCollect = {
-        key,
-        name,
-        image: extra?.image ?? _detailImage ?? "",
-        collectType,
-        ruleSource: extra?.ruleSource ?? _detailRuleName,
-        sourceUrl: extra?.sourceUrl ?? _detailUrl,
-        updatedAt: new Date().toISOString(),
-      };
-      if (idx >= 0) _collection[idx] = entry;
-      else _collection = [entry, ..._collection];
-    }
-    saveJson(COLLECT_KEY, _collection);
+    collectionStore.setCollect(name, collectType, extra, {
+      image: _detailImage ?? "",
+      ruleName: _detailRuleName,
+      sourceUrl: _detailUrl,
+    });
     // Auto-sync to Bangumi if connected (fire-and-forget)
     if (_bangumiConfigured && _bangumiUsername && collectType > 0) {
       this.syncToBangumi(name, collectType);
@@ -2100,14 +1950,14 @@ export const animeStore = {
   },
 
   getCollectType(name: string): number {
-    return _collection.find((c) => c.key === name)?.collectType ?? 0;
+    return collectionStore.getType(name);
   },
 
   // ── 历史 ──────────────────────────────────────────────────────────────
 
   _updateHistory(roadIdx: number, epIdx: number, epName: string, progressMs: number) {
     const key = `${_detailRuleName}:${_detailName}`;
-    const entry: AnimeHistory = {
+    historyStore.upsert({
       key,
       name: _detailName,
       image: _detailImage,
@@ -2118,22 +1968,15 @@ export const animeStore = {
       lastEpisodeName: epName,
       progressMs,
       updatedAt: new Date().toISOString(),
-    };
-    const idx = _history.findIndex((h) => h.key === key);
-    if (idx >= 0) _history[idx] = entry;
-    else _history = [entry, ..._history];
-    if (_history.length > 200) _history = _history.slice(0, 200);
-    saveJson(HISTORY_KEY, _history);
+    });
   },
 
   removeHistory(key: string) {
-    _history = _history.filter((h) => h.key !== key);
-    saveJson(HISTORY_KEY, _history);
+    historyStore.remove(key);
   },
 
   clearHistory() {
-    _history = [];
-    saveJson(HISTORY_KEY, _history);
+    historyStore.clear();
   },
 
   /// 从历史记录恢复播放：打开详情页并直接续播到上次进度。
@@ -2286,7 +2129,7 @@ export const animeStore = {
     let synced = 0;
     let failed = 0;
     // 需要 bangumiId 才能上传 — 只同步有 subject 的条目
-    for (const c of _collection) {
+    for (const c of collectionStore.items) {
       // 从 bangumiCollections 中查找对应的 subject_id
       const remote = _bangumiCollections.find(
         r => r.subject_name === c.name || r.subject_name_cn === c.name
@@ -2352,40 +2195,27 @@ export const animeStore = {
     _error = null;
   },
 
-  // ── 图片搜番 (trace.moe) ──────────────────────────────────────────────
+  // ── 图片搜番 (trace.moe，委托独立模块) ─────────────────────────────────
 
   async imageSearch(imageUrl: string) {
-    if (!imageUrl.trim()) return;
-    _imageSearchLoading = true;
-    _imageSearchError = null;
-    _imageSearchResults = [];
-    try {
-      _imageSearchResults = await invokeCmd<TraceMoeResult[]>('anime_image_search', { imageUrl });
-    } catch (e) {
-      _imageSearchError = String(e);
-      _imageSearchResults = [];
-    } finally {
-      _imageSearchLoading = false;
-    }
+    await imageSearchStore.search(imageUrl);
   },
 
   clearImageSearch() {
-    _imageSearchResults = [];
-    _imageSearchError = null;
+    imageSearchStore.clear();
   },
 
-  // ── 章节评论 ──────────────────────────────────────────────────────────
+  // ── 章节评论（委托给独立模块）──────────────────────────────────────────
 
   async loadEpisodeComments(episodeId: number) {
-    _episodeCommentsLoading = true;
-    _episodeComments = [];
-    try {
-      _episodeComments = await invokeCmd<BangumiEpisodeComment[]>('anime_bangumi_episode_comments', { episodeId });
-    } catch (e) {
-      console.warn('章节评论加载失败:', e);
-      _episodeComments = [];
-    } finally {
-      _episodeCommentsLoading = false;
-    }
+    await episodeCommentsStore.load(episodeId);
   },
 };
+
+// 主包懒加载解耦：本 store 加载后把历史同步给 continue 数据源（continue store 不再静态依赖本文件）。
+$effect.root(() => {
+  $effect(() => {
+    const snapshot = historyStore.items;
+    continueSource.setAnimeHistory(snapshot);
+  });
+});

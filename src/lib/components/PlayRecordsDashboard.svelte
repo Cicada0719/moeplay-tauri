@@ -10,7 +10,9 @@
   import { formatPlayTime, getPlaytimeSummary, type Game, type PlaySessionEntry, type PlaytimeSummary } from "../api";
   import { createActivityStore, tauriActivityApi, type ActivityEventPatch, type ActivityEventView, type ActivityFilters, type ContinueCandidate } from "../features/activity";
   import { backfillLegacyGameActivityOnce, shouldFallbackActivityV2 } from "./activity/backfill";
+  import { debugLog } from "../utils/debug";
   import { splitActivityDurations } from "./activity/metrics";
+  import { openUnifiedMediaHistory } from "../features/media-history/open";
   import ActivityEditorDialog from "./activity/ActivityEditorDialog.svelte";
   import ActivityV2Section from "./activity/ActivityV2Section.svelte";
   import LegacyInsightsSection from "./activity/LegacyInsightsSection.svelte";
@@ -97,7 +99,7 @@
   async function loadSummary() {
     loading = true; summaryWarning = null;
     try { summary = await getPlaytimeSummary(30, 12, 10); }
-    catch (error) { summary = null; summaryWarning = "当前环境未连接原生统计服务，已使用本地游戏库数据预览。"; console.debug("[records] playtime summary fallback:", error); }
+    catch (error) { summary = null; summaryWarning = "当前环境未连接原生统计服务，已使用本地游戏库数据预览。"; debugLog("[records] playtime summary fallback:", error); }
     finally { loading = false; }
   }
 
@@ -115,7 +117,7 @@
     } catch (error) {
       activityV2Unavailable = true;
       activityV2LoadError = error instanceof Error ? error.message : "Activity v2 unavailable";
-      console.debug("[records] activity v2 fallback:", error);
+      debugLog("[records] activity v2 fallback:", error);
     }
   }
 
@@ -140,15 +142,14 @@
 
   async function openActivity(item: DashboardMediaActivity) {
     if (item.kind === "game") { openGame((item.payload as PlaySessionEntry).game_id); return; }
-    if (item.kind === "anime") { uiStore.currentView = "anime"; await animeStore.resumeHistory(item.payload as AnimeHistory); return; }
-    if (item.kind === "novel") { uiStore.currentView = "novel"; await novelStore.resume(item.payload as NovelHistoryEntry); return; }
-    uiStore.currentView = "comic"; await comicStore.resumeHistory(item.payload as ReadRecord);
+    await openUnifiedMediaHistory({ kind: item.kind, payload: item.payload as AnimeHistory | ReadRecord | NovelHistoryEntry });
   }
 
   async function openContinueCandidate(candidate: ContinueCandidate) {
     if (candidate.resourceKind === "game") { openGame(candidate.resourceId); return; }
-    if (candidate.resourceKind === "anime") { uiStore.currentView = "anime"; const history = animeStore.history.find((item) => item.key === candidate.resourceId); if (history) await animeStore.resumeHistory(history); return; }
-    uiStore.currentView = "comic"; const history = comicStore.readHistory.find((item) => item.id === candidate.resourceId); if (history) await comicStore.resumeHistory(history);
+    if (candidate.resourceKind === "anime") { const history = animeStore.history.find((item) => item.key === candidate.resourceId); if (history) await openUnifiedMediaHistory({ kind: "anime", payload: history }); else uiStore.currentView = "anime"; return; }
+    const history = comicStore.readHistory.find((item) => item.id === candidate.resourceId);
+    if (history) await openUnifiedMediaHistory({ kind: "comic", payload: history }); else uiStore.currentView = "comic";
   }
 
   function editActivityEvent(event: ActivityEventView) { editActivity = event; activityExportStatus = null; }

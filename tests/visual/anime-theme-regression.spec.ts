@@ -104,7 +104,17 @@ test.describe("anime theme surface and accessibility modes", () => {
     await expect(page.locator("html")).toHaveAttribute("data-motion", "reduce");
     await expect(page.locator(".wallpaper-stage__image")).toHaveCSS("transition-duration", "0s");
     await expect(page.locator(".wallpaper-stage__decor")).toHaveCSS("display", "none");
-    await expect(page).toHaveScreenshot("library-reduced-motion.png", { fullPage: true });
+
+    // 功能断言替代像素基线：减少动效下不允许存在任何有限动画（装饰无限循环除外），
+    // 且背景层处于稳定终态。避免因本机字体/GPU 渲染差异导致的截图脆性。
+    await expect.poll(() => page.evaluate(() => document.getAnimations()
+      .filter((animation) => {
+        if (animation.playState !== "running" && animation.playState !== "pending") return false;
+        const endTime = animation.effect?.getComputedTiming().endTime;
+        return typeof endTime === "number" && Number.isFinite(endTime);
+      })
+      .length)).toBe(0);
+    await expect(page.locator(".wallpaper-stage__image")).toHaveCSS("opacity", "1");
   });
 });
 

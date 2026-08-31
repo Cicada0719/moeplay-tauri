@@ -58,7 +58,26 @@
 
   const animeStart = $derived(0);
   const comicStart = $derived(continueAnime.length);
-  const panelStart = $derived(continueAnime.length + continueComics.length);
+  // 完整收藏网格：追番合集 / 漫画收藏 位于继续行之后、探索面板之前
+  const collectionAnime = $derived<MediaItem[]>(
+    animeStore.collection.slice(0, 24).map((item) => ({
+      id: "anime-col-" + item.key,
+      title: item.name || item.key,
+      cover: item.image ? animeStore.getImg(item.image) || item.image : null,
+      type: "anime" as const,
+    })),
+  );
+  const favoriteComics = $derived<MediaItem[]>(
+    comicStore.favorites.slice(0, 24).map((favorite) => ({
+      id: "comic-fav-" + favorite.id,
+      title: favorite.title,
+      cover: favorite.thumb_url || null,
+      type: "comic" as const,
+    })),
+  );
+  const collectionAnimeStart = $derived(comicStart + continueComics.length);
+  const collectionComicStart = $derived(collectionAnimeStart + collectionAnime.length);
+  const panelStart = $derived(collectionComicStart + favoriteComics.length);
   const itemCount = $derived(panelStart + 2);
   const continueCount = $derived(continueAnime.length + continueComics.length);
 
@@ -66,6 +85,8 @@
     const result: number[][] = [];
     if (continueAnime.length) result.push(Array.from({ length: continueAnime.length }, (_, index) => animeStart + index));
     if (continueComics.length) result.push(Array.from({ length: continueComics.length }, (_, index) => comicStart + index));
+    if (collectionAnime.length) result.push(Array.from({ length: collectionAnime.length }, (_, index) => collectionAnimeStart + index));
+    if (favoriteComics.length) result.push(Array.from({ length: favoriteComics.length }, (_, index) => collectionComicStart + index));
     result.push([panelStart, panelStart + 1]);
     return result;
   });
@@ -127,6 +148,7 @@
       up: () => moveVertical(-1),
       down: () => moveVertical(1),
       launch: () => activateFocused(),
+      start: () => activateFocused(),
       activate: () => activateFocused(),
       back: () => onBack(),
       pageLeft: () => onTabPrevious(),
@@ -178,6 +200,28 @@
         title="继续阅读"
         items={continueComics}
         startIndex={comicStart}
+        activeIndex={focusIdx}
+        zoneActive={active}
+        onfocusitem={setFocus}
+        onselect={onSelectMedia}
+      />
+    {/if}
+    {#if collectionAnime.length > 0}
+      <BPMediaRail
+        title="追番合集"
+        items={collectionAnime}
+        startIndex={collectionAnimeStart}
+        activeIndex={focusIdx}
+        zoneActive={active}
+        onfocusitem={setFocus}
+        onselect={onSelectMedia}
+      />
+    {/if}
+    {#if favoriteComics.length > 0}
+      <BPMediaRail
+        title="漫画收藏"
+        items={favoriteComics}
+        startIndex={collectionComicStart}
         activeIndex={focusIdx}
         zoneActive={active}
         onfocusitem={setFocus}
@@ -332,4 +376,15 @@
   }
   @media (prefers-reduced-motion:reduce) { .bp-media-panel{transition:none} }
   :global([data-motion="reduce"]) .bp-media-panel { transition:none; }
+
+  /* ── 掌机适配：媒体区标题/面板/封面放大，近距可读 ── */
+  :global(:root[data-handheld="true"]) .bp-media { padding-top: 92px; padding-bottom: 48px; }
+  :global(:root[data-handheld="true"]) .bp-media-intro h1 { font-size: clamp(34px, 4vw, 54px); }
+  :global(:root[data-handheld="true"]) .bp-media-intro p { font-size: clamp(12px, .95vw, 15px); }
+  :global(:root[data-handheld="true"]) .bp-media-summary strong { font-size: clamp(15px, 1.2vw, 20px); }
+  :global(:root[data-handheld="true"]) .bp-media-summary span { font-size: 10px; }
+  :global(:root[data-handheld="true"]) .bp-cover-thumb { flex-basis: clamp(84px, 7.2vw, 116px); }
+  :global(:root[data-handheld="true"]) .bp-media-panel-head h2 { font-size: clamp(28px, 2.4vw, 40px); }
+  :global(:root[data-handheld="true"]) .bp-media-panel-badge { font-size: 10px; }
+  :global(:root[data-handheld="true"]) .bp-media-panel-hint { font-size: clamp(12px, .95vw, 15px); }
 </style>

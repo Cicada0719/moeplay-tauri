@@ -1,4 +1,5 @@
 import { invokeCmd } from "../api/core";
+import { continueSource } from "./continue-source.svelte";
 import {
   loadBaoziChapterImages,
   loadBaoziDetail,
@@ -1021,3 +1022,11 @@ export const comicStore = {
     }
   },
 };
+
+// 主包懒加载解耦：本 store 加载后把阅读历史同步给 continue 数据源（continue store 不再静态依赖本文件）。
+$effect.root(() => {
+  $effect(() => {
+    const snapshot = _readHistory;
+    continueSource.setComicHistory(snapshot);
+  });
+});

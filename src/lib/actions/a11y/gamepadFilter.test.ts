@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createGamepadFocusRuntime, type GamepadClock, type GamepadLike } from "./gamepadFocus";
+import { resetGamepadRemap, writeGamepadRemap } from "../../platform/gamepadRemap";
+import { gamepadTuning } from "../../platform/gamepadTuning.svelte";
 
 class Clock implements GamepadClock {
   now() { return 0; }
@@ -179,6 +181,76 @@ describe("gamepad multi-pad merge（串流/虚拟手柄场景）", () => {
     (real.axes as number[])[1] = 0.8; // 真实手柄左摇杆向下
     runtime.poll(1);
     expect(down).toHaveBeenCalled();
+    runtime.destroy();
+  });
+});
+
+describe("gamepad 运行时集成：按键绑定与灵敏度调参", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetGamepadRemap();
+    gamepadTuning.sensitivity = "standard";
+    gamepadTuning.repeatSpeed = "standard";
+  });
+
+  it("重映射：把 launch 绑到物理 Y(3)，按 Y 触发启动", () => {
+    writeGamepadRemap({ launch: 3 });
+    const pad = makePad("Xbox 360 Controller");
+    const runtime = makeRuntime(pad);
+    const launch = vi.fn();
+    const back = vi.fn();
+    runtime.registerScope({ launch, back });
+    runtime.poll(0);
+
+    press(pad, 3); // 物理 Y
+    runtime.poll(1);
+    runtime.poll(2);
+    expect(launch).toHaveBeenCalledOnce();
+    expect(back).not.toHaveBeenCalled();
+    runtime.destroy();
+  });
+
+  it("重映射优先于布局换位：任天堂手柄显式绑到物理下键(0)即启动", () => {
+    writeGamepadRemap({ launch: 0 });
+    const pad = makePad("Nintendo Switch Pro Controller");
+    const runtime = makeRuntime(pad);
+    const launch = vi.fn();
+    runtime.registerScope({ launch });
+    runtime.poll(0);
+
+    press(pad, 0); // 任天堂默认下键=返回，但显式绑定覆盖
+    runtime.poll(1);
+    runtime.poll(2);
+    expect(launch).toHaveBeenCalledOnce();
+    runtime.destroy();
+  });
+
+  it("灵敏度：死区调紧(0.40)后 0.45 幅度的摇杆即可触发", () => {
+    gamepadTuning.sensitivity = "tight";
+    const pad = makePad("Xbox 360 Controller");
+    const runtime = makeRuntime(pad);
+    const down = vi.fn();
+    runtime.registerScope({ down });
+    runtime.poll(0);
+
+    (pad.axes as number[])[1] = 0.45; // 标准死区 0.55 不触发，紧档 0.40 触发
+    runtime.poll(1);
+    expect(down).toHaveBeenCalledOnce();
+    runtime.destroy();
+  });
+
+  it("灵敏度：死区调松(0.70)后 0.45 幅度不触发（防串流漂移）", () => {
+    gamepadTuning.sensitivity = "loose";
+    const pad = makePad("Xbox 360 Controller");
+    const runtime = makeRuntime(pad);
+    const down = vi.fn();
+    runtime.registerScope({ down });
+    runtime.poll(0);
+
+    (pad.axes as number[])[1] = 0.45;
+    runtime.poll(1);
+    runtime.poll(2);
+    expect(down).not.toHaveBeenCalled();
     runtime.destroy();
   });
 });

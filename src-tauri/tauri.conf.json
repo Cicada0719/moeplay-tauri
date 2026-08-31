@@ -1,13 +1,13 @@
 {
   "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-cli/schema.json",
   "productName": "萌游 MoeGame",
-  "version": "0.20.7",
+  "version": "0.22.0",
   "identifier": "com.moeplay.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "beforeDevCommand": "node node_modules/vite/bin/vite.js --port 1420",
+    "beforeBuildCommand": "node node_modules/vite/bin/vite.js build"
   },
   "app": {
     "windows": [
@@ -20,7 +20,8 @@
         "resizable": true,
         "fullscreen": true,
         "decorations": true,
-        "transparent": false
+        "transparent": false,
+        "backgroundColor": "#11151F"
       }
     ],
     "security": {
@@ -34,7 +35,9 @@
           "$APPLOCALDATA/**",
           "$DOCUMENT/**",
           "$PICTURE/**",
-          "$DOWNLOAD/**"
+          "$DOWNLOAD/**",
+          "/storage/**",
+          "/sdcard/**"
         ]
       }
     },

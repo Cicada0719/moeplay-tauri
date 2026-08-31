@@ -404,6 +404,10 @@ const COMMANDS: &[&str] = &[
     "get_sync_config",
     "get_sync_status",
     "clear_webdav_config",
+    "open_mini_player",
+    "handheld_rom_roots",
+    "handheld_scan_roms",
+    "handheld_import_roms",
 ];
 
 fn main() {

@@ -11,6 +11,7 @@ export type ComicReaderCommand =
   | "previous_chapter"
   | "next_chapter"
   | "cycle_direction"
+  | "cycle_spread"
   | "zoom_in"
   | "zoom_out"
   | "reset_zoom"
@@ -172,6 +173,7 @@ export function getReaderKeyboardCommand(
   if (key === "escape") return "close";
   if (key === "t") return "toggle_toolbar";
   if (key === "d") return "cycle_direction";
+  if (key === "s") return "cycle_spread";
   if (key === "+" || key === "=") return "zoom_in";
   if (key === "-" || key === "_") return "zoom_out";
   if (key === "0") return "reset_zoom";
@@ -191,4 +193,37 @@ export function getReaderKeyboardCommand(
     return direction === "right-to-left" ? "previous_page" : "next_page";
   }
   return undefined;
+}
+
+export type ComicReaderSpread = "single" | "double";
+
+export function normalizeSpread(value: unknown): ComicReaderSpread {
+  return value === "double" ? "double" : "single";
+}
+
+/** 当前视图应展示的页码（升序）。双页以偶数起始页分组；末尾奇数页退化为单页。 */
+export function spreadWindowPages(page: number, pageCount: number, spread: ComicReaderSpread): number[] {
+  if (pageCount <= 0) return [];
+  if (spread !== "double") return [clampReaderPage(page, pageCount)];
+  const start = spreadWindowStart(clampReaderPage(page, pageCount));
+  return start + 1 < pageCount ? [start, start + 1] : [start];
+}
+
+/** 翻页步长：双页 2 页一组，单页 1 页。 */
+export function spreadStepSize(spread: ComicReaderSpread): number {
+  return spread === "double" ? 2 : 1;
+}
+
+/** 双页模式下把页码对齐到最近的偶数起始页。 */
+export function spreadWindowStart(page: number): number {
+  const clamped = Math.max(0, Math.trunc(Number.isFinite(page) ? page : 0));
+  return clamped - (clamped % 2);
+}
+
+/** 在双页间翻页：按组步进 delta（±1），并保证游标落在偶数起始页。 */
+export function moveReaderSpread(index: number, delta: number, pageCount: number, spread: ComicReaderSpread): number {
+  if (pageCount <= 0) return 0;
+  if (spread !== "double") return moveReaderPage(index, delta, pageCount);
+  const step = Math.sign(delta || 1) * 2;
+  return spreadWindowStart(moveReaderPage(index, step, pageCount));
 }

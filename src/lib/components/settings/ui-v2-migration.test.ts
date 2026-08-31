@@ -67,7 +67,7 @@ describe("settings UI-v2 migration contract", () => {
   it("wires the i18n store into the settings page and the global navigation", () => {
     const page = source("src/lib/components/SettingsPage.svelte");
     const nav = source("src/lib/shell/GlobalTopNavigation.svelte");
-    const i18nStore = source("src/lib/stores/i18n.svelte.ts");
+    const i18nStore = source("src/lib/stores/i18n.svelte.ts") + source("src/lib/stores/i18n.en.ts");
     expect(page).toContain('from "../stores/i18n.svelte"');
     expect(page).toContain('i18n.t("settings.section_appearance")');
     expect(page).toContain("setInterfaceLanguage");

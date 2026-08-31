@@ -14,17 +14,22 @@
   import { hasHeroBackground, heroImageOf as gameHeroImageOf } from "../utils/game";
   import { attachGamepad, type GamepadAttachment } from "./switch/useGamepad.svelte";
   import { getDefaultGamepadFocusRuntime } from "../actions/a11y/gamepadFocus";
-  import defaultLibraryBackdrop from "../assets/default-library-backdrop.png";
+  import { gamepadGlyphFor, type GamepadAction } from "../platform/gamepadRemap";
+  import defaultLibraryBackdrop from "../assets/default-library-backdrop.webp";
   import { animeStore } from "../stores/anime.svelte";
 
   type BigPictureTab = "game" | "media";
   type BigPictureZone = "top-nav" | "wheel" | "hero" | "media" | "detail" | "search" | "keyboard";
+  type BigPictureMemory = { tab?: BigPictureTab; focusIdx?: number; filterAll?: boolean; filterMode?: "all" | "local" | "recent" };
+  type FilterMode = "all" | "local" | "recent";
+
+  const BP_MEMORY_KEY = "moeplay-bigpicture-memory-v1";
 
   let bpTab = $state<BigPictureTab>("game");
   let activeZone = $state<BigPictureZone>("wheel");
   let focusIdx = $state(0);
   let topFocusIdx = $state(0);
-  let filterAll = $state(true);
+  let filterMode = $state<FilterMode>("all");
   let showDetail = $state(false);
   let showSearch = $state(false);
   let now = $state(new Date());
@@ -40,10 +45,20 @@
   let detailReturnZone = $state<BigPictureZone>("wheel");
   let searchReturnZone = $state<BigPictureZone>("top-nav");
   let topScope: GamepadAttachment | null = null;
+  let padLayoutTag = $state("");
+  let bpPadLayout = $state<"xbox" | "nintendo" | "playstation">("xbox");
+  const glyph = (action: GamepadAction) => gamepadGlyphFor(action, bpPadLayout);
 
   const allGames = $derived(gameStore.allGames);
   const installedGames = $derived(gameStore.installedGames);
-  const filteredGames = $derived(filterAll ? allGames : installedGames);
+  const filteredGames = $derived.by(() => {
+    if (filterMode === "local") return installedGames;
+    if (filterMode === "recent") {
+      const lastPlayedOf = (g: Game) => g.play_tracker?.last_played ?? g.last_played ?? "";
+      return [...allGames].sort((a, b) => String(lastPlayedOf(b)).localeCompare(String(lastPlayedOf(a))));
+    }
+    return allGames;
+  });
   const focusGame = $derived(filteredGames[focusIdx] ?? null);
   const backgroundArt = $derived(pickBackgroundArt(focusGame));
   const isHeroBg = $derived(hasHeroBackground(focusGame));
@@ -59,6 +74,29 @@
     { accent: "#7bb8ff", paper: "#eef6ff", ink: "#080e16" },
   ] as const;
   const scenePalette = $derived(SCENE_PALETTES[focusIdx % SCENE_PALETTES.length]);
+
+  function readBpMemory(): BigPictureMemory {
+    if (typeof localStorage === "undefined") return {};
+    try {
+      const parsed: unknown = JSON.parse(localStorage.getItem(BP_MEMORY_KEY) ?? "{}");
+      if (typeof parsed !== "object" || parsed === null) return {};
+      const raw = parsed as Record<string, unknown>;
+      const memory: BigPictureMemory = {};
+      if (raw.tab === "game" || raw.tab === "media") memory.tab = raw.tab;
+      if (typeof raw.focusIdx === "number" && Number.isFinite(raw.focusIdx) && raw.focusIdx >= 0) {
+        memory.focusIdx = Math.floor(raw.focusIdx);
+      }
+      if (raw.filterMode === "all" || raw.filterMode === "local" || raw.filterMode === "recent") memory.filterMode = raw.filterMode;
+      return memory;
+    } catch {
+      return {};
+    }
+  }
+
+  function writeBpMemory() {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(BP_MEMORY_KEY, JSON.stringify({ tab: bpTab, focusIdx, filterMode } as BigPictureMemory));
+  }
 
   function pickBackgroundArt(game: Game | null): string {
     if (!game) return defaultLibraryBackdrop;
@@ -147,7 +185,15 @@
     if (activeZone === "top-nav") { exitBigPicture(); return; }
     setZone("top-nav");
   }
-  function toggleFilter() { filterAll = !filterAll; focusIdx = 0; }
+  function toggleFilter() {
+    filterMode = filterMode === "all" ? "local" : filterMode === "local" ? "recent" : "all";
+    focusIdx = 0;
+  }
+  function refreshPadLayoutTag() {
+    const pads = getDefaultGamepadFocusRuntime()?.getConnectedPads() ?? [];
+    bpPadLayout = pads[0]?.layout ?? bpPadLayout;
+    padLayoutTag = pads[0] ? (pads[0].layout === "nintendo" ? "任天堂布局" : "Xbox 布局") : "";
+  }
   function selectMedia(item: { type: string }) { uiStore.setBigPicture(false); uiStore.currentView = item.type === "anime" ? "anime" : "comic"; }
 
   function onWheel(event: WheelEvent) {
@@ -199,6 +245,19 @@
 
   onMount(() => {
     const timer = setInterval(() => (now = new Date()), 30_000);
+    // 大屏状态记忆：恢复上次所在展厅与选中位置（进入时始终落在转盘/媒体区）
+    const memory = readBpMemory();
+    if (memory.tab === "media") {
+      bpTab = "media";
+      topFocusIdx = 1;
+      // 媒体展廊下标空间与游戏转盘不同：进入媒体区一律从首项恢复，避免越界
+      focusIdx = 0;
+      void animeStore.loadRecommendations();
+    } else if (memory.focusIdx !== undefined) {
+      focusIdx = memory.focusIdx;
+    }
+    if (memory.filterMode) filterMode = memory.filterMode; else if (memory.filterAll !== undefined) filterMode = memory.filterAll ? "all" : "local";
+    $effect(() => { writeBpMemory(); });
     const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
     const syncMotion = () => {
       prefersReducedMotion = motionQuery.matches || document.documentElement.dataset.motion === "reduce";
@@ -208,14 +267,22 @@
     motionQuery.addEventListener("change", syncMotion);
     topScope = attachGamepad({
       left: () => moveTop(-1), right: () => moveTop(1), down: () => enterContent(),
-      launch: () => activateTop(), activate: () => activateTop(), back: () => exitBigPicture(),
+      launch: () => activateTop(), activate: () => activateTop(), start: () => activateTop(), back: () => exitBigPicture(),
       pageLeft: () => cycleTab(-1), pageRight: () => cycleTab(1),
       filter: () => { if (bpTab === "game") toggleFilter(); },
     }, { id: "big-picture-top-nav", zone: "top-nav", priority: 20 });
     getDefaultGamepadFocusRuntime()?.setActiveZone(activeZone);
     queueMicrotask(() => setZone(activeZone));
+    refreshPadLayoutTag();
+    const padTimer = setInterval(refreshPadLayoutTag, 1500);
+    const onPadChange = () => refreshPadLayoutTag();
+    window.addEventListener("gamepadconnected", onPadChange);
+    window.addEventListener("gamepaddisconnected", onPadChange);
     return () => {
       clearInterval(timer);
+      clearInterval(padTimer);
+      window.removeEventListener("gamepadconnected", onPadChange);
+      window.removeEventListener("gamepaddisconnected", onPadChange);
       if (bgTimer) clearTimeout(bgTimer);
       motionQuery.removeEventListener("change", syncMotion);
       topScope?.(); topScope = null;
@@ -265,14 +332,14 @@
       {#if focusGame}
         <BigPictureHero game={focusGame} {weekHours} active={activeZone === "hero" && !showDetail && !showSearch} onLaunch={launchFocus} onFavorite={toggleFav} onDetail={openDetail} onMoveToWheel={() => setZone("wheel")} onMoveToTop={() => setZone("top-nav")} onTabPrevious={() => cycleTab(-1)} onTabNext={() => cycleTab(1)} onToggleFilter={toggleFilter} />
       {/if}
-      <BigPictureWheel games={filteredGames} {focusIdx} {filterAll} {prefersReducedMotion} active={activeZone === "wheel" && !showDetail && !showSearch} onSelect={setFocus} onActivate={(index) => { setFocus(index); openDetail(); }} onLaunch={(index) => { setFocus(index); void launchFocus(); }} onFavorite={(index) => { setFocus(index); void toggleFav(); }} onMoveToHero={() => setZone("hero")} onMoveToTop={() => setZone("top-nav")} onBack={back} onTabPrevious={() => cycleTab(-1)} onTabNext={() => cycleTab(1)} onToggleFilter={toggleFilter} onOpenImport={openImport} />
+      <BigPictureWheel games={filteredGames} {focusIdx} {filterMode} {prefersReducedMotion} active={activeZone === "wheel" && !showDetail && !showSearch} onSelect={setFocus} onActivate={(index) => { setFocus(index); openDetail(); }} onLaunch={(index) => { setFocus(index); void launchFocus(); }} onFavorite={(index) => { setFocus(index); void toggleFav(); }} onMoveToHero={() => setZone("hero")} onMoveToTop={() => setZone("top-nav")} onBack={back} onTabPrevious={() => cycleTab(-1)} onTabNext={() => cycleTab(1)} onToggleFilter={toggleFilter} onOpenImport={openImport} />
     </main>
     <footer class="bp-hints" aria-label="手柄快捷操作">
-      <span><b>LS / ← →</b>切换作品</span><span><b class="key-a">A</b>打开档案</span><span><b>Start</b>启动</span><span><b class="key-x">X</b>收藏</span><span><b>LB RB</b>切换展厅</span><span><b>View</b>{filterAll ? "本机安装" : "全部作品"}</span><span><b>B</b>菜单</span><span class="bp-pos">{filteredGames.length ? String(focusIdx + 1).padStart(2,"0") : "00"} / {String(filteredGames.length).padStart(2,"0")}</span>
+      <span><b>LS / ← →</b>切换作品</span><span><b class="key-a">{glyph("launch")}</b>启动游戏</span><span><b class="key-y">{glyph("activate")}</b>打开档案</span><span><b class="key-x">{glyph("favorite")}</b>收藏</span><span><b>{glyph("pageLeft")} {glyph("pageRight")}</b>切换展厅</span><span><b>{glyph("filter")}</b>切换筛选</span><span><b>{glyph("back")}</b>菜单</span><span class="bp-pos">{filteredGames.length ? String(focusIdx + 1).padStart(2,"0") : "00"} / {String(filteredGames.length).padStart(2,"0")}{#if padLayoutTag}<em>{padLayoutTag}</em>{/if}</span>
     </footer>
   {:else}
     <main class="bp-media-view"><BigPictureMediaTab active={activeZone === "media" && !showDetail && !showSearch} onSelectMedia={selectMedia} onMoveToTop={() => setZone("top-nav")} onBack={back} onTabPrevious={() => cycleTab(-1)} onTabNext={() => cycleTab(1)} /></main>
-    <footer class="bp-hints" aria-label="手柄快捷操作"><span><b class="key-a">A</b>打开</span><span><b>↑ ↓ ← →</b>浏览</span><span><b>LB RB</b>切换展厅</span><span><b>B</b>菜单</span></footer>
+    <footer class="bp-hints" aria-label="手柄快捷操作"><span><b class="key-a">{glyph("launch")}</b>打开</span><span><b>↑ ↓ ← →</b>浏览</span><span><b>{glyph("pageLeft")} {glyph("pageRight")}</b>切换展厅</span><span><b>{glyph("back")}</b>返回</span>{#if padLayoutTag}<span class="bp-pos"><em>{padLayoutTag}</em></span>{/if}</footer>
   {/if}
 
   {#if showDetail && focusGame}<BigPictureDetail game={focusGame} onClose={closeDetail} returnFocus={detailReturnFocus} />{/if}
@@ -296,16 +363,18 @@
   .bp-brand small { color:rgba(255,255,255,.4); font:750 7px var(--font-mono); letter-spacing:.24em; }
 
   .bp-nav { display:flex; align-items:center; gap:clamp(18px,2.4vw,42px); }
-  .bp-nav button { position:relative; display:flex; align-items:baseline; gap:8px; padding:10px 1px; border:0; color:rgba(255,255,255,.4); background:transparent; cursor:pointer; }
+  .bp-nav button { position:relative; display:flex; align-items:baseline; gap:8px; padding:10px 1px; border:0; color:rgba(255,255,255,.4); background:transparent; cursor:pointer; transition:color .18s ease; }
   .bp-nav button::after { content:""; position:absolute; left:0; right:100%; bottom:2px; height:2px; background:var(--scene-accent); transition:right .25s ease; }
   .bp-nav button.active { color:white; }
   .bp-nav button.active::after { right:0; }
+  .bp-nav button:hover { color:rgba(255,255,255,.86); }
   .bp-nav span { color:var(--scene-accent); font:850 8px var(--font-mono); }
   .bp-nav b { font:800 clamp(11px,.85vw,15px) var(--font-ui); }
   .bp-nav button:focus-visible,.bp-tools button:focus-visible { outline:2px solid var(--scene-accent); outline-offset:5px; }
 
   .bp-tools { justify-self:end; display:flex; align-items:center; gap:9px; }
-  .bp-tools button { display:grid; place-items:center; min-width:42px; height:42px; padding:0 11px; border:1px solid rgba(255,255,255,.14); color:rgba(255,255,255,.72); background:rgba(7,8,12,.28); backdrop-filter:blur(12px); cursor:pointer; }
+  .bp-tools button { display:grid; place-items:center; min-width:42px; height:42px; padding:0 11px; border:1px solid rgba(255,255,255,.14); color:rgba(255,255,255,.72); background:rgba(7,8,12,.28); backdrop-filter:blur(12px); cursor:pointer; transition:color .18s ease,border-color .18s ease,background .18s ease; }
+  .bp-tools button:hover { color:white; border-color:rgba(255,255,255,.34); background:rgba(7,8,12,.52); }
   .bp-tools button:first-child { display:flex; gap:8px; }
   .bp-tools button small { font:750 7px var(--font-mono); letter-spacing:.14em; }
   .bp-time { display:grid; justify-items:end; min-width:68px; margin:0 7px; }
@@ -318,8 +387,10 @@
   .bp-hints span { display:flex; align-items:center; gap:6px; }
   .bp-hints b { display:inline-grid; place-items:center; min-width:22px; height:22px; padding:0 6px; border:1px solid rgba(255,255,255,.18); color:white; background:rgba(7,8,12,.56); font:800 8px var(--font-mono); }
   .bp-hints .key-a { border-color:rgba(101,214,158,.6); color:#8be8b8; }
+  .bp-hints .key-y { border-color:rgba(255,199,102,.6); color:#ffd9a3; }
   .bp-hints .key-x { border-color:rgba(105,165,255,.6); color:#90bcff; }
-  .bp-pos { margin-left:auto; color:var(--scene-accent); font:850 10px var(--font-mono); letter-spacing:.12em; }
+  .bp-pos { margin-left:auto; display:flex; align-items:center; gap:10px; color:var(--scene-accent); font:850 10px var(--font-mono); letter-spacing:.12em; }
+  .bp-pos em { padding:2px 8px; border:1px solid rgba(255,255,255,.18); border-radius:999px; color:rgba(255,255,255,.62); font:750 8px var(--font-mono); font-style:normal; letter-spacing:.08em; }
 
   :global(:root[data-input-mode="gamepad"] section.bp :where(button,a,input,select,textarea,[tabindex]):focus-visible) {
     outline-color: var(--scene-accent) !important;

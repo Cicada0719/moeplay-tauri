@@ -28,6 +28,7 @@
     type PageMode,
     type ReadingDirection,
   } from '../../stores/readerSettings';
+  import { platformStore } from '../../platform/runtime.svelte';
   import Icon from '../Icon.svelte';
 
   let {
@@ -50,7 +51,7 @@
     onclose?: () => void;
   } = $props();
 
-  const settingsStore = untrack(() => createReaderSettingsStore(contentId));
+  const settingsStore = untrack(() => createReaderSettingsStore(contentId, { android: platformStore.isAndroid }));
   const pageMode = $derived($settingsStore.pageMode);
   const direction = $derived($settingsStore.direction);
   const forceNarrowDual = $derived($settingsStore.forceNarrowDual);

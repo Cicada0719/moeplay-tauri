@@ -153,7 +153,10 @@ export const novelStore = {
 
   async readChapter(chapter: NovelChapter) {
     const book = _detail?.book;
-    if (!book) return;
+    if (!book) {
+      _error = "请先打开作品详情，再选择章节";
+      return;
+    }
     _loading = true;
     _error = "";
     try {

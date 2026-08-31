@@ -121,4 +121,14 @@ describe("novel store 全源并发搜索（0.19.5）", () => {
     expect(store.books.map((item) => item.id)).toEqual(["9"]);
     expect(store.sourcesTotal).toBe(0);
   });
+
+  it("没有作品详情时选择章节会给出可见错误，而不是静默无响应", async () => {
+    const store = await loadStore(() => []);
+
+    await store.readChapter({ id: "chapter-1", title: "第一章", order: 1 });
+
+    expect(store.view).toBe("home");
+    expect(store.error).toBe("请先打开作品详情，再选择章节");
+    expect(store.loading).toBe(false);
+  });
 });

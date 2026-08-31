@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-discover-rom-roots"
+description = "Enables the discover_rom_roots command without any pre-configured scope."
+commands.allow = ["discover_rom_roots"]
+
+[[permission]]
+identifier = "deny-discover-rom-roots"
+description = "Denies the discover_rom_roots command without any pre-configured scope."
+commands.deny = ["discover_rom_roots"]

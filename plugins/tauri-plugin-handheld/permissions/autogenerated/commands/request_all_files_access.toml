@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-request-all-files-access"
+description = "Enables the request_all_files_access command without any pre-configured scope."
+commands.allow = ["request_all_files_access"]
+
+[[permission]]
+identifier = "deny-request-all-files-access"
+description = "Denies the request_all_files_access command without any pre-configured scope."
+commands.deny = ["request_all_files_access"]
