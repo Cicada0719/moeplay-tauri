@@ -83,6 +83,10 @@
   let showAllResults = $state(false);
   const mergedResults = $derived(animeStore.mergedSearchResults);
   const updatableCount = $derived(animeStore.updatableRules.length);
+  // Native/fixture backends may return null while the calendar is unavailable.
+  // Keep the page renderable and let the dedicated calendar state communicate the
+  // failure instead of leaking a TypeError through the page shell.
+  const calendarItems = $derived(animeStore.calendar ?? []);
   // 逐源搜索状态汇总（成功/无结果/失败）
   const sourceStatusSummary = $derived.by(() => {
     const values = Object.values(animeStore.searchSourceStatus);
@@ -359,7 +363,7 @@
               onMoreSeasonal={() => animeStore.loadMoreSeasonal()}
               onMoreTrending={() => animeStore.loadMoreTrending()}
               onMoreTopRated={() => animeStore.loadMoreTopRated()}
-              schedule={animeStore.calendar.length ? animeStore.calendar : undefined}
+              schedule={calendarItems.length ? calendarItems : undefined}
               scheduleLoading={animeStore.calendarLoading}
               onOpenScheduleSubject={(subject, trigger) => { detailReturnFocus = trigger; searchBangumi(subject, trigger); }}
               onOpenCalendarTab={() => animeStore.setTab("calendar")}
@@ -376,10 +380,10 @@
             <div class="spinner"></div>
             <span>加载时间表...</span>
           </div>
-        {:else if animeStore.calendar.length > 0}
+        {:else if calendarItems.length > 0}
           <div class="calendar-section">
             <div class="weekday-tabs">
-              {#each animeStore.calendar as day (day.weekday)}
+              {#each calendarItems as day (day.weekday)}
                 <button class="weekday-tab"
                   class:active={animeStore.calendarDay === day.weekday}
                   class:today={day.weekday === (new Date().getDay() || 7)}
@@ -394,7 +398,7 @@
                 </button>
               {/each}
             </div>
-            {#each animeStore.calendar.filter(d => d.weekday === animeStore.calendarDay) as currentDay (currentDay.weekday)}
+            {#each calendarItems.filter(d => d.weekday === animeStore.calendarDay) as currentDay (currentDay.weekday)}
               <div class="cover-grid">
                 {#each currentDay.items as sub (sub.id)}
                   <Card padding="none" hoverable={false} class="cover-card" onclick={() => searchBangumi(sub)}>
