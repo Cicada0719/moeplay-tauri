@@ -17,12 +17,12 @@
 | 项目 | 状态 |
 | --- | --- |
 | Windows 10/11 x64 | 已提供 MSI、NSIS 和 Portable 版本 |
-| Android 掌机版 | 源码和 Android 工程已纳入仓库，可本地构建 APK/AAB |
+| Android 掌机版 | 已提供 ARM64 Debug APK，可直接 adb 安装验证（见 v0.22.0 Release） |
 | 默认分支 | `master` |
 | 当前版本 | `0.22.0` |
 | 许可证 | [MIT License](LICENSE) |
 
-`v0.22.0` Release 当前提供 Windows 产物。Android 需要根据设备 ABI 和本地 Android SDK/NDK 环境构建，Release 页面暂未附带 APK/AAB。
+`v0.22.0` Release 提供 Windows 安装包与 Android ARM64 Debug APK。Android 端当前为本地构建的 Debug 包，适合实体机 adb 安装测试；正式分发时再使用签名 Release/AB 构建。
 
 ## 功能
 
