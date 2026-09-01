@@ -13,7 +13,7 @@ function ctx(overrides: Partial<QualitySwitchReloadContext> = {}): QualitySwitch
 }
 
 /**
- * spec §6.2 回归 + Kimi K3 复审 medium：
+ * spec §6.2 回归：
  * switchQuality 仅当 targetSrc 实际变化时才重载媒体。纯增强模式切换（本地超清化
  * off/均衡/质量，同源）只更新 enhancement 管线状态，不重载媒体。
  */

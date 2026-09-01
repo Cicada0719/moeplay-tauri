@@ -1,318 +1,209 @@
 # 萌游 MoeGame
 
-<div align="center">
+萌游是一个本地优先的游戏库与 ACG 媒体中心，使用 Tauri 2、Svelte 5、TypeScript 和 Rust 构建。它把本地游戏、模拟器 ROM、番剧、漫画、小说、收藏和阅读/观看记录放在同一个入口中。
 
-**把散落在电脑里的游戏、番剧、漫画与阅读记录，整理成一座属于自己的数字娱乐馆。**
+桌面端侧重游戏资料管理和大屏浏览；Android 端使用 PSP/XMB 风格的掌机界面，优先适配实体手柄，同时保留触控操作。
 
-面向 **Windows 桌面、电视大屏与手柄操作** 的本地优先游戏 / ACG 媒体中心。
+<p align="center">
+  <a href="https://github.com/sgyxyx-prog/moeplay-tauri/releases/tag/v0.22.0">下载 v0.22.0</a> ·
+  <a href="https://github.com/sgyxyx-prog/moeplay-tauri/issues">反馈问题</a> ·
+  <a href="https://github.com/sgyxyx-prog/moeplay-tauri/pulls">参与开发</a>
+</p>
 
-[![Latest Release](https://img.shields.io/github/v/release/Cicada0719/moeplay-tauri?display_name=tag&sort=semver&style=flat-square&color=ffd34e)](https://github.com/Cicada0719/moeplay-tauri/releases/latest)
-[![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011%20x64-0078D4?style=flat-square&logo=windows11&logoColor=white)](https://github.com/Cicada0719/moeplay-tauri/releases/latest)
-[![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white)](https://v2.tauri.app/)
-[![Svelte 5](https://img.shields.io/badge/Svelte-5-FF3E00?style=flat-square&logo=svelte&logoColor=white)](https://svelte.dev/)
-[![License](https://img.shields.io/github/license/Cicada0719/moeplay-tauri?style=flat-square)](LICENSE)
+![萌游大屏界面](docs/screenshots/big-picture-release.png)
 
-[下载最新版](https://github.com/Cicada0719/moeplay-tauri/releases/latest) · [功能与更新](CHANGELOG.md) · [提交问题](https://github.com/Cicada0719/moeplay-tauri/issues) · [参与开发](#参与项目)
+## 当前发布状态
 
-</div>
-
-![萌游 MoeGame 大屏滚动剧场](docs/screenshots/big-picture-release.png)
-
-<p align="center"><sub>大屏滚动剧场：全屏作品背景、底部手动封面轮、手柄焦点与动态操作提示。</sub></p>
-
-> [!IMPORTANT]
-> 当前正式发布平台为 **Windows 10/11 x64**，提供安装版与便携版。项目目前不发布 Android 版本，Release 中没有 APK 或 AAB。
-
-## 萌游是什么？
-
-萌游不是又一个“给文件夹换皮”的启动器。
-
-它希望把 **游戏库管理、作品资料、启动与游玩记录、番剧播放、漫画阅读、小说阅读、统计和存档工具** 放进同一套视觉与交互系统：坐在电脑前可以用鼠标键盘高效整理，接上电视和手柄后又能直接进入适合远距离观看的全屏作品舞台。
-
-所有核心资料默认保存在本机。你的收藏、评分、笔记、进度和游玩记录，不需要为了使用软件而上传到一个陌生账号体系。
-
-## 为什么值得试试
-
-| 体验 | 萌游提供的能力 |
+| 项目 | 状态 |
 | --- | --- |
-| **一个库，装下不同来源** | 导入 Steam、Epic、本地游戏和模拟器内容，并统一管理封面、背景、标签、合集和启动方式。 |
-| **真正为电视设计的大屏模式** | 不是简单放大桌面 UI，而是独立的全屏滚动剧场：作品背景覆盖屏幕，信息集中在左下角，封面通过手柄手动切换。 |
-| **从管理到消费不换应用** | 游戏启动、番剧选源播放、漫画阅读、小说阅读与历史记录都在同一个应用中完成。 |
-| **本地优先** | SQLite 保存核心数据；联网主要用于资料检索、媒体来源、平台同步和更新检查。 |
-| **可观察、可维护** | 来源健康度、任务中心、下载队列、诊断工具、缓存清理、备份与发布校验都不是“黑盒”。 |
-| **开源且可自建** | Tauri 2 + Rust + Svelte 5，MIT License，欢迎检查、修改和贡献。 |
+| Windows 10/11 x64 | 已提供 MSI、NSIS 和 Portable 版本 |
+| Android 掌机版 | 源码和 Android 工程已纳入仓库，可本地构建 APK/AAB |
+| 默认分支 | `master` |
+| 当前版本 | `0.22.0` |
+| 许可证 | [MIT License](LICENSE) |
 
-### 🆕 近期版本亮点（0.20.8 → 0.20.25）
+`v0.22.0` Release 当前提供 Windows 产物。Android 需要根据设备 ABI 和本地 Android SDK/NDK 环境构建，Release 页面暂未附带 APK/AAB。
 
-- **手柄体系**：多手柄合并输入；每台设备单独记忆布局（自动 / Xbox / 任天堂 / PlayStation）；动作级按键绑定（任意按钮重映射）；PlayStation ○×□△ 键帽；摇杆死区与连发速度可调（串流延迟适配）。
-- **掌机模式**：设置页统一开关，显示放大 + 手柄提示条常显 + 输入框自动弹屏幕键盘（键盘布局持久化）。
-- **大屏模式**：提示条键位与实际一致（START 绑定启动）；展厅 / 位置 / 筛选状态记忆；媒体展廊可浏览全部追番与漫画收藏。
-- **包体与启动**：主入口 JS 体积从约 1.07MB 降至约 364KB；统计图表、拼音检索、动画与番剧/漫画 store、手柄运行时全部按需加载；背景图换 WebP、字体 latin 子集；Rust 发布构建优化（thin LTO / strip）。
-- **稳定性**：截图用例去脆性化；代码按域持续拆分（api 12 域、anime store 逐步切片）；门禁（svelte-check / 单元 / 视觉 / bundle / 版本一致性）持续全绿。
+## 功能
 
-## 功能全景
+### 掌机首页与手柄导航
 
-### 🎮 游戏库与作品档案
+- Android 启动后进入统一掌机首页，游戏、番剧、漫画和小说共享同一套入口。
+- 顶部频道使用 `LT/RT` 切换“继续、游戏、番剧、漫画、小说”。
+- 游戏频道使用 `LB/RB` 切换“全部游戏”和实际存在的模拟器平台。
+- 十字键或左摇杆在当前平台的游戏转盘中移动，按 `A` 启动游戏。
+- `Y` 打开详情，`X` 收藏，`View` 打开完整游戏库，`Start` 打开模拟器导入，`B` 返回或关闭弹层。
+- 支持触控点击和左右滑动；焦点、弹层和操作提示会随页面状态变化。
+- Android 默认隐藏状态栏和底部系统导航栏；设置中可以关闭沉浸式显示。
+- 番剧、漫画和小说进入后自动使用横屏媒体布局，离开媒体页后恢复用户方向设置。
 
-- 自动发现并导入 **Steam** 与 **Epic Games** 已安装内容。
-- 添加本地可执行文件，并管理工作目录、启动参数与自定义启动方式。
-- 内置 20+ 模拟器定义，可扫描模拟器与 ROM，覆盖 RetroArch、PCSX2、Dolphin、RPCS3、PPSSPP、DuckStation、Ryujinx、Cemu、MAME 等常见方案。
-- 使用 Bangumi、VNDB、DLSite、Steam、PCGamingWiki、Getchu、ErogameScape、TouchGal、YMgal、Kungal 等来源补全作品资料。
-- 管理封面、背景、截图、标签、合集、评分、收藏、笔记和作品说明。
-- 记录最近启动、累计时长、每周活动与继续游玩内容。
-- 提供搜索、筛选、智能合集、批量处理、资料刮削和游戏目录入口。
-- 支持 Locale Emulator 检测与日语环境启动，适合需要区域环境的旧游戏。
+### 游戏库与模拟器
 
-### 📺 大屏滚动剧场与完整手柄导航
+- 导入 Steam、Epic、本地目录和单个可执行文件。
+- 扫描模拟器目录与 ROM，按平台整理游戏档案。
+- 支持 RetroArch、PPSSPP、PCSX2、Dolphin、RPCS3、DuckStation、Ryujinx、Cemu、MAME 等常见模拟器定义。
+- 管理封面、背景、图标、标签、合集、评分、备注、收藏和启动参数。
+- 支持工作目录、Locale Emulator、存档备份、运行记录和继续游玩。
+- 游戏库与掌机首页共用数据，掌机端导入的 ROM 也会出现在桌面游戏库中。
 
-- 独立于普通游戏库的 **电视端全屏作品舞台**，针对 1080p、4K、超宽屏和较低高度窗口做响应式适配。
-- 作品背景扩散覆盖整块屏幕；标题、说明、启动、收藏和档案操作收纳在左下角，尽量不遮挡主视觉。
-- 底部封面轮使用左摇杆或 D-Pad 手动逐项切换，**不会自动轮播抢走焦点**。
-- 普通模式和大屏模式均支持手柄空间导航、焦点恢复、动态按键提示和弹层操作。
-- 可在游戏库、记录、番剧、漫画、小说、搜索、媒体展厅和作品档案之间往返操作。
-- “专注布局”可临时隐藏辅助区域，为当前任务释放更多空间；不同主页面分别记忆状态。
-- 支持系统“减少动态效果”设置，兼顾舒适度和可访问性。
+### 番剧
 
-### 🎬 番剧搜索与播放
+- 使用规则和 Provider 层接入多个来源，支持搜索、详情、剧集、选源和换源。
+- 播放器支持原生视频、HLS、本地代理和网页/外部播放器降级路径。
+- 保留续播、真实视频比例、弹幕、倍速、画中画、全屏、下载和播放错误恢复。
+- 来源健康状态和规则导入/导出集中在来源中心，单个来源失败不会阻断其他功能。
+- Android 播放页采用视频优先布局，控制栏和选集/来源操作适配横屏手柄使用。
 
-- 兼容 Kazumi 社区规则结构，支持规则导入、并行搜索、线路选择、换源和失败回退。
-- 接入 Bangumi 日历与作品资料，聚合收藏、历史和播放进度。
-- HLS.js、原生媒体播放、网页播放与外部播放器多级兜底。
-- 本地代理处理 Referer、Origin、分片与跨域兼容问题，并记录来源健康状态。
-- 支持反爬验证提示、播放源探测、超时保护和自动换源排序。
-- 提供弹幕、倍速、画中画、全屏、截图识番和外部打开等常用操作。
-- 可选本地 GPU 画质增强预设，在设备性能允许时提升输出清晰度。
-- 可接入 Jellyfin 和本地媒体来源，统一进入番剧检索与播放流程。
+### 漫画与小说
 
-### 📚 漫画与小说阅读
+- 支持在线漫画来源、本地服务和 Komga/Kavita Provider。
+- 漫画提供搜索、详情、章节、收藏、评论、章节图片和阅读历史。
+- Android 默认横屏双页 RTL 阅读，也可以切换单页或 LTR；桌面端保持单页默认。
+- 跨页图片独占显示，翻页失败会停留在当前页并提供重试；阅读位置按单页索引保存。
+- 小说支持来源搜索、详情、章节和正文阅读。
+- Android 默认分页阅读，同时支持连续滚动；桌面端默认连续滚动。
+- 支持深色、纸张和棕褐主题，以及字号、行高和阅读模式设置。
+- 分页和连续模式共用内容百分比，窗口尺寸变化后恢复到相同位置。
 
-- 漫画来源采用统一 Provider 架构，可接入 **Komga、Kavita 和本地来源**，并保留独立的在线漫画入口。
-- 支持漫画搜索、作品详情、章节列表、翻页、换话、缩放、收藏与阅读进度。
-- 来源中心可统一调整启用状态、优先级并执行健康检查。
-- 小说阅读支持 **Project Gutenberg / Gutendex** 与 **中文维基文库** 的检索、详情和正文阅读。
-- 游戏、番剧、漫画和小说共享统一的键盘、手柄与响应式交互规则。
+### 统一媒体历史
 
-### 📈 记录、统计与实用工具
+番剧、漫画和小说共用一条媒体历史时间线：
 
-- 活动时间线、游玩档案、继续游玩、周期统计和 Chart.js 图表。
-- 任务中心统一展示刮削、下载、来源验证等后台任务及事件记录。
-- 下载任务支持暂停、恢复、重试、取消和完成项清理。
-- 游戏存档管理、备份与恢复入口。
-- 系统诊断可检查运行环境、关键路径和 Locale Emulator 等依赖。
-- 缓存统计与安全清理、设置恢复、签名自动更新。
-- 可选 AI 增强，用于资料翻译、整理和清理预览；密钥通过系统凭据存储，而不是写入普通配置文件。
+- 首页“继续”根据最近活动显示可续播/续读内容。
+- 历史页支持全部、番剧、漫画、小说筛选。
+- 番剧记录集数和播放位置；漫画记录章节和页码；小说记录章节和内容百分比。
+- 从首页或历史页打开条目，会直接恢复到上次位置。
+- WebDAV 同步支持跨设备合并；凭据使用系统安全存储，不写入普通配置文件。
 
-## 快速开始
+### 其他能力
 
-### 普通用户
+- 任务中心统一显示导入、刮削、下载、来源检查和迁移任务。
+- 支持数据库导入/导出、自动备份、存档快照、缓存统计和诊断报告。
+- 支持主题包、壁纸、减少动态效果和手柄按键重映射。
+- 可选的 AI 资料整理和翻译不会参与核心启动、游戏库、播放或阅读流程；未配置时不影响其他功能。
 
-1. 打开 [GitHub Releases](https://github.com/Cicada0719/moeplay-tauri/releases/latest)。
-2. 根据需要下载：
-   - **NSIS 安装版**：推荐大多数用户，支持应用内签名自动更新。
-   - **MSI 安装版**：适合 Windows Installer 或集中部署场景。
-   - **Portable 便携版**：解压即用，不写入系统安装记录。
-3. 首次启动后，导入 Steam / Epic、本地游戏或模拟器内容。
-4. 根据需要配置资料来源、番剧规则、漫画服务和外部播放器。
-5. 接入手柄后可按 `Start` 进入大屏模式，也可以从主导航进入。
+## 安装
 
-> [!NOTE]
-> 萌游依赖 Microsoft WebView2 Runtime。Windows 10/11 通常已随系统或 Edge 安装；如果应用无法显示界面，请先安装或修复 WebView2 Runtime。
+打开 [GitHub Releases](https://github.com/sgyxyx-prog/moeplay-tauri/releases) 并按需要选择：
 
-### 常用手柄操作
+- `MoeGame_*_x64-setup.exe`：推荐普通 Windows 用户。
+- `MoeGame_*_x64_zh-CN.msi`：适合 Windows Installer 或集中部署。
+- `moeplay_*_x64-portable.zip`：解压后直接运行，不写入安装记录。
 
-| 按键 | 默认行为 |
-| --- | --- |
-| 左摇杆 / D-Pad | 移动焦点、切换作品或调整控件 |
-| A | 确认、打开、播放或启动 |
-| B | 返回上一级或关闭弹层 |
-| X | 聚焦当前页面搜索 |
-| Y | 收藏等卡片次要操作 |
-| LB / RB | 切换主内容分类或大屏展厅 |
-| View | 切换专注布局 |
-| Start | 进入或退出大屏模式 |
-
-实际提示会根据当前页面、焦点和手柄状态动态变化。
-
-## 数据、隐私与内容说明
-
-- 游戏资料、收藏、评分、笔记、进度、活动记录和设置默认保存在本机 SQLite 数据库。
-- 网络请求只在执行资料搜索、下载媒体、连接已配置服务、同步平台库或检查更新等操作时产生。
-- API Key 等敏感凭据使用系统凭据存储；仓库忽略本地数据库、日志、密钥和构建产物。
-- 下载、代理与日志路径会经过范围限制和敏感字段保护。
-- 萌游 **不内置游戏、番剧、漫画或小说版权内容**。第三方来源的可用性、访问权限和内容权利归对应服务及权利人所有，请在当地法律与服务条款允许的范围内使用。
-
-## 技术架构
-
-```mermaid
-flowchart LR
-    U["鼠标 / 键盘 / 手柄"] --> UI["Svelte 5 界面与响应式导航"]
-    UI --> IPC["Tauri 2 IPC 命令契约"]
-    IPC --> CORE["Rust 领域服务与任务编排"]
-    CORE --> DB["SQLite 本地数据"]
-    CORE --> SYS["Windows 游戏启动 / 进程监控 / 文件系统"]
-    CORE --> PROVIDERS["游戏资料 / 番剧 / 漫画 / 小说 Provider"]
-    CORE --> MEDIA["HLS / 本地代理 / 下载 / 图片缓存"]
-    CORE --> SEC["系统凭据存储与签名更新"]
-```
-
-### 主要技术栈
-
-| 层级 | 技术 |
-| --- | --- |
-| 桌面容器 | Tauri 2 |
-| 前端 | Svelte 5、TypeScript、Vite 6 |
-| 后端 | Rust、Tokio、Reqwest |
-| 本地数据 | SQLite（rusqlite bundled） |
-| 媒体 | HLS.js、本地播放代理、外部播放器兜底 |
-| 视觉与统计 | GSAP、Three.js、Chart.js |
-| 安全 | CSP、系统 Keyring、签名自动更新、依赖与许可证审计 |
-| 测试 | Vitest / Testing Library、Playwright、Rust tests、Clippy |
-| 发布 | GitHub Actions、NSIS、MSI、Portable、SBOM、构建元数据 |
-
-### 设计原则
-
-1. **Local-first**：用户资料首先属于用户自己的电脑。
-2. **输入方式平等**：鼠标、键盘和手柄都应能完成核心流程。
-3. **来源可替换**：媒体和资料服务通过 Provider / Rule 层隔离，单一来源失效不应拖垮整个应用。
-4. **失败可解释**：后台任务、来源健康、诊断与更新都提供可见状态，而不是静默失败。
-5. **发布可验证**：版本、命令契约、安装包、更新清单和签名必须保持一致。
-
-## 项目结构
-
-```text
-src/
-├─ lib/components/              页面与通用界面组件
-├─ lib/features/                游戏、番剧、漫画、小说、活动等功能模块
-├─ lib/actions/a11y/            键盘、焦点与手柄空间导航
-├─ lib/stores/                  前端状态与本地偏好
-└─ lib/api/                     Tauri IPC 调用与类型契约
-
-src-tauri/
-├─ src/commands/                暴露给前端的 Tauri 命令
-├─ src/services/                游戏库、活动与 AI 变更等应用服务
-├─ src/providers/               番剧和漫画来源适配器
-├─ src/repositories/            数据访问与状态持久化
-├─ src/scraper/                 多来源游戏资料抓取与合并
-└─ src/db_sqlite.rs             SQLite 数据模型与仓储实现
-
-plugins/                        项目内 Tauri 插件
-scripts/                        构建、审计、SBOM、更新与发布校验
-tests/                          Playwright 流程、响应式与视觉回归
-.github/workflows/              Windows CI、夜间任务与签名发布
-```
+Windows 需要 Microsoft WebView2 Runtime。Windows 10/11 通常已经包含它；如果程序启动后没有界面，请先安装或修复 WebView2 Runtime。
 
 ## 本地开发
 
 ### 环境要求
 
-- Node.js 20
-- Rust stable（含 `rustfmt`、`clippy`）
-- Windows 10/11 x64
-- Microsoft WebView2 Runtime
-- Visual Studio C++ Build Tools
+- Windows 10/11 x64、Node.js 20、npm 和 Rust stable。
+- Rust 需要 `rustfmt` 与 `clippy`；Windows 还需要 Visual Studio C++ Build Tools 和 WebView2 Runtime。
+- Android 构建还需要 JDK、Android SDK、NDK、Gradle 环境和 `libclang`。`rquickjs` 的 Android 绑定需要在构建时生成。
 
-### 启动项目
+### 安装依赖和启动
 
 ```powershell
-# 安装前端依赖
 npm ci
 
-# 启动 Tauri 桌面开发环境
-npm run tauri dev
+# 浏览器开发预览
+npm run dev
+
+# Tauri 桌面开发
+npm run tauri -- dev
 ```
 
-### 检查与测试
+Android 工程已经在 `src-tauri/gen/android/` 中。如果该目录不存在，可以先初始化：
 
 ```powershell
-# Svelte / TypeScript 静态检查
+npm run tauri -- android init
+npm run tauri -- android dev
+```
+
+### Android 构建
+
+```powershell
+# 生成 APK 和 AAB
+npm run tauri -- android build
+```
+
+具体 ABI、签名和输出位置由本机 Tauri/Gradle 配置决定。发布签名私钥不要放进仓库，应使用本地安全存储或 CI Secret。
+
+Android 工程会从项目 `node_modules/@tauri-apps/cli/tauri.js` 调用 Tauri CLI，并默认从 PATH 查找 `node`。如果 Node 不在 PATH，可在 PowerShell 中设置 `$env:MOEPLAY_NODE` 指向 Node 可执行文件后再构建。
+
+## 检查和测试
+
+```powershell
 npm run check
-
-# 前端单元测试
 npm run test:unit
+npm run verify:commands
 
-# 前端正式构建
-npm run build
-
-# Playwright 界面测试
+npx playwright install chromium
 npm run test:visual
 
-# Rust 格式、静态检查与测试
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml --all-targets --all-features
 ```
 
-### 构建 Windows 安装包
+## Windows 发布构建
 
 ```powershell
-npm run tauri build
+# 生成前端资源、Windows 安装包和可执行文件
+npm run tauri -- build --ci
+
+# 生成便携 ZIP、SBOM、构建信息和发布清单
+npm run package:portable
+npm run generate:sbom
+npm run generate:build-metadata
+$env:UPDATER_RELEASE_MODE = "Disabled"
+npm run verify:artifacts
 ```
 
-便携包、SBOM、构建元数据和更新清单由 `scripts/` 下的发布工具与 GitHub Actions 生成并校验，不建议手工拼装正式 Release。
+未配置签名密钥时，发布校验会生成普通安装包，但不会生成可供客户端使用的 `latest.json` 自动更新清单。不要把无签名构建当作正式自动更新版本发布。
 
-## 发布质量门槛
+## 项目结构
 
-正式版本发布前会依次检查：
+```text
+src/
+├─ lib/components/       页面和通用界面组件
+├─ lib/features/         游戏、掌机、番剧、漫画、小说、历史等功能
+├─ lib/actions/          键盘、焦点和手柄空间导航
+├─ lib/stores/           前端状态和本地偏好
+└─ lib/api/              Tauri IPC 调用与类型
 
-1. npm 与 Cargo 依赖安全、许可证和供应链策略。
-2. npm / Cargo / Tauri 版本号一致性。
-3. 前后端 Tauri 命令契约是否同步。
-4. Rust format、Clippy 和完整测试。
-5. Svelte / TypeScript 检查、前端单元测试与生产构建。
-6. Playwright 核心流程、手柄导航、响应式和视觉回归。
-7. 前端体积预算、Windows 安装包与 Portable 构建。
-8. SBOM、构建元数据、Release Manifest、更新包和分离签名。
-9. `latest.json` 与 GitHub Release 资产一致性。
+src-tauri/
+├─ src/commands/         Tauri 命令入口
+├─ src/providers/        媒体来源适配
+├─ src/repositories/     数据访问
+├─ src/rules/            规则加载、校验、执行和健康检查
+├─ resources/rules/      内置规则资源
+├─ gen/android/          Android 工程
+└─ tauri.conf.json       Tauri 应用和打包配置
 
-自动更新资源未签名或校验失败时，Release 不会被公开为客户端可见的正式版本。
+plugins/                 掌机系统栏、方向和 Android 能力插件
+scripts/                 构建、审计、测试和发布校验脚本
+tests/                   单元、回归、视觉和交互测试
+docs/                    产品文档和设计截图
+specs/                   任务规格，作为开发契约
+```
 
-## 参与项目
+## 数据和隐私
 
-欢迎通过以下方式帮助萌游：
+- 游戏资料、收藏、评分、备注、设置、游玩记录和媒体历史默认保存在本机。
+- WebDAV 凭据和其他敏感信息通过系统凭据存储保存，不提交到 Git。
+- 网络请求只在资料检索、媒体播放/下载、来源健康检查、已配置服务或更新检查时发生。
+- 项目不内置游戏、番剧、漫画或小说版权内容。第三方来源的可用性、访问权限和内容权利归对应服务及权利人所有，请遵守当地法律和服务条款。
+- 请不要提交数据库、日志、个人媒体、签名私钥或真实 WebDAV 凭据。
 
-- 在 [Issues](https://github.com/Cicada0719/moeplay-tauri/issues) 报告可复现的问题。
-- 提交新来源适配、规则兼容、手柄导航或响应式布局改进。
-- 补充不同分辨率、不同手柄和不同 Windows 环境下的测试反馈。
-- 改进文档、翻译、无障碍体验和新用户引导。
+## 参与开发
 
-提交问题时建议附上：萌游版本、Windows 版本、复现步骤、相关日志，以及不包含隐私信息的截图。
+1. Fork 仓库并从 `master` 创建功能分支。
+2. 只提交与任务相关的源码、测试和文档，不提交构建产物与本地配置。
+3. 修改前端后运行 `npm run check` 和相关单测；修改 Rust 后运行 `cargo fmt`、`cargo clippy` 和 `cargo test`。
+4. 提交问题时请附上版本、操作系统、复现步骤和脱敏日志。
 
-## 常见问题
+第三方来源可能因站点改版、访问区域或反爬策略变化而失效。遇到媒体播放或解析问题时，请先检查来源状态、更新规则或切换来源。
 
-<details>
-<summary><strong>萌游会替代 Steam、Epic、Jellyfin、Komga 或 Kavita 吗？</strong></summary>
+## 许可证
 
-不会。萌游更像统一入口和本地资料层：它负责整理、展示、启动、记录和衔接你已经拥有或已经配置的内容与服务。
-</details>
-
-<details>
-<summary><strong>为什么有些番剧或漫画来源突然不可用？</strong></summary>
-
-第三方站点可能调整页面、接口、反爬策略或访问区域。可以在来源中心检查健康状态、更新规则、切换线路，或使用自己的 Jellyfin、Komga、Kavita 与本地媒体。
-</details>
-
-<details>
-<summary><strong>是否必须使用 AI 功能？</strong></summary>
-
-不需要。AI 增强是可选功能，关闭后不影响游戏库、媒体播放、阅读、记录和大屏模式。
-</details>
-
-<details>
-<summary><strong>有没有手机版？</strong></summary>
-
-当前正式发布只支持 Windows 10/11 x64，不提供 Android APK/AAB。
-</details>
-
-## 许可证与免责声明
-
-项目源代码采用 [MIT License](LICENSE)。
-
-Steam、Epic Games、Bangumi、VNDB、DLSite、Jellyfin、Komga、Kavita 等名称和商标归各自权利人所有；本项目与这些服务不存在官方隶属或背书关系。游戏封面、背景、番剧、漫画和小说内容的权利归原作者、发行方或对应服务所有。
-
----
-
-<div align="center">
-
-如果萌游刚好解决了你的游戏库或客厅娱乐整理问题，欢迎点一个 **Star**、分享使用反馈，或者把你希望看到的功能写进 Issue。
-
-</div>
+源代码采用 [MIT License](LICENSE)。第三方服务名称、商标、封面和媒体内容归各自权利人所有。本项目不代表或隶属于这些服务。

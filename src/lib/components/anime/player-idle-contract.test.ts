@@ -114,7 +114,7 @@ describe("player idle chrome contract", () => {
     expect(manifestBlock).toMatch(/if \(shouldPlay\) v\.play\(\)\.catch/);
   });
 
-  it("switchQuality 仅当 targetSrc 实际变化时才重载媒体（纯增强模式切换不重载，Kimi 复审）", () => {
+  it("switchQuality 仅当 targetSrc 实际变化时才重载媒体（纯增强模式切换不重载）", () => {
     const player = source("src/lib/components/anime/AnimePlayer.svelte");
     // 复用同一 video 元素，不销毁重建容器（FR-06 根因）
     expect(player).toContain("不销毁重建 video 元素");
@@ -126,7 +126,7 @@ describe("player idle chrome contract", () => {
     // 但必须由 src 变化判定门控，避免同源重缓冲
     expect(player).toContain("activeHls.loadSource(targetSrc)");
     expect(player).toContain("el.src = targetSrc");
-    // 重载失败路径清理 pendingQualitySeek / pendingQualitySeekSrc（Kimi 非阻塞建议）
+    // 重载失败路径清理 pendingQualitySeek / pendingQualitySeekSrc
     expect(player).toContain("pendingQualitySeek = 0");
     expect(player).toContain('pendingQualitySeekSrc = ""');
   });

@@ -49,7 +49,7 @@ function primePlaybackRoad() {
  * 故按「组件级测试 + 说明」策略落地：挂载真实 AnimePlayer，mock IPC（源提取/代理），
  * 驱动到播放就绪态后点击「切换本地超清化」按钮 5 次，断言：
  *  - 复用同一 <video> 元素（不销毁重建，FR-06 根因）；
- *  - 纯增强模式切换（同源）不重载媒体（el.load() 调用数不增长，Kimi K3 复审）；
+ *  - 纯增强模式切换（同源）不重载媒体（el.load() 调用数不增长）；
  *  - 画质档位按 off→均衡→质量→off→均衡→质量 轮转；
  *  - 每次切换后静止 3s，控制栏均自动隐藏（get(controlsVisible) === false），
  *    派发 mousemove 后恢复 true（FR-06 核心验收：切换画质后 idleTimer 仍正常工作）；

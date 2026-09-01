@@ -1,4 +1,4 @@
-// api/rules 规则列表缓存测试（Kimi K3 复审第 1 项：加载命令只在初始化或显式刷新时触发）
+// api/rules 规则列表缓存测试：加载命令只在初始化或显式刷新时触发。
 import { beforeEach, describe, expect, it } from "vitest";
 import { clearMockInvokeHandler, mockRouter, setMockInvokeHandler } from "./core";
 import {
@@ -78,7 +78,7 @@ describe("api/rules 规则缓存", () => {
     expect(calls).toBe(before + 2);
   });
 
-  it("importRule 成功后失效缓存并后台重载，下次 getLoadedRules 拿到最新列表（Kimi K3 复审第 7 项）", async () => {
+  it("importRule 成功后失效缓存并后台重载，下次 getLoadedRules 拿到最新列表", async () => {
     let calls = 0;
     setMockInvokeHandler(
       mockRouter({
@@ -104,7 +104,7 @@ describe("api/rules 规则缓存", () => {
     expect(calls).toBe(afterWarm + 1);
   });
 
-  it("removeCustomRule 成功后失效缓存并后台重载（Kimi K3 复审第 7 项）", async () => {
+  it("removeCustomRule 成功后失效缓存并后台重载", async () => {
     let calls = 0;
     setMockInvokeHandler(
       mockRouter({
@@ -150,7 +150,7 @@ describe("api/rules 规则缓存", () => {
     expect(rules).toHaveLength(1);
   });
 
-  it("加载失败后重置缓存，下一次 getLoadedRules 重新发起加载可自愈（Kimi K3 复审第 8 项）", async () => {
+  it("加载失败后重置缓存，下一次 getLoadedRules 重新发起加载可自愈", async () => {
     let calls = 0;
     setMockInvokeHandler(
       mockRouter({
