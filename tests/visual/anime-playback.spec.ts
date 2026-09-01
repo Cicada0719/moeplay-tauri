@@ -158,3 +158,72 @@ test.describe("v0.13.4 anime player adaptive shell", () => {
     await expect(page.locator(".anime-page")).toHaveCSS("scroll-behavior", "auto");
   });
 });
+
+test("Android 掌机番剧从节目详情进入选源并开始播放", async ({ page }) => {
+  await page.setViewportSize({ width: 808, height: 454 });
+  await page.route("**/mock-video.mp4", async (route) => {
+    await route.fulfill({ status: 200, contentType: "video/mp4", body: Buffer.from([]) });
+  });
+
+  await page.addInitScript(() => {
+    const rules = [{
+      name: "掌机测试源", version: "1.0", baseUrl: "https://handheld-source.test", searchURL: "",
+      searchList: "", searchName: "", searchResult: "", chapterRoads: "", chapterResult: "",
+      muliSources: true, useWebview: true, useNativePlayer: true, usePost: false,
+      useLegacyParser: false, adBlocker: false, userAgent: "", referer: "https://handheld-source.test",
+      api: "0", type: "anime",
+    }];
+    const subject = {
+      id: 91, name: "掌机测试番剧", name_cn: "掌机测试番剧", image: "",
+      summary: "横屏媒体中心播放链路测试", air_date: "2026-08-31", air_weekday: 1,
+      rating: 8.8, rank: 1, eps_count: 12,
+    };
+    localStorage.setItem("anime-rules", JSON.stringify(rules));
+    const calls: Array<{ command: string; args: Record<string, unknown> }> = [];
+    (window as any).__handheldAnimeCalls = calls;
+    const invoke = async (command: string, args: Record<string, unknown> = {}) => {
+      calls.push({ command, args });
+      if (command === "get_settings") return { theme: "dark", startup_mode: "fullscreen" };
+      if (command === "get_games") return [];
+      if (command === "anime_bangumi_get_username") return { configured: false, username: "" };
+      if (command === "anime_get_rules") return rules;
+      if (command === "anime_set_rules") return null;
+      if (command === "anime_import_kazumi_rules") return { imported: 0, catalogTotal: 0, synced: 0, unchanged: 0, syncFailed: 0, invalid: 0 };
+      if (command === "anime_github_rules_index") return [];
+      if (command === "anime_bangumi_search") return [[subject], 1];
+      if (command === "anime_bangumi_detail") return { ...subject, date: subject.air_date, rating_score: subject.rating, rating_total: 1, tags: [] };
+      if (command === "anime_bangumi_rating") return { score: subject.rating, total: 1, count: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1] };
+      if (command === "anime_bangumi_calendar") return [];
+      if (command === "anime_search") return [{ name: subject.name, url: "https://handheld-source.test/show" }];
+      if (command === "anime_fetch_roads") return [{ name: "默认线路", episodes: [{ name: "第1集", url: "https://handheld-source.test/episode-1" }] }];
+      if (command === "anime_build_url") return String(args.url || "");
+      if (command === "anime_extract_video_url") return { url: "http://localhost:1420/mock-video.mp4", tab_url: "https://handheld-source.test/player" };
+      if (command === "anime_get_proxy_url") return "http://localhost:1420/mock-video.mp4";
+      if (command === "get_video_proxy_port") return 43123;
+      if (command === "anime_danmaku_search" || command === "anime_record_source_health" || command === "frontend_log") return null;
+      if (command.startsWith("plugin:event|") || command.startsWith("plugin:window|") || command.startsWith("plugin:updater|")) return null;
+      return null;
+    };
+    (window as any).__TAURI_INTERNALS__ = {
+      metadata: { currentWindow: { label: "main" } },
+      invoke,
+      transformCallback: () => 1,
+      unregisterCallback: () => {},
+      convertFileSrc: (filePath: string) => `asset://localhost/${filePath}`,
+    };
+  });
+
+  await page.goto("/?skip_wizard&platform=android#anime");
+  await expect(page.getByTestId("handheld-anime-hub")).toBeVisible();
+  await page.getByRole("button", { name: "查看节目" }).click();
+  await expect(page.locator(".anime-detail-panel")).toBeVisible();
+  await page.getByRole("button", { name: /开始观看/ }).click();
+  await expect(page.locator(".source-sheet")).toBeVisible();
+  await page.locator(".source-sheet .result-item").first().click();
+  await page.getByRole("button", { name: "第1集" }).click();
+  await expect(page.locator("video.player-video")).toBeVisible({ timeout: 15_000 });
+  const extractionCalls = await page.evaluate(() =>
+    (window as any).__handheldAnimeCalls.filter((entry: { command: string }) => entry.command === "anime_extract_video_url").length,
+  );
+  expect(extractionCalls).toBeGreaterThan(0);
+});

@@ -1521,4 +1521,45 @@
   @media (prefers-reduced-motion: reduce) {
     .hh-xmb-page .hh-xmb-category, .hh-xmb-page .hh-xmb-stage { transition: none; animation: none; }
   }
+
+  /* AIR_X 808×454 终版横屏基线：频道保持一行，内容舞台获得优先空间。 */
+  @media (orientation: landscape) and (max-width: 900px) {
+    .hh-xmb-page .hh-xmb-topbar {
+      min-height: 56px;
+      padding-block: max(5px, env(safe-area-inset-top)) 5px;
+      gap: 7px;
+    }
+    .hh-xmb-page .hh-xmb-categories { padding-block: 0; }
+    .hh-xmb-page .hh-xmb-category-track { justify-content: center; gap: 3px; }
+    .hh-xmb-page .hh-xmb-category {
+      grid-template-columns: 25px minmax(0, auto);
+      grid-template-rows: auto auto;
+      width: auto;
+      min-width: 57px;
+      min-height: 44px;
+      padding: 4px 5px;
+      column-gap: 5px;
+      row-gap: 2px;
+    }
+    .hh-xmb-category-icon { width: 25px; height: 25px; border-radius: 6px; }
+    .hh-xmb-page .hh-xmb-category-icon :global(svg) { width: 15px; height: 15px; }
+    .hh-xmb-page .hh-xmb-category .hh-system-label { font-size: .6rem; }
+    .hh-xmb-page .hh-xmb-category .hh-system-count { padding: 1px 4px; font-size: .48rem; }
+    .hh-xmb-page .hh-status { gap: 5px; }
+    .hh-xmb-page .hh-status .hh-import-btn { min-height: 34px; padding-inline: 7px; font-size: .58rem; }
+    .hh-xmb-page .hh-status > .hh-import-btn:not(.hh-home-shortcut) { width: 34px; }
+    .hh-game-platforms { padding-block: 3px; }
+    .hh-game-platforms__track button { min-height: 26px; }
+    .hh-xmb-page .hh-xmb-main { padding-top: 5px; }
+    .hh-xmb-selection {
+      grid-template-columns: 126px minmax(0, 1fr);
+      min-height: 174px;
+      max-height: min(202px, 48dvh);
+      gap: 14px;
+      padding-block: 9px;
+    }
+    .hh-xmb-art-frame { width: 112px; height: 162px; }
+    .hh-xmb-page :global(.hh-rail__track) { padding-block: 5px 2px; }
+    .hh-xmb-page :global(.hh-rail__card) { flex-basis: 82px; }
+  }
 </style>
