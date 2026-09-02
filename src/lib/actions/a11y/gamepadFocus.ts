@@ -58,6 +58,10 @@ export interface GamepadScopeHandlers {
   right?: () => void;
   pageLeft?: () => void;
   pageRight?: () => void;
+  /** LT / L2：切换上一级频道或自定义分类。 */
+  categoryLeft?: () => void;
+  /** RT / R2：切换下一级频道或自定义分类。 */
+  categoryRight?: () => void;
   activate?: () => void;
   launch?: () => void;
   favorite?: () => void;
@@ -125,6 +129,8 @@ const BUTTON = {
   Y: 3,
   LB: 4,
   RB: 5,
+  LT: 6,
+  RT: 7,
   VIEW: 8,
   START: 9,
   DPAD_UP: 12,
@@ -134,7 +140,8 @@ const BUTTON = {
 } as const;
 
 const DIRECTIONS: readonly GamepadDirection[] = ["up", "down", "left", "right"];
-const EDGE_BUTTONS = [BUTTON.A, BUTTON.B, BUTTON.X, BUTTON.Y, BUTTON.LB, BUTTON.RB, BUTTON.VIEW, BUTTON.START] as const;
+const EDGE_BUTTONS = [BUTTON.A, BUTTON.B, BUTTON.X, BUTTON.Y, BUTTON.LB, BUTTON.RB, BUTTON.LT, BUTTON.RT, BUTTON.VIEW, BUTTON.START] as const;
+const ANALOG_BUTTONS = new Set<number>([BUTTON.LT, BUTTON.RT]);
 const MODIFIER_KEYS = new Set(["Alt", "AltGraph", "Control", "Meta", "Shift", "CapsLock", "NumLock", "ScrollLock"]);
 
 function makeDirectionState(): Record<GamepadDirection, DirectionState> {
@@ -148,6 +155,13 @@ function makeDirectionState(): Record<GamepadDirection, DirectionState> {
 
 function safePressed(buttons: ArrayLike<GamepadButtonLike>, index: number): boolean {
   return Boolean(buttons[index]?.pressed || (buttons[index]?.value ?? 0) >= 0.5);
+}
+
+/** AIR X 的 Android 映射会让扳机静止时仍报告 pressed=true，必须使用相对基线。 */
+function analogPressed(value: number, baseline: number, held: boolean): boolean {
+  const press = Math.min(0.95, Math.max(0.65, baseline + 0.16));
+  const release = Math.min(0.85, Math.max(0.45, baseline + 0.08));
+  return held ? value >= release : value >= press;
 }
 
 function defaultEnvironment(): GamepadRuntimeEnvironment | null {
@@ -206,6 +220,8 @@ export class GamepadFocusRuntime {
   private awaitingNeutralAfterKeyboard = false;
   private awaitingNeutralAfterScopeChange = false;
   private axisStates = new Map<number, { h: -1 | 0 | 1; v: -1 | 0 | 1 }>();
+  private triggerBaselines = new Map<string, number>();
+  private triggerStates = new Map<string, boolean>();
   private order = 0;
   private sequence = 0;
 
@@ -618,7 +634,21 @@ export class GamepadFocusRuntime {
       // 面键按该手柄的布局（Xbox/任天堂）+ 按键绑定（重映射）取物理索引后合并
       const layout = this.faceLayoutFor(pad);
       for (const index of EDGE_BUTTONS) {
-        if (safePressed(pad.buttons, this.physicalFor(index, layout))) buttons.set(index, true);
+        const physical = this.physicalFor(index, layout);
+        if (ANALOG_BUTTONS.has(physical)) {
+          const value = Number(pad.buttons[physical]?.value ?? 0);
+          const key = `${pad.id ?? ""}|${pad.index ?? 0}|${physical}`;
+          const previousBaseline = this.triggerBaselines.get(key);
+          // 低于历史基线代表释放区间，逐渐吸收硬件的实际静止值。
+          const baseline = previousBaseline === undefined ? value : Math.min(previousBaseline, value);
+          this.triggerBaselines.set(key, baseline);
+          const held = this.triggerStates.get(key) ?? false;
+          const pressed = analogPressed(value, baseline, held);
+          this.triggerStates.set(key, pressed);
+          if (pressed) buttons.set(index, true);
+        } else if (safePressed(pad.buttons, physical)) {
+          buttons.set(index, true);
+        }
       }
     }
 
@@ -690,6 +720,8 @@ export class GamepadFocusRuntime {
 
     edge(BUTTON.LB, scope.handlers.pageLeft);
     edge(BUTTON.RB, scope.handlers.pageRight);
+    edge(BUTTON.LT, scope.handlers.categoryLeft);
+    edge(BUTTON.RT, scope.handlers.categoryRight);
     edge(BUTTON.A, scope.handlers.launch);
     edge(BUTTON.Y, scope.handlers.activate);
     edge(BUTTON.X, scope.handlers.favorite);
@@ -721,6 +753,7 @@ export class GamepadFocusRuntime {
     }
     this.buttonState.clear();
     this.axisStates.clear();
+    this.triggerStates.clear();
   }
 }
 

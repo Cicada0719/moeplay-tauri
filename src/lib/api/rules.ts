@@ -88,7 +88,7 @@ export function loadAllRules(): Promise<LoadedRule[]> {
 
 // ── 规则列表缓存 ─────────────────────────────────────────────────────────
 //
-// Kimi K3 复审第 1 项：`rules_load_all` 每次都会重扫规则目录并逐条 `compile_check`
+// 回归契约：`rules_load_all` 每次都会重扫规则目录并逐条 `compile_check`
 // （每条最多 10s），不能在任何一次点击中都重新调用。这里做模块级缓存：加载命令只在
 // 首次访问或显式刷新时触发，换源面板/源列表读取缓存即可。
 
@@ -105,7 +105,7 @@ export function getLoadedRules(): Promise<LoadedRule[]> {
         return rules;
       })
       .catch((err) => {
-        // 加载失败不缓存 rejected Promise（Kimi K3 复审第 8 项）：把缓存重置为 null，
+        // 加载失败不缓存 rejected Promise：把缓存重置为 null，
         // 下一次调用重新发起加载，避免失败后快速换源面板永远失败无法自愈（只能靠
         // 显式 refresh 恢复）。并发等待方仍收到本次错误，rethrow 保持原语义。
         rulesLoadPromise = null;
@@ -156,7 +156,7 @@ export function cancelScope(scope: string): Promise<void> {
 }
 
 export function importRule(path: string): Promise<LoadedRule> {
-  // 导入成功即失效规则列表缓存并后台重载（Kimi K3 复审第 7 项）：换源面板
+  // 导入成功即失效规则列表缓存并后台重载：换源面板
   // `getLoadedRules()` 下次访问时拿到最新列表，无需等用户手动刷新。
   return invokeCmd<LoadedRule>("rules_import", { path }).then((rule) => {
     void refreshLoadedRules().catch(() => {});

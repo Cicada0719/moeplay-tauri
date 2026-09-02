@@ -7,6 +7,7 @@ export type HandheldMode = "auto" | "on" | "off";
 const HANDHELD_STORAGE_KEY = "moeplay-handheld-mode-v1";
 const HANDHELD_HINTS_KEY = "moeplay-handheld-hints-v1";
 const HANDHELD_KEYBOARD_KEY = "moeplay-handheld-keyboard-v1";
+const HANDHELD_IMMERSIVE_KEY = "moeplay-handheld-immersive-v1";
 const HANDHELD_PREFS_EVENT = "moeplay-handheld-prefs-changed";
 
 /** 掌机模式联动偏好：手柄提示条常显（默认开） */
@@ -25,6 +26,18 @@ export function writeHandheldHintsPreference(on: boolean): void {
 export function readHandheldKeyboardPreference(): boolean {
   if (typeof localStorage === "undefined") return true;
   return localStorage.getItem(HANDHELD_KEYBOARD_KEY) !== "off";
+}
+
+/** 掌机显示偏好：默认隐藏 Android 系统栏，最大化可用游戏画面。 */
+export function readHandheldImmersivePreference(): boolean {
+  if (typeof localStorage === "undefined") return true;
+  return localStorage.getItem(HANDHELD_IMMERSIVE_KEY) !== "off";
+}
+
+export function writeHandheldImmersivePreference(on: boolean): void {
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(HANDHELD_IMMERSIVE_KEY, on ? "on" : "off");
+  notifyHandheldPrefsChanged();
 }
 
 export function writeHandheldKeyboardPreference(on: boolean): void {

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-handheld-scan-roms"
+description = "Enables the handheld_scan_roms command without any pre-configured scope."
+commands.allow = ["handheld_scan_roms"]
+
+[[permission]]
+identifier = "deny-handheld-scan-roms"
+description = "Denies the handheld_scan_roms command without any pre-configured scope."
+commands.deny = ["handheld_scan_roms"]

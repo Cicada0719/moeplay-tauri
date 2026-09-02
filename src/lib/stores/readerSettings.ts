@@ -26,6 +26,11 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   forceNarrowDual: false,
 };
 
+export interface ReaderSettingsLoadOptions {
+  /** Android media readers start in dual-page mode unless a saved override exists. */
+  android?: boolean;
+}
+
 export const GLOBAL_SETTINGS_KEY = 'reader:settings:global';
 
 export function mangaSettingsKey(contentId: string): string {
@@ -72,8 +77,8 @@ function readParsed(key: string): Partial<ReaderSettings> | null {
  * 读取设置：合并「默认 ← 全局 ← 单漫画覆盖」。
  * `contentId` 缺省时只读全局层。
  */
-export function loadSettings(contentId?: string): ReaderSettings {
-  const result: ReaderSettings = { ...DEFAULT_SETTINGS };
+export function loadSettings(contentId?: string, options: ReaderSettingsLoadOptions = {}): ReaderSettings {
+  const result: ReaderSettings = { ...DEFAULT_SETTINGS, ...(options.android ? { pageMode: 'dual' as const } : {}) };
   Object.assign(result, readParsed(GLOBAL_SETTINGS_KEY));
   if (contentId) Object.assign(result, readParsed(mangaSettingsKey(contentId)));
   return result;
@@ -102,8 +107,8 @@ export function saveSettings(contentId: string | null, patch: Partial<ReaderSett
  * 创建绑定到指定漫画的 Svelte `writable<ReaderSettings>`，其 `set/update`
  * 自动调用 `saveSettings(contentId, …)` 实现持久化（U13）。
  */
-export function createReaderSettingsStore(contentId: string): Writable<ReaderSettings> {
-  let current = loadSettings(contentId);
+export function createReaderSettingsStore(contentId: string, options: ReaderSettingsLoadOptions = {}): Writable<ReaderSettings> {
+  let current = loadSettings(contentId, options);
   const { subscribe, set: rawSet } = writable<ReaderSettings>(current);
   return {
     subscribe,

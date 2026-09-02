@@ -115,7 +115,7 @@ async fn load_rules_partial_failure() {
     );
 }
 
-// ── 测试 4b：compile_check 纯语法检查，顶层死循环只编译不执行（DeepSeek 复审第 4 项）─
+// ── 测试 4b：compile_check 纯语法检查，顶层死循环只编译不执行 ─
 
 #[tokio::test]
 async fn compile_check_does_not_execute_toplevel_deadloop() {
@@ -153,7 +153,7 @@ async fn compile_check_does_not_execute_toplevel_deadloop() {
     assert!(matches!(err, RuleExecError::Cancelled));
 }
 
-// ── 测试：Kimi K3 复审第 6 项——compile_manifest 并发上限（最多 COMPILE_CONCURRENCY 路）──
+// ── 测试：compile_manifest 并发上限（最多 COMPILE_CONCURRENCY 路）──
 
 #[tokio::test]
 async fn compile_concurrency_bounded_by_semaphore() {
@@ -235,7 +235,7 @@ async fn exec_script_error_propagates() {
 
 // ── 测试 8：取消 + 中断生效（worker 不被永久占用）────────────────────────
 //
-// DeepSeek 复审第 7 项：原测试用 300ms 盲等模拟「任务已开始」，存在轮询竞态导致偶发
+// 回归测试：原测试用 300ms 盲等模拟「任务已开始」，存在轮询竞态导致偶发
 // 失败。这里改为：parse 脚本先 `await fetch(/start)`，测试等到 /start 请求到达服务端
 // 作为「worker 已开始执行」的确定性信号，再 cancel_scope，消除竞态。
 
@@ -270,7 +270,7 @@ async fn exec_cancelled() {
     let parse_fut = engine.parse(&id, "https://example.com/1", token.clone());
     tokio::pin!(parse_fut);
     // 驱动 parse（让任务真正派发到 worker）并等待 worker 执行到 `fetch /start`——
-    // 以 mock 请求到达作为「任务已开始执行」的确定性信号（DeepSeek 复审第 7 项，
+    // 以 mock 请求到达作为「任务已开始执行」的确定性信号（回归契约，
     // 替代原先 300ms 盲等/轮询竞态）。若 parse 提前结束说明 worker 未成功执行。
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
@@ -389,7 +389,7 @@ fn sandbox_global_surface_is_minimal() {
     assert_eq!(obj.get("hasJson"), Some(&serde_json::json!(true)));
 }
 
-// ── 测试：注入前已存在全局 fetch → 强制覆盖为 reqwest 桥接（DeepSeek 审核第 2 项）─
+// ── 测试：注入前已存在全局 fetch → 强制覆盖为 reqwest 桥接 ─
 
 #[tokio::test]
 async fn inject_fetch_overwrites_preexisting() {
@@ -490,7 +490,7 @@ async fn bad_return_shape() {
     assert!(matches!(err, RuleExecError::BadReturn { .. }));
 }
 
-// ── 测试：Kimi K3 复审第 5 项——RuleExecError 可 JSON 序列化且字段完整 ────────
+// ── 测试：RuleExecError 可 JSON 序列化且字段完整 ────────
 //
 // serde 内部标签枚举（`#[serde(tag = "kind")]`）要求所有变体都序列化为 map：String
 // newtype 变体（RuleNotFound/Network/BadReturn 包 String）在 `serde_json::to_string`
@@ -808,7 +808,7 @@ async fn invalid_rules_are_registered_in_map() {
     let id = loaded[0].id.clone();
 
     // Invalid 规则已注册进内部 map（供列表/置灰/删除），但不参与导出：
-    // `all_manifests` 只含 Ready 规则（Kimi K3 复审第 2 项——占位 manifest 不得导出，
+    // `all_manifests` 只含 Ready 规则（占位 manifest 不得导出，
     // 否则导出后再导入条数不一致）。
     let manifests = engine.all_manifests();
     assert!(
@@ -827,7 +827,7 @@ async fn invalid_rules_are_registered_in_map() {
     assert!(!manifests.iter().any(|m| m.name == "坏语法源"));
 }
 
-// ── 测试：Kimi K3 复审第 1 项——自定义规则 id 稳定性 + 删除链路不「复活」────────
+// ── 测试：自定义规则 id 稳定性 + 删除链路不「复活」────────
 
 #[tokio::test]
 async fn custom_rule_id_stable_across_reloads() {
@@ -930,7 +930,7 @@ async fn unparseable_custom_file_uses_file_stem_id() {
     );
 }
 
-// ── 测试：Kimi K3 复审第 2 项——load_rules 按稳定 id upsert，注册表不累积 ──
+// ── 测试：load_rules 按稳定 id upsert，注册表不累积 ──
 
 #[tokio::test]
 async fn load_rules_upsert_does_not_accumulate() {
@@ -999,7 +999,7 @@ async fn manifest_input_reload_upserts_same_id() {
     );
 }
 
-// ── 测试：Kimi K3 复审第 2 项——导出排除 Invalid 占位 manifest，往返条数一致 ──
+// ── 测试：导出排除 Invalid 占位 manifest，往返条数一致 ──
 
 #[tokio::test]
 async fn export_excludes_invalid_placeholder_manifests() {
@@ -1067,7 +1067,7 @@ async fn export_excludes_invalid_placeholder_manifests() {
     );
 }
 
-// ── 测试：Kimi K3 复审第 3 项——per-call token 不取消同规则其他并发调用 ──
+// ── 测试：per-call token 不取消同规则其他并发调用 ──
 
 #[tokio::test]
 async fn per_call_token_does_not_cancel_siblings() {
@@ -1110,7 +1110,7 @@ async fn per_call_token_does_not_cancel_siblings() {
     assert!(!t2.is_cancelled());
 }
 
-// ── 测试：Kimi K3 复审第 7 项——独立 invocation scope 隔离（换源竞态）─────────────
+// ── 测试：独立 invocation scope 隔离（换源竞态）─────────────
 //
 // 竞态：switchSource A（旧）与 B（最新）并发。B 的 parse 先注册 scope token；A 的 parse
 // 迟到，若 A 用与 B 相同的共享 scope（play:c1）注册，会通过 new_scope_token「自动取消旧
@@ -1155,7 +1155,7 @@ fn invocation_token_binds_scope_and_empty_falls_back_per_call() {
     );
 }
 
-// ── 测试：Kimi K3 复审第 7 项——旧调用迟到 parse 在真实执行路径上不取消最新调用 ──
+// ── 测试：旧调用迟到 parse 在真实执行路径上不取消最新调用 ──
 
 #[tokio::test]
 async fn late_old_invocation_parse_does_not_cancel_latest() {
@@ -1192,7 +1192,7 @@ async fn late_old_invocation_parse_does_not_cancel_latest() {
     assert!(result.urls.is_empty());
 }
 
-// ── 测试：Kimi K3 复审项——硬中断迟到安装不污染下一任务 ────────────────────
+// ── 测试：硬中断迟到安装不污染下一任务 ────────────────────
 //
 // 复现竞态：取消任务 A 时 `hard_interrupt_js` 用 spawn_blocking 分离安装恒 true 处理器；
 // 若该安装延迟到 worker 已为下一任务 `rearm_interrupt` 之后才执行，会把 always-true 中断
@@ -1289,7 +1289,7 @@ async fn hard_interrupt_late_install_does_not_poison_next_task() {
     assert!(matches!(err_b, RuleExecError::Cancelled));
 }
 
-// ── 测试：Kimi K3 复审第 4 项——rules_import 同名 stem 禁止静默覆盖 ─────────
+// ── 测试：rules_import 同名 stem 禁止静默覆盖 ─────────
 
 #[tokio::test]
 async fn import_same_stem_appends_suffix_not_overwrite() {
@@ -1368,7 +1368,7 @@ async fn import_unique_id_considers_registry_and_disk() {
     assert_eq!(unique_custom_rule_id(&engine, "rule", dir.path()), "rule-3");
 }
 
-// ── 测试：Kimi K3 复审第 5 项——rules_remove_custom 删除链路覆盖 .yaml/.yml ──
+// ── 测试：rules_remove_custom 删除链路覆盖 .yaml/.yml ──
 //
 // discover 从自定义目录加载 `.json/.yaml/.yml`（id = 文件名 stem）。若删除只清 `{id}.json`，
 // 同名手动 YAML 规则会在下次重载时以同一 stem id「复活」。断言同 stem 的三种扩展名文件

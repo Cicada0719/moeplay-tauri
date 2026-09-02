@@ -102,7 +102,7 @@ describe("switchSource", () => {
 
     const result = await switchSource("rule-b", CTX);
 
-    // 首次调用无前序 invocation：无需 cancelScope（Kimi K3 复审第 7 项 per-invocation 设计）
+    // 首次调用无前序 invocation：无需 cancelScope（per-invocation 设计）
     expect(mocks.cancelScope).not.toHaveBeenCalled();
     expect(result.status).toBe("ok");
     expect(result.resumeSec).toBe(750);
@@ -151,7 +151,7 @@ describe("switchSource", () => {
     expect(failed.resumeMs).toBe(0);
   });
 
-  it("switch_result_to_playback_resume_unit_is_ms: 续播秒数换算为毫秒（Kimi K3 复审第 6 项 high）", () => {
+  it("switch_result_to_playback_resume_unit_is_ms: 续播秒数换算为毫秒", () => {
     // spec §3.5 resumeSec 是秒；播放器容器 playDirectVideoSource(…, seekMs) 与
     // _pendingSeekMs 是毫秒。switchResultToPlayback 必须在边界处 ×1000，否则 750s
     // 的续播点会落成 0.75s（currentTime = _pendingSeekMs / 1000）。
@@ -224,7 +224,7 @@ describe("switchSource", () => {
     ]);
 
     // cancelScope 仅用于作废旧 invocation：3 次并发调用中第 2/3 次各作废前一次
-    // （Kimi K3 复审第 7 项；首次调用无前序，不触发）。
+    // （首次调用无前序，不触发）。
     expect(mocks.cancelScope).toHaveBeenCalledTimes(2);
     // 前两次为取消/竞态静默丢弃（status failed + discarded 标记 + 文案，不污染 lastError）
     expect(results[0].status).toBe("failed");
@@ -253,7 +253,7 @@ describe("switchSource", () => {
 
   it("switch_race_cancels_only_prev_invocation: 新调用只作废旧 invocation，不影响自身", async () => {
     // 按 invocation scope 隔离的取消模型（模拟 Rust 侧 scope 表）：cancelScope(inv) 只取消
-    // 该 invocation 已注册的 token，其他 invocation 完全不受影响（Kimi K3 复审第 7 项）。
+    // 该 invocation 已注册的 token，其他 invocation 完全不受影响。
     const invTokens = new Map<string, Set<() => void>>();
     const track = (inv: string, reject: () => void) => {
       if (!invTokens.has(inv)) invTokens.set(inv, new Set());
@@ -299,7 +299,7 @@ describe("switchSource", () => {
     expect(results[1].parseResult?.urls[0]).toBe("https://cdn.example.com/v.m3u8");
   });
 
-  it("switch_cancel_prev_failure_isolated: 作废旧调用取消失败静默降级，新切换照常成功（Kimi K3 复审第 8 项）", async () => {
+  it("switch_cancel_prev_failure_isolated: 作废旧调用取消失败静默降级，新切换照常成功", async () => {
     // 模拟 IPC 层取消旧 invocation 时抛错（如通道异常）。修复前会进入外层 catch 把
     // 本次全新切换判为 failed，且 lastError 展示旧调用的原始取消错误文案。
     mocks.cancelScope.mockRejectedValue(new Error("IPC 通道异常"));
@@ -332,7 +332,7 @@ describe("switchSource", () => {
     expect(state.currentScope).toMatch(/^play:c1:\d+$/);
   });
 
-  it("switch_race_late_parse_does_not_cancel_latest: 旧调用迟到的 parse 不得取消最新调用（Kimi K3 复审第 7 项）", async () => {
+  it("switch_race_late_parse_does_not_cancel_latest: 旧调用迟到的 parse 不得取消最新调用", async () => {
     // 复现竞态窗口：旧调用 A 的 search 已在取消信号到达前越过取消点（worker 已完成 JS），
     // 因此 A 继续走到 parse——A 的 parse 使用**独立** invocation scope，绝不能取消最新
     // 调用 B 已注册的 parse token。旧实现（parse 共享 "play:{contentId}" scope）下，
@@ -451,7 +451,7 @@ describe("switchSource", () => {
     expect(state.lastResult?.status).toBe("failed");
   });
 
-  it("switch_rule_not_found_shows_friendly_message: RuleNotFound 转为可读文案（Kimi K3 非阻塞项）", async () => {
+  it("switch_rule_not_found_shows_friendly_message: RuleNotFound 转为可读文案", async () => {
     mocks.cancelScope.mockResolvedValue(undefined);
     // Rust 侧 RuleExecError 的 kind tag 为 "ruleNotFound"（serde camelCase）；
     // describeSwitchError 必须归一化后匹配，不能因大小写漏判而落到原始 message。

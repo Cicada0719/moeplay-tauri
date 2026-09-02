@@ -15,7 +15,8 @@
   import { readGamepadLayoutPreference, resolveConnectedPadLayouts, writeDeviceLayoutPreference, writeGamepadLayoutPreference, type GamepadLayoutPreference } from "../platform/gamepadLayout";
   import { GAMEPAD_ACTIONS, gamepadGlyphFor, readGamepadRemap, resetGamepadRemap, writeGamepadRemap, type GamepadAction } from "../platform/gamepadRemap";
   import { gamepadTuning, type AxisSensitivity, type RepeatSpeed } from "../platform/gamepadTuning.svelte";
-  import { readHandheldHintsPreference, readHandheldKeyboardPreference, readHandheldPreference, writeHandheldHintsPreference, writeHandheldKeyboardPreference, writeHandheldPreference, type HandheldMode } from "../platform/handheld";
+  import { readHandheldHintsPreference, readHandheldImmersivePreference, readHandheldKeyboardPreference, readHandheldPreference, writeHandheldHintsPreference, writeHandheldImmersivePreference, writeHandheldKeyboardPreference, writeHandheldPreference, type HandheldMode } from "../platform/handheld";
+  import { setHandheldSystemBars } from "../features/handheld/api";
   import Icon from "./Icon.svelte";
   import UpdateDialog from "./UpdateDialog.svelte";
   import { PageHeader, PageShell, StateBoundary, type ViewState } from "./ui-v2";
@@ -30,6 +31,7 @@
   import { orientationStore, platformStore, type OrientationMode } from "../platform";
   import { kineticStageStore } from "../features/kinetic";
   import { applyStartupWindowMode } from "../utils/startup-window-mode";
+  import HandheldSettingsControlCenter from "./settings/HandheldSettingsControlCenter.svelte";
 
   let showUpdateDialog = $state(false);
   const appVersion = APP_VERSION;
@@ -56,6 +58,7 @@
   let handheldMode = $state<HandheldMode>(readHandheldPreference());
   let handheldHints = $state(readHandheldHintsPreference());
   let handheldKeyboard = $state(readHandheldKeyboardPreference());
+  let handheldImmersive = $state(readHandheldImmersivePreference());
   const gamepadLayoutOptions = $derived([
     { value: "auto", label: i18n.t("settings.gamepad_layout.auto") },
     { value: "xbox", label: "Xbox" },
@@ -124,6 +127,8 @@
     activate: "档案 / 激活",
     pageLeft: "左翻页",
     pageRight: "右翻页",
+    categoryLeft: "上一级频道",
+    categoryRight: "下一级频道",
     filter: "筛选",
     start: "开始 / 大屏",
   };
@@ -240,6 +245,18 @@
   function setHandheldKeyboard(on: boolean) {
     handheldKeyboard = on;
     writeHandheldKeyboardPreference(on);
+  }
+
+  async function setHandheldImmersive(on: boolean) {
+    handheldImmersive = on;
+    writeHandheldImmersivePreference(on);
+    if (platformStore.isAndroid) {
+      try {
+        await setHandheldSystemBars(on);
+      } catch {
+        uiStore.notify("系统栏设置将在下次进入掌机页时生效", "info");
+      }
+    }
   }
 
   const languageOptions = [
@@ -464,6 +481,9 @@
       description={i18n.t("settings.subtitle")}
     />
 
+    {#if platformStore.isAndroid}
+      <HandheldSettingsControlCenter />
+    {:else}
     <div class="stg-workspace">
       <aside class="stg-index" aria-label={i18n.t("settings.title")}>
         <span>SETTINGS / INDEX</span>
@@ -653,6 +673,15 @@
             </div>
             <SegmentControl options={handheldModeOptions} value={handheldMode} onChange={setHandheldMode} size="sm" />
           </div>
+          {#if platformStore.isAndroid}
+            <div class="s-row s-row-sub">
+              <div class="s-info">
+                <span class="s-label">掌机沉浸式显示</span>
+                <span class="s-desc">隐藏 Android 状态栏与底部导航栏，为封面网格和模拟器启动腾出完整横屏空间</span>
+              </div>
+              <Switch checked={handheldImmersive} onchange={(e) => void setHandheldImmersive((e.target as HTMLInputElement).checked)} />
+            </div>
+          {/if}
           {#if handheldMode !== "off"}
             <div class="s-row s-row-sub">
               <div class="s-info">
@@ -669,6 +698,44 @@
               <Switch checked={handheldKeyboard} onchange={(e) => setHandheldKeyboard((e.target as HTMLInputElement).checked)} />
             </div>
           {/if}
+          {/if}
+
+          {#if platformStore.isAndroid}
+            <div class="s-divider"></div>
+            <div class="s-info" style="padding-bottom: 12px;">
+              <span class="s-label">掌机适配</span>
+              <span class="s-desc">为横屏掌机提供更大的操作目标，并管理系统栏显示方式</span>
+            </div>
+            <div class="s-row">
+              <div class="s-info">
+                <span class="s-label">掌机模式</span>
+                <span class="s-desc">自动识别横屏掌机，也可以强制开启或关闭</span>
+              </div>
+              <SegmentControl options={handheldModeOptions} value={handheldMode} onChange={setHandheldMode} size="sm" />
+            </div>
+            <div class="s-row s-row-sub">
+              <div class="s-info">
+                <span class="s-label">沉浸式显示</span>
+                <span class="s-desc">进入掌机页时隐藏 Android 状态栏与底部导航栏；从边缘滑动仍可临时呼出</span>
+              </div>
+              <Switch checked={handheldImmersive} onchange={(e) => void setHandheldImmersive((e.target as HTMLInputElement).checked)} />
+            </div>
+            {#if handheldMode !== "off"}
+              <div class="s-row s-row-sub">
+                <div class="s-info">
+                  <span class="s-label">手柄提示条常显</span>
+                  <span class="s-desc">连接手柄后直接显示掌机操作提示</span>
+                </div>
+                <Switch checked={handheldHints} onchange={(e) => setHandheldHints((e.target as HTMLInputElement).checked)} />
+              </div>
+              <div class="s-row s-row-sub">
+                <div class="s-info">
+                  <span class="s-label">自动屏幕键盘</span>
+                  <span class="s-desc">输入框聚焦时自动弹出系统键盘</span>
+                </div>
+                <Switch checked={handheldKeyboard} onchange={(e) => setHandheldKeyboard((e.target as HTMLInputElement).checked)} />
+              </div>
+            {/if}
           {/if}
 
         </Card>
@@ -808,6 +875,7 @@
         </StateBoundary>
       </main>
     </div>
+    {/if}
   </div>
 </PageShell>
 

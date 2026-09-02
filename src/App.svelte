@@ -39,10 +39,17 @@
   import { nativeFullscreenHealthy, reassertNativeFullscreen } from "./lib/utils/window-fullscreen";
   import { applyStartupWindowMode } from "./lib/utils/startup-window-mode";
   import { isViewSupportedOnPlatform, orientationStore, platformStore } from "./lib/platform";
-  import { installHandheldWatcher, onHandheldPrefsChanged, readHandheldHintsPreference } from "./lib/platform/handheld";
+  import {
+    installHandheldWatcher,
+    onHandheldPrefsChanged,
+    readHandheldHintsPreference,
+    readHandheldImmersivePreference,
+  } from "./lib/platform/handheld";
+  import { setHandheldSystemBars } from "./lib/features/handheld/api";
   import { resolveConnectedPadLayouts } from "./lib/platform/gamepadLayout";
   import { paletteStore } from "./lib/features/palette/store.svelte";
   import HandheldKeyboardOverlay from "./lib/components/HandheldKeyboardOverlay.svelte";
+  import HandheldRouteShell, { type HandheldRouteId } from "./lib/features/handheld/HandheldRouteShell.svelte";
 
   const TOOLS_DRAWER_ID = "tools-drawer";
   const SHORTCUT_HELP_OVERLAY_ID = "shortcut-help";
@@ -54,6 +61,22 @@
   const isMiniWindow = $state(typeof window !== "undefined" && window.location.hash.startsWith("#mini"));
   const isAndroid = $derived(platformStore.isAndroid);
   const isBigPicture = $derived(uiStore.bigPictureActive && !isAndroid);
+  const isMediaView = $derived(isAndroid && (uiStore.currentView === "anime" || uiStore.currentView === "comic" || uiStore.currentView === "novel"));
+  // Android 所有非媒体路由都使用统一掌机外壳；媒体播放/阅读页由各自的沉浸式媒体壳接管。
+  // 旧 handheld hash 仍走统一首页并在路由 effect 中归一化。
+  const isHandheldView = $derived(isAndroid && !isMediaView);
+  const isHandheldUtilityView = $derived(isHandheldView && uiStore.currentView !== "home" && uiStore.currentView !== "handheld");
+  const handheldRouteActive = $derived<HandheldRouteId>(
+    uiStore.currentView === "game-library" || uiStore.currentView === "game-detail" || uiStore.currentView === "handheld-import"
+      ? "game-library"
+      : uiStore.currentView === "settings" ? "settings"
+      : uiStore.currentView === "anime" ? "anime"
+      : uiStore.currentView === "comic" ? "comic"
+      : uiStore.currentView === "novel" ? "novel"
+      : uiStore.currentView === "home" || uiStore.currentView === "handheld" ? "home"
+      : "more",
+  );
+  const handheldRouteTitle = $derived(getViewLabel(uiStore.currentView));
   const toolsDrawerOpen = $derived(uiStore.drawerOpen && uiStore.drawerView === "tools");
   const managementViews = new Set(["scraper","tasks","sources","downloads","backup","stats","diagnostics","settings","steam-import","emulator"]);
   const wallpaperSurface = $derived(managementViews.has(uiStore.currentView) ? "management" : uiStore.currentView === "game-detail" ? "immersive" : "browse");
@@ -64,6 +87,15 @@
   let gamepadPads = $state<{ label: string; layout: "xbox" | "nintendo" | "playstation" }[]>([]);
   let handheldActive = $state(false);
   let handheldHintsAlways = $state(readHandheldHintsPreference());
+  let handheldImmersive = $state(readHandheldImmersivePreference());
+  let androidStartupNormalized = $state(false);
+
+  function applyAndroidSystemBars() {
+    if (platformStore.isAndroid) {
+      void setHandheldSystemBars(readHandheldImmersivePreference()).catch(() => {});
+    }
+  }
+
   const workspaceFocusAvailable = $derived(workspaceFocusStore.supports(uiStore.currentView));
   const workspaceFocusEnabled = $derived(workspaceFocusStore.isEnabled(uiStore.currentView));
   const taskBadgeStore = createJobsStore();
@@ -344,6 +376,21 @@
   const shortcutParameter = $derived(buildShortcutParameter(shortcutActions));
 
   $effect(() => {
+    // Android has one canonical landing surface. The router may restore the
+    // last desktop/media hash before the native capability probe completes;
+    // normalize that single initial route after Android is known, without
+    // hijacking later user navigation.
+    if (isAndroid && !androidStartupNormalized) {
+      androidStartupNormalized = true;
+      if (uiStore.currentView !== "home") {
+        navigateTo("home", { replace: true });
+        return;
+      }
+    }
+    if (isAndroid && uiStore.currentView === "handheld") {
+      navigateTo("home", { replace: true });
+      return;
+    }
     if (isAndroid && !isViewSupportedOnPlatform(uiStore.currentView, platformStore.capabilities)) {
       navigateTo("home", { replace: true });
       return;
@@ -351,6 +398,21 @@
     if (uiStore.currentView === "game-detail" && !gameStore.selectedGame && gameStore.games[0]) {
       gameStore.selectGame(gameStore.games[0].id);
     }
+  });
+
+  // Android 全局采用同一套沉浸式系统栏策略。媒体页、设置页和掌机首页
+  // 不应因为路由切换重新露出机身底部导航栏；偏好变化通过本地事件立即同步。
+  $effect(() => {
+    // Read storage at call time as well as keeping the reactive mirror. This
+    // covers WebViews that create localStorage after the initial module pass.
+    const preference = handheldImmersive;
+    const immersive = isAndroid && (preference || readHandheldImmersivePreference());
+    if (!isAndroid) return;
+    // Reading the effective mode makes this policy rerun after media/video
+    // orientation scopes change, including the configuration transition that
+    // can restore Android system bars.
+    void orientationStore.effectiveMode;
+    void setHandheldSystemBars(immersive).catch(() => {});
   });
 
   $effect(() => {
@@ -406,7 +468,25 @@
   onMount(() => {
     if (isMiniWindow) return;
     const platformReady = platformStore.initialize();
+    const systemBarRetryTimers: number[] = [];
     void platformReady.then(() => orientationStore.initialize());
+    void platformReady.then(async () => {
+      // platformStore.initialize() may be the first point at which a native
+      // WebView is known to be Android. Apply the persisted preference here
+      // as well as in the reactive effect, whose first run can happen before
+      // the Tauri plugin bridge is ready. Keep this independent from the
+      // orientation listener setup so a listener failure cannot expose bars.
+      if (platformStore.isAndroid) {
+        await setHandheldSystemBars(readHandheldImmersivePreference()).catch(() => {});
+        // A few Android WebViews apply the inset change after the orientation
+        // callback has returned. Retry at the end of the startup transition;
+        // each retry rereads the preference so disabling immersive remains
+        // immediate and is not overwritten by a stale value.
+        for (const delay of [250, 1000]) {
+          systemBarRetryTimers.push(window.setTimeout(applyAndroidSystemBars, delay));
+        }
+      }
+    });
     const releaseMotion = motionStore.initialize();
     if (!booted) {
       booted = true;
@@ -444,9 +524,16 @@
     }, 5000);
     let releaseGamepadMode = () => {};
     const releaseHandheldWatcher = installHandheldWatcher((on) => { handheldActive = on; });
-    const offHandheldPrefs = onHandheldPrefsChanged(() => { handheldHintsAlways = readHandheldHintsPreference(); });
-    if (!isAndroid && !isMiniWindow) {
-      // 手柄运行时按需加载：加载完成后注册连接监听、输入模式订阅与全局 scope
+    const offHandheldPrefs = onHandheldPrefsChanged(() => {
+      handheldHintsAlways = readHandheldHintsPreference();
+      handheldImmersive = readHandheldImmersivePreference();
+    });
+    document.addEventListener("visibilitychange", applyAndroidSystemBars);
+    window.addEventListener("moeplay-orientation-applied", applyAndroidSystemBars);
+    if (!isMiniWindow) {
+      // 手柄运行时按需加载：加载完成后注册连接监听、输入模式订阅与全局 scope。
+      // Android 掌机同样需要全局 dpad 空间导航（漫画/番剧/小说等页面）；
+      // 内容区页面（掌机模式、阅读器）以 zone/overlay scope 优先于全局兜底。
       void loadGamepadApi().then((m) => {
         refreshGamepadConnection();
         window.addEventListener("gamepadconnected", refreshGamepadConnection);
@@ -456,6 +543,10 @@
           document.documentElement.dataset.inputMode = mode;
           if (mode === "gamepad") refreshGamepadConnection();
         }) ?? (() => {});
+        if (isAndroid) {
+          // 让 zone:"content" 的页面 scope（掌机模式等）优先于全局兜底 scope
+          m.getDefaultGamepadFocusRuntime()?.setActiveZone("content");
+        }
         _detachGamepad = m.attachGamepad({
         up: () => { if (!isBigPicture) moveNormalModeFocus("up"); },
         down: () => { if (!isBigPicture) moveNormalModeFocus("down"); },
@@ -469,9 +560,13 @@
         pageRight: () => { if (!isBigPicture) cyclePrimaryContent(1); },
         back: () => { void escapeControllerSurface().then((escaped) => { if (!escaped) void layeredBack(); }); },
         start: () => {
-          if (!isBigPicture) uiStore.setBigPicture(true);
+          // Android 掌机无大屏模式：START 聚焦当前模块搜索框
+          if (isBigPicture) return;
+          if (isAndroid) focusCurrentSearch();
+          else uiStore.setBigPicture(true);
         },
-      }, { id: "app-global-gamepad", priority: 10 });
+        // Android 上作为页面级 zone/overlay scope 的兜底（低优先级）
+      }, { id: "app-global-gamepad", priority: isAndroid ? -10 : 10 });
       });
     }
     return () => {
@@ -488,6 +583,9 @@
       releaseGamepadMode();
       releaseHandheldWatcher();
       offHandheldPrefs();
+      document.removeEventListener("visibilitychange", applyAndroidSystemBars);
+      window.removeEventListener("moeplay-orientation-applied", applyAndroidSystemBars);
+      for (const timer of systemBarRetryTimers) window.clearTimeout(timer);
     };
   });
 
@@ -532,6 +630,107 @@
   });
 </script>
 
+{#snippet appRouteContent()}
+  {#key uiStore.currentView}
+    <div
+      class="view-wrapper"
+      data-route-root
+      data-route-view={uiStore.currentView}
+      data-module-style={uiStore.currentView === "home" || uiStore.currentView === "game-detail" ? "cinematic" : uiStore.currentView === "anime" || uiStore.currentView === "novel" ? "editorial" : uiStore.currentView === "comic" ? "kinetic" : "system"}
+      aria-label={getViewLabel(uiStore.currentView)}
+      tabindex="-1"
+      in:fade={{ duration: 240, easing: cubicOut }}
+      out:fade={{ duration: 160 }}
+    >
+      {#if uiStore.currentView === "scraper"}
+        {#await import("./lib/components/ScraperPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "tasks"}
+        {#await import("./lib/features/jobs/TaskCenterPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "sources"}
+        {#await import("./lib/features/sources/SourceCenterPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "downloads"}
+        {#await import("./lib/components/DownloadPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "backup"}
+        {#await import("./lib/components/BackupPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "stats"}
+        {#await import("./lib/components/StatsPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "discovery"}
+        {#await import("./lib/components/DiscoveryPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "records"}
+        {#await import("./lib/components/PlayRecordsDashboard.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "anime"}
+        {#await import("./lib/components/AnimePage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "continue"}
+        {#await import("./lib/components/ContinueHub.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "comic"}
+        {#await import("./lib/components/ComicPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "novel"}
+        {#await import("./lib/components/NovelPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "diagnostics"}
+        {#await import("./lib/components/DiagnosticsPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "settings"}
+        {#await import("./lib/components/SettingsPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "game-detail"}
+        {#await import("./lib/components/GameDetailPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "steam-import"}
+        {#await import("./lib/components/SteamImportDialog.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "emulator"}
+        {#await import("./lib/components/EmulatorImportDialog.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "home" && isAndroid}
+        {#await import("./lib/features/handheld/HandheldPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "handheld"}
+        {#await import("./lib/features/handheld/HandheldPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else if uiStore.currentView === "game-library"}
+        <SwitchHome {taskActiveCount} {taskFailedCount} />
+      {:else if uiStore.currentView === "handheld-import"}
+        {#await import("./lib/features/handheld/HandheldImportPage.svelte") then { default: Comp }}
+          <Comp />
+        {/await}
+      {:else}
+        <SwitchHome {taskActiveCount} {taskFailedCount} />
+      {/if}
+    </div>
+  {/key}
+{/snippet}
+
 <svelte:window use:shortcut={shortcutParameter} />
 
 {#if isMiniWindow}
@@ -543,6 +742,8 @@
   class="app-container"
   class:fullscreen={isBigPicture}
   class:mobile-shell={isAndroid}
+  class:handheld-full={isAndroid && isHandheldView}
+  class:media-full={isMediaView}
   class:topnav-hidden={uiStore.topNavHidden}
   data-testid="app-shell"
   data-ui-ready={booted ? "true" : "false"}
@@ -555,13 +756,15 @@
     <WallpaperStage surface={wallpaperSurface} />
 
     {#if isAndroid}
-      <MobileAppShell
-        currentView={uiStore.currentView}
-        onNavigate={pickDock}
-        onSearch={focusCurrentSearch}
-        {taskActiveCount}
-        {taskFailedCount}
-      />
+      {#if !isHandheldView && !isMediaView}
+        <MobileAppShell
+          currentView={uiStore.currentView}
+          onNavigate={pickDock}
+          onSearch={focusCurrentSearch}
+          {taskActiveCount}
+          {taskFailedCount}
+        />
+      {/if}
     {:else}
       <div class="global-top-navigation">
         <GlobalTopNavigation
@@ -583,90 +786,19 @@
     {/if}
 
     <div id="main-content" class="main-content" data-testid="main-content">
-      {#key uiStore.currentView}
-        <div
-          class="view-wrapper"
-          data-route-root
-          data-route-view={uiStore.currentView}
-          data-module-style={uiStore.currentView === "home" || uiStore.currentView === "game-detail" ? "cinematic" : uiStore.currentView === "anime" || uiStore.currentView === "novel" ? "editorial" : uiStore.currentView === "comic" ? "kinetic" : "system"}
-          aria-label={getViewLabel(uiStore.currentView)}
-          tabindex="-1"
-          in:fade={{ duration: 240, easing: cubicOut }}
-          out:fade={{ duration: 160 }}
+      {#if isHandheldUtilityView}
+        <HandheldRouteShell
+          active={handheldRouteActive}
+          title={handheldRouteTitle}
+          subtitle={handheldRouteActive === "more" ? "横屏掌机 · 功能与维护入口已统一收纳" : "横屏掌机 · 内容与操作保持同一层级"}
+          onBack={() => navigateTo("home")}
+          onNavigate={pickDock}
         >
-          {#if uiStore.currentView === "scraper"}
-            {#await import("./lib/components/ScraperPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "tasks"}
-            {#await import("./lib/features/jobs/TaskCenterPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "sources"}
-            {#await import("./lib/features/sources/SourceCenterPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "downloads"}
-            {#await import("./lib/components/DownloadPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "backup"}
-            {#await import("./lib/components/BackupPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "stats"}
-            {#await import("./lib/components/StatsPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "discovery"}
-            {#await import("./lib/components/DiscoveryPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "records"}
-            {#await import("./lib/components/PlayRecordsDashboard.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "anime"}
-            {#await import("./lib/components/AnimePage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "continue"}
-            {#await import("./lib/components/ContinueHub.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "comic"}
-            {#await import("./lib/components/ComicPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "novel"}
-            {#await import("./lib/components/NovelPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "diagnostics"}
-            {#await import("./lib/components/DiagnosticsPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "settings"}
-            {#await import("./lib/components/SettingsPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "game-detail"}
-            {#await import("./lib/components/GameDetailPage.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "steam-import"}
-            {#await import("./lib/components/SteamImportDialog.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else if uiStore.currentView === "emulator"}
-            {#await import("./lib/components/EmulatorImportDialog.svelte") then { default: Comp }}
-              <Comp />
-            {/await}
-          {:else}
-            <SwitchHome {taskActiveCount} {taskFailedCount} />
-          {/if}
-        </div>
-      {/key}
+          {#snippet children()}{@render appRouteContent()}{/snippet}
+        </HandheldRouteShell>
+      {:else}
+        {@render appRouteContent()}
+      {/if}
     </div>
 
     {#if !isAndroid}
@@ -775,6 +907,8 @@
   .app-container.topnav-hidden .global-top-navigation { opacity: 0; pointer-events: none; }
   .app-container.mobile-shell { display: block; height: 100dvh; min-height: 100svh; }
   .app-container.mobile-shell .main-content { position: absolute; inset: calc(56px + env(safe-area-inset-top)) 0 calc(64px + env(safe-area-inset-bottom)); overflow: hidden; }
+  .app-container.mobile-shell.handheld-full .main-content { inset: 0; }
+  .app-container.mobile-shell.media-full .main-content { inset: 0; }
   .app-container.mobile-shell .view-wrapper { touch-action: pan-x pan-y; }
   .global-top-navigation { grid-column: 1; grid-row: 1; position: relative; z-index: 95; min-width: 0; overflow: hidden; min-height: 0; transition: opacity 200ms ease; }
   .main-content { grid-column: 1; grid-row: 2; min-width: 0; min-height: 0; max-width: 100%; position: relative; z-index: 1; overflow: hidden; isolation: isolate; }

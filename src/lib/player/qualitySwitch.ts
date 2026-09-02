@@ -1,7 +1,7 @@
 import type { PlayerQuality } from "../stores/player";
 
 /**
- * switchQuality 的媒体重载判定（spec §3.3 + Kimi K3 复审 medium）。
+ * switchQuality 的媒体重载判定（spec §3.3 回归契约）。
  *
  * 本地超清化画质档位（off / balanced / quality）是 enhancement 管线状态，与视频源无关：
  * - 纯增强模式切换（targetSrc 与当前已加载源 loadedSrc 相同）只更新 enhancement 管线状态，

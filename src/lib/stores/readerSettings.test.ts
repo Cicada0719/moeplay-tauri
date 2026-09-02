@@ -61,6 +61,14 @@ describe("loadSettings / saveSettings", () => {
     saveSettings(null, { pageMode: "weird" as never });
     expect(loadSettings().pageMode).toBe("single");
   });
+
+  it("Android 默认双页，但全局和单漫画覆盖仍按优先级生效", () => {
+    expect(loadSettings("android-a", { android: true }).pageMode).toBe("dual");
+    saveSettings(null, { pageMode: "single" });
+    expect(loadSettings("android-a", { android: true }).pageMode).toBe("single");
+    saveSettings("android-a", { pageMode: "dual" });
+    expect(loadSettings("android-a", { android: true }).pageMode).toBe("dual");
+  });
 });
 
 describe("createReaderSettingsStore", () => {

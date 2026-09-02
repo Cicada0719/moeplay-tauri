@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import { focusTrap } from "../../actions/a11y/focusTrap";
   import {
     getReaderKeyboardCommand,
@@ -21,6 +21,8 @@
   import Icon from "../Icon.svelte";
   import { Button } from "../ui";
   import { AsyncState } from "../ui-v2";
+  import { attachGamepad } from "../switch/useGamepad.svelte";
+  import { platformStore } from "../../platform/runtime.svelte";
 
   let {
     onclose,
@@ -42,9 +44,9 @@
 
   const COMIC_READER_PREFS_KEY = "moeplay-comic-reader-prefs-v1";
 
-  function readReaderPrefs(): { direction: ComicReadingDirection; spread: ComicReaderSpread } | null {
+  function readReaderPrefs(key = COMIC_READER_PREFS_KEY): { direction: ComicReadingDirection; spread: ComicReaderSpread } | null {
     try {
-      const raw = localStorage.getItem(COMIC_READER_PREFS_KEY);
+      const raw = localStorage.getItem(key);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
       const directionish = parsed?.direction;
@@ -56,10 +58,12 @@
     }
   }
 
+  const readerContentKey = comicStore.currentComic?.id ? `${COMIC_READER_PREFS_KEY}:${comicStore.currentComic.id}` : COMIC_READER_PREFS_KEY;
+  const savedReaderPrefs = readReaderPrefs(readerContentKey) ?? readReaderPrefs();
   let readerRoot = $state<HTMLElement>();
   let scrollRoot = $state<HTMLElement>();
-  let direction = $state<ComicReadingDirection>(readReaderPrefs()?.direction ?? "vertical");
-  let spread = $state<ComicReaderSpread>(readReaderPrefs()?.spread ?? "single");
+  let direction = $state<ComicReadingDirection>(savedReaderPrefs?.direction ?? (platformStore.isAndroid ? "right-to-left" : "vertical"));
+  let spread = $state<ComicReaderSpread>(savedReaderPrefs?.spread ?? (platformStore.isAndroid ? "double" : "single"));
   let zoom = $state(100);
   let toolbarVisible = $state(true);
   let currentPage = $state(0);
@@ -69,6 +73,9 @@
   let swipePointerId = $state<number | null>(null);
   let swipeStartX = $state(0);
   let swipeStartY = $state(0);
+  let chapterPanelOpen = $state(false);
+  let toolbarTimer: ReturnType<typeof setTimeout> | null = null;
+  let pad: ReturnType<typeof attachGamepad> | null = null;
 
   const pageCount = $derived(images.length);
   const directionLabel = $derived(readerDirectionLabel(direction));
@@ -125,10 +132,31 @@
 
   function writeReaderPrefs() {
     try {
-      localStorage.setItem(COMIC_READER_PREFS_KEY, JSON.stringify({ direction, spread }));
+      localStorage.setItem(readerContentKey, JSON.stringify({ direction, spread }));
     } catch {
       // 隐私模式等场景忽略持久化失败
     }
+  }
+
+  function clearToolbarTimer() {
+    if (toolbarTimer !== null) {
+      clearTimeout(toolbarTimer);
+      toolbarTimer = null;
+    }
+  }
+
+  function revealToolbar() {
+    toolbarVisible = true;
+    clearToolbarTimer();
+    toolbarTimer = setTimeout(() => {
+      toolbarTimer = null;
+      if (!chapterPanelOpen && !loading) toolbarVisible = false;
+    }, 3000);
+  }
+
+  function toggleChapterPanel() {
+    chapterPanelOpen = !chapterPanelOpen;
+    if (chapterPanelOpen) revealToolbar();
   }
 
   function toggleSpread() {
@@ -237,6 +265,29 @@
     if (command === "reset_zoom") { zoom = 100; return; }
     if (command === "toggle_toolbar") toolbarVisible = !toolbarVisible;
   }
+
+  onMount(() => {
+    revealToolbar();
+    pad = attachGamepad({
+      left: () => { revealToolbar(); movePage(-1); },
+      right: () => { revealToolbar(); movePage(1); },
+      pageLeft: () => { revealToolbar(); movePage(-1); },
+      pageRight: () => { revealToolbar(); movePage(1); },
+      up: () => revealToolbar(),
+      down: () => revealToolbar(),
+      launch: () => { revealToolbar(); movePage(1); },
+      activate: () => revealToolbar(),
+      favorite: toggleChapterPanel,
+      back: () => { if (chapterPanelOpen) chapterPanelOpen = false; else void closeReader(); },
+      start: toggleChapterPanel,
+    }, { id: "comic-reader", zone: "content", priority: 100 });
+  });
+
+  onDestroy(() => {
+    pad?.();
+    pad = null;
+    clearToolbarTimer();
+  });
 </script>
 
 <div
@@ -257,6 +308,8 @@
     onEscape: () => void closeReader(),
   }}
   onkeydown={handleKeydown}
+  onpointermove={revealToolbar}
+  onpointerdown={revealToolbar}
 >
   {#if toolbarVisible}
     <header class="reader-toolbar" aria-label="漫画阅读控制栏">
@@ -289,6 +342,27 @@
     <button class="toolbar-reveal" type="button" onclick={() => (toolbarVisible = true)} aria-label="显示阅读工具栏" data-gamepad-activate="显示控件" title="显示工具栏 (T)">
       <Icon name="chevronDown" size={16} />
     </button>
+  {/if}
+
+  {#if chapterPanelOpen}
+    <aside class="chapter-panel" aria-label="章节列表">
+      <div class="chapter-panel-head">
+        <strong>章节</strong>
+        <button type="button" aria-label="关闭章节列表" onclick={() => (chapterPanelOpen = false)}><Icon name="x" size={16} /></button>
+      </div>
+      <div class="chapter-panel-list">
+        {#each chapters as chapter (chapter.order)}
+          <button
+            type="button"
+            class:current={chapter.order === order}
+            disabled={loading}
+            onclick={async () => { chapterPanelOpen = false; await comicStore.openChapter(chapter.order, chapter.title); }}
+          >
+            <span>{chapter.order}</span><strong>{chapter.title || `第 ${chapter.order} 话`}</strong>
+          </button>
+        {/each}
+      </div>
+    </aside>
   {/if}
 
   <p id="comic-reader-help" class="sr-only">
@@ -427,6 +501,30 @@
     background: rgba(10, 12, 18, 0.94);
     backdrop-filter: blur(0.8rem);
   }
+
+  .chapter-panel {
+    position: absolute;
+    z-index: 8;
+    top: max(4.25rem, calc(3.75rem + env(safe-area-inset-top)));
+    right: max(0.75rem, env(safe-area-inset-right));
+    bottom: max(0.75rem, env(safe-area-inset-bottom));
+    display: flex;
+    width: min(26rem, 42vw);
+    min-width: 15rem;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.16);
+    background: rgba(10, 12, 18, 0.97);
+    box-shadow: 0 1.5rem 4rem rgba(0,0,0,.42);
+  }
+  .chapter-panel-head { display: flex; align-items: center; justify-content: space-between; min-height: 3.25rem; padding: 0 .9rem; border-bottom: 1px solid rgba(255,255,255,.1); color: #fff; }
+  .chapter-panel-head button { display: grid; width: 2.75rem; height: 2.75rem; place-items: center; border: 0; background: transparent; color: #fff; cursor: pointer; }
+  .chapter-panel-list { min-height: 0; overflow: auto; padding: .45rem; }
+  .chapter-panel-list button { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr); align-items: center; gap: .45rem; width: 100%; min-height: 2.75rem; padding: .35rem .55rem; border: 1px solid transparent; background: transparent; color: var(--v2-color-text-secondary, #b8bdc9); text-align: left; cursor: pointer; }
+  .chapter-panel-list button:hover, .chapter-panel-list button:focus-visible { border-color: var(--v2-color-accent, #e8557f); color: #fff; outline: none; }
+  .chapter-panel-list button.current { border-color: color-mix(in srgb, var(--v2-color-accent, #e8557f) 60%, transparent); background: color-mix(in srgb, var(--v2-color-accent, #e8557f) 14%, transparent); color: #fff; }
+  .chapter-panel-list button > span { color: var(--v2-color-accent, #e8557f); font: 700 .7rem/1 var(--font-mono, monospace); }
+  .chapter-panel-list button > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .75rem; font-weight: 600; }
 
   .chapter-info { min-width: 0; text-align: center; }
   .chapter-title,
@@ -708,4 +806,8 @@
   :global(:root[data-handheld="true"]) .zoom-output { min-width: 3rem; }
   :global(:root[data-handheld="true"]) .page-edge { width: min(30%, 11rem); }
   :global(:root[data-handheld="true"]) .single-page .img-wrap { min-height: calc(100dvh - 6.75rem); }
+  :global(html.is-mobile-platform) .reader-overlay { background: #080b10; }
+  :global(html.is-mobile-platform) .reader-toolbar { min-height: 4rem; }
+  :global(html.is-mobile-platform) .reader-tools :global(button) { min-width: 44px; min-height: 44px; }
+  :global(html.is-mobile-platform) .chapter-panel { width: min(25rem, 48vw); }
 </style>

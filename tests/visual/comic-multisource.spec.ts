@@ -84,7 +84,9 @@ test("v0.12 comic auto mode renders isolated parallel source sections", async ({
   }, { mockSettings: settings, baoziSearchHtml: baoziHtml, dm5SearchHtml: dm5Html, detail: baoziDetailHtml, chapter: baoziChapterHtml });
 
   await page.setViewportSize({ width: 1920, height: 1080 });
-  await page.goto("/?skip_wizard&platform=android");
+  // This is a desktop source/parser contract; Android media shell coverage is
+  // kept in android-mobile.matrix.spec.ts.
+  await page.goto("/?skip_wizard&platform=windows");
   await page.getByRole("button", { name: "漫画" }).click();
 
   const comicPage = page.getByTestId("comic-page");

@@ -1,0 +1,12 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = "Allows MoePlay to detect installed emulators, launch ROMs via intents, and request all-files access on Android handhelds."
+permissions = [
+  "allow-list-emulators",
+  "allow-launch-game",
+  "allow-has-all-files-access",
+  "allow-request-all-files-access",
+  "allow-discover-rom-roots",
+  "allow-set-system-bars",
+]

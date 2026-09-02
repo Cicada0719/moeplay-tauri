@@ -12,6 +12,7 @@
   import { backfillLegacyGameActivityOnce, shouldFallbackActivityV2 } from "./activity/backfill";
   import { debugLog } from "../utils/debug";
   import { splitActivityDurations } from "./activity/metrics";
+  import { openUnifiedMediaHistory } from "../features/media-history/open";
   import ActivityEditorDialog from "./activity/ActivityEditorDialog.svelte";
   import ActivityV2Section from "./activity/ActivityV2Section.svelte";
   import LegacyInsightsSection from "./activity/LegacyInsightsSection.svelte";
@@ -141,15 +142,14 @@
 
   async function openActivity(item: DashboardMediaActivity) {
     if (item.kind === "game") { openGame((item.payload as PlaySessionEntry).game_id); return; }
-    if (item.kind === "anime") { uiStore.currentView = "anime"; await animeStore.resumeHistory(item.payload as AnimeHistory); return; }
-    if (item.kind === "novel") { uiStore.currentView = "novel"; await novelStore.resume(item.payload as NovelHistoryEntry); return; }
-    uiStore.currentView = "comic"; await comicStore.resumeHistory(item.payload as ReadRecord);
+    await openUnifiedMediaHistory({ kind: item.kind, payload: item.payload as AnimeHistory | ReadRecord | NovelHistoryEntry });
   }
 
   async function openContinueCandidate(candidate: ContinueCandidate) {
     if (candidate.resourceKind === "game") { openGame(candidate.resourceId); return; }
-    if (candidate.resourceKind === "anime") { uiStore.currentView = "anime"; const history = animeStore.history.find((item) => item.key === candidate.resourceId); if (history) await animeStore.resumeHistory(history); return; }
-    uiStore.currentView = "comic"; const history = comicStore.readHistory.find((item) => item.id === candidate.resourceId); if (history) await comicStore.resumeHistory(history);
+    if (candidate.resourceKind === "anime") { const history = animeStore.history.find((item) => item.key === candidate.resourceId); if (history) await openUnifiedMediaHistory({ kind: "anime", payload: history }); else uiStore.currentView = "anime"; return; }
+    const history = comicStore.readHistory.find((item) => item.id === candidate.resourceId);
+    if (history) await openUnifiedMediaHistory({ kind: "comic", payload: history }); else uiStore.currentView = "comic";
   }
 
   function editActivityEvent(event: ActivityEventView) { editActivity = event; activityExportStatus = null; }

@@ -19,6 +19,9 @@
   import Icon from "./Icon.svelte";
   import { Button, Input, Tag } from "./ui";
   import { AsyncSection, ContentGrid, Drawer, FilterBar, MediaRow, PageHeader, PageShell } from "./ui-v2";
+  import { platformStore } from "../platform/runtime.svelte";
+  import { navigateTo } from "../stores/router.svelte";
+  import HandheldMediaShell from "../features/handheld/HandheldMediaShell.svelte";
 
   type PageMode = "normal" | "provider-v2" | "picacg";
   type PicacgTab = "explore" | "ranking" | "random" | "favorites" | "history";
@@ -202,6 +205,14 @@
     document.querySelector<HTMLElement>(`[data-chapter-focus-key="${CSS.escape(chapterReturnFocusKey)}"]`)?.focus({ preventScroll: true });
   }
 
+  function closeComicSurface() {
+    if (comicStore.view === "reader") void closeReader();
+    else if (comicStore.view === "detail") closeDetail();
+    else if (pageMode === "picacg") leavePicacg();
+    else if (pageMode === "provider-v2") pageMode = "normal";
+    else navigateTo("home");
+  }
+
   function handleSourceTabKeydown(event: KeyboardEvent, index: number) {
     const next = nextComicRovingIndex(event.key, index, sourceOptions.length);
     if (next == null) return;
@@ -234,6 +245,7 @@
   });
 </script>
 
+{#snippet comicPageContent()}
 <section class="comic-page" data-testid="comic-page">
   {#if pageMode === "provider-v2"}
     <ProviderV2Page onlegacy={() => pageMode = "normal"} />
@@ -557,6 +569,22 @@
     </div>
   {/if}
 </section>
+{/snippet}
+
+{#if platformStore.isAndroid}
+  <HandheldMediaShell
+    kind="comic"
+    title={comicStore.view === "reader" ? "正在阅读" : comicStore.view === "detail" ? "漫画详情" : "漫画媒体中心"}
+    subtitle="横屏阅读 · 手柄优先 · LB/RB 翻页 · X 章节"
+    chromeMode={comicStore.view === "reader" ? "auto" : "persistent"}
+    artwork={{ role: "comic" }}
+    onback={closeComicSurface}
+  >
+    {#snippet children()}{@render comicPageContent()}{/snippet}
+  </HandheldMediaShell>
+{:else}
+  {@render comicPageContent()}
+{/if}
 
 <style>
   .comic-page {

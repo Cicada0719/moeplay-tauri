@@ -1,6 +1,6 @@
 //! QuickJS 沙箱：规则脚本在隔离环境中执行。
 //!
-//! 沙箱基于 `Context::builder` **显式选择内在函数**（DeepSeek 审核第 1 项）：
+//! 沙箱基于 `Context::builder` **显式选择内在函数**：
 //! 相比 `Context::full`（注册 Date/Eval/RegExp/JSON/Proxy/MapSet/TypedArrays/
 //! Promise/BigInt/WeakRef/Performance 全部全局面），这里只注入规则运行所需的
 //! 最小子集，并**刻意排除** `BigInt`/`WeakRef`/`Performance` 等非必要全局面，
@@ -15,7 +15,7 @@
 //! 故无文件系统/进程能力。`Eval` 内在函数是 `ctx.eval` 编译脚本所必需，因此
 //! 显式包含（`eval`/`new Function` 仅在同一沙箱内有效，无法越界）。
 //!
-//! 注入的全局仅有：`fetch`（统一 reqwest 出口 + 审计日志；DeepSeek 审核第 2 项
+//! 注入的全局仅有：`fetch`（统一 reqwest 出口 + 审计日志；
 //! 要求在注入前检查是否已存在同名全局，存在则强制覆盖以确保所有网络请求
 //! 仍走桥接）与 `console.log/warn/error`（转发到 `tracing`）。单条规则脚本异常
 //! 只影响其自身调用，不影响应用主体。
@@ -212,7 +212,7 @@ impl Sandbox {
         Ok(sandbox)
     }
 
-    /// 测试专用（DeepSeek 审核第 2 项回归）：在注入桥接 `fetch` 之前，先往全局塞一个
+    /// 测试专用（fetch 覆盖回归）：在注入桥接 `fetch` 之前，先往全局塞一个
     /// 伪造的 `fetch`，验证 `inject_globals` 会检测到同名全局并**强制覆盖**，确保
     /// 规则内网络请求仍走 reqwest 统一出口。
     #[cfg(test)]
@@ -240,7 +240,7 @@ impl Sandbox {
 
     /// 构建运行时与上下文：配置中断/内存/栈上限，并**显式选择**规则所需的最小内在函数集合。
     ///
-    /// 安全基线（PRD §4.2 / DeepSeek 审核第 1 项）：
+    /// 安全基线（PRD §4.2）：
     /// - 不使用 `Context::full`（其注册 BigInt/WeakRef/Performance 等非必要全局面）；
     /// - `Eval` 是 `ctx.eval` 编译脚本所必需，显式包含（`sandbox_global_surface_is_minimal` 测试
     ///   锁定最终全局面）；
@@ -312,7 +312,7 @@ impl Sandbox {
             ctx.globals().set("console", console)?;
 
             // ── fetch 桥接（统一 reqwest 出口 + 审计日志）────────────────
-            // 安全约束（PRD §4.2 / DeepSeek 审核第 2 项）：注入前先检查全局是否已存在
+            // 安全约束（PRD §4.2）：注入前先检查全局是否已存在
             // `fetch`。QuickJS 最小上下文不提供原生 fetch，但防御任何未来的同名人全局
             // （例如某内在函数/模块注入）——存在则**强制覆盖**为桥接实现并告警，确保
             // 规则内所有网络请求仍经 reqwest 统一出口 + 审计日志，绝不允许绕过。
@@ -328,7 +328,7 @@ impl Sandbox {
     }
 
     /// 纯语法检查：把脚本包装为函数表达式 `(function(){ <script> })` 后编译，
-    /// **仅编译、不执行**（DeepSeek 复审第 4 项）。顶层语句（如 `while(true){}`
+    /// **仅编译、不执行**。顶层语句（如 `while(true){}`
     /// 死循环）落在函数体内，编译期通过但不会运行，避免加载阶段卡死 worker 线程。
     ///
     /// 说明：spec §3.1 Step 3 建议的 `Function::new` 在 rquickjs 0.8 中只接受

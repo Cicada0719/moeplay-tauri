@@ -329,6 +329,26 @@ html.is-mobile-platform .anime-playback-shell {
   .anime-playback-shell--fullscreen .anime-playback-shell__toolbar { top: 58px; }
 }
 
+/* Android 掌机：视频优先，信息栏与浮层保持在可读且可触的范围内。 */
+html.is-mobile-platform .anime-playback-shell__info { display: none; }
+html.is-mobile-platform .anime-playback-shell__stage { padding: clamp(4px, 1vw, 12px); }
+html.is-mobile-platform .anime-playback-shell__panel {
+  width: min(390px, 48vw);
+  flex-basis: min(390px, 48vw);
+  background: rgba(8, 11, 15, .96);
+}
+html.is-mobile-platform .anime-playback-shell__context { min-height: 58px; padding-inline: max(12px, env(safe-area-inset-left)) max(12px, env(safe-area-inset-right)); }
+html.is-mobile-platform .anime-playback-shell__identity h2 { font-size: 14px; }
+html.is-mobile-platform .anime-playback-shell__media-frame { box-shadow: 0 12px 36px rgba(0,0,0,.48); }
+html.is-mobile-platform .anime-playback-shell__footer { padding-bottom: max(4px, env(safe-area-inset-bottom)); }
+html.is-mobile-platform .anime-playback-shell__header-actions :is(button, a),
+html.is-mobile-platform .anime-playback-shell__toolbar :is(button, a) { min-width: 44px; min-height: 44px; }
+
+@media (max-width: 850px) and (orientation: landscape) {
+  html.is-mobile-platform .anime-playback-shell__panel { position: absolute; top: 0; right: 0; bottom: 0; left: auto; }
+  html.is-mobile-platform .anime-playback-shell__footer { display: none; }
+}
+
 @media (max-width: 759px) and (orientation: portrait) {
   .anime-playback-shell__context { align-items: flex-start; }
   .anime-playback-shell__header-actions { align-self: center; }

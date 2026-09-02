@@ -10,6 +10,8 @@ export type GamepadAction =
   | "activate"
   | "pageLeft"
   | "pageRight"
+  | "categoryLeft"
+  | "categoryRight"
   | "filter"
   | "start";
 
@@ -25,6 +27,8 @@ export const ACTION_BY_SEMANTIC: Record<number, GamepadAction> = {
   3: "activate",
   4: "pageLeft",
   5: "pageRight",
+  6: "categoryLeft",
+  7: "categoryRight",
   8: "filter",
   9: "start",
 };
@@ -36,23 +40,25 @@ export const GAMEPAD_ACTIONS: GamepadAction[] = [
   "activate",
   "pageLeft",
   "pageRight",
+  "categoryLeft",
+  "categoryRight",
   "filter",
   "start",
 ];
 
 /** Xbox 语义的物理按钮标签（索引 → 名称） */
 const XBOX_LABELS: Record<number, string> = {
-  0: "A", 1: "B", 2: "X", 3: "Y", 4: "LB", 5: "RB", 8: "VIEW", 9: "START",
+  0: "A", 1: "B", 2: "X", 3: "Y", 4: "LB", 5: "RB", 6: "LT", 7: "RT", 8: "VIEW", 9: "START",
 };
 
 /** 任天堂布局下的物理按钮标签（A 在右、B 在下、X 在上、Y 在左） */
 const NINTENDO_LABELS: Record<number, string> = {
-  0: "B", 1: "A", 2: "Y", 3: "X", 4: "LB", 5: "RB", 8: "VIEW", 9: "START",
+  0: "B", 1: "A", 2: "Y", 3: "X", 4: "LB", 5: "RB", 6: "ZL", 7: "ZR", 8: "VIEW", 9: "START",
 };
 
 /** PlayStation 布局下的物理按钮标签（下 ✕ / 右 ○ / 左 □ / 上 △） */
 const PLAYSTATION_LABELS: Record<number, string> = {
-  0: "✕", 1: "○", 2: "□", 3: "△", 4: "L1", 5: "R1", 8: "SHARE", 9: "OPTIONS",
+  0: "✕", 1: "○", 2: "□", 3: "△", 4: "L1", 5: "R1", 6: "L2", 7: "R2", 8: "SHARE", 9: "OPTIONS",
 };
 
 let remapRevision = 0;
@@ -126,6 +132,8 @@ const ACTION_SEMANTIC_BY_ACTION: Record<GamepadAction, number> = {
   activate: 3,
   pageLeft: 4,
   pageRight: 5,
+  categoryLeft: 6,
+  categoryRight: 7,
   filter: 8,
   start: 9,
 };

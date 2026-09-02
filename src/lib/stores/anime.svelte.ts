@@ -11,6 +11,7 @@ import { episodeCommentsStore, type BangumiEpisodeComment } from "../features/an
 import { danmakuStore, type DanmakuAnime, type DanmakuComment, type DanmakuEpisode } from "../features/anime-player/danmaku.svelte";
 import { imageSearchStore, type TraceMoeResult } from "../features/anime-player/imageSearch.svelte";
 import { collectionStore, type AnimeCollect } from "../features/anime-home/collection.svelte";
+import { friendlyRecommendationError } from "../features/anime-home/recommendationError";
 import { playerPrefs } from "../features/anime-player/playerPrefs.svelte";
 import { animeSearchHistoryStore } from "../features/anime-search/history.svelte";
 import { historyStore, type AnimeHistory } from "../features/anime-player/historyStore.svelte";
@@ -1110,7 +1111,9 @@ export const animeStore = {
     if (failures.length > 0) {
       const first = failures[0]?.reason;
       const detail = first instanceof Error ? first.message : String(first ?? "unknown error");
-      _recError = hasData ? `部分节目刷新失败，正在显示最近缓存：${detail}` : `番剧首页加载失败：${detail}`;
+      _recError = hasData
+        ? `部分节目刷新失败，正在显示最近缓存：${friendlyRecommendationError(detail, "请稍后重试")}`
+        : `番剧首页加载失败：${friendlyRecommendationError(detail, "请检查网络或规则源后重试")}`;
     }
     if (!hasData && failures.length === results.length) _recInitialized = false;
   },
@@ -1132,7 +1135,7 @@ export const animeStore = {
       _recTrendingOffset = offset + items.length;
       this._proxyImages(items.filter(i => i.image).map(i => i.image));
     } catch (error) {
-      throw new Error(`热门节目：${String(error)}`);
+      throw new Error(`热门节目：${friendlyRecommendationError(error, "请求失败")}`);
     } finally {
       _recTrendingLoading = false;
     }
@@ -1153,7 +1156,7 @@ export const animeStore = {
       _recSeasonalOffset = offset + items.length;
       this._proxyImages(items.filter(i => i.image).map(i => i.image));
     } catch (error) {
-      throw new Error(`本季新番：${String(error)}`);
+      throw new Error(`本季新番：${friendlyRecommendationError(error, "请求失败")}`);
     } finally {
       _recSeasonalLoading = false;
     }
@@ -1172,7 +1175,7 @@ export const animeStore = {
       _recTopRatedOffset = offset + items.length;
       this._proxyImages(items.filter(i => i.image).map(i => i.image));
     } catch (error) {
-      throw new Error(`高分节目：${String(error)}`);
+      throw new Error(`高分节目：${friendlyRecommendationError(error, "请求失败")}`);
     } finally {
       _recTopRatedLoading = false;
     }
@@ -1467,11 +1470,43 @@ export const animeStore = {
     _detailUrl = sourceUrl;
   },
 
+  /**
+   * 详情页已经知道来源时，先直接读取线路。
+   *
+   * 搜索结果进入详情不应该再要求用户重复搜索一次；如果来源暂时不可用，
+   * 调用方仍可回退到 SourceSheet 选择其它来源。只有当前详情仍对应这次请求
+   * 时才写入 roads，避免快速切换作品后旧请求污染新详情。
+   */
+  async loadRoadsForSource(ruleName: string, sourceUrl: string): Promise<Road[]> {
+    if (!ruleName || !sourceUrl) return [];
+    const requestName = _detailName;
+    const roads = await invokeCmd<Road[]>("anime_fetch_roads", {
+      ruleName,
+      pageUrl: sourceUrl,
+    });
+    if (_detailName === requestName && _detailRuleName === ruleName && _detailUrl === sourceUrl) {
+      _roads = Array.isArray(roads) ? roads : [];
+    }
+    return Array.isArray(roads) ? roads : [];
+  },
+
   async playEpisode(roadIdx: number, episodeIdx: number, seekMs?: number) {
     const road = _roads[roadIdx];
-    if (!road) return;
+    if (!road) {
+      _playerExtractStatus = 'error';
+      _playerFailureKind = 'roadEmpty';
+      _playerFailureMessage = '当前播放线路不可用，请重新选择来源';
+      _sourceSheetOpen = true;
+      return false;
+    }
     const ep = road.episodes[episodeIdx];
-    if (!ep) return;
+    if (!ep) {
+      _playerExtractStatus = 'error';
+      _playerFailureKind = 'roadEmpty';
+      _playerFailureMessage = '当前剧集不存在，请重新选择剧集';
+      _sourceSheetOpen = true;
+      return false;
+    }
 
     _playerRoadIdx = roadIdx;
     _playerEpisodeIdx = episodeIdx;

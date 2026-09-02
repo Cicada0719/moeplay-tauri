@@ -1010,15 +1010,26 @@ pub async fn anime_extract_video_url(
     let mut result = if use_legacy_parser {
         legacy_extract(&episode_url, referer.as_deref(), user_agent.as_deref()).await
     } else {
-        let mut res = run_sniff(app, episode_url.clone(), user_agent.clone()).await;
-        if let Err(ref e) = res {
-            let msg = e.to_lowercase();
-            if msg.contains("timeout") || msg.contains("video-url-timeout") {
-                tracing::info!("[提取] WebView 嗅探超时，回退到传统解析: {}", episode_url);
-                res = legacy_extract(&episode_url, referer.as_deref(), user_agent.as_deref()).await;
+        match run_sniff(app, episode_url.clone(), user_agent.clone()).await {
+            Ok(result) => Ok(result),
+            Err(sniff_error) => {
+                // Android WebView 可能因为隐藏窗口、注入脚本或系统 WebView 版本直接失败，
+                // 这类错误不会表现为 timeout。只在超时回退会让可用的直链/播放器 URL
+                // 永远没有第二次机会，因此所有嗅探失败都尝试传统解析。
+                tracing::warn!(
+                    "[提取] WebView 嗅探失败，回退到传统解析: url={}, error={}",
+                    episode_url,
+                    sniff_error
+                );
+                match legacy_extract(&episode_url, referer.as_deref(), user_agent.as_deref()).await
+                {
+                    Ok(result) => Ok(result),
+                    Err(legacy_error) => Err(format!(
+                        "WebView 嗅探失败: {sniff_error}; 传统解析失败: {legacy_error}"
+                    )),
+                }
             }
         }
-        res
     }?;
 
     // 解出内层真实流地址；Referer 优先用嗅探到的最终页面 URL（含重定向），

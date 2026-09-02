@@ -28,9 +28,11 @@ impl PlatformCapabilities {
                 platform: "android",
                 orientation_control: true,
                 steam_integration: false,
-                game_launch: false,
+                // 掌机 ROM 通过 android-intent:// 启动（handheld 插件 → Intent），
+                // 导入走 handheld_scan_roms / handheld_import_roms（SAF/全盘授权后）。
+                game_launch: true,
                 local_game_scan: false,
-                emulator_import: false,
+                emulator_import: true,
                 desktop_window_control: false,
                 tray: false,
                 autostart: false,

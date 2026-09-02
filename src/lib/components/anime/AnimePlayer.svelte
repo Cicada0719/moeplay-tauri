@@ -27,6 +27,7 @@
   import VideoEnhancementCanvas from "./VideoEnhancementCanvas.svelte";
   import type { VideoEnhancementMode, VideoEnhancementStatus } from "../../features/anime-player/localVideoEnhancement";
   import { orientationStore, platformStore } from "../../platform";
+  import { attachGamepad } from "../switch/useGamepad.svelte";
   import { idleTimer } from "../../actions/idleTimer";
   import {
     clearPlayerError,
@@ -53,6 +54,7 @@
   } from "../../services/sourceSwitch";
   import ErrorOverlay from "../player/ErrorOverlay.svelte";
   import SourceSuggestSheet from "../player/SourceSuggestSheet.svelte";
+  import { shouldPreferHls } from "./playerTransport";
 
   const status = $derived(animeStore.playerExtractStatus); // extracting | found | timeout | error
   const videoSrc = $derived(animeStore.playerVideoSrc);
@@ -111,6 +113,7 @@
   let mediaDuration = $state(0);
   let mediaVolume = $state(1);
   let overlayEl = $state<HTMLDivElement | null>(null);
+  let handheldPad: ReturnType<typeof attachGamepad> | null = null;
   let useWebFallback = $state(false); // 用户选择「用网页播放」时加载站点自带播放器
   let webFrameLoaded = $state(false);
   let webFrameTimedOut = $state(false);
@@ -128,7 +131,7 @@
   let activeHls: Hls | null = null;
   // 当前实际加载到媒体元素上的源地址：媒体初始化 effect 开始加载时记录；switchQuality
   // 据此判断 targetSrc 是否真正变化——纯增强模式切换（同源）只更新 enhancement 管线状态，
-  // 不重载媒体，避免同源 m3u8 全量重缓冲（Kimi K3 复审 medium）。
+  // 不重载媒体，避免同源 m3u8 全量重缓冲。
   let loadedMediaSrc = "";
   let pendingQualitySeek = $state(0);
   let pendingQualitySeekSrc = $state("");
@@ -295,6 +298,25 @@
     setRetryHandler(handleRetry);
     setSourceSwitchHandler(handleSwitchSourceService);
     setSourceProvider(buildSuggestSources);
+    if (platformStore.isAndroid) {
+      handheldPad = attachGamepad({
+        left: () => { if (videoEl) seekMedia(Math.max(0, videoEl.currentTime - 10)); },
+        right: () => { if (videoEl) seekMedia(Math.min(mediaDuration || videoEl.duration || 0, videoEl.currentTime + 10)); },
+        up: () => { if (videoEl) setMediaVolume(Math.min(1, videoEl.volume + 0.1)); },
+        down: () => { if (videoEl) setMediaVolume(Math.max(0, videoEl.volume - 0.1)); },
+        pageLeft: goPrev,
+        pageRight: goNext,
+        launch: toggleMediaPlayback,
+        activate: () => { showDanmakuSettings = !showDanmakuSettings; showSpeedMenu = false; },
+        favorite: toggleEpisodePanel,
+        back: () => {
+          if (showEpisodePanel) showEpisodePanel = false;
+          else if (showCommentsPanel) showCommentsPanel = false;
+          else void closePlayer();
+        },
+        start: toggleCommentsPanel,
+      }, { id: "anime-player", zone: "content", priority: 110 });
+    }
     if (platformStore.capabilities.desktopWindowControl) {
       hostWindowWasFullscreen = ["fullscreen", "big-picture"].includes(settingsStore.settings.startup_mode ?? "fullscreen");
       try {
@@ -318,6 +340,8 @@
     setRetryHandler(null);
     setSourceSwitchHandler(null);
     setSourceProvider(null);
+    handheldPad?.();
+    handheldPad = null;
     openMenuCount.set(0);
     controlsVisible.set(true);
     clearPlayerError();
@@ -515,8 +539,15 @@
     // ErrorOverlay 展示 / 复制日志携带完整链路。
     const failureContext: PlaybackFailureRecord[] = [];
     const nativeHls = v.canPlayType("application/vnd.apple.mpegurl") !== "";
-    // 首选方式：能用 hls.js 且看着像 m3u8 就先 hls，否则先原生
-    const firstIsHls = m3u8 && !nativeHls && Hls.isSupported();
+    // Android WebView 经常对 HLS 返回 `maybe`，但对带 Referer/CORS 代理的
+    // m3u8 实际无法完成首个分片请求。让 Android 优先走 hls.js，保留原生
+    // video 作为第二次尝试；桌面端继续尊重原生 HLS 能力。
+    const firstIsHls = shouldPreferHls({
+      isM3u8: m3u8,
+      nativeHls,
+      hlsSupported: Hls.isSupported(),
+      isAndroid: platformStore.isAndroid,
+    });
 
     const clearWatchdog = () => { if (watchdog !== null) { clearTimeout(watchdog); watchdog = null; } };
     const clearPlaybackWatchdog = () => {
@@ -800,7 +831,7 @@
    * effect——HLS.js 复用同一实例 `loadSource`，原生则重新 `src + load`；idleTimer 因
    * 绑定在稳定的全屏容器上无需重建，从而根治超清切换后控制栏不再隐藏的问题。
    *
-   * Kimi K3 复审（medium）：画质档位是本地超清化 enhancement 管线状态，与视频源无关。
+   * 画质档位是本地超清化 enhancement 管线状态，与视频源无关。
    * `targetSrc`（animeStore.playerVideoSrc）未变化时只更新 enhancement 管线状态
    * （VideoEnhancementCanvas 响应 videoEnhancementMode），绝不重载媒体，避免同源
    * m3u8 全量重缓冲；仅当 `targetSrc` 相对当前已加载源（loadedMediaSrc）真正变化时
@@ -834,7 +865,7 @@
         loadedMediaSrc = targetSrc;
       } catch {
         // 重载失败路径：清理残留的 pendingQualitySeek，避免被后续无关加载误消费旧进度
-        // （Kimi K3 非阻塞建议）。
+        // （非阻塞错误恢复）。
         pendingQualitySeek = 0;
         pendingQualitySeekSrc = "";
         resumeAfterQualityLoad = true;

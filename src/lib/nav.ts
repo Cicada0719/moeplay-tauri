@@ -78,5 +78,8 @@ export function getNavItemByView(view: string): NavItem | undefined {
 
 export function getViewLabel(view: string): string {
   if (view === "game-detail") return "游戏详情";
+  if (view === "game-library") return "游戏库";
+  if (view === "handheld") return "掌机模式";
+  if (view === "handheld-import") return "导入模拟器游戏";
   return getNavItemByView(view)?.label ?? "萌游";
 }

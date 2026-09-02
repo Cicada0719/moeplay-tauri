@@ -66,4 +66,10 @@ describe("gamepadRemap 按键绑定", () => {
     expect(gamepadGlyphFor("start", "playstation")).toBe("OPTIONS");
     expect(physicalButtonFor(0, "playstation")).toBe(0); // 语义顺序一致
   });
+
+  it("exposes trigger labels for handheld category navigation", () => {
+    expect(gamepadGlyphFor("categoryLeft", "xbox")).toBe("LT");
+    expect(gamepadGlyphFor("categoryRight", "playstation")).toBe("R2");
+    expect(gamepadGlyphFor("categoryLeft", "nintendo")).toBe("ZL");
+  });
 });

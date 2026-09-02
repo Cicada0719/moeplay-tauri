@@ -60,13 +60,10 @@ use anime_download::AnimeDownloader;
 use db::Database;
 use db_sqlite::HistoryDb;
 use downloader::Downloader;
-#[cfg(desktop)]
 use import::ImportWatcher;
-#[cfg(desktop)]
 use locale::LocaleEmulatorManager;
 use migration::commands::AppState;
 use migration::{MigrationReport, MigrationStatus, Migrator, MIGRATION_PROGRESS_EVENT};
-#[cfg(desktop)]
 use process_monitor::ProcessMonitor;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -137,19 +134,28 @@ fn configure_android_paths() {
 /// never initializes `ndk-context`, but `android-native-keyring-store` panics
 /// ("android context was not initialized") while the global is empty, which
 /// aborts the app at startup when `SecretStore::new()` runs.
+///
+/// 时序竞争：tao 在独立的 Rust 线程里调用本函数，而 CONTEXTS 由主线程的
+/// `Rust.onActivityCreate` 写入。当 ProcessLifecycleOwner 在 Activity.onCreate
+/// 前已处于 CREATED 态（部分掌机系统如此），观察者会同步触发 `Rust.create()`，
+/// 使本函数先于 CONTEXTS 写入执行 —— 短暂轮询等待主线程写入。
 #[cfg(target_os = "android")]
 fn init_android_ndk_context() {
     use tauri::tao::platform::android::prelude::main_android_context;
 
-    match main_android_context() {
-        Some(context) => {
+    for attempt in 0..100 {
+        if let Some(context) = main_android_context() {
             unsafe {
                 ndk_context::initialize_android_context(context.java_vm, context.context_jobject);
             }
-            crash_log("init_android_ndk_context() done");
+            crash_log(&format!(
+                "init_android_ndk_context() done (attempt {attempt})"
+            ));
+            return;
         }
-        None => crash_log("init_android_ndk_context() skipped: no android context"),
+        std::thread::sleep(std::time::Duration::from_millis(30));
     }
+    crash_log("init_android_ndk_context() skipped: no android context after 3s");
 }
 
 /// 启动 Tauri 应用（桌面入口）
@@ -229,7 +235,8 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_orientation::init());
+        .plugin(tauri_plugin_orientation::init())
+        .plugin(tauri_plugin_handheld::init());
 
     #[cfg(desktop)]
     let builder = builder
@@ -273,7 +280,9 @@ pub fn run() {
         .manage(ai_v2_state)
         .manage(rules::RuleEngineState(Arc::new(rule_engine)));
 
-    #[cfg(desktop)]
+    // LocaleEmulatorManager / ProcessMonitor / ImportWatcher 的构造在各平台均无副作用，
+    // 且 launch_game 等命令的 State 解析发生在函数体之前 —— 移动端也必须注册，
+    // 否则 Android 上调用这些命令会直接报 "state not managed"。
     let builder = builder
         .manage(LocaleEmulatorManager::new())
         .manage(ProcessMonitor::new())
@@ -649,6 +658,9 @@ pub fn run() {
             commands::anime_install_all_github_rules,
             commands::anime_bangumi_calendar,
             commands::open_mini_player,
+            commands::handheld_rom_roots,
+            commands::handheld_scan_roms,
+            commands::handheld_import_roms,
             commands::anime_bangumi_search,
             commands::anime_proxy_image,
             commands::anime_proxy_images_batch,

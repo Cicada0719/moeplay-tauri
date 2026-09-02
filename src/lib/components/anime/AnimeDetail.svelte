@@ -5,6 +5,7 @@
   import { DetailPanel } from '../ui-v2';
   import type { ReturnFocusTarget } from '../../actions/a11y/focusTrap';
   import { focusRovingItem, nextRovingIndex } from './a11y';
+  import { platformStore } from '../../platform/runtime.svelte';
 
   let { returnFocus = true }: { returnFocus?: ReturnFocusTarget } = $props();
 
@@ -41,6 +42,7 @@
   // ── Local UI state ────────────────────────────────────────────────────
   let showCollectMenu = $state(false);
   let activeRoad = $state(0);
+  let loadingSource = $state(false);
 
   // Reset road when roads change
   $effect(() => { roads; activeRoad = 0; });
@@ -96,6 +98,42 @@
     event.preventDefault();
     switchTab(DETAIL_TABS[next].id);
     focusRovingItem(detailTabRefs, next);
+  }
+
+  /**
+   * 搜索结果本身已经带有来源和详情地址时，直接读取线路并播放续播集。
+   * Bangumi 元数据详情没有来源信息，仍然进入 SourceSheet 供用户选择来源。
+   */
+  async function startWatching() {
+    if (loadingSource) return;
+    // 桌面端保留经典的选源面板；Android 横屏详情已经有明确来源时，
+    // 直接读取线路减少一次重复搜索，来源未知时仍进入同一面板。
+    if (!platformStore.isAndroid || !ruleName || !animeStore.detailUrl) {
+      animeStore.openSourceSheet();
+      return;
+    }
+
+    if (roads.length === 0) {
+      loadingSource = true;
+      try {
+        await animeStore.loadRoadsForSource(ruleName, animeStore.detailUrl);
+      } catch {
+        // 单源直读失败时回到可选源面板，用户仍可换源或完成验证。
+      } finally {
+        loadingSource = false;
+      }
+    }
+
+    const availableRoads = animeStore.roads;
+    if (availableRoads.length > 0) {
+      const resumeEpisode = historyEntry ? Math.max(0, historyEntry.lastEpisode) : 0;
+      const episodeCount = availableRoads[0]?.episodes.length ?? 0;
+      if (episodeCount > 0) {
+        await animeStore.playEpisode(0, Math.min(resumeEpisode, episodeCount - 1), historyEntry?.progressMs);
+        return;
+      }
+    }
+    animeStore.openSourceSheet();
   }
 
 </script>
@@ -401,14 +439,15 @@
     data-anime-source-trigger
     aria-haspopup="dialog"
     aria-expanded={animeStore.sourceSheetOpen}
-    onclick={() => animeStore.openSourceSheet()}
+    aria-busy={loadingSource}
+    onclick={() => void startWatching()}
   >
     <span class="fab-glow"></span>
-    <Icon name="play" size={20} />
+    <Icon name={loadingSource ? "refresh" : "play"} size={20} />
     {#if historyEntry}
-      <span>继续 · {historyEntry.lastEpisodeName || `第${historyEntry.lastEpisode + 1}集`}</span>
+      <span>{loadingSource ? "读取线路…" : `继续 · ${historyEntry.lastEpisodeName || `第${historyEntry.lastEpisode + 1}集`}`}</span>
     {:else}
-      <span>开始观看</span>
+      <span>{loadingSource ? "读取线路…" : "开始观看"}</span>
     {/if}
   </button>
   </div>

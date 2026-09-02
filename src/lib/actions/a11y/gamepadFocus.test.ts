@@ -188,6 +188,45 @@ describe("GamepadFocusRuntime scope routing", () => {
 });
 
 describe("GamepadFocusRuntime input", () => {
+  it("calibrates AIR X trigger resting values and dispatches LT/RT once per press", () => {
+    const { runtime, pad } = createHarness();
+    const previousChannel = vi.fn();
+    const nextChannel = vi.fn();
+    runtime.registerScope({ categoryLeft: previousChannel, categoryRight: nextChannel });
+
+    // AIR X reports both triggers as pressed at rest, with non-zero values.
+    setButton(pad, 6, true);
+    (pad.buttons[6] as { value?: number }).value = 0.392;
+    setButton(pad, 7, true);
+    (pad.buttons[7] as { value?: number }).value = 0.761;
+    runtime.poll(0);
+    runtime.poll(1);
+    expect(previousChannel).not.toHaveBeenCalled();
+    expect(nextChannel).not.toHaveBeenCalled();
+
+    (pad.buttons[6] as { value?: number }).value = 1;
+    runtime.poll(2);
+    runtime.poll(3);
+    expect(previousChannel).toHaveBeenCalledOnce();
+
+    (pad.buttons[7] as { value?: number }).value = 1;
+    runtime.poll(4);
+    runtime.poll(5);
+    expect(nextChannel).toHaveBeenCalledOnce();
+
+    // Holding a trigger must not repeat a category switch.
+    runtime.poll(500);
+    expect(previousChannel).toHaveBeenCalledOnce();
+    expect(nextChannel).toHaveBeenCalledOnce();
+
+    (pad.buttons[6] as { value?: number }).value = 0.392;
+    (pad.buttons[7] as { value?: number }).value = 0.761;
+    runtime.poll(501);
+    (pad.buttons[6] as { value?: number }).value = 1;
+    runtime.poll(502);
+    expect(previousChannel).toHaveBeenCalledTimes(2);
+  });
+
   it("reads all D-pad/stick directions with 320ms/100ms directional repeat", () => {
     const { runtime, pad } = createHarness();
     const up = vi.fn();

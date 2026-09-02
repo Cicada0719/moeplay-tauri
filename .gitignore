@@ -62,7 +62,9 @@ design-assets/
 # Local release and generated platform output
 artifacts/
 installers/
-src-tauri/gen/
+# gen/ 下的平台工程默认不提交，但 Android 工程（含构建脚本定制）需要入库
+src-tauri/gen/*
+!src-tauri/gen/android/
 plugins/**/android/build/
 
 # Built binaries (keep out of repo)

@@ -1,7 +1,14 @@
 import { addPluginListener, invoke, type PluginListener } from "@tauri-apps/api/core";
 import { platformStore } from "../runtime.svelte";
 
-import { effectiveOrientation, enterVideoFullscreen, exitVideoFullscreen, type OrientationMode } from "./orientation-policy";
+import {
+  effectiveOrientation,
+  enterMediaLandscape,
+  enterVideoFullscreen,
+  exitMediaLandscape,
+  exitVideoFullscreen,
+  type OrientationMode,
+} from "./orientation-policy";
 
 export type { OrientationMode } from "./orientation-policy";
 
@@ -22,6 +29,7 @@ function readVideoPreference(): boolean {
 let _mode = $state<OrientationMode>(readMode());
 let _videoAutoLandscape = $state(readVideoPreference());
 let _temporaryMode = $state<OrientationMode | null>(null);
+let _mediaLandscapeCount = $state(0);
 let _initialized = false;
 let _fullscreenActive = false;
 let _nativeListener: PluginListener | null = null;
@@ -30,6 +38,10 @@ async function applyNative(mode: OrientationMode) {
   if (!platformStore.isAndroid || !platformStore.capabilities.orientationControl) return;
   try {
     await invoke("plugin:orientation|set_orientation", { request: { mode } });
+    // Android may recreate the window in response to the orientation request
+    // and restore system bars. Let the app-level immersive policy reapply
+    // after that native transition completes.
+    if (typeof window !== "undefined") window.dispatchEvent(new Event("moeplay-orientation-applied"));
   } catch (error) {
     console.warn("[orientation] native orientation command unavailable", error);
   }
@@ -44,7 +56,12 @@ function persist() {
 function syncDocumentState() {
   if (typeof document === "undefined") return;
   document.documentElement.dataset.orientationPreference = _mode;
-  document.documentElement.dataset.orientationEffective = effectiveOrientation({ preferred: _mode, temporary: _temporaryMode, videoAutoLandscape: _videoAutoLandscape });
+  document.documentElement.dataset.orientationEffective = effectiveOrientation({
+    preferred: _mode,
+    temporary: _temporaryMode,
+    videoAutoLandscape: _videoAutoLandscape,
+    mediaLandscapeCount: _mediaLandscapeCount,
+  });
 }
 
 async function handleFullscreenChange() {
@@ -58,8 +75,12 @@ async function handleFullscreenChange() {
 
 export const orientationStore = {
   get mode() { return _mode; },
-  get effectiveMode() { return _temporaryMode ?? _mode; },
+  get effectiveMode() {
+    return effectiveOrientation({ preferred: _mode, temporary: _temporaryMode, videoAutoLandscape: _videoAutoLandscape, mediaLandscapeCount: _mediaLandscapeCount });
+  },
   get videoAutoLandscape() { return _videoAutoLandscape; },
+  get mediaLandscape() { return _mediaLandscapeCount > 0; },
+  get mediaLandscapeCount() { return _mediaLandscapeCount; },
 
   async initialize() {
     if (_initialized) return;
@@ -68,7 +89,7 @@ export const orientationStore = {
     if (typeof document !== "undefined") {
       document.addEventListener("fullscreenchange", handleFullscreenChange);
       document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "visible") void applyNative(_temporaryMode ?? _mode);
+        if (document.visibilityState === "visible") void applyNative(orientationStore.effectiveMode);
       });
     }
     if (platformStore.isAndroid && !_nativeListener) {
@@ -80,7 +101,7 @@ export const orientationStore = {
         },
       ).catch(() => null);
     }
-    await applyNative(_mode);
+    await applyNative(orientationStore.effectiveMode);
   },
 
   async setMode(mode: OrientationMode) {
@@ -89,7 +110,7 @@ export const orientationStore = {
     _mode = mode;
     persist();
     syncDocumentState();
-    if (!_temporaryMode) await applyNative(mode);
+    if (!_temporaryMode) await applyNative(orientationStore.effectiveMode);
   },
 
   setVideoAutoLandscape(enabled: boolean) {
@@ -100,7 +121,7 @@ export const orientationStore = {
   },
 
   async enterVideoFullscreen() {
-    const next = enterVideoFullscreen({ preferred: _mode, temporary: _temporaryMode, videoAutoLandscape: _videoAutoLandscape });
+    const next = enterVideoFullscreen({ preferred: _mode, temporary: _temporaryMode, videoAutoLandscape: _videoAutoLandscape, mediaLandscapeCount: _mediaLandscapeCount });
     if (next.temporary === _temporaryMode) return;
     _temporaryMode = next.temporary;
     syncDocumentState();
@@ -108,9 +129,24 @@ export const orientationStore = {
   },
 
   async exitVideoFullscreen() {
-    const next = exitVideoFullscreen({ preferred: _mode, temporary: _temporaryMode, videoAutoLandscape: _videoAutoLandscape });
+    const next = exitVideoFullscreen({ preferred: _mode, temporary: _temporaryMode, videoAutoLandscape: _videoAutoLandscape, mediaLandscapeCount: _mediaLandscapeCount });
     if (next.temporary === _temporaryMode) return;
     _temporaryMode = next.temporary;
+    syncDocumentState();
+    await applyNative(effectiveOrientation(next));
+  },
+
+  async enterMediaLandscape() {
+    const next = enterMediaLandscape({ preferred: _mode, temporary: _temporaryMode, videoAutoLandscape: _videoAutoLandscape, mediaLandscapeCount: _mediaLandscapeCount });
+    _mediaLandscapeCount = next.mediaLandscapeCount ?? _mediaLandscapeCount + 1;
+    syncDocumentState();
+    await applyNative(effectiveOrientation(next));
+  },
+
+  async exitMediaLandscape() {
+    const next = exitMediaLandscape({ preferred: _mode, temporary: _temporaryMode, videoAutoLandscape: _videoAutoLandscape, mediaLandscapeCount: _mediaLandscapeCount });
+    if (_mediaLandscapeCount === 0) return;
+    _mediaLandscapeCount = next.mediaLandscapeCount ?? 0;
     syncDocumentState();
     await applyNative(effectiveOrientation(next));
   },

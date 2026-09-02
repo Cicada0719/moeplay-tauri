@@ -12,6 +12,12 @@
   import { AsyncSection, MediaCard, PageShell } from "./ui-v2";
   import type { ViewState } from "./ui-v2";
   import { formatSourceBadge } from "../features/anime-search/merge";
+  import { friendlyRecommendationError } from "../features/anime-home/recommendationError";
+  import { platformStore } from "../platform/runtime.svelte";
+  import { navigateTo } from "../stores/router.svelte";
+  import HandheldMediaShell from "../features/handheld/HandheldMediaShell.svelte";
+  import HandheldAnimeHub from "../features/handheld/HandheldAnimeHub.svelte";
+  import HandheldStatePanel from "../features/handheld/HandheldStatePanel.svelte";
 
   let searchInput = $state("");
   let isSearching = $state(false);
@@ -39,12 +45,21 @@
     return resultCount > 0 ? "ready" : "empty";
   }
 
+  function recommendationNotice(error: string | null): string {
+    return friendlyRecommendationError(error, "番剧推荐暂时不可用，请检查网络或规则源后重试");
+  }
+
   async function handleSearch(e: Event) {
     e.preventDefault();
     if (!searchInput.trim()) return;
     isSearching = true;
     await animeStore.search(searchInput.trim());
     isSearching = false;
+  }
+
+  async function searchFromHandheld(keyword: string) {
+    searchInput = keyword;
+    await animeStore.search(keyword);
   }
 
   function clearSearch() {
@@ -74,6 +89,10 @@
   let showAllResults = $state(false);
   const mergedResults = $derived(animeStore.mergedSearchResults);
   const updatableCount = $derived(animeStore.updatableRules.length);
+  // Native/fixture backends may return null while the calendar is unavailable.
+  // Keep the page renderable and let the dedicated calendar state communicate the
+  // failure instead of leaking a TypeError through the page shell.
+  const calendarItems = $derived(animeStore.calendar ?? []);
   // 逐源搜索状态汇总（成功/无结果/失败）
   const sourceStatusSummary = $derived.by(() => {
     const values = Object.values(animeStore.searchSourceStatus);
@@ -122,8 +141,8 @@
     activateMainTab(MAIN_TABS[next].id, next);
   }
 
-  function openProviderV2(event: MouseEvent) {
-    providerV2ReturnFocus = event.currentTarget as HTMLElement;
+  function openProviderV2(event?: MouseEvent) {
+    providerV2ReturnFocus = event?.currentTarget instanceof HTMLElement ? event.currentTarget : document.activeElement instanceof HTMLElement ? document.activeElement : null;
     providerV2Active = true;
   }
 
@@ -166,6 +185,13 @@
     }
   }
 
+  function closeAnimeSurface() {
+    if (animeStore.view === "player") animeStore.closePlayer();
+    else if (animeStore.view === "detail") animeStore.closeDetail();
+    else if (animeStore.view === "search") animeStore.goHome();
+    else navigateTo("home");
+  }
+
   onMount(() => {
     window.addEventListener("keydown", onKeydown, { capture: true });
     animeStore.init();
@@ -182,7 +208,7 @@
   const WEEKDAY_NAMES = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 </script>
 
-<PageShell as="div" ariaLabel="番剧主内容" width="full" class="anime-page">
+{#snippet animePageContent()}
   <section class="anime-page-frame" data-testid="anime-page">
   <div class="anime-shell" class:hidden-by-overlay={providerV2Active || animeStore.view === "detail" || animeStore.view === "player"}>
     <header class="editorial-chrome">
@@ -313,32 +339,42 @@
         <div class="rec-page" id="anime-panel-recommend" role="tabpanel" aria-labelledby="anime-tab-recommend" tabindex="0">
           {#if animeStore.recError}
             <div class="recommendation-notice" role="status">
-              <span>{animeStore.recError}</span>
+              <span>{recommendationNotice(animeStore.recError)}</span>
               <button type="button" onclick={() => animeStore.refreshRecommendations()}>重新加载</button>
             </div>
           {/if}
-          <AnimeEditorialHome
-            history={animeStore.history}
-            seasonal={animeStore.recSeasonal}
-            trending={animeStore.recTrending}
-            topRated={animeStore.recTopRated}
-            seasonalLoading={animeStore.recSeasonalLoading}
-            trendingLoading={animeStore.recTrendingLoading}
-            topRatedLoading={animeStore.recTopRatedLoading}
-            seasonalMore={animeStore.recSeasonalTotal > animeStore.recSeasonal.length}
-            trendingMore={animeStore.recTrendingTotal > animeStore.recTrending.length}
-            topRatedMore={animeStore.recTopRatedTotal > animeStore.recTopRated.length}
-            getImage={(url) => animeStore.getImg(url)}
-            onOpenSubject={searchBangumi}
-            onResumeHistory={(item, trigger) => { detailReturnFocus = trigger; animeStore.openDetail(item.ruleName, { name: item.name, url: item.sourceUrl }, item.image); }}
-            onMoreSeasonal={() => animeStore.loadMoreSeasonal()}
-            onMoreTrending={() => animeStore.loadMoreTrending()}
-            onMoreTopRated={() => animeStore.loadMoreTopRated()}
-            schedule={animeStore.calendar.length ? animeStore.calendar : undefined}
-            scheduleLoading={animeStore.calendarLoading}
-            onOpenScheduleSubject={(subject, trigger) => { detailReturnFocus = trigger; searchBangumi(subject, trigger); }}
-            onOpenCalendarTab={() => animeStore.setTab("calendar")}
-          />
+          {#if platformStore.isAndroid && animeStore.recError && animeStore.recSeasonal.length === 0 && animeStore.recTrending.length === 0 && animeStore.recTopRated.length === 0 && animeStore.history.length === 0}
+            <HandheldStatePanel
+              state="error"
+              title="番剧内容暂时不可用"
+              description="推荐源没有返回可用数据，搜索入口仍可使用。请检查网络或规则源后重试。"
+              primaryAction={{ label: "重新加载", run: () => animeStore.refreshRecommendations() }}
+              secondaryAction={{ label: "打开规则", run: () => animeStore.setTab("rules") }}
+            />
+          {:else}
+            <AnimeEditorialHome
+              history={animeStore.history}
+              seasonal={animeStore.recSeasonal}
+              trending={animeStore.recTrending}
+              topRated={animeStore.recTopRated}
+              seasonalLoading={animeStore.recSeasonalLoading}
+              trendingLoading={animeStore.recTrendingLoading}
+              topRatedLoading={animeStore.recTopRatedLoading}
+              seasonalMore={animeStore.recSeasonalTotal > animeStore.recSeasonal.length}
+              trendingMore={animeStore.recTrendingTotal > animeStore.recTrending.length}
+              topRatedMore={animeStore.recTopRatedTotal > animeStore.recTopRated.length}
+              getImage={(url) => animeStore.getImg(url)}
+              onOpenSubject={searchBangumi}
+              onResumeHistory={(item, trigger) => { detailReturnFocus = trigger; animeStore.openDetail(item.ruleName, { name: item.name, url: item.sourceUrl }, item.image); }}
+              onMoreSeasonal={() => animeStore.loadMoreSeasonal()}
+              onMoreTrending={() => animeStore.loadMoreTrending()}
+              onMoreTopRated={() => animeStore.loadMoreTopRated()}
+              schedule={calendarItems.length ? calendarItems : undefined}
+              scheduleLoading={animeStore.calendarLoading}
+              onOpenScheduleSubject={(subject, trigger) => { detailReturnFocus = trigger; searchBangumi(subject, trigger); }}
+              onOpenCalendarTab={() => animeStore.setTab("calendar")}
+            />
+          {/if}
         </div>
 
       <!-- ═══════════════════════════════════════════════════════════
@@ -350,10 +386,10 @@
             <div class="spinner"></div>
             <span>加载时间表...</span>
           </div>
-        {:else if animeStore.calendar.length > 0}
+        {:else if calendarItems.length > 0}
           <div class="calendar-section">
             <div class="weekday-tabs">
-              {#each animeStore.calendar as day (day.weekday)}
+              {#each calendarItems as day (day.weekday)}
                 <button class="weekday-tab"
                   class:active={animeStore.calendarDay === day.weekday}
                   class:today={day.weekday === (new Date().getDay() || 7)}
@@ -368,7 +404,7 @@
                 </button>
               {/each}
             </div>
-            {#each animeStore.calendar.filter(d => d.weekday === animeStore.calendarDay) as currentDay (currentDay.weekday)}
+            {#each calendarItems.filter(d => d.weekday === animeStore.calendarDay) as currentDay (currentDay.weekday)}
               <div class="cover-grid">
                 {#each currentDay.items as sub (sub.id)}
                   <Card padding="none" hoverable={false} class="cover-card" onclick={() => searchBangumi(sub)}>
@@ -773,7 +809,52 @@
     <!-- Source sheet (opened from detail page FAB) -->
     <SourceSheet />
   {/if}
-</section>
+  </section>
+{/snippet}
+
+{#snippet handheldAnimeOverlay()}
+  {#if providerV2Active}
+    <div class="provider-v2-overlay handheld-provider-overlay">
+      {#await import("./anime/provider-v2/ProviderV2Workspace.svelte") then { default: ProviderV2Workspace }}
+        <ProviderV2Workspace onExit={closeProviderV2} />
+      {/await}
+    </div>
+  {:else if animeStore.view === "player"}
+    {#await import("./anime/AnimePlayer.svelte") then { default: AnimePlayer }}
+      <AnimePlayer />
+    {/await}
+  {:else if animeStore.view === "detail"}
+    <AnimeDetail returnFocus={() => detailReturnFocus} />
+  {/if}
+  <SourceSheet />
+{/snippet}
+
+<PageShell as="div" ariaLabel="番剧主内容" width="full" class="anime-page">
+  {#if platformStore.isAndroid}
+    <HandheldMediaShell
+      kind="anime"
+      title={animeStore.view === "player" ? "正在播放" : animeStore.view === "detail" ? "番剧详情" : "番剧媒体中心"}
+      subtitle="横屏影院 · 手柄优先 · A 播放 / X 选集 / Y 设置"
+      chromeMode={animeStore.view === "player" ? "auto" : "persistent"}
+      artwork={{ role: "anime" }}
+      onback={closeAnimeSurface}
+      overlay={handheldAnimeOverlay}
+    >
+      {#snippet children()}
+        <HandheldAnimeHub
+          onSearch={searchFromHandheld}
+          onOpenResult={openResult}
+          onOpenSubject={searchBangumi}
+          onResumeHistory={(item, trigger) => { detailReturnFocus = trigger ?? null; void animeStore.resumeHistory(item); }}
+          onOpenRules={() => animeStore.setTab("rules")}
+          onOpenProvider={openProviderV2}
+          onBack={closeAnimeSurface}
+        />
+      {/snippet}
+    </HandheldMediaShell>
+  {:else}
+    {@render animePageContent()}
+  {/if}
 </PageShell>
 
 <style>

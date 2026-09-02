@@ -10,7 +10,7 @@ const RULES_PACKAGE_VERSION: &str = "2026.08.1";
 /// 规则包发布时间戳（2026-08-04 00:00:00 UTC）。
 const RULES_PACKAGE_PUBLISHED_AT: i64 = 1785830400;
 
-// Tauri 2 命令清单（ACL 权限系统的必需注册，DeepSeek 复审第 3 项说明）：
+// Tauri 2 命令清单（ACL 权限系统的必需注册）：
 // 在 Tauri 2 中，命令默认不对 WebView 暴露。必须在 `build.rs` 通过
 // `AppManifest::commands(COMMANDS)` 把全部命令登记进 `tauri-build` 的
 // 自动生成 ACL，`capabilities/default.json` 里对应追加 `allow-<command>` 权限，
@@ -405,6 +405,9 @@ const COMMANDS: &[&str] = &[
     "get_sync_status",
     "clear_webdav_config",
     "open_mini_player",
+    "handheld_rom_roots",
+    "handheld_scan_roms",
+    "handheld_import_roms",
 ];
 
 fn main() {

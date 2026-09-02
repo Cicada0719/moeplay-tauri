@@ -67,6 +67,7 @@ describe("router", () => {
 
   it("exposes known navigable views and rejects internal commands", () => {
     expect(KNOWN_VIEWS).toContain("home");
+    expect(KNOWN_VIEWS).toContain("game-library");
     expect(KNOWN_VIEWS).toContain("game-detail");
     expect(KNOWN_VIEWS).toContain("settings");
     expect(isKnownView("__tools")).toBe(false);
@@ -84,6 +85,11 @@ describe("router", () => {
     expect(parseHash("#unknown-view")).toEqual<AppRoute>({ view: "home", params: {} });
     expect(buildHash("game-detail", { gameId: "abc-123" })).toBe("#game-detail?id=abc-123");
     expect(buildHash("__tools")).toBe("#home");
+  });
+
+  it("keeps the legacy handheld hash parseable for Android route migration", () => {
+    expect(parseHash("#handheld")).toEqual<AppRoute>({ view: "handheld", params: {} });
+    expect(buildHash("game-library")).toBe("#game-library");
   });
 
   it("applies a hash and its entity to UI and game stores", () => {

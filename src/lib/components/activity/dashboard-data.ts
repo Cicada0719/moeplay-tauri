@@ -2,6 +2,7 @@ import type { Game, PlaySessionEntry, PlaytimeSummary } from "../../api";
 import type { AnimeHistory } from "../../stores/anime.svelte";
 import type { ReadRecord } from "../../stores/comic.svelte";
 import type { NovelHistoryEntry } from "../../features/novel/types";
+import { buildUnifiedMediaHistory } from "../../features/media-history/unified";
 import { fileSrc } from "../../utils";
 import { coverOf, gameLastPlayed, gameTotalSeconds } from "../../utils/game";
 import type { DashboardChartPoint, DashboardMediaActivity, DashboardSession, DashboardTopGame } from "./dashboard-model";
@@ -63,9 +64,10 @@ export function buildMediaActivities(sessions: PlaySessionEntry[], animeHistory:
     imageSrc: fileSrc(coverOf(gameById.get(entry.game_id))),
     payload: entry,
   }));
-  const animeItems: DashboardMediaActivity[] = animeHistory.map((entry) => ({ id: `anime:${entry.key}`, kind: "anime", title: entry.name, subtitle: `看到 ${entry.lastEpisodeName || `第 ${entry.lastEpisode + 1} 集`}`, timeLabel: formatDateTime(entry.updatedAt), timestamp: toTimestamp(entry.updatedAt), imageSrc: entry.image || null, payload: entry }));
-  const comicItems: DashboardMediaActivity[] = comicHistory.map((entry) => ({ id: `comic:${entry.id}`, kind: "comic", title: entry.title, subtitle: `读到 ${entry.last_title || `第 ${entry.last_order} 话`}`, timeLabel: formatDateTime(new Date(entry.ts).toISOString()), timestamp: entry.ts || 0, imageSrc: entry.thumb_url || null, payload: entry }));
-  const novelItems: DashboardMediaActivity[] = novelHistory.map((entry) => ({ id: `novel:${entry.key}`, kind: "novel", title: entry.book.title, subtitle: `读到 ${entry.chapterTitle} · ${Math.round(entry.progress * 100)}%`, timeLabel: formatDateTime(new Date(entry.updatedAt).toISOString()), timestamp: entry.updatedAt || 0, imageSrc: entry.book.coverUrl ?? null, payload: entry }));
+  const unifiedItems = buildUnifiedMediaHistory({ anime: animeHistory, comic: comicHistory, novel: novelHistory }, Number.MAX_SAFE_INTEGER);
+  const animeItems: DashboardMediaActivity[] = unifiedItems.filter((entry) => entry.kind === "anime").map((entry) => ({ id: entry.id, kind: entry.kind, title: entry.title, subtitle: `看到 ${entry.positionLabel}`, timeLabel: formatDateTime(entry.updatedAt ? new Date(entry.updatedAt).toISOString() : undefined), timestamp: entry.updatedAt, imageSrc: entry.cover, payload: entry.payload }));
+  const comicItems: DashboardMediaActivity[] = unifiedItems.filter((entry) => entry.kind === "comic").map((entry) => ({ id: entry.id, kind: entry.kind, title: entry.title, subtitle: `读到 ${entry.positionLabel}`, timeLabel: formatDateTime(entry.updatedAt ? new Date(entry.updatedAt).toISOString() : undefined), timestamp: entry.updatedAt, imageSrc: entry.cover, payload: entry.payload }));
+  const novelItems: DashboardMediaActivity[] = unifiedItems.filter((entry) => entry.kind === "novel").map((entry) => ({ id: entry.id, kind: entry.kind, title: entry.title, subtitle: `读到 ${entry.positionLabel}`, timeLabel: formatDateTime(entry.updatedAt ? new Date(entry.updatedAt).toISOString() : undefined), timestamp: entry.updatedAt, imageSrc: entry.cover, payload: entry.payload }));
   return [...gameItems, ...animeItems, ...comicItems, ...novelItems].filter((item) => item.timestamp > 0).sort((a, b) => b.timestamp - a.timestamp);
 }
 

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+  <external-path name="my_images" path="." />
+  <cache-path name="my_cache_images" path="." />
+  <!-- 掌机模式：向模拟器共享外置 SD 卡 ROM（/storage/<卷>/…），需 root-path 覆盖 -->
+  <root-path name="rom_root" path="." />
+</paths>

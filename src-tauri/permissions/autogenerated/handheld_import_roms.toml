@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-handheld-import-roms"
+description = "Enables the handheld_import_roms command without any pre-configured scope."
+commands.allow = ["handheld_import_roms"]
+
+[[permission]]
+identifier = "deny-handheld-import-roms"
+description = "Denies the handheld_import_roms command without any pre-configured scope."
+commands.deny = ["handheld_import_roms"]

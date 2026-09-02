@@ -649,6 +649,18 @@ pub async fn anime_bangumi_calendar() -> Result<Vec<anime::BangumiCalendarDay>, 
 /// 本命令只负责建窗/复用与定位。
 #[tauri::command]
 pub fn open_mini_player(app: tauri::AppHandle) -> Result<(), String> {
+    open_mini_player_impl(app)
+}
+
+/// 多窗口/无边框/置顶 API 仅桌面端可用；移动端返回明确错误而不是编译失败，
+/// 保持命令契约（verify:commands）在各平台一致。
+#[cfg(mobile)]
+fn open_mini_player_impl(_app: tauri::AppHandle) -> Result<(), String> {
+    Err("迷你播放窗仅在桌面端可用".to_string())
+}
+
+#[cfg(not(mobile))]
+fn open_mini_player_impl(app: tauri::AppHandle) -> Result<(), String> {
     use tauri::Manager;
 
     if let Some(win) = app.get_webview_window("mini") {

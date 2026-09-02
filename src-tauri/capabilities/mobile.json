@@ -132,6 +132,10 @@
     "allow-comic-provider-resolve",
     "allow-test-webdav-connection",
     "allow-merge-sync-envelopes",
-    "allow-get-sync-snapshot-path"
+    "allow-get-sync-snapshot-path",
+    "handheld:default",
+    "allow-handheld-rom-roots",
+    "allow-handheld-scan-roms",
+    "allow-handheld-import-roms"
   ]
 }

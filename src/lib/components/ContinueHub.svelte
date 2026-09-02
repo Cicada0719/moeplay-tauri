@@ -1,6 +1,10 @@
 <script lang="ts">
   import { continueStore, type ContinueItem, type ContinueStats } from "../stores/continue.svelte";
   import { animeStore } from "../stores/anime.svelte";
+  import { comicStore } from "../stores/comic.svelte";
+  import { novelStore } from "../features/novel/store.svelte";
+  import { openUnifiedMediaHistory } from "../features/media-history/open";
+  import UnifiedMediaHistory from "../features/media-history/UnifiedMediaHistory.svelte";
   import { gameStore } from "../stores/games.svelte";
   import { uiStore } from "../stores/ui.svelte";
   import ContinueCard from "./ContinueCard.svelte";
@@ -26,17 +30,24 @@
     { value: "comic" as const, label: "漫画", count: stats.comicCount },
   ]);
 
-  function handleSelect(item: ContinueItem) {
+  async function handleSelect(item: ContinueItem) {
     if (onSelect) { onSelect(item); return; }
     if (item.type === "game") { gameStore.selectGame(item.id.replace("game-", "")); uiStore.currentView = "game-detail"; }
-    else if (item.type === "anime") uiStore.currentView = "anime";
-    else uiStore.currentView = "comic";
+    else if (item.type === "anime") {
+      const entry = animeStore.history.find((history) => history.key === item.id.replace("anime-", ""));
+      if (entry) await openUnifiedMediaHistory({ kind: "anime", payload: entry });
+      else uiStore.currentView = "anime";
+    } else {
+      const entry = comicStore.readHistory.find((history) => history.id === item.id.replace("comic-", ""));
+      if (entry) await openUnifiedMediaHistory({ kind: "comic", payload: entry });
+      else uiStore.currentView = "comic";
+    }
   }
   function goTo(view: string) { uiStore.currentView = view; }
   function titleFor(type: ContinueFilter): string { return type === "game" ? "最近在玩" : type === "anime" ? "最近在看" : type === "comic" ? "最近在读" : "全部继续项目"; }
   const todayWeekday = $derived(new Date().getDay() || 7);
-  const todaySchedule = $derived(animeStore.calendar.find((day) => day.weekday === todayWeekday)?.items ?? []);
-  const calendarLoading = $derived(animeStore.calendarLoading && animeStore.calendar.length === 0);
+  const todaySchedule = $derived((animeStore.calendar ?? []).find((day) => day.weekday === todayWeekday)?.items ?? []);
+  const calendarLoading = $derived(animeStore.calendarLoading && (animeStore.calendar ?? []).length === 0);
   $effect(() => { void animeStore.loadCalendar(); });
   function openScheduleTab() {
     animeStore.calendarDay = todayWeekday;
@@ -46,8 +57,8 @@
 </script>
 
 <PageShell as="div" ariaLabel="今日继续" width="content" class="continue-hub-shell">
-  <PageHeader title="今日继续" eyebrow="Continue" description="把游戏、番剧和漫画的最近进度汇总成一个可直接用键盘继续的列表。" id="continue-page-title">
-    {#snippet actions()}<span class="continue-count" role="status">{stats.totalCount} 项进行中</span>{/snippet}
+  <PageHeader title="今日继续" eyebrow="Continue" description="游戏、番剧、漫画和小说共用一条本地历史时间线，选择后直接恢复到上次的位置。" id="continue-page-title">
+    {#snippet actions()}<span class="continue-count" role="status">{stats.totalCount} 项继续 · {animeStore.history.length + comicStore.readHistory.length + novelStore.history.length} 条媒体历史</span>{/snippet}
   </PageHeader>
 
   <AsyncSection title="今日概览" description="根据本地游玩会话和媒体进度计算。" state="ready" class="continue-section">
@@ -86,6 +97,10 @@
       </div>
     </AsyncSection>
   {/if}
+
+  <AsyncSection title="统一媒体历史" description="番剧、漫画、小说的最近观看与阅读记录；打开后会自动恢复集数、章节和阅读进度。" state="ready" class="continue-section">
+    <UnifiedMediaHistory />
+  </AsyncSection>
 
   {#if topItem}
     <AsyncSection title="优先继续" description="综合最近活动、媒体类型和完成进度推荐。" state="ready" class="continue-section">

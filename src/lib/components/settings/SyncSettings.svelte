@@ -35,6 +35,30 @@
   let errorMessage = $state("");
   let lastResult = $state<SyncResult | null>(null);
 
+  // 旧版本后端或升级中的 WebView 可能返回 null / 缺字段；设置页必须把
+  // 它归一化为可渲染状态，不能把原始 TypeError 暴露给用户。
+  function normalizeStatus(value: unknown): SyncStatus {
+    if (!value || typeof value !== "object") {
+      return { configured: false, last_result: null, syncing: false };
+    }
+    const raw = value as Partial<SyncStatus>;
+    const result = raw.last_result;
+    const last = result && typeof result === "object"
+      ? {
+          uploaded: Number((result as SyncResult).uploaded) || 0,
+          downloaded: Number((result as SyncResult).downloaded) || 0,
+          conflicts: Number((result as SyncResult).conflicts) || 0,
+          tombstones_purged: Number((result as SyncResult).tombstones_purged) || 0,
+          synced_at: Number((result as SyncResult).synced_at) || 0,
+        }
+      : null;
+    return {
+      configured: raw.configured === true,
+      last_result: last,
+      syncing: raw.syncing === true,
+    };
+  }
+
   function currentConfig(): WebDavConfig {
     return {
       base_url: baseUrl.trim(),
@@ -58,8 +82,8 @@
         remoteDir = cfg.remote_dir || "moeplay-sync";
         configured = true;
       }
-      status = st;
-      lastResult = st.last_result;
+      status = normalizeStatus(st);
+      lastResult = status.last_result;
     } catch (err) {
       showError(err);
     }
@@ -77,8 +101,8 @@
       passwordInput = "";
       configured = true;
       const st = await getSyncStatus();
-      status = st;
-      lastResult = st.last_result;
+      status = normalizeStatus(st);
+      lastResult = status.last_result;
       uiStore.notify("WebDAV 配置已保存", "success");
     } catch (err) {
       showError(err);

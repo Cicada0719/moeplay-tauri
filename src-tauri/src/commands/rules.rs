@@ -56,7 +56,7 @@ pub async fn rules_load_all(
 
 /// 搜索。
 ///
-/// `invocation` 契约（Kimi K3 复审第 7 项）：`switchSource` 每次调用生成**独立** invocation
+/// `invocation` 契约：`switchSource` 每次调用生成**独立** invocation
 /// scope（如 `play:{contentId}:{seq}`），search/chapters/parse 全程绑定该 scope——新调用通过
 /// `cancel_scope(旧 invocation)` 把旧调用整体作废；旧调用迟到的 parse 因 scope 唯一无法取消
 /// 最新调用的 token。`invocation` 为空（翻页等非换源场景）时退化为 per-call token，同规则
@@ -98,7 +98,7 @@ pub async fn rules_chapters(
 
 /// 解析播放地址。`scope` 由前端传入：`switchSource` 传入本次调用的 invocation scope
 /// （如 "play:{contentId}:{seq}"），实现 FR-02「仅末次调用生效」——scope 按调用唯一，
-/// 旧调用迟到的 parse 不会取消最新调用已注册的 token（Kimi K3 复审第 7 项）。
+/// 旧调用迟到的 parse 不会取消最新调用已注册的 token。
 #[tauri::command]
 pub async fn rules_parse(
     state: State<'_, RuleEngineState>,
@@ -122,12 +122,12 @@ pub async fn rules_cancel_scope(
 
 /// 选取不与已注册 id 或磁盘文件冲突的自定义规则落盘 id。
 ///
-/// 稳定 id = 源文件 stem（Kimi K3 复审第 1 项）：落盘名 = stem，重启后
+/// 稳定 id = 源文件 stem：落盘名 = stem，重启后
 /// `rules_load_all` 以同一文件重载时 id 恒等；`rules_remove_custom` 按同一 id
 /// 仍能定位并删除该文件——id 若随机生成，重启后 id 与文件名对不上，删除链路
 /// 断裂会让规则「复活」。
 ///
-/// 静默覆盖防护（Kimi K3 复审第 4 项）：`rules_import` 若直接写 `custom_rules/{stem}.json`，
+/// 静默覆盖防护：`rules_import` 若直接写 `custom_rules/{stem}.json`，
 /// 导入两个同名 stem 的规则文件会静默覆盖前一个（数据丢失 + 注册表条目被替换），
 /// 同名 stem 还可能遮蔽内置规则。因此在写入前检测：目标文件已存在 **或** 该 id 已注册时，
 /// 自动追加 `-2`/`-3`… 后缀形成新 id——落盘名即 id，「id = 文件名 stem」的不变量
@@ -190,7 +190,7 @@ pub async fn rules_import(
 
 /// 删除自定义规则文件：对 json/yaml/yml 同 stem 文件都尝试删除（存在才删）。
 ///
-/// Kimi K3 复审第 5 项：`discover_rule_inputs` 从自定义目录加载 `.json/.yaml/.yml`
+/// 规则格式回归契约：`discover_rule_inputs` 从自定义目录加载 `.json/.yaml/.yml`
 /// （id = 文件名 stem，见 [`file_stem_id`]）。若删除只清 `{id}.json`，同名手动放置的
 /// `.yaml`/`.yml` 规则会在下次 `rules_load_all` 时以同一 stem id 重新注册，规则「复活」。
 /// 因此对三种扩展名的同 stem 文件都尝试删除，杜绝手动 YAML 规则残留复活。
@@ -206,7 +206,7 @@ pub(crate) fn remove_custom_rule_files(dir: &Path, rule_id: &str) -> Result<(), 
 
 /// 删除自定义规则的核心流程（`dir` 为自定义规则落盘目录，可注入便于测试）。
 ///
-/// 顺序契约（Kimi K3 复审第 5 项）：**先删文件、再移除注册表**。若先移除注册表而
+/// 顺序契约：**先删文件、再移除注册表**。若先移除注册表而
 /// 文件删除失败，会留下「注册表已删、文件仍在」的状态不一致——残留文件会在下次
 /// `rules_load_all` 时以同 stem id 复活。文件删除失败时注册表条目保留，状态一致。
 pub(crate) fn remove_custom_rule(
@@ -233,7 +233,7 @@ pub async fn rules_remove_custom(
 pub async fn rules_export(state: State<'_, RuleEngineState>, path: String) -> Result<u32, String> {
     let manifests = state.0.all_manifests();
     let json = serde_json::to_string_pretty(&manifests).map_err(|e| e.to_string())?;
-    // 目标父目录不存在时先创建，避免导出静默失败（DeepSeek 审核建议）。
+    // 目标父目录不存在时先创建，避免导出静默失败。
     if let Some(parent) = std::path::Path::new(&path).parent() {
         if !parent.as_os_str().is_empty() && !parent.exists() {
             std::fs::create_dir_all(parent).map_err(|e| format!("创建导出目录失败: {e}"))?;
