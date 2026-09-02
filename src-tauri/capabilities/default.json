@@ -401,7 +401,9 @@
     "allow-get-sync-config",
     "allow-get-sync-status",
     "allow-clear-webdav-config",
-    "allow-open-mini-player"
+    "allow-open-mini-player",
+    "updater:default",
+    "process:default"
   ],
   "platforms": [
     "windows"

@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>萌游 MoeGame · 下载</title>
+<style>
+  :root { --bg:#11151F; --panel:#161b22; --line:rgba(255,255,255,.08); --text:#e6edf3; --muted:#8b949e; --accent:#4f8cff; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text); font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif; min-height:100vh; display:flex; flex-direction:column; align-items:center; }
+  .wrap { width:min(720px,92vw); padding:48px 0 64px; }
+  .brand { display:flex; align-items:center; gap:14px; margin-bottom:8px; }
+  .logo { width:52px; height:52px; border-radius:14px; background:linear-gradient(135deg,#4f8cff,#9a63e8); display:flex; align-items:center; justify-content:center; font-size:26px; }
+  h1 { font-size:26px; font-weight:700; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:28px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:22px; margin-bottom:18px; }
+  .row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .ver { font-size:22px; font-weight:700; }
+  .chip { background:rgba(79,140,255,.15); color:var(--accent); border-radius:999px; padding:3px 12px; font-size:12px; font-weight:600; }
+  .date { color:var(--muted); font-size:12px; }
+  .notes { margin-top:12px; color:var(--muted); font-size:13px; line-height:1.7; white-space:pre-wrap; border-top:1px dashed var(--line); padding-top:12px; }
+  a.btn { display:inline-flex; align-items:center; gap:8px; margin-top:14px; background:var(--accent); color:#fff; text-decoration:none; padding:11px 26px; border-radius:10px; font-size:15px; font-weight:650; transition:filter .15s; }
+  a.btn:hover { filter:brightness(1.12); }
+  h2 { font-size:15px; font-weight:650; margin:26px 0 12px; color:var(--muted); }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  td { padding:9px 6px; border-bottom:1px solid var(--line); }
+  td a { color:var(--accent); text-decoration:none; }
+  td.s { text-align:right; color:var(--muted); white-space:nowrap; }
+  .empty { color:var(--muted); font-size:13px; padding:6px 0 2px; }
+  footer { text-align:center; color:var(--muted); font-size:12px; margin-top:30px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><div class="logo">🎮</div><h1>萌游 MoeGame</h1></div>
+  <div class="sub">本地优先的游戏库与 ACG 媒体中心 · 局域网更新服务器</div>
+
+  <div class="card" id="latest-card">
+    <div class="row"><span class="ver" id="ver">正在读取版本信息…</span><span class="chip" id="chip" hidden>最新</span></div>
+    <div class="date" id="date"></div>
+    <div class="notes" id="notes" hidden></div>
+    <a class="btn" id="dl" hidden href="#">⬇ 下载安装包（Windows x64）</a>
+  </div>
+
+  <h2>历史版本</h2>
+  <div class="card" id="hist"><div class="empty">加载中…</div></div>
+
+  <footer>萌游 MoeGame · 客户端「设置 → 应用更新」会自动检查本服务器</footer>
+</div>
+<script>
+async function load() {
+  try {
+    const res = await fetch("/api/state", { cache: "no-store" });
+    const data = await res.json();
+    const latest = data.latest;
+    if (latest && latest.platforms && latest.platforms["windows-x86_64"]) {
+      const url = latest.platforms["windows-x86_64"].url || "";
+      const name = url.split("/").pop();
+      document.getElementById("ver").textContent = "v" + latest.version;
+      document.getElementById("chip").hidden = false;
+      if (latest.pub_date) document.getElementById("date").textContent = "发布于 " + new Date(latest.pub_date).toLocaleString("zh-CN");
+      if (latest.notes) { const n = document.getElementById("notes"); n.textContent = latest.notes; n.hidden = false; }
+      const dl = document.getElementById("dl");
+      dl.href = "/installers/" + encodeURIComponent(name);
+      dl.hidden = false;
+    } else {
+      document.getElementById("ver").textContent = "尚未发布任何版本";
+      document.getElementById("date").textContent = "在开发机上运行 npm run publish:update 发布第一个更新包";
+    }
+    let files = Array.isArray(data.files) ? data.files : (data.files && data.files.name ? [data.files] : []);
+    files = files.filter(f => /\.exe$/i.test(f.name));
+    const cur = latest && latest.platforms && latest.platforms["windows-x86_64"]
+      ? (latest.platforms["windows-x86_64"].url || "").split("/").pop() : "";
+    const hist = document.getElementById("hist");
+    if (!files.length) { hist.innerHTML = '<div class="empty">暂无历史安装包</div>'; return; }
+    const rows = files.map(f => {
+      const mb = (f.size / 1048576).toFixed(1) + " MB";
+      const tag = f.name === decodeURIComponent(cur || "") ? ' <span class="chip">当前</span>' : "";
+      return `<tr><td><a href="/installers/${encodeURIComponent(f.name)}">${f.name}</a>${tag}</td><td class="s">${f.mtime}</td><td class="s">${mb}</td></tr>`;
+    }).join("");
+    hist.innerHTML = `<table>${rows}</table>`;
+  } catch (e) {
+    document.getElementById("ver").textContent = "无法读取服务器状态";
+    console.error(e);
+  }
+}
+load();
+</script>
+</body>
+</html>

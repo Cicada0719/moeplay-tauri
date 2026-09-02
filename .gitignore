@@ -71,6 +71,9 @@ plugins/**/android/build/
 萌游 MoeGame/
 
 # Tauri updater local artifacts
+update-server/server.config.json
+update-server/www/
+update-server/server.log
 latest.json
 .tauri-updater.conf.json
 

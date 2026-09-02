@@ -1,3 +1,13 @@
+# 萌游 MoeGame v0.22.1
+
+## 局域网自动更新上线
+
+- 更新器端点切换至内网更新服务器（`http://192.168.2.88:8788/latest.json`），安装包放入服务器即全内网客户端自动收到更新。
+- 新增 `update-server/` 一键部署包：PowerShell 自托管服务 + 下载页（最新版本/历史版本）+ 发布令牌鉴权，零外部依赖。
+- 新增一条命令发布：`npm run release:win`（构建→minisign 签名→原子发布 latest.json）与 `npm run publish:update`。
+- 更新签名密钥轮换为新 minisign 密钥对（v0.22.0 及更早客户端需手动安装一次 v0.22.1 作为桥接版本，此后全部自动更新）。
+- 合并掌机终版线与桌面 0.22.0 主页增强线；恢复 updater/process 能力权限。
+
 # 萌游 MoeGame v0.22.0
 
 ## 主页信息整合与展示增强

@@ -30,9 +30,11 @@ test("official releases require signed automatic-update artifacts", () => {
   assert.doesNotMatch(workflow, /degraded|installer-only|includeUpdaterJson: false/i);
 });
 
-test("desktop clients use the signed latest release endpoint", () => {
+test("desktop clients use the LAN update server endpoint", () => {
   assert.ok(config.plugins?.updater?.pubkey, "updater public key is required");
   assert.deepEqual(config.plugins.updater.endpoints, [
-    "https://github.com/Cicada0719/moeplay-tauri/releases/latest/download/latest.json",
+    "http://192.168.2.88:8788/latest.json",
   ]);
+  assert.equal(config.plugins.updater.dangerousInsecureTransportProtocol, true, "LAN server is plain HTTP; package integrity stays guaranteed by minisign signatures");
+  assert.equal(config.bundle?.createUpdaterArtifacts, true, "signed updater artifacts must be produced by tauri build");
 });

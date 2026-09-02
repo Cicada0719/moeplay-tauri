@@ -5,7 +5,8 @@
 桌面端侧重游戏资料管理和大屏浏览；Android 端使用 PSP/XMB 风格的掌机界面，优先适配实体手柄，同时保留触控操作。
 
 <p align="center">
-  <a href="https://github.com/sgyxyx-prog/moeplay-tauri/releases/tag/v0.22.0">下载 v0.22.0</a> ·
+  <a href="http://192.168.2.88:8788/">局域网下载页</a> ·
+  <a href="https://github.com/sgyxyx-prog/moeplay-tauri/releases/tag/v0.22.0">GitHub Release v0.22.0</a> ·
   <a href="https://github.com/sgyxyx-prog/moeplay-tauri/issues">反馈问题</a> ·
   <a href="https://github.com/sgyxyx-prog/moeplay-tauri/pulls">参与开发</a>
 </p>
@@ -16,10 +17,11 @@
 
 | 项目 | 状态 |
 | --- | --- |
-| Windows 10/11 x64 | 已提供 MSI、NSIS 和 Portable 版本 |
+| Windows 10/11 x64 | 已提供 MSI、NSIS 和 Portable 版本；v0.22.1 起支持局域网自动更新 |
 | Android 掌机版 | 已提供 ARM64 Debug APK，可直接 adb 安装验证（见 v0.22.0 Release） |
+| 更新服务器 | `http://192.168.2.88:8788/`（下载页 + `latest.json`，见「局域网自动更新」章节） |
 | 默认分支 | `master` |
-| 当前版本 | `0.22.0` |
+| 当前版本 | `0.22.1` |
 | 许可证 | [MIT License](LICENSE) |
 
 `v0.22.0` Release 提供 Windows 安装包与 Android ARM64 Debug APK。Android 端当前为本地构建的 Debug 包，适合实体机 adb 安装测试；正式分发时再使用签名 Release/AB 构建。
@@ -160,6 +162,25 @@ npm run verify:artifacts
 ```
 
 未配置签名密钥时，发布校验会生成普通安装包，但不会生成可供客户端使用的 `latest.json` 自动更新清单。不要把无签名构建当作正式自动更新版本发布。
+
+## 局域网自动更新（192.168.2.88 更新服务器）
+
+客户端更新端点指向内网更新服务器（`src-tauri/tauri.conf.json` → `plugins.updater.endpoints`），安装包与 `latest.json` 由 PC 端一条命令签名并发布：
+
+```powershell
+# 构建 + minisign 签名 + 发布到更新服务器（原子替换 latest.json）
+npm run release:win -- --notes "本次更新说明"
+
+# 已有构建产物时仅发布（默认取 src-tauri/target/release/bundle/nsis）
+npm run publish:update -- --notes "本次更新说明"
+
+# 干跑（只生成清单不上传）
+npm run publish:update:dry
+```
+
+- 签名私钥与发布配置存放于 `%USERPROFILE%\.tauri\moeplay-publish-config.json`（私钥 `moeplay_updater.key` 同目录），**绝不入库**；丢失私钥或口令将无法再发布可被客户端验证的更新。
+- 更新服务器部署包在 `update-server/`：把整个文件夹拷到服务器，右键管理员运行 `install-update-server.cmd` 即可（防火墙、开机自启计划任务、发布令牌自动生成）。部署后把服务器打印的 `Publish token` 填入本机 `moeplay-publish-config.json` 的 `publishToken`。
+- 部署完成后，局域网设备打开 `http://192.168.2.88:8788/` 即为下载页（最新版本 + 历史版本），已安装客户端在「设置 → 应用更新」中自动收到新版本。
 
 ## 项目结构
 
