@@ -67,5 +67,10 @@
     ],
     "createUpdaterArtifacts": false
   },
-  "plugins": {}
+  "plugins": {
+    "updater": {
+      "pubkey": "",
+      "endpoints": []
+    }
+  }
 }

@@ -34,7 +34,11 @@ export function findUpdaterArtifact(directory, version) {
   const candidates = fs.readdirSync(directory)
     .filter((name) => name.endsWith(".exe") && name.includes(version) && fs.existsSync(path.join(directory, `${name}.sig`)))
     .sort();
-  if (candidates.includes(canonical)) return path.join(directory, canonical);
+  // A previous local packaging pass may have left a canonical copy behind.
+  // Prefer the fresh Tauri bundle so a rebuild cannot silently publish stale bytes.
+  const bundles = candidates.filter(name => name !== canonical);
+  if (bundles.length === 1) return path.join(directory, bundles[0]);
+  if (candidates.length === 1 && candidates[0] === canonical) return path.join(directory, canonical);
   if (candidates.length !== 1) throw new Error(`Expected one signed NSIS updater artifact for ${version}, found ${candidates.length}`);
   return path.join(directory, candidates[0]);
 }

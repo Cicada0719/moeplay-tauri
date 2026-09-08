@@ -8,6 +8,7 @@ const config = JSON.parse(read("src-tauri/tauri.conf.json"));
 const official = JSON.parse(read("src-tauri/tauri.official.conf.json"));
 test("Fork builds need no signing secrets; official builds retain signed HTTPS updates", () => {
   assert.equal(config.bundle.createUpdaterArtifacts, false);
+  assert.deepEqual(config.plugins.updater, { pubkey: "", endpoints: [] });
   assert.equal(official.bundle.createUpdaterArtifacts, true);
   assert.ok(official.plugins.updater.pubkey);
   assert.deepEqual(official.plugins.updater.endpoints, [
