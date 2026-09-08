@@ -39,8 +39,8 @@ describe("theme pack registry", () => {
   });
 
   it("falls back to the default theme pack for unknown ids", () => {
-    expect(getThemePack(undefined).id).toBe("phantom-pop");
-    expect(getThemePack("not-a-theme").id).toBe("phantom-pop");
+    expect(getThemePack(undefined).id).toBe("borderless-lumen");
+    expect(getThemePack("not-a-theme").id).toBe("borderless-lumen");
     expect(getThemePack("shift-editorial").label).toBe("素纸编集");
   });
 

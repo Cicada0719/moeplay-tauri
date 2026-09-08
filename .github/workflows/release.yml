@@ -1,205 +1,31 @@
-name: Release
-
+name: Verify published release
 on:
-  push:
-    tags:
-      - 'v*'
-
-jobs:
   release:
-    permissions:
-      contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: 'windows-latest'
-            target: x86_64-pc-windows-msvc
-    runs-on: ${{ matrix.platform }}
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to verify
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: setup node
-        uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
-
-      - name: install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+      - uses: actions/setup-node@v4
         with:
-          targets: ${{ matrix.target }}
-          components: rustfmt, clippy
-
-      - name: Cache pinned Cargo supply-chain tool
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/bin/cargo-deny.exe
-          key: ${{ runner.os }}-cargo-deny-${{ hashFiles('scripts/cargo-supply-chain-policy.json') }}
-
-      - name: install dependencies
-        run: npm ci
-
-      - name: Audit npm dependencies
-        run: npm run audit:dependencies
-
-      - name: Push audit fixes back to repo
-        shell: bash
-        run: |
-          if ! git diff --exit-code package-lock.json; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add package-lock.json
-            git commit -m "chore: auto-fix npm audit [skip ci]"
-            git push
-          fi
-
-      - name: Test Cargo supply-chain gate
-        run: npm run test:cargo-supply-chain
-
-      - name: Audit Cargo advisories and licenses
-        run: npm run audit:cargo
-
-      - name: Verify version matches tag
-        run: npm run verify:versions
-
-      - name: Verify Tauri command contract
-        run: npm run verify:commands
-
-      - name: Test command contract verifier
-        run: npm run test:command-contract
-
-      - name: Test release evidence generators
-        run: npm run test:release-evidence
-
-      - name: Test updater artifact verifier
-        run: node --test scripts/verify-updater-artifacts.node-test.mjs
-
-      - name: Test mandatory automatic-update release policy
-        run: npm run test:updater-policy
-
-      - name: Test updater manifest generator
-        run: npm run test:updater-manifest
-
-      - name: Test installed-upgrade report verifier
-        run: npm run test:upgrade-report
-
-      - name: Rust format
-        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-
-      - name: Rust clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
-
-      - name: Rust tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml --all-targets --all-features
-
-      - name: Svelte check
-        run: npm run check
-
-      - name: Frontend unit tests
-        run: npm run test:unit
-
-      - name: Frontend build
-        run: npm run build
-
-      - name: Test bundle budget verifier
-        run: npm run test:bundle-budget
-
-      - name: Verify frontend bundle budget
-        run: npm run verify:bundle-budget
-
-      - name: Install Playwright Chromium
-        run: npx playwright install chromium
-
-      - name: Frontend visual smoke
-        run: npm run test:visual -- --ignore-snapshots --workers=1
-
-      - name: Require updater signing secret
-        shell: pwsh
+          node-version: 22
+      - name: Download the locally tested release artifacts
         env:
-          SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:SIGNING_PRIVATE_KEY)) {
-            throw "TAURI_SIGNING_PRIVATE_KEY is required. Unsigned releases are forbidden."
-          }
-          "## Updater mode: signed and mandatory" >> $env:GITHUB_STEP_SUMMARY
-          "This release will not be published unless updater archives, detached signatures and latest.json all pass verification." >> $env:GITHUB_STEP_SUMMARY
-
-      - name: Clean release target and updater metadata
-        shell: pwsh
-        run: |
-          cargo clean --manifest-path src-tauri/Cargo.toml
-          Remove-Item -LiteralPath latest.json -Force -ErrorAction SilentlyContinue
-          Remove-Item -LiteralPath .tauri-updater.conf.json -Force -ErrorAction SilentlyContinue
-
-      - name: Enable signed updater artifacts
-        shell: pwsh
-        run: |
-          '{"bundle":{"createUpdaterArtifacts":true}}' | Set-Content -LiteralPath .tauri-updater.conf.json -Encoding utf8
-
-      - name: Build signed draft release with updater
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: '萌游 MoeGame ${{ github.ref_name }}'
-          releaseBody: |
-            Signed MoePlay release. Automatic-update metadata and signatures are verified before publication.
-          releaseDraft: true
-          prerelease: false
-          includeUpdaterJson: true
-          updaterJsonPreferNsis: true
-          args: --config .tauri-updater.conf.json --ci
-
-      - name: Remove release-only Tauri metadata
-        shell: pwsh
-        run: |
-          Remove-Item -LiteralPath .tauri-updater.conf.json -Force
-          Remove-Item -LiteralPath latest.json -Force -ErrorAction SilentlyContinue
-
-      - name: Build portable package
-        run: npm run package:portable
-
-      - name: Generate release SBOM
-        run: npm run generate:sbom
-
-      - name: Generate build metadata
-        run: npm run generate:build-metadata
-
-      - name: Generate signed latest.json
-        run: npm run generate:updater-manifest
-
-      - name: Verify release artifacts require updater
-        env:
-          UPDATER_RELEASE_MODE: Required
-        run: npm run verify:artifacts
-
-      - name: Verify updater metadata and detached signatures
-        run: node scripts/verify-updater-artifacts.mjs --require --artifacts-dir src-tauri/target/release latest.json
-
-      - name: Upload all release artifacts
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: pwsh
-        run: |
-          $portable = Get-ChildItem src-tauri/target/release/bundle/portable/*.zip | Select-Object -First 1
-          $version = "${{ github.ref_name }}".TrimStart("v")
-          # The latest.json generator stages a canonical ASCII updater copy next to the CJK bundle;
-          # a -like glob matches both and trips the count check, so select the canonical file by name.
-          $updater = Get-Item "src-tauri/target/release/bundle/nsis/MoeGame_${version}_x64-setup.exe" -ErrorAction Stop
-          $msi = Get-ChildItem src-tauri/target/release/bundle/msi/*.msi | Select-Object -First 1
-          gh release upload "${{ github.ref_name }}" latest.json $updater.FullName "$($updater.FullName).sig" $msi.FullName $portable.FullName src-tauri/target/release/bundle/release-manifest.json src-tauri/target/release/bundle/sbom.cdx.json src-tauri/target/release/bundle/build-metadata.json docs/screenshots/big-picture-release.png --clobber
-
-      - name: Publish updater-ready release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: pwsh
-        run: |
-          $notes = (Get-Content -LiteralPath RELEASE_NOTES.md -Raw).Replace("{{TAG}}", "${{ github.ref_name }}")
-          $notes | Set-Content -LiteralPath .release-notes.resolved.md -Encoding utf8
-          gh release edit "${{ github.ref_name }}" --draft=false --prerelease=false --title "萌游 MoeGame ${{ github.ref_name }}" --notes-file .release-notes.resolved.md
-          "## Release published" >> $env:GITHUB_STEP_SUMMARY
-          "latest.json, updater archive and detached signature were verified before publication." >> $env:GITHUB_STEP_SUMMARY
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: gh release download "$RELEASE_TAG" --dir artifacts/verify
+      - name: Verify same-batch hashes and required platforms
+        run: node scripts/release-manifest.mjs artifacts/verify --verify
+      - name: Verify signed updater metadata
+        run: node scripts/verify-updater-artifacts.mjs --require --artifacts-dir artifacts/verify artifacts/verify/latest.json

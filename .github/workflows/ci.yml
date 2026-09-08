@@ -10,7 +10,7 @@ on:
 jobs:
   quality-gate:
     permissions:
-      contents: write
+      contents: read
     runs-on: windows-latest
 
     steps:
@@ -20,7 +20,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Setup Rust
@@ -39,18 +39,6 @@ jobs:
 
       - name: Audit npm dependencies
         run: npm run audit:dependencies
-
-      - name: Push audit fixes back to repo
-        if: github.event_name == 'push'
-        shell: bash
-        run: |
-          if ! git diff --exit-code package-lock.json; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add package-lock.json
-            git commit -m "chore: auto-fix npm audit [skip ci]"
-            git push
-          fi
 
       - name: Test Cargo supply-chain gate
         run: npm run test:cargo-supply-chain
@@ -78,6 +66,11 @@ jobs:
 
       - name: Test updater manifest generator
         run: npm run test:updater-manifest
+
+      - name: Test release batch and deployment validation
+        run: |
+          node --test scripts/release-manifest.node-test.mjs
+          python update-server/deploy/test_activate.py
 
       - name: Verify ordinary workspace updater state
         run: node scripts/verify-updater-artifacts.mjs --expect-absent
@@ -113,7 +106,7 @@ jobs:
         run: npx playwright install chromium
 
       - name: Frontend visual smoke
-        run: npm run test:visual -- --ignore-snapshots
+        run: npm run test:visual -- --workers=1
 
       - name: Upload visual smoke artifacts
         if: always()

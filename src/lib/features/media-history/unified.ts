@@ -40,7 +40,8 @@ function animePosition(entry: AnimeHistory): string {
 }
 
 function comicPosition(entry: ReadRecord): string {
-  return entry.last_title?.trim() || (entry.last_order > 0 ? `第 ${entry.last_order} 话` : "已开始");
+  const chapter = entry.last_title?.trim() || (entry.last_order > 0 ? `第 ${entry.last_order} 话` : "已开始");
+  return entry.pageIndex === undefined ? chapter : `${chapter} · 第 ${entry.pageIndex + 1} 页`;
 }
 
 function novelPosition(entry: NovelHistoryEntry): string {
@@ -53,7 +54,7 @@ function novelPosition(entry: NovelHistoryEntry): string {
  * 将三个媒体 store 的本地历史转换成一个稳定、可排序、可恢复的时间线。
  * 这里只做纯数据归一化，不写入新的存储，也不改变旧历史字段语义。
  */
-export function buildUnifiedMediaHistory(input: UnifiedMediaHistoryInput, limit = 100): UnifiedMediaHistoryItem[] {
+export function buildUnifiedMediaHistory(input: UnifiedMediaHistoryInput, limit = Infinity): UnifiedMediaHistoryItem[] {
   const items: UnifiedMediaHistoryItem[] = [];
 
   for (const entry of input.anime) {
@@ -87,11 +88,15 @@ export function buildUnifiedMediaHistory(input: UnifiedMediaHistoryInput, limit 
     });
   }
 
-  for (const entry of input.novel) {
+  const books = new Set<string>();
+  for (const entry of [...input.novel].sort((a, b) => b.updatedAt - a.updatedAt)) {
     if (!entry.key || !entry.book.title?.trim()) continue;
+    const key = JSON.stringify([entry.book.source, entry.book.id]);
+    if (books.has(key)) continue;
+    books.add(key);
     const progress = clampProgress(entry.progress);
     items.push({
-      id: `novel:${entry.key}`,
+      id: `novel:${key}`,
       kind: "novel",
       title: entry.book.title,
       cover: entry.book.coverUrl || null,

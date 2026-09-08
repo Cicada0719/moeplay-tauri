@@ -1,11 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { createHash, createPublicKey, verify } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const defaultVersion = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
-const tauriConfig = JSON.parse(fs.readFileSync(path.join(root, "src-tauri", "tauri.conf.json"), "utf8"));
+const tauriConfig = JSON.parse(fs.readFileSync(path.join(root, "src-tauri", "tauri.official.conf.json"), "utf8"));
 const defaultPublicKey = tauriConfig?.plugins?.updater?.pubkey;
 const defaultSearchRoots = [path.join(root, "src-tauri", "target", "release")];
 const rootManifest = path.join(root, "latest.json");
@@ -101,6 +102,22 @@ function validateHttpsUrl(value, label) {
   return url;
 }
 
+/** Verify both Minisign signatures, including the trusted comment. */
+export function verifySignedBytes(bytes, signature, publicKey) {
+  const keyPacket = decodePacket(minisignPayloadLines(decodeMinisignText(publicKey, "public key"))[0], "public key", 42);
+  const lines = decodeMinisignText(signature, "signature").split("\n");
+  validateMinisignSignature(signature, "signature", keyPacket.subarray(2, 10).toString("hex"));
+  if (lines.length !== 4 || !lines[2].startsWith("trusted comment: ")) throw new Error("Missing trusted signature comment");
+  const packet = decodePacket(lines[1], "signature", 74);
+  const globalSignature = decodePacket(lines[3], "global signature", 64);
+  if (packet.length !== 74 || keyPacket.length !== 42 || globalSignature.length !== 64) throw new Error("Invalid Minisign packet length");
+  const key = createPublicKey({ key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), keyPacket.subarray(10)]), format: "der", type: "spki" });
+  const payload = packet.subarray(0, 2).toString("ascii") === "ED" ? createHash("blake2b512").update(bytes).digest() : bytes;
+  if (!verify(null, payload, key, packet.subarray(10))) throw new Error("Updater cryptographic signature is invalid");
+  if (!verify(null, Buffer.concat([packet.subarray(10), Buffer.from(lines[2].slice(17))]), key, globalSignature)) throw new Error("Updater trusted comment signature is invalid");
+  return true;
+}
+
 function findLocalArtifact(url, artifactsDir) {
   if (!artifactsDir) return null;
   const assetName = decodeURIComponent(path.posix.basename(url.pathname));
@@ -162,6 +179,7 @@ export function verifyUpdaterManifest(manifestPath, options = {}) {
       if (normalizeText(detachedSignature) !== normalizeText(artifact.signature)) {
         throw new Error(`${label}: latest.json signature does not match ${signaturePath}`);
       }
+      verifySignedBytes(fs.readFileSync(localArtifact), detachedSignature, options.publicKey ?? defaultPublicKey);
       verifiedArtifacts.push(localArtifact);
     }
   }

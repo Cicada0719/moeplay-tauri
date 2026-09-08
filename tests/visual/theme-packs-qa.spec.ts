@@ -47,7 +47,7 @@ const newPacks = [
   { name: "魅影波普", id: "phantom-pop", color: "dark", decoration: "petals", accent: "#e6242f", bodyRgb: "rgb(10, 8, 9)" },
   { name: "警戒工业", id: "caution-industrial", color: "dark", decoration: "digital-rain", accent: "#f59e0b", bodyRgb: "rgb(11, 13, 16)" },
   { name: "星穹旅人", id: "astral-rail", color: "dark", decoration: "light-particles", accent: "#d8b45a", bodyRgb: "rgb(7, 8, 26)" },
-  { name: "无界流光", id: "borderless-lumen", color: "dark", decoration: "petals", accent: "#7c5cff", bodyRgb: "rgb(4, 4, 8)" },
+  { name: "无界流光", id: "borderless-lumen", color: "dark", decoration: "petals", accent: "#63e4d4", bodyRgb: "rgb(8, 11, 13)" },
 ] as const;
 
 for (const theme of newPacks) {

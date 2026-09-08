@@ -1,0 +1,21 @@
+name: 问题反馈
+description: 提交可复现的问题
+body:
+  - type: input
+    id: environment
+    attributes:
+      label: 版本与设备
+      description: 应用版本、系统、安装渠道、手柄型号（如适用）
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤与预期结果
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 实际结果与截图
+      description: 请勿粘贴密码、私钥、令牌或带凭据的来源 URL。

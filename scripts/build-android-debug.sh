@@ -6,7 +6,7 @@
 #
 # 前置条件：
 #   - Android SDK（含 NDK、build-tools、platforms），默认取 %LOCALAPPDATA%\Android\Sdk
-#   - JDK 17（默认取 C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot，可用 JAVA_HOME 覆盖）
+#   - JDK 17（使用 JAVA_HOME 指向本机安装目录）
 #   - Rust 工具链 + aarch64-linux-android target（rustup target add aarch64-linux-android）
 #   - libclang（bindgen 生成 rquickjs Android 绑定用）：
 #       pip install libclang  →  然后设 LIBCLANG_PATH 指向 clang\native 目录
@@ -23,7 +23,7 @@ cd "$(dirname "$0")/.."
 # ── 环境（按需覆盖）───────────────────────────────────────────────
 export ANDROID_HOME="${ANDROID_HOME:-$LOCALAPPDATA/Android/Sdk}"
 export NDK_HOME="${NDK_HOME:-$ANDROID_HOME/ndk/28.0.13004108}"
-export JAVA_HOME="${JAVA_HOME:-C:\\Program Files\\Microsoft\\jdk-17.0.19.10-hotspot}"
+: "${JAVA_HOME:?Set JAVA_HOME to JDK 17}"
 export ProgramData="${ProgramData:-C:\\ProgramData}"
 export PATH="$HOME/.cargo/bin:$PATH"
 
@@ -43,7 +43,7 @@ export AR_aarch64_linux_android="${AR_aarch64_linux_android:-$NDK_TOOLCHAIN_BIN\
 export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="${CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER:-$NDK_TOOLCHAIN_BIN\\aarch64-linux-android24-clang.cmd}"
 
 # 坑 1：纯 ASCII 构建目录（可用 CARGO_TARGET_DIR 覆盖）
-export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-D:\\moeplay-android-target}"
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$TEMP/moeplay-android-target}"
 
 # ── 1. Rust → libmoeplay_lib.so ─────────────────────────────────
 echo "==> cargo build (aarch64-linux-android, debug)"

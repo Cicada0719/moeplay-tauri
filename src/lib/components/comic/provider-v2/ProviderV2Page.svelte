@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from "svelte";
+  import { providerResume } from "../../../features/reading-history/resume.svelte";
   import { createComicProviderStore } from "../../../features/comic/store";
   import { providerErrorMessage } from "../../../features/comic/logic";
   import type { ComicChapter, ComicFeatureState, ComicProviderConfigureRequest, ComicProviderDescriptor, ComicResolvedTarget, ComicSeries } from "../../../features/comic/types";
@@ -165,7 +166,18 @@
     return provider.authMode === "basic" ? "Basic" : "Bearer";
   }
 
-  onMount(refreshProviders);
+  onMount(() => { void refreshProviders().then(async () => {
+    const request = providerResume.request;
+    if (!request) return;
+    providerResume.request = null;
+    if (!featureState.providers.some(p => p.id === request.providerId)) { actionError = "原漫画源尚未配置，请重新添加后续读。"; return; }
+    selectProvider(request.providerId);
+    selectedSeriesId = request.seriesId;
+    const result = await run(() => providerStore.loadSeries(request.providerId, request.seriesId), "恢复作品失败");
+    const chapter = result?.chapters.find(c => c.identity.chapterId === request.chapterId);
+    if (chapter) await openChapter(chapter);
+    else actionError = "原章节已不可用，请重新选择章节。";
+  }); });
   onDestroy(() => providerStore.cancelPending());
 </script>
 
@@ -320,6 +332,9 @@
         target={readerTarget}
         title={selectedDetail.series.title}
         chapterTitle={activeChapter.title}
+        seriesId={selectedDetail.series.id}
+        chapterId={activeChapter.identity.chapterId}
+        coverUrl={selectedDetail.series.coverUrl}
         onclose={closeReader}
         onretry={retryChapter}
         returnFocusKey={chapterReturnFocusKey}

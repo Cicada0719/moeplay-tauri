@@ -1,4 +1,9 @@
 <script lang="ts">
+  import { onMount } from "svelte";
+  import { readingRepository } from "../reading-history/repository";
+  import type { AnimeHistory } from "../anime-player/historyStore.svelte";
+  import type { ReadRecord } from "../../stores/comic.svelte";
+  import type { NovelHistoryEntry } from "../novel/types";
   import { animeStore } from "../../stores/anime.svelte";
   import { comicStore } from "../../stores/comic.svelte";
   import { novelStore } from "../novel/store.svelte";
@@ -17,6 +22,18 @@
   let { onOpen }: { onOpen?: (item: UnifiedMediaHistoryItem) => void | Promise<void> } = $props();
   let filter = $state<HistoryFilter>("all");
   let openingId = $state<string | null>(null);
+  let query = $state("");
+  let limit = $state(24);
+  let managing = $state(false);
+  let storageError = $state(readingRepository.error);
+  let ready = $state(readingRepository.ready);
+  let backupText = $state("");
+  let importInput: HTMLInputElement;
+  onMount(() => {
+    const unsubscribe = readingRepository.subscribe(() => { storageError = readingRepository.error; ready = readingRepository.ready; });
+    void readingRepository.init().catch(() => {});
+    return unsubscribe;
+  });
 
   const items = $derived(
     buildUnifiedMediaHistory({
@@ -25,7 +42,45 @@
       novel: novelStore.history,
     }),
   );
-  const filteredItems = $derived(filter === "all" ? items : items.filter((item) => item.kind === filter));
+  const filteredItems = $derived(items.filter(item => (filter === "all" || item.kind === filter)
+    && `${item.title} ${item.sourceLabel} ${item.positionLabel}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())));
+  $effect(() => { filter; query; limit = 24; });
+
+  async function exportHistory() {
+    try {
+      const url = URL.createObjectURL(new Blob([await readingRepository.exportJSON()], { type: "application/json" }));
+      const link = document.createElement("a"); link.href = url; link.download = `moeplay-reading-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) { uiStore.notify(String(error), "error"); }
+  }
+  async function importHistory(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0]; if (!file) return;
+    try {
+      const result = await readingRepository.importJSON(await file.text());
+      uiStore.notify(`导入 ${result.imported} 条章节记录，跳过 ${result.skipped} 条无效记录。`, "success");
+    } catch (error) { uiStore.notify(String(error), "error"); }
+    input.value = "";
+  }
+  async function prepareTextBackup() {
+    try { backupText = await readingRepository.exportJSON(); }
+    catch (error) { uiStore.notify(String(error), "error"); }
+  }
+  async function importTextBackup() {
+    try { const result = await readingRepository.importJSON(backupText); uiStore.notify(`导入 ${result.imported} 条章节记录，跳过 ${result.skipped} 条无效记录。`, "success"); }
+    catch (error) { uiStore.notify(String(error), "error"); }
+  }
+  async function copyTextBackup() {
+    try { await navigator.clipboard.writeText(backupText); uiStore.notify("阅读备份已复制", "success"); }
+    catch { uiStore.notify("当前系统不支持直接复制，请长按下方文本全选并复制。", "info"); }
+  }
+  async function removeItem(item: UnifiedMediaHistoryItem) {
+    try {
+      if (item.kind === "novel") await novelStore.removeHistory(item.payload as NovelHistoryEntry);
+      else if (item.kind === "comic") comicStore.removeHistory((item.payload as ReadRecord).id);
+      else animeStore.removeHistory((item.payload as AnimeHistory).key);
+    } catch (error) { uiStore.notify(String(error), "error"); }
+  }
   const filterOptions = $derived([
     { value: "all" as const, label: "全部", count: items.length },
     { value: "anime" as const, label: "番剧", count: items.filter((item) => item.kind === "anime").length },
@@ -77,6 +132,21 @@
       {/each}
     </div>
   </header>
+  <div class="history-tools">
+    <input aria-label="搜索阅读历史" placeholder="搜索作品、来源或章节" bind:value={query} />
+    <button type="button" aria-pressed={managing} onclick={() => managing = !managing}>{managing ? "完成管理" : "管理记录"}</button>
+    <button type="button" onclick={exportHistory}>导出阅读备份</button>
+    <button type="button" onclick={() => importInput.click()}>导入备份</button>
+    <input hidden bind:this={importInput} type="file" accept=".json,application/json" onchange={importHistory} />
+  </div>
+  <details class="text-backup">
+    <summary>移动端文本备份与恢复</summary>
+    <p>系统无法保存 JSON 文件时，可生成并复制完整备份；恢复时粘贴 JSON 后导入。仅包含漫画与小说阅读记录。</p>
+    <div class="history-tools"><button type="button" onclick={prepareTextBackup}>生成备份文本</button><button type="button" disabled={!backupText} onclick={copyTextBackup}>复制完整 JSON</button><button type="button" disabled={!backupText.trim()} onclick={importTextBackup}>导入文本</button></div>
+    <textarea aria-label="阅读历史 JSON 备份文本" bind:value={backupText} spellcheck="false" placeholder="生成备份，或在这里粘贴已有 JSON" rows="6"></textarea>
+  </details>
+  {#if storageError}<div class="history-warning" role="alert">{storageError} <button type="button" onclick={() => readingRepository.retry().catch(error => uiStore.notify(String(error), "error"))}>重试保存</button></div>{/if}
+  {#if !ready && !storageError}<p role="status">正在读取并迁移阅读历史…</p>{/if}
 
   {#if filteredItems.length === 0}
     <div class="unified-history__empty" role="status">
@@ -85,7 +155,7 @@
     </div>
   {:else}
     <div class="unified-history__grid" role="list" aria-label="统一媒体历史条目">
-      {#each filteredItems as item (item.id)}
+      {#each filteredItems.slice(0, limit) as item (item.id)}
         <article class="unified-history__item" class:opening={openingId === item.id} role="listitem">
           <button
             type="button"
@@ -106,13 +176,24 @@
               <span class="unified-history__time">{timeLabel(item.updatedAt)} <b>↗</b></span>
             </span>
           </button>
+          {#if managing}<button class="history-delete" type="button" aria-label={`删除 ${item.title} 的本地历史`} onclick={() => removeItem(item)}>删除本地记录</button>{/if}
         </article>
       {/each}
     </div>
+    {#if filteredItems.length > limit}<button class="history-more" type="button" onclick={() => limit += 24}>显示更多 · 剩余 {filteredItems.length - limit} 条</button>{/if}
   {/if}
 </section>
 
 <style>
+  .text-backup { color:var(--v2-color-text-secondary); font-size:.8rem; }
+  .text-backup summary { cursor:pointer; padding:.5rem 0; }
+  .text-backup p { margin:.5rem 0 1rem; line-height:1.6; }
+  .text-backup textarea { display:block; width:100%; margin-top:.8rem; resize:vertical; border:1px solid var(--v2-color-border); border-radius:.6rem; padding:.8rem; background:var(--v2-color-surface); color:var(--v2-color-text); font:12px/1.5 var(--v2-font-mono); }
+  .history-tools { display:flex; flex-wrap:wrap; gap:.6rem; }
+  .history-tools input:not([hidden]) { flex:1 1 16rem; min-width:0; }
+  .history-tools input, .history-tools button, .history-more, .history-delete { border:1px solid var(--v2-color-border); border-radius:.6rem; padding:.7rem 1rem; background:var(--v2-color-surface); color:var(--v2-color-text); font:inherit; }
+  .history-delete { margin:.4rem; color:var(--v2-color-text-secondary); font-size:.75rem; }
+  .history-warning { padding:1rem; border:1px solid var(--v2-color-accent); border-radius:.6rem; }
   .unified-history { display: grid; gap: var(--v2-space-4); }
   .unified-history__header { display: flex; align-items: end; justify-content: space-between; gap: var(--v2-space-4); }
   .unified-history__kicker { color: var(--v2-color-accent); font: 700 var(--v2-text-xs)/1 var(--v2-font-mono); letter-spacing: .13em; }

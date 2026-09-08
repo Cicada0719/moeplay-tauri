@@ -3,22 +3,26 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 
 import { runCli, verifyUpdaterManifest } from "./verify-updater-artifacts.mjs";
 
 const version = "0.12.1";
 const keyId = Buffer.from("0102030405060708", "hex");
-const publicPacket = Buffer.concat([Buffer.from("Ed"), keyId, Buffer.alloc(32, 5)]);
+const keys = generateKeyPairSync("ed25519");
+const publicPacket = Buffer.concat([Buffer.from("Ed"), keyId, keys.publicKey.export({format:"der",type:"spki"}).subarray(-32)]);
 const publicKey = Buffer.from([
   "untrusted comment: minisign public key",
   publicPacket.toString("base64"),
 ].join("\n"), "utf8").toString("base64");
-const signaturePacket = Buffer.concat([Buffer.from("ED"), keyId, Buffer.alloc(64, 7)]);
+const trustedComment = "timestamp:1783699200\tfile:moeplay_0.12.1_x64-setup.nsis.zip";
+const signatureBytes = sign(null, createHash("blake2b512").update("signed updater payload").digest(), keys.privateKey);
+const signaturePacket = Buffer.concat([Buffer.from("ED"), keyId, signatureBytes]);
 const minisignText = [
   "untrusted comment: signature from minisign secret key",
   signaturePacket.toString("base64"),
-  "trusted comment: timestamp:1783699200\tfile:moeplay_0.12.1_x64-setup.nsis.zip",
-  Buffer.alloc(64, 9).toString("base64"),
+  `trusted comment: ${trustedComment}`,
+  sign(null, Buffer.concat([signatureBytes, Buffer.from(trustedComment)]), keys.privateKey).toString("base64"),
 ].join("\n");
 const signature = Buffer.from(minisignText, "utf8").toString("base64");
 
@@ -49,6 +53,11 @@ test("accepts HTTPS metadata whose signature matches the local detached signatur
   const result = verifyUpdaterManifest(data.manifest, { expectedVersion: version, artifactsDir: data.directory, publicKey });
   assert.equal(result.version, version);
   assert.deepEqual(result.verifiedArtifacts, [data.artifact]);
+});
+
+test("rejects modified installer bytes even when detached and manifest signatures match", () => {
+  const data = fixture(); fs.appendFileSync(data.artifact, "tampered");
+  assert.throws(() => verifyUpdaterManifest(data.manifest, { expectedVersion: version, artifactsDir: data.directory, publicKey }), /cryptographic signature/);
 });
 
 test("rejects non-HTTPS updater URLs", () => {
@@ -97,7 +106,7 @@ test("requires the URL-named updater artifact to exist locally", () => {
 });
 
 test("rejects a manifest signature that differs from the detached signature", () => {
-  const otherText = minisignText.replace(Buffer.alloc(64, 9).toString("base64"), Buffer.alloc(64, 8).toString("base64"));
+  const otherText = minisignText.replace(minisignText.split("\n")[3], Buffer.alloc(64, 8).toString("base64"));
   const otherSignature = Buffer.from(otherText, "utf8").toString("base64");
   const data = fixture({ signature: otherSignature });
   assert.throws(

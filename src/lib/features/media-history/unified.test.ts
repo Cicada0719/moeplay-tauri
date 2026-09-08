@@ -35,10 +35,19 @@ const novel: NovelHistoryEntry = {
 };
 
 describe("unified media history", () => {
+  it("keeps every book available for filtering before pagination", () => {
+    const manyAnime = Array.from({ length: 140 }, (_, i) => ({ ...anime, key: String(i) }));
+    const earlierChapter = { ...novel, key: "earlier", chapterId: "1", updatedAt: novel.updatedAt - 1 };
+    const items = buildUnifiedMediaHistory({ anime: manyAnime, comic: [comic], novel: [earlierChapter, novel] });
+    expect(items).toHaveLength(142);
+    expect(items.filter(item => item.kind === "novel")).toHaveLength(1);
+    expect(items.find(item => item.kind === "novel")?.payload).toBe(novel);
+    expect(items.filter(item => item.kind === "comic")).toHaveLength(1);
+  });
   it("merges anime, comic and novel histories in newest-first order", () => {
     const items = buildUnifiedMediaHistory({ anime: [anime], comic: [comic], novel: [novel] });
     expect(items.map((item) => item.kind)).toEqual(["novel", "anime", "comic"]);
-    expect(items[0]).toMatchObject({ id: "novel:biquge:novel-1:chapter-2", title: "山间小说", positionLabel: "第二章 · 42%", progress: 0.42 });
+    expect(items[0]).toMatchObject({ id: 'novel:["biquge","novel-1"]', title: "山间小说", positionLabel: "第二章 · 42%", progress: 0.42 });
     expect(items[1]).toMatchObject({ sourceLabel: "本地源", positionLabel: "第 3 集" });
   });
 

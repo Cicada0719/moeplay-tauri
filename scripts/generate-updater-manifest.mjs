@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -50,7 +51,9 @@ export function prepareCanonicalUpdaterArtifact(directory, version) {
 
 export function run() {
   const version = process.env.MOEPLAY_RELEASE_VERSION || packageVersion;
-  const repository = process.env.GITHUB_REPOSITORY || "Cicada0719/moeplay-tauri";
+  const remote = process.env.GITHUB_REPOSITORY || execFileSync("git", ["remote", "get-url", "origin"], { cwd: root, encoding: "utf8" }).trim();
+  const repository = remote.replace(/^.*github\.com[:/]/, "").replace(/\.git$/, "");
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error("Set GITHUB_REPOSITORY to owner/repo");
   const nsisDir = path.resolve(process.env.MOEPLAY_NSIS_DIR || path.join(root, "src-tauri/target/release/bundle/nsis"));
   const output = path.resolve(process.env.MOEPLAY_UPDATER_MANIFEST || path.join(root, "latest.json"));
   const artifactPath = prepareCanonicalUpdaterArtifact(nsisDir, version);

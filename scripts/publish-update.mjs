@@ -40,6 +40,17 @@ export function defaultConfigPath() {
   return process.env.MOEPLAY_PUBLISH_CONFIG || DEFAULT_CONFIG;
 }
 
+export function loadSigningConfig(configPath = defaultConfigPath()) {
+  if (!fs.existsSync(configPath)) {
+    throw new Error(`发布配置不存在：${configPath}（需要 privateKeyPath / password 字段）`);
+  }
+  const cfg = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  for (const key of ["privateKeyPath", "password"]) {
+    if (!cfg[key]) throw new Error(`发布配置缺少字段：${key}（${configPath}）`);
+  }
+  return cfg;
+}
+
 export function loadConfig(configPath = defaultConfigPath()) {
   if (!fs.existsSync(configPath)) {
     throw new Error(`发布配置不存在：${configPath}\n需要字段 privateKeyPath / password / serverBaseUrl / publishToken（publishToken 在服务器安装完成后于 C:\\MoePlayUpdateServer\\server.config.json 中查看）`);

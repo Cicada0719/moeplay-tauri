@@ -1,0 +1,9 @@
+{
+  "siteUrl": "https://downloads.example.com",
+  "repository": "YOUR_ACCOUNT/YOUR_FORK",
+  "sshHost": "your-server-alias",
+  "remoteRoot": "/home/your-user/moeplay-release",
+  "windowsSigningConfig": "OUTSIDE_REPOSITORY/moeplay-publish-config.json",
+  "androidKeystore": "OUTSIDE_REPOSITORY/android-release.jks",
+  "androidKeyAlias": "moeplay"
+}

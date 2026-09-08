@@ -1,7 +1,7 @@
 {
   "name": "moeplay",
   "private": true,
-  "version": "0.22.1",
+  "version": "0.23.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -30,7 +30,9 @@
     "verify:bundle-budget": "node scripts/verify-bundle-budget.mjs",
     "test:bundle-budget": "node --test scripts/verify-bundle-budget.node-test.mjs",
     "test:performance-nightly": "cargo test --manifest-path src-tauri/Cargo.toml --release benchmark_10000_games_nightly -- --ignored --nocapture",
-    "audit:dependencies": "npm audit fix --audit-level=high && npm audit --audit-level=high",
+    "audit:dependencies": "npm audit --audit-level=high",
+    "doctor": "node scripts/doctor.mjs",
+    "release:manifest": "node scripts/release-manifest.mjs",
     "audit:cargo": "node scripts/audit-cargo-supply-chain.mjs",
     "test:cargo-supply-chain": "node --test scripts/audit-cargo-supply-chain.node-test.mjs",
     "verify:upgrade-report": "node scripts/verify-upgrade-report.mjs",
@@ -51,6 +53,7 @@
     "@testing-library/user-event": "^14.6.1",
     "@tsconfig/svelte": "^5.0.0",
     "@types/three": "^0.180.0",
+    "fake-indexeddb": "^6.2.5",
     "happy-dom": "^20.10.6",
     "svelte": "^5.0.0",
     "svelte-check": "^4.7.4",
