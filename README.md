@@ -51,7 +51,7 @@ npm run verify:commands
 cargo test --manifest-path src-tauri/Cargo.toml --all-targets
 ```
 
-浏览器回归：安装 Chrome 后执行 `npm run test:visual`。测试通过确定性模拟数据运行；截图必须与已审阅的基准比对。更新基准使用 `--update-snapshots`，提交前检查差异。
+浏览器回归：先执行 `npx playwright install chromium`，再执行 `npm run test:visual`。测试使用锁文件对应的 Chromium、本地中文字体和确定性模拟数据；截图必须与已审阅的基准比对。更新基准使用 `--update-snapshots`，提交前检查差异。
 
 ## Fork
 
