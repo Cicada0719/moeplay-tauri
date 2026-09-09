@@ -9,6 +9,16 @@ import {
 type ThemePackId = "phantom-pop" | "shift-editorial" | "borderless-lumen";
 type ColorMode = "pack-default" | "contrast";
 
+async function prepareScreenshot(page: import("@playwright/test").Page) {
+  // Windows desktop and CI images ship different Chinese system fonts. Keep
+  // screenshot typography explicit, local and pinned; retain pixel comparison.
+  await page.addStyleTag({ url: "/node_modules/@fontsource/noto-sans-sc/400.css" });
+  await page.addStyleTag({ url: "/node_modules/@fontsource/noto-sans-sc/700.css" });
+  await page.addStyleTag({ content: '* { font-family: "Noto Sans SC", sans-serif !important; }' });
+  await page.evaluate(async () => { await document.fonts.ready; });
+  expect(await page.evaluate(() => document.fonts.check('16px "Noto Sans SC"', '萌游设置'))).toBe(true);
+}
+
 function themedState(themePack: ThemePackId, colorMode: ColorMode = "pack-default"): MockAppState {
   const appearance = {
     theme_pack: themePack,
@@ -65,6 +75,7 @@ for (const theme of themes) {
       await expect(stage).toHaveAttribute("data-wallpaper-id", `builtin:${theme.id}:1`);
       await expect(stage.locator(`.wallpaper-stage__decor--${theme.decoration}`)).toHaveCount(1);
 
+      await prepareScreenshot(appPage);
       await expect(appPage).toHaveScreenshot(`settings-theme-${theme.id}.png`, {
         fullPage: true,
       });
@@ -93,7 +104,8 @@ test.describe("anime theme surface and accessibility modes", () => {
     expect(managementFilter).not.toBe(browseFilter);
     expect(managementScrim).not.toBe(browseScrim);
     expect(managementFilter).toContain("brightness");
-    await expect(appPage).toHaveScreenshot("management-wallpaper-treatment.png", { fullPage: true });
+    await prepareScreenshot(appPage);
+      await expect(appPage).toHaveScreenshot("management-wallpaper-treatment.png", { fullPage: true });
   });
 
   test("reduced motion disables wallpaper transitions and animated decoration", async ({ page }) => {
@@ -132,6 +144,10 @@ test.describe("contrast anime theme accessibility", () => {
     // ui-v2 设置页已移除色模式 radio 组（色模式随主题包派生）；contrast 语义由上方 data-* 断言与下方 axe 检查保障。
     await expect(appPage.locator('[aria-label="主题包"]')).toHaveCount(1);
 
+    // Capture before axe's contrast analysis temporarily changes compositor layers.
+    await prepareScreenshot(appPage);
+    await expect(appPage).toHaveScreenshot("settings-contrast.png", { fullPage: true });
+
     const results = await new AxeBuilder({ page: appPage })
       .include('[aria-label="主题包"]')
       .analyze();
@@ -144,6 +160,6 @@ test.describe("contrast anime theme accessibility", () => {
       targets: nodes.map((node) => node.target),
     }))).toEqual([]);
 
-    await expect(appPage).toHaveScreenshot("settings-contrast.png", { fullPage: true });
+
   });
 });

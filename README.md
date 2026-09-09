@@ -26,6 +26,8 @@
 
 下载页与 Release 的 `release-manifest.json` 列出实际附件、版本、大小和 SHA-256。以已发布清单为准；仓库版本号不代表已完成发布。
 
+v0.23.1 修复电脑端虚拟键盘、隐藏解析页发声、无视频帧持续加载和快速切源串播；画质增强失败时恢复原始视频。完整变更见 [CHANGELOG](CHANGELOG.md)。
+
 ## 安装与升级
 
 Windows 推荐 EXE；官方安装版通过 HTTPS 检查签名更新，GitHub 是备用入口。Portable 解压后运行，使用前可校验 SHA-256。

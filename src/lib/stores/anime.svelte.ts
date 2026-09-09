@@ -649,6 +649,9 @@ export const animeStore = {
     kind: string | null,
     seekMs: number,
   ) {
+    _playGeneration++;
+    _failoverGeneration++;
+    _failoverStatus = 'idle';
     _playerVideoSrc = url;
     _playerIsM3u8 = kind === 'video' && url.toLowerCase().includes('.m3u8');
     _playerExtractStatus = 'found';
@@ -1530,8 +1533,8 @@ export const animeStore = {
     const gen = ++_playGeneration;
 
     // 续播逻辑：优先用传入的 seekMs，否则查历史记录
-    if (seekMs !== undefined && seekMs > 0) {
-      _pendingSeekMs = seekMs;
+    if (seekMs !== undefined && Number.isFinite(seekMs)) {
+      _pendingSeekMs = Math.max(0, seekMs);
     } else {
       const historyKey = `${_detailRuleName}:${_detailName}`;
       const history = historyStore.get(historyKey);
@@ -1545,14 +1548,16 @@ export const animeStore = {
 
     debugLog("[播放] playEpisode", { roadIdx, episodeIdx, rule: _detailRuleName });
 
+    let builtUrl: string;
     try {
-      _playerUrl = await invokeCmd<string>("anime_build_url", {
+      builtUrl = await invokeCmd<string>("anime_build_url", {
         ruleName: _detailRuleName, url: ep.url,
       });
     } catch {
-      _playerUrl = ep.url;
+      builtUrl = ep.url;
     }
     if (gen !== _playGeneration) return;
+    _playerUrl = builtUrl;
     const rule = _rules.find(r => r.name === _detailRuleName);
     _playerPageUrl = _playerUrl;
     _playerWebUrl = _playerUrl || rule?.baseUrl || '';
@@ -1602,6 +1607,7 @@ export const animeStore = {
 
       // 等待代理就绪后再获取代理 URL，避免拿到 127.0.0.1:0 的无效地址
       const proxyReady = await waitForProxyReady();
+      if (gen !== _playGeneration) return;
       if (!proxyReady) {
         console.error('[播放] 视频代理服务器未就绪');
         throw new Error('视频代理服务器未就绪');
@@ -1617,6 +1623,7 @@ export const animeStore = {
         url: result.url,
         referer: playerReferer || null,
       });
+      if (gen !== _playGeneration) return;
       debugLog("[播放] 代理 URL:", proxyUrl);
       invokeCmd('frontend_log', { level: 'info', message: `[播放] 前端拿到代理URL: ${proxyUrl.substring(0, 80)}` }).catch(() => {});
       _playerVideoSrc = proxyUrl;

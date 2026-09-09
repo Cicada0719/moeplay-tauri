@@ -2,7 +2,8 @@ import { defineConfig, devices } from "@playwright/test";
 
 const matrixTestMatch = /(?:accessibility-infra|visual|responsive|matrix)\.spec\.ts/;
 const requestedChannel = process.env.PLAYWRIGHT_CHANNEL?.trim();
-const browserChannel = requestedChannel === "bundled" ? undefined : (requestedChannel || "chrome");
+// Default to Playwright's lockfile-pinned browser on both developer PCs and CI.
+const browserChannel = !requestedChannel || requestedChannel === "bundled" ? undefined : requestedChannel;
 
 const commonUse = {
   ...devices["Desktop Chrome"],

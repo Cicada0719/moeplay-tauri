@@ -561,11 +561,10 @@ pub fn resolve_rules_dir_from_paths(app_data: Option<&Path>, bundled: &Path) -> 
     bundled.to_path_buf()
 }
 
-/// 打包资源目录（`resource_dir/rules`，开发期为 `CARGO_MANIFEST_DIR/resources/rules`）。
+/// Support both portable rules/ and Tauri's preserved resources/rules/ layout.
 pub fn bundled_rules_dir(app: &AppHandle) -> PathBuf {
     if let Ok(dir) = app.path().resource_dir() {
-        let candidate = dir.join("rules");
-        if candidate.is_dir() {
+        if let Some(candidate) = packaged_rules_dir(&dir) {
             return candidate;
         }
     }
@@ -576,6 +575,13 @@ pub fn bundled_rules_dir(app: &AppHandle) -> PathBuf {
         return dev;
     }
     dev
+}
+
+fn packaged_rules_dir(resource_dir: &Path) -> Option<PathBuf> {
+    ["rules", "resources/rules"]
+        .into_iter()
+        .map(|relative| resource_dir.join(relative))
+        .find(|candidate| candidate.join("manifest.json").is_file())
 }
 
 /// `rules_get_meta` 命令实现：读取当前生效规则清单 + `rules-meta.json`。
@@ -677,6 +683,20 @@ mod tests {
     use super::*;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[test]
+    fn packaged_rules_resolve_both_installer_layouts_without_developer_directory() {
+        let root = tempfile::tempdir().unwrap();
+        assert_eq!(packaged_rules_dir(root.path()), None);
+        let nested = root.path().join("resources/rules");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(nested.join("manifest.json"), "{}").unwrap();
+        assert_eq!(packaged_rules_dir(root.path()), Some(nested));
+        let flat = root.path().join("rules");
+        std::fs::create_dir_all(&flat).unwrap();
+        std::fs::write(flat.join("manifest.json"), "{}").unwrap();
+        assert_eq!(packaged_rules_dir(root.path()), Some(flat));
+    }
 
     /// 固定字节派生的测试签名密钥（避免依赖 rand_core feature 与熵源）。
     fn test_key() -> SigningKey {

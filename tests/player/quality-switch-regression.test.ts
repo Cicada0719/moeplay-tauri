@@ -86,10 +86,15 @@ describe("AnimePlayer 5 次超清/普清来回切换回归（spec §6.2）", () 
     const video = document.querySelector(".player-video") as HTMLVideoElement;
     expect(video).toBeTruthy();
 
-    // happy-dom 无真实媒体解码，readyState 恒为 0。补一个等价「已加载元数据」状态
-    // （readyState>=1）：否则累计推进 10000ms 时会命中播放器 10s 看门狗兜底，
-    // 其重载（v.load()）会污染下方「同源不重载」断言——真实浏览器中视频加载后本就如此。
-    Object.defineProperty(video, "readyState", { value: 1, configurable: true });
+    // This component test supplies decoded-frame progress explicitly. Actual
+    // H.264/HLS decoding and no-picture failures are covered by browser tests.
+    Object.defineProperty(video, "readyState", { value: 2, configurable: true });
+    Object.defineProperty(video, "videoWidth", { value: 160, configurable: true });
+    Object.defineProperty(video, "videoHeight", { value: 90, configurable: true });
+    Object.defineProperty(video, "getVideoPlaybackQuality", {
+      value: () => ({ totalVideoFrames: Math.floor(Date.now() / 40) }), configurable: true,
+    });
+    await fireEvent.loadedMetadata(video);
 
     // 记录初始媒体加载（attachNative 的 el.load()）基线，之后纯增强切换不得再触发重载
     const loadSpy = vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});

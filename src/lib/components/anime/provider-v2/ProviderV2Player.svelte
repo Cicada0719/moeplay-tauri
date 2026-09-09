@@ -1,7 +1,7 @@
 <script lang="ts">
   import { convertFileSrc } from "@tauri-apps/api/core";
   import Hls from "hls.js";
-  import { onMount } from "svelte";
+  import { releaseVideo, watchVideoProgress } from "../../../player/videoProgress";
   import type { AnimeEpisode, AnimeResolveResponse } from "../../../features/anime";
   import Icon from "../../Icon.svelte";
   import { AsyncState } from "../../ui-v2";
@@ -28,6 +28,7 @@
   let playbackError = $state("");
   let mediaAspectRatio = $state(16 / 9);
   let hls: Hls | null = null;
+  let frameWatch: ReturnType<typeof watchVideoProgress> | null = null;
 
   const target = $derived(resolution.target);
   const canPlayInternally = $derived(target.mode === "native_hls" || target.mode === "native_file");
@@ -47,12 +48,12 @@
   });
 
   function destroyPlayback() {
+    frameWatch?.dispose();
+    frameWatch = null;
     hls?.destroy();
     hls = null;
     if (videoElement) {
-      videoElement.pause();
-      videoElement.removeAttribute("src");
-      videoElement.load();
+      releaseVideo(videoElement);
     }
   }
 
@@ -61,14 +62,20 @@
     mediaAspectRatio = videoElement.videoWidth / videoElement.videoHeight;
   }
 
-  async function attachPlayback() {
+  function failPlayback(message: string) {
+    destroyPlayback();
+    playbackError = message;
+  }
+
+  function attachPlayback() {
     destroyPlayback();
     playbackError = "";
     mediaAspectRatio = 16 / 9;
     if (!videoElement) return;
+    if (canPlayInternally) frameWatch = watchVideoProgress(videoElement, failPlayback);
     if (target.mode === "native_file") {
       videoElement.src = convertFileSrc(target.path);
-      await videoElement.play().catch(() => undefined);
+      void videoElement.play().catch(() => undefined);
       return;
     }
     if (target.mode !== "native_hls") return;
@@ -80,7 +87,7 @@
         backBufferLength: 90,
       });
       hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) playbackError = "视频流无法继续播放，可重试或改用来源提供的安全回退方式。";
+        if (data.fatal) failPlayback("视频流无法继续播放，请重试或返回剧集切换来源。");
       });
       hls.loadSource(target.url);
       hls.attachMedia(videoElement);
@@ -89,20 +96,21 @@
       });
     } else if (videoElement.canPlayType("application/vnd.apple.mpegurl")) {
       videoElement.src = target.url;
-      await videoElement.play().catch(() => undefined);
+      void videoElement.play().catch(() => undefined);
     } else {
-      playbackError = "当前系统 WebView 不支持 HLS 播放。";
+      failPlayback("当前系统 WebView 不支持 HLS 播放。");
     }
   }
 
   function handleVideoError() {
-    playbackError = target.mode === "native_file"
+    failPlayback(target.mode === "native_file"
       ? "该文件的封装或编码不受内置播放器支持，可尝试系统播放器。"
-      : "视频加载失败，请检查来源状态后重试。";
+      : "视频加载失败，请检查来源状态后重试。");
   }
 
-  onMount(() => {
-    queueMicrotask(attachPlayback);
+  $effect(() => {
+    if (!videoElement || !canPlayInternally) return;
+    attachPlayback();
     return destroyPlayback;
   });
 </script>
@@ -152,6 +160,8 @@
             <div class="playback-notice" role="alert">
               <Icon name="info" size={18} />
               <span>{playbackError}</span>
+              <button type="button" onclick={attachPlayback}>重试</button>
+              <button type="button" onclick={onClose}>返回剧集换源</button>
               {#if target.mode === "native_file"}
                 <button type="button" onclick={onFallback} disabled={openingFallback}>
                   {openingFallback ? "正在打开" : "使用系统播放器"}

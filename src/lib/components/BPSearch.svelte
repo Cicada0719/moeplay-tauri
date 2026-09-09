@@ -7,6 +7,7 @@
   import Icon from "./Icon.svelte";
   import CachedImage from "./CachedImage.svelte";
   import { focusTrap } from "../actions/a11y/focusTrap";
+  import { platformStore } from "../platform";
   import { attachGamepad, type GamepadAttachment } from "./switch/useGamepad.svelte";
 
   let {
@@ -45,6 +46,12 @@
   }
 
   function activateKeyboard() {
+    if (!platformStore.isAndroid) {
+      searchActive = true;
+      onzonechange?.("search");
+      inputEl?.focus({ preventScroll: true });
+      return;
+    }
     searchActive = false;
     onzonechange?.("keyboard");
   }
@@ -82,7 +89,10 @@
   }
 
   function onModalKeydown(event: KeyboardEvent) {
+    // IME composition and text editing belong to the system input method.
+    if (event.isComposing || event.keyCode === 229) return;
     if (event.key === "Escape") { close(); event.preventDefault(); event.stopPropagation(); return; }
+    if (event.target === inputEl) return;
     if (!searchActive) return;
     switch (event.key) {
       case "ArrowRight": case "ArrowDown": moveResult(1); event.preventDefault(); event.stopPropagation(); break;
@@ -93,7 +103,9 @@
   }
 
   function onInputKeydown(event: KeyboardEvent) {
+    if (event.isComposing || event.keyCode === 229) return;
     if (event.key === "ArrowDown" && results.length > 0) { activateSearch(); event.preventDefault(); }
+    if (event.key === "Enter" && results.length > 0) { onSubmit(); event.preventDefault(); event.stopPropagation(); }
   }
 
   $effect(() => {
@@ -194,8 +206,9 @@
           {/each}
         </div>
       {:else if query}<div class="bps-empty">没有找到匹配的游戏</div>
-      {:else}<div class="bps-hint">输入游戏名称或使用屏幕键盘</div>{/if}
+      {:else}<div class="bps-hint">{platformStore.isAndroid ? '输入游戏名称或使用屏幕键盘' : '使用键盘输入游戏名称，支持中文输入法'}</div>{/if}
 
+      {#if platformStore.isAndroid}
       <VirtualKeyboard
         active={!searchActive}
         onChar={onInput}
@@ -205,6 +218,7 @@
         onExitUp={activateSearch}
         onzonechange={(zone) => onzonechange?.(zone)}
       />
+      {/if}
     </div>
   </div>
 {/if}

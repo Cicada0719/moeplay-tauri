@@ -55,6 +55,7 @@
   import ErrorOverlay from "../player/ErrorOverlay.svelte";
   import SourceSuggestSheet from "../player/SourceSuggestSheet.svelte";
   import { shouldPreferHls } from "./playerTransport";
+  import { releaseVideo, watchVideoProgress } from "../../player/videoProgress";
 
   const status = $derived(animeStore.playerExtractStatus); // extracting | found | timeout | error
   const videoSrc = $derived(animeStore.playerVideoSrc);
@@ -533,7 +534,9 @@
     let attempt = 0;        // 0=未开始 1=首选方式 2=兜底方式
     let settled = false;    // 已成功加载到元数据 或 已最终判 error —— 之后不再做初次兜底
     let watchdog: number | null = null;
-    let playbackWatchdog: number | null = null;
+    let frameWatch: ReturnType<typeof watchVideoProgress> | null = null;
+    let disposed = false;
+    let terminalFailure = false;
     // FR-07：记录本次加载过程中的每一次失败上下文（含中间尝试失败）。最终成功
     // （succeed）时不误报；最终失败时通过 mergeFailureContext 合并进错误 detail，供
     // ErrorOverlay 展示 / 复制日志携带完整链路。
@@ -551,10 +554,8 @@
 
     const clearWatchdog = () => { if (watchdog !== null) { clearTimeout(watchdog); watchdog = null; } };
     const clearPlaybackWatchdog = () => {
-      if (playbackWatchdog !== null) {
-        clearTimeout(playbackWatchdog);
-        playbackWatchdog = null;
-      }
+      frameWatch?.dispose();
+      frameWatch = null;
     };
     const armWatchdog = () => {
       clearWatchdog();
@@ -567,19 +568,9 @@
       }, 10000);
     };
 
-    const markPlaybackReady = () => {
-      if (v.readyState >= 3 || v.currentTime > 0) clearPlaybackWatchdog();
-    };
-
     const armPlaybackWatchdog = () => {
       clearPlaybackWatchdog();
-      // 有些反爬/CDN 会让 video 拿到元数据但永远没有可播放帧，表现为黑屏或灰屏。
-      playbackWatchdog = window.setTimeout(() => {
-        if (!settled) return;
-        if (v.readyState >= 3 || v.currentTime > 0) return;
-        console.warn('[播放器] 元数据已加载但长时间无可播放帧，触发兜底');
-        fail('playback stalled');
-      }, 15000);
+      frameWatch = watchVideoProgress(v, (message) => fail('video frame stalled', message));
     };
 
     // 成功拿到元数据：标记 settled，停掉看门狗
@@ -591,12 +582,16 @@
 
     // 加载失败：首次失败且还有备用方式 → 换方式；否则判 error 让用户换源/网页播放
     const fail = (why: string, raw?: unknown, httpStatus?: number) => {
+      if (disposed || terminalFailure) return;
+      const hadFrame = frameWatch?.hasFrame() ?? false;
+      const failedTime = v.currentTime;
       clearWatchdog();
       clearPlaybackWatchdog();
       if (hls) { try { hls.destroy(); } catch {} hls = null; activeHls = null; }
+      v.pause();
       // 每次失败都记录（含可兜底的中间失败）；最终上报时合并，成功路径不误报
       failureContext.push({ why, raw, httpStatus, attempt });
-      const canTryAlternate = attempt < 2 && (!settled || (v.currentTime === 0 && v.readyState < 3));
+      const canTryAlternate = m3u8 && attempt < 2 && !hadFrame && (firstIsHls ? nativeHls : Hls.isSupported());
       if (canTryAlternate) {
         console.warn(`[播放器] 第${attempt}次加载失败(${why})，自动切换播放方式兜底`);
         settled = false;
@@ -604,6 +599,7 @@
         try { v.load(); } catch {}
         startAttempt();
       } else {
+        terminalFailure = true;
         console.error(`[播放器] 加载失败(${why})，尝试保进度自动换源`);
         settled = true;
         if (pageUrl) animeStore.invalidateVideoCache(pageUrl);
@@ -613,7 +609,7 @@
         const recoveryStarted = animeStore.recoverPlaybackFailure(
           failureKind,
           `播放中断（${why}），正在尝试备用源`,
-          Math.floor(v.currentTime * 1000),
+          Math.floor(failedTime * 1000),
         );
         if (recoveryStarted) {
           invokeCmd('frontend_log', { level: 'info', message: `[播放器] 播放失败(${why})，已启动自动换源` }).catch(() => {});
@@ -666,10 +662,6 @@
       fail("video error", err, undefined);
     };
     v.addEventListener('error', onVideoError);
-
-    v.addEventListener('canplay', markPlaybackReady);
-    v.addEventListener('playing', markPlaybackReady);
-    v.addEventListener('timeupdate', markPlaybackReady);
 
     // 自动连播 + 跳片尾
     const onEnded = () => {
@@ -788,6 +780,7 @@
       const useHls = attempt === 1 ? firstIsHls : !firstIsHls;
       if (useHls && Hls.isSupported()) attachHls();
       else attachNative();
+      armPlaybackWatchdog();
     }
 
     startAttempt();
@@ -797,17 +790,16 @@
     loadedMediaSrc = src;
 
     return () => {
+      disposed = true;
       clearWatchdog();
       clearPlaybackWatchdog();
       v.removeEventListener('loadedmetadata', onLoadedMetadata);
       v.removeEventListener('error', onVideoError);
-      v.removeEventListener('canplay', markPlaybackReady);
-      v.removeEventListener('playing', markPlaybackReady);
-      v.removeEventListener('timeupdate', markPlaybackReady);
       v.removeEventListener('ended', onEnded);
       v.removeEventListener('timeupdate', onTimeUpdateForSkip);
       if (hls) { try { hls.destroy(); } catch {} }
       activeHls = null;
+      releaseVideo(v);
     };
   });
 

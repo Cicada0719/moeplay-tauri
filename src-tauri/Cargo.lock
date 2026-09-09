@@ -3043,7 +3043,7 @@ dependencies = [
 
 [[package]]
 name = "moeplay"
-version = "0.23.0"
+version = "0.23.1"
 dependencies = [
  "android-native-keyring-store",
  "base64 0.22.1",
@@ -3094,6 +3094,8 @@ dependencies = [
  "url",
  "urlencoding",
  "uuid",
+ "webview2-com",
+ "windows-core 0.61.2",
  "winreg 0.52.0",
  "wiremock",
  "zip 2.4.2",

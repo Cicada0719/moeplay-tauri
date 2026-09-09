@@ -38,7 +38,7 @@ export function generateManifest(directory, options = {}) {
   const commit = options.commit ?? execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
   const files = fs.readdirSync(directory).filter(name => /\.(exe|msi|zip|apk)$/.test(name) && name.includes(version));
   const manifest = { schemaVersion: 1, version, commit, publishedAt: options.publishedAt ?? new Date().toISOString(),
-    notes: ["漫画精确续读与跨页大图配对", "小说历史按书整理，章节进度独立保存", "本地阅读备份导入导出", "无界流光视觉更新"],
+    notes: options.notes ?? ["电脑端使用系统输入法和实体键盘，不再弹出应用虚拟键盘", "修复隐藏视频解析窗口发声和退出后残留音频", "以实际视频帧检测黑屏与卡流，支持重试和换源", "修复快速切源旧请求覆盖与 Provider v2 切源", "画质增强失败自动恢复原始视频，便携包补齐内置规则", "保留 v0.23 漫画精确续读、小说按书历史和阅读备份"],
     androidCompatibilityVerified: options.androidCompatibilityVerified === true,
     assets: files.sort().map(file => describeAsset(directory, file, version)) };
   fs.writeFileSync(path.join(directory, "release-manifest.json"), JSON.stringify(manifest, null, 2) + "\n");

@@ -56,6 +56,12 @@ for name in ("release-manifest.json", "latest.json"):
 versions = sorted([p.name for p in site.parent.iterdir() if p.is_dir() and re.fullmatch(r"\d+\.\d+\.\d+", p.name)], key=lambda s: tuple(map(int, s.split("."))))
 (site / "versions.json").write_text(json.dumps(versions))
 shutil.move(str(assets), download)
+# Windows SFTP uploads may arrive as owner-only directories. Nginx runs as a
+# separate user and needs read/traverse access to this public, validated batch.
+for public_root in (site, download):
+    public_root.chmod(0o755)
+    for public_file in public_root.rglob("*"):
+        public_file.chmod(0o755 if public_file.is_dir() else 0o644)
 previous = os.readlink(current) if current.is_symlink() else None
 next_link = root / f"current-{version}"
 next_link.symlink_to(Path("sites") / version, target_is_directory=True)

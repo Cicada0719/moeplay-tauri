@@ -210,7 +210,7 @@
       <Card class="hh-settings-card" padding="lg" ariaLabel="手柄控制">
         <div class="hh-settings-card__head"><div><span>04 / INPUT</span><h2>手柄控制</h2></div><Icon name="gamepad" size={22} /></div>
         <div class="hh-setting-row"><div><strong>提示条常显</strong><small>连接手柄时显示当前页面可用操作</small></div><Switch checked={handheldHints} onchange={(event) => setHints((event.target as HTMLInputElement).checked)} /></div>
-        <div class="hh-setting-row"><div><strong>自动屏幕键盘</strong><small>输入框聚焦时唤起掌机键盘</small></div><Switch checked={handheldKeyboard} onchange={(event) => setKeyboard((event.target as HTMLInputElement).checked)} /></div>
+        {#if platformStore.isAndroid}<div class="hh-setting-row"><div><strong>自动屏幕键盘</strong><small>输入框聚焦时唤起掌机键盘</small></div><Switch checked={handheldKeyboard} onchange={(event) => setKeyboard((event.target as HTMLInputElement).checked)} /></div>{/if}
         <div class="hh-settings-subhead">方向灵敏度</div>
         <SegmentControl options={sensitivityOptions} value={gamepadTuning.sensitivity} onChange={(value) => { if (value === "loose" || value === "standard" || value === "tight") gamepadTuning.sensitivity = value as AxisSensitivity; }} size="sm" />
         <div class="hh-settings-subhead">连发速度</div>
