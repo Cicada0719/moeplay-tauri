@@ -95,14 +95,14 @@ export const THEME_PACKS: ThemePackDefinition[] = [
     wallpapers: [wallpaper("astral-rail", 1, "银河铁道", astralRail1, astralRailBlur1), wallpaper("astral-rail", 2, "星图连线", astralRail2, astralRailBlur2), wallpaper("astral-rail", 3, "晨曦跃迁", astralRail3, astralRailBlur3)],
   },
   {
-    id: "borderless-lumen", label: "无界流光", description: "黑暗中晕开的有机色场与光之呼吸。", defaultColorMode: "dark", decoration: "petals",
+    id: "borderless-lumen", label: "无界流光", description: "墨黑主机、暖白文字与电光青，给封面与内容留出舞台。", defaultColorMode: "dark", decoration: "petals",
     preview: borderlessLumenPreview, mascot: borderlessLumenMascot,
     wallpapers: [wallpaper("borderless-lumen", 1, "花舞光场", borderlessLumen1, borderlessLumenBlur1), wallpaper("borderless-lumen", 2, "水镜流光", borderlessLumen2, borderlessLumenBlur2), wallpaper("borderless-lumen", 3, "萤火之森", borderlessLumen3, borderlessLumenBlur3)],
   },
 ];
 
 export const DEFAULT_APPEARANCE: AppearanceSettings = {
-  theme_pack: "phantom-pop", color_mode: "pack-default", wallpaper_rotation: "startup-random",
+  theme_pack: "borderless-lumen", color_mode: "pack-default", wallpaper_rotation: "startup-random",
   mascot_enabled: true, decorative_effects: true, online_gallery_enabled: true,
 };
 

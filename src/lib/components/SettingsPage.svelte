@@ -690,13 +690,13 @@
               </div>
               <Switch checked={handheldHints} onchange={(e) => setHandheldHints((e.target as HTMLInputElement).checked)} />
             </div>
-            <div class="s-row s-row-sub">
+            {#if platformStore.isAndroid}<div class="s-row s-row-sub">
               <div class="s-info">
                 <span class="s-label">{i18n.t("settings.handheld_keyboard")}</span>
                 <span class="s-desc">{i18n.t("settings.handheld_keyboard_desc")}</span>
               </div>
               <Switch checked={handheldKeyboard} onchange={(e) => setHandheldKeyboard((e.target as HTMLInputElement).checked)} />
-            </div>
+            </div>{/if}
           {/if}
           {/if}
 

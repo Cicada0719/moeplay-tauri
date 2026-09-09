@@ -1,0 +1,16 @@
+name: 功能与改进
+description: 说明使用场景和修改范围
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 想解决什么问题？
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: 预期行为与模块范围
+      description: 开发任务请列出允许修改的目录、规格链接及验收条件。
+    validations:
+      required: true

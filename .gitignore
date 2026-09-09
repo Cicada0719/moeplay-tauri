@@ -38,6 +38,13 @@ _*.png
 _*.py
 _*.txt
 _*.log
+_*.ps1
+*.err
+.audit-dist/
+sp2.txt
+*.keystore
+*.jks
+release.local.json
 
 # AI tools
 .claude/

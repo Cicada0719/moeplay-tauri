@@ -61,6 +61,17 @@ html[data-theme-pack="shift-editorial"] {
   --wallpaper-saturation: .85;
 }
 
+/* Light text roles require a paper canvas even on management surfaces. */
+html[data-theme-pack="shift-editorial"][data-color-mode="light"] .wallpaper-stage__image {
+  filter: brightness(.96) saturate(.85) !important;
+}
+html[data-theme-pack="shift-editorial"][data-color-mode="light"] .wallpaper-stage__scrim {
+  background: rgba(247, 244, 238, .95) !important;
+}
+html[data-theme-pack="shift-editorial"][data-color-mode="light"] .view-wrapper .v2-page-shell {
+  background: var(--bg-base);
+}
+
 /* ── 控件签名：编辑发丝线 ── */
 html[data-theme-pack="shift-editorial"] .ui-button {
   border-radius: 2px;

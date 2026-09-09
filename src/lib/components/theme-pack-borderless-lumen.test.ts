@@ -15,9 +15,9 @@ describe("borderless-lumen theme pack contract", () => {
 
 	it("ships the calibrated token block", () => {
 		expect(tokenSource).toContain('[data-theme-pack="borderless-lumen"]');
-		expect(tokenSource).toContain("--accent: #7c5cff");
+		expect(tokenSource).toContain("--accent: #63e4d4");
 		expect(tokenSource).toContain("--mascot-accent: #56e0d4");
-		expect(tokenSource).toContain("--theme-ambient: rgba(124, 92, 255, .22)");
+		expect(tokenSource).toContain("--theme-ambient: rgba(99, 228, 212, .22)");
 	});
 
 	it("ships the final theme-art composition module", () => {

@@ -1,18 +1,17 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from "svelte";
+  import { untrack } from "svelte";
+  import { buildScreens, screenIndexOfPage, nextScreen, type PageMeta } from "../../reader/dualPage";
   import { focusTrap } from "../../actions/a11y/focusTrap";
   import {
     getReaderKeyboardCommand,
     moveReaderPage,
-    moveReaderSpread,
     nextReadingDirection,
     normalizeReaderZoom,
     normalizeSpread,
     readerDirectionLabel,
     readerSwipePageDelta,
     spreadStepSize,
-    spreadWindowPages,
-    spreadWindowStart,
     READER_ZOOM_STEP,
     type ComicReadingDirection,
     type ComicReaderSpread,
@@ -67,6 +66,8 @@
   let zoom = $state(100);
   let toolbarVisible = $state(true);
   let currentPage = $state(0);
+  let pageMetas = $state<PageMeta[]>([]);
+  let restoring = $state(true);
   let loadedPages = $state<Set<string>>(new Set());
   let failedPages = $state<Record<string, string>>({});
   let retryVersions = $state<Record<string, number>>({});
@@ -82,17 +83,38 @@
   const pageStatus = $derived(pageCount > 0 ? `${Math.min(currentPage + 1, pageCount)} / ${pageCount}` : "0 / 0");
   const isDouble = $derived(spread === "double" && direction !== "vertical");
   const spreadLabel = $derived(spread === "double" ? "双页" : "单页");
-  const visiblePages = $derived(isDouble ? spreadWindowPages(currentPage, pageCount, "double") : [currentPage]);
+  const screens = $derived(buildScreens(images.map((_, index) => pageMetas[index] ?? { index })));
+  const visiblePages = $derived(isDouble && screens.length ? screens[screenIndexOfPage(screens, Math.min(currentPage, pageCount - 1))].pageIndexes : [currentPage]);
   const progressPercent = $derived(pageCount > 0 ? Math.round(((Math.max(...visiblePages) + 1) / pageCount) * 100) : 0);
   const pageRangeLabel = $derived(visiblePages.length > 1 ? `第 ${visiblePages[0] + 1}–${visiblePages[1] + 1} 页` : `第 ${Math.min(visiblePages[0] ?? 0, pageCount) + 1} 页`);
 
   $effect(() => {
     images;
-    currentPage = 0;
+    loading;
+    untrack(() => {
+    const position = comicStore.readerPosition;
+    const byId = position?.pageId ? images.findIndex(p => p.id === position.pageId) : -1;
+    currentPage = Math.max(0, Math.min(images.length - 1, byId >= 0 ? byId : position?.pageIndex ?? 0));
+    restoring = true;
+    pageMetas = [];
     loadedPages = new Set();
     failedPages = {};
     retryVersions = {};
+    void tick().then(restoreScroll);
+    });
   });
+
+  function savePosition() {
+    if (!restoring && !loading && images[currentPage]) comicStore.saveReaderPage(currentPage, images[currentPage].id);
+  }
+  function restoreScroll() {
+    if (!restoring || loading || !images.length) return;
+    if (direction === "vertical") {
+      pageElement(currentPage)?.scrollIntoView({ block: "start", behavior: "auto" });
+      if (!images.slice(0, currentPage + 1).every(p => loadedPages.has(p.id) || failedPages[p.id])) return;
+    }
+    restoring = false;
+  }
 
   function isTypingTarget(target: EventTarget | null): boolean {
     return target instanceof HTMLElement && (
@@ -102,6 +124,7 @@
   }
 
   async function closeReader() {
+    savePosition();
     if (onclose) await onclose();
     else comicStore.closeReader();
 
@@ -116,9 +139,11 @@
 
   function movePage(delta: number) {
     if (pageCount === 0) return;
-    const next = isDouble ? moveReaderSpread(currentPage, delta, pageCount, "double") : moveReaderPage(currentPage, delta, pageCount);
+    const next = isDouble ? screens[nextScreen(screens, screenIndexOfPage(screens, currentPage), delta > 0 ? "forward" : "backward")].anchorIndex : moveReaderPage(currentPage, delta, pageCount);
     if (next === currentPage && direction !== "vertical") return;
     currentPage = next;
+    restoring = false;
+    savePosition();
     if (direction === "vertical") {
       pageElement(next)?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
@@ -126,7 +151,9 @@
 
   function jumpPage(index: number) {
     if (pageCount === 0) return;
-    currentPage = isDouble ? spreadWindowStart(moveReaderPage(0, index, pageCount)) : moveReaderPage(0, index, pageCount);
+    currentPage = moveReaderPage(0, index, pageCount);
+    restoring = false;
+    savePosition();
     if (direction === "vertical") pageElement(currentPage)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
@@ -161,46 +188,53 @@
 
   function toggleSpread() {
     spread = spread === "double" ? "single" : "double";
-    if (spread === "double" && direction !== "vertical") {
-      currentPage = spreadWindowStart(currentPage);
-    }
     writeReaderPrefs();
   }
 
   async function changeChapter(delta: -1 | 1) {
     if (delta < 0 && !hasPrev) return;
     if (delta > 0 && !hasNext) return;
+    savePosition();
     if (delta < 0) await comicStore.prevChapter();
     else await comicStore.nextChapter();
     await tick();
-    scrollRoot?.scrollTo({ top: 0, behavior: "auto" });
+    restoreScroll();
   }
 
   function cycleDirection() {
     direction = nextReadingDirection(direction);
+    restoring = true;
+    void tick().then(restoreScroll);
     currentPage = Math.min(currentPage, Math.max(0, pageCount - 1));
     writeReaderPrefs();
     queueMicrotask(() => pageElement(currentPage)?.focus({ preventScroll: true }));
   }
 
   function changeZoom(delta: number) {
+    restoring = true;
     zoom = normalizeReaderZoom(zoom + delta);
+    void tick().then(restoreScroll);
   }
 
-  function recordPageLoaded(id: string) {
+  function recordPageLoaded(id: string, element: HTMLImageElement) {
+    const index = images.findIndex(p => p.id === id);
+    pageMetas[index] = { index, width: element.naturalWidth, height: element.naturalHeight };
     loadedPages = new Set([...loadedPages, id]);
     if (failedPages[id]) {
       const next = { ...failedPages };
       delete next[id];
       failedPages = next;
     }
+    void tick().then(restoreScroll);
   }
 
   function recordPageFailure(id: string) {
     failedPages = { ...failedPages, [id]: "图片加载失败，请重试当前页" };
+    void tick().then(restoreScroll);
   }
 
   function retryPage(id: string) {
+    if (direction === "vertical" && images.findIndex(page => page.id === id) <= currentPage) restoring = true;
     const next = { ...failedPages };
     delete next[id];
     failedPages = next;
@@ -208,7 +242,7 @@
   }
 
   function updateCurrentPageFromScroll() {
-    if (direction !== "vertical" || !scrollRoot || pageCount === 0) return;
+    if (restoring || loading || direction !== "vertical" || !scrollRoot || pageCount === 0) return;
     const rootTop = scrollRoot.getBoundingClientRect().top;
     let nearest = currentPage;
     let nearestDistance = Number.POSITIVE_INFINITY;
@@ -221,7 +255,7 @@
         nearestDistance = distance;
       }
     }
-    currentPage = nearest;
+    if (currentPage !== nearest) { currentPage = nearest; savePosition(); }
   }
 
   function handlePointerDown(event: PointerEvent) {
@@ -267,6 +301,11 @@
   }
 
   onMount(() => {
+    const background = () => { if (document.hidden) savePosition(); };
+    const resize = () => { restoring = true; void tick().then(restoreScroll); };
+    document.addEventListener("visibilitychange", background);
+    window.addEventListener("pagehide", savePosition);
+    window.addEventListener("resize", resize);
     revealToolbar();
     pad = attachGamepad({
       left: () => { revealToolbar(); movePage(-1); },
@@ -281,9 +320,15 @@
       back: () => { if (chapterPanelOpen) chapterPanelOpen = false; else void closeReader(); },
       start: toggleChapterPanel,
     }, { id: "comic-reader", zone: "content", priority: 100 });
+    return () => {
+      document.removeEventListener("visibilitychange", background);
+      window.removeEventListener("pagehide", savePosition);
+      window.removeEventListener("resize", resize);
+    };
   });
 
   onDestroy(() => {
+    savePosition();
     pad?.();
     pad = null;
     clearToolbarTimer();
@@ -356,7 +401,7 @@
             type="button"
             class:current={chapter.order === order}
             disabled={loading}
-            onclick={async () => { chapterPanelOpen = false; await comicStore.openChapter(chapter.order, chapter.title); }}
+            onclick={async () => { savePosition(); chapterPanelOpen = false; await comicStore.openChapter(chapter.order, chapter.title); }}
           >
             <span>{chapter.order}</span><strong>{chapter.title || `第 ${chapter.order} 话`}</strong>
           </button>
@@ -426,7 +471,7 @@
                     loading={index <= currentPage + 2 ? "eager" : "lazy"}
                     class="comic-img"
                     class:is-loaded={loadedPages.has(image.id)}
-                    onload={() => recordPageLoaded(image.id)}
+                    onload={(event) => recordPageLoaded(image.id, event.currentTarget as HTMLImageElement)}
                     onerror={() => recordPageFailure(image.id)}
                   />
                 {/key}

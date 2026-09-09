@@ -100,6 +100,7 @@ export class GamepadController {
 
   async connect(): Promise<void> {
     await this.call("connect");
+    await this.page.clock.runFor(100);
   }
 
   async disconnect(): Promise<void> {
@@ -108,9 +109,13 @@ export class GamepadController {
 
   async press(button: GamepadButtonName | number, holdMs = 100): Promise<void> {
     const index = typeof button === "number" ? button : STANDARD_GAMEPAD_BUTTONS[button];
+    await this.page.clock.runFor(48);
     await this.setButton(index, true);
-    await this.page.waitForTimeout(holdMs);
+    // Deliver polling frames even when the host CPU is occupied by a build.
+    // Wall-clock sleep can release a button before a single RAF sees it.
+    await this.page.clock.runFor(holdMs);
     await this.setButton(index, false);
+    await this.page.clock.runFor(32);
   }
 
   async setButton(index: number, pressed: boolean, value?: number): Promise<void> {

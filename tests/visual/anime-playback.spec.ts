@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { readFileSync } from "node:fs";
 
 const settings = {
   theme: "dark", watch_dirs: [], auto_scrape: true, language: "zh", minimize_to_tray: false,
@@ -27,7 +28,7 @@ const rules = [
 
 test("v0.12 anime search, episode selection, extraction and automatic failover", async ({ page }) => {
   await page.route("**/mock-video.mp4", async (route) => {
-    await route.fulfill({ status: 200, contentType: "video/mp4", body: Buffer.from([]) });
+    await route.fulfill({ status: 200, contentType: "video/mp4", body: readFileSync("tests/visual/fixtures/media/picture-and-sound.mp4") });
   });
 
   await page.addInitScript(({ mockSettings, animeRules }) => {
@@ -162,7 +163,7 @@ test.describe("v0.13.4 anime player adaptive shell", () => {
 test("Android 掌机番剧从节目详情进入选源并开始播放", async ({ page }) => {
   await page.setViewportSize({ width: 808, height: 454 });
   await page.route("**/mock-video.mp4", async (route) => {
-    await route.fulfill({ status: 200, contentType: "video/mp4", body: Buffer.from([]) });
+    await route.fulfill({ status: 200, contentType: "video/mp4", body: readFileSync("tests/visual/fixtures/media/picture-and-sound.mp4") });
   });
 
   await page.addInitScript(() => {

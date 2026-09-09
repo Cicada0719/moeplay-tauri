@@ -1,6 +1,6 @@
 [package]
 name = "moeplay"
-version = "0.22.1"
+version = "0.23.1"
 description = "萌游 MoeGame — 游戏与番剧管理器"
 authors = ["MoeGame Dev"]
 edition = "2021"
@@ -88,6 +88,8 @@ rfd = "0.15"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+webview2-com = "0.38.2"
+windows-core = "0.61.2"
 
 [dev-dependencies]
 tempfile = "3"

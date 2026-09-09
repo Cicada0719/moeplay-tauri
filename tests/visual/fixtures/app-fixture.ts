@@ -30,9 +30,13 @@ export const test = base.extend<MoePlayFixtures>({
     await use(page);
   },
 
-  appPage: async ({ page }, use) => {
+  appPage: async ({ page, appState }, use) => {
     await page.goto("/?skip_wizard", { waitUntil: "domcontentloaded" });
     await waitForUiReady(page);
+    if (appState.settings.startup_mode === "big-picture") {
+      await page.getByRole("listbox", { name: "大屏游戏列表" }).waitFor({ state: "visible" });
+      await page.clock.runFor(100);
+    }
     await use(page);
   },
 

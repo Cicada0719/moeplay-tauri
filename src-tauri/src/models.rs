@@ -806,7 +806,7 @@ pub struct AppearanceSettings {
 impl Default for AppearanceSettings {
     fn default() -> Self {
         Self {
-            theme_pack: ThemePackId::Yozakura,
+            theme_pack: ThemePackId::BorderlessLumen,
             color_mode: ColorMode::PackDefault,
             wallpaper_rotation: WallpaperRotation::StartupRandom,
             fixed_wallpaper_id: None,
@@ -937,29 +937,34 @@ impl Default for Settings {
 impl Settings {
     pub fn normalize_appearance(&mut self) {
         if self.appearance.is_none() {
+            // Keep the established legacy mapping when only the old theme field exists.
+            let legacy = AppearanceSettings {
+                theme_pack: ThemePackId::PhantomPop,
+                ..AppearanceSettings::default()
+            };
             self.appearance = Some(match self.theme.as_str() {
                 "light" => AppearanceSettings {
                     theme_pack: ThemePackId::ShiftEditorial,
                     color_mode: ColorMode::Light,
-                    ..AppearanceSettings::default()
+                    ..legacy.clone()
                 },
                 "black" => AppearanceSettings {
                     color_mode: ColorMode::Black,
-                    ..AppearanceSettings::default()
+                    ..legacy.clone()
                 },
                 "contrast" => AppearanceSettings {
                     color_mode: ColorMode::Contrast,
                     decorative_effects: false,
-                    ..AppearanceSettings::default()
+                    ..legacy.clone()
                 },
                 "system" => AppearanceSettings {
                     color_mode: ColorMode::System,
-                    ..AppearanceSettings::default()
+                    ..legacy.clone()
                 },
-                "sakura" => AppearanceSettings::default(),
+                "sakura" => legacy.clone(),
                 _ => AppearanceSettings {
                     color_mode: ColorMode::Dark,
-                    ..AppearanceSettings::default()
+                    ..legacy
                 },
             });
         }

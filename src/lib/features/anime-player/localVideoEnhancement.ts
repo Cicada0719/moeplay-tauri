@@ -122,6 +122,13 @@ export class LocalVideoEnhancer {
       });
       if (!gl) throw new Error("当前显卡或 WebView 不支持 WebGL2");
       this.gl = gl;
+      const contextLost = (event: Event) => {
+        event.preventDefault();
+        this.onStatus("error", "画质增强显卡上下文丢失，已恢复原始视频");
+        this.destroy();
+      };
+      this.canvas.addEventListener("webglcontextlost", contextLost);
+      this.listeners.push(() => this.canvas.removeEventListener("webglcontextlost", contextLost));
       const program = gl.createProgram();
       if (!program) throw new Error("无法创建画质增强程序");
       const vertex = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER);
@@ -215,6 +222,9 @@ export class LocalVideoEnhancer {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.video);
       gl.uniform2f(gl.getUniformLocation(program, "uTexel"), 1 / this.video.videoWidth, 1 / this.video.videoHeight);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
+      if (gl.isContextLost() || gl.getError() !== gl.NO_ERROR) {
+        throw new Error("显卡无法绘制视频纹理，已恢复原始视频");
+      }
       if (!this.hasRendered) {
         this.hasRendered = true;
         this.onStatus("ready");

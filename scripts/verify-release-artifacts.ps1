@@ -146,6 +146,9 @@ $RequiredEntries = @("moeplay.exe", "README.txt", "CHANGELOG.md")
 $Zip = [System.IO.Compression.ZipFile]::OpenRead($Portable.path)
 try {
   $EntryNames = @($Zip.Entries | ForEach-Object { Split-Path -Leaf $_.FullName })
+  if (!($Zip.Entries | Where-Object { $_.FullName.Replace('\','/').EndsWith('/resources/rules/manifest.json') })) {
+    throw 'Portable zip is missing bundled rules'
+  }
   foreach ($Required in $RequiredEntries) {
     if ($EntryNames -notcontains $Required) {
       throw "Portable zip is missing required entry: $Required"

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { onDestroy, onMount } from "svelte";
+  import { bookKey, readingRepository } from "../../../features/reading-history/repository";
   import { focusTrap } from "../../../actions/a11y/focusTrap";
   import { openPath, openUrl } from "../../../api";
   import { computePrefetchWindow, pageRetryDelayMs, planPageRetry } from "../../../features/comic/logic";
@@ -14,6 +15,9 @@
     target,
     title,
     chapterTitle,
+    seriesId,
+    chapterId,
+    coverUrl,
     onclose,
     onretry,
     returnFocusKey,
@@ -22,6 +26,9 @@
     target: ComicResolvedTarget;
     title: string;
     chapterTitle: string;
+    seriesId: string;
+    chapterId: string;
+    coverUrl?: string;
     onclose: () => void;
     onretry?: () => Promise<void> | void;
     returnFocusKey?: string;
@@ -35,6 +42,20 @@
   let pageError = $state("");
   let retryingTarget = $state(false);
   let generation = 0;
+  let historyReady = false;
+  function savePosition() {
+    if (!historyReady) return;
+    const updatedAt = Date.now();
+    const identity = { kind: "comic" as const, source: `provider:${provider.id}`, contentId: seriesId };
+    void readingRepository.save({ ...identity, title, chapterId, chapterTitle, updatedAt,
+      pageIndex: decision.kind === "images" ? pageIndex : undefined,
+      // Resolved image URLs may contain credentials or expire; keep only the stable page ordinal.
+      pageId: decision.kind === "images" ? `${chapterId}:${pageIndex}` : undefined,
+      metadata: { legacy: { id: bookKey(identity), title, thumb_url: coverUrl ?? "", author: provider.name,
+        last_order: 0, last_title: chapterTitle, ts: updatedAt,
+        providerResume: { providerId: provider.id, seriesId, chapterId } } },
+    }).catch(() => {});
+  }
   const controllers = new Map<number, AbortController>();
   const objectUrls = new Set<string>();
   const retryTimers = new Set<ReturnType<typeof setTimeout>>();
@@ -126,6 +147,7 @@
     const next = Math.min(decision.pages.length - 1, Math.max(0, pageIndex + delta));
     if (next === pageIndex) return;
     pageIndex = next;
+    savePosition();
     loadingPage = !pageSources[next];
     pageError = "";
     void loadPage(next);
@@ -133,6 +155,7 @@
   }
 
   function closeReader() {
+    savePosition();
     onclose();
   }
 
@@ -150,15 +173,26 @@
   }
 
   onMount(() => {
-    if (decision.kind === "images") {
-      void loadPage(0);
-      prefetchNeighbors(0);
-    } else {
-      loadingPage = false;
-    }
+    const token = generation;
+    void readingRepository.init().then(() => {
+      if (token !== generation) return;
+      const key = bookKey({ kind: "comic", source: `provider:${provider.id}`, contentId: seriesId });
+      const saved = readingRepository.positions.find(p => bookKey(p) === key && p.chapterId === chapterId);
+      historyReady = true;
+      if (decision.kind === "images") {
+        pageIndex = Math.max(0, Math.min(decision.pages.length - 1, saved?.pageIndex ?? 0));
+        void loadPage(pageIndex); prefetchNeighbors(pageIndex);
+      } else loadingPage = false;
+      savePosition();
+    }).catch(error => { loadingPage = false; pageError = String(error); });
+    const background = () => { if (document.hidden) savePosition(); };
+    document.addEventListener("visibilitychange", background);
+    window.addEventListener("pagehide", savePosition);
+    return () => { document.removeEventListener("visibilitychange", background); window.removeEventListener("pagehide", savePosition); };
   });
 
   onDestroy(() => {
+    savePosition();
     generation += 1;
     controllers.forEach((controller) => controller.abort());
     retryTimers.forEach((timer) => clearTimeout(timer));
@@ -212,6 +246,7 @@
       <input aria-label="阅读页码" type="range" min="1" max={decision.pages.length} value={pageIndex + 1} oninput={(event) => {
         const next = Number(event.currentTarget.value) - 1;
         pageIndex = next;
+        savePosition();
         loadingPage = !pageSources[next];
         pageError = "";
         void loadPage(next);

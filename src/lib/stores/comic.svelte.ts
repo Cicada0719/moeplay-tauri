@@ -1,4 +1,6 @@
 import { invokeCmd } from "../api/core";
+import { providerResume } from "../features/reading-history/resume.svelte";
+import { bookKey, latestBooks, readingRepository, type ReadingPosition } from "../features/reading-history/repository";
 import { continueSource } from "./continue-source.svelte";
 import {
   loadBaoziChapterImages,
@@ -171,10 +173,13 @@ export interface ReadRecord {
   last_order: number;
   last_title: string;
   ts: number;
+  pageIndex?: number;
+  pageId?: string;
+  readingKey?: string;
+  providerResume?: { providerId: string; seriesId: string; chapterId: string };
 }
 
 const HISTORY_KEY = "picacg-history";
-const MAX_HISTORY = 100;
 
 function stripProviderPrefix(id: string, provider: ComicProvider): string {
   return id.startsWith(`${provider}:`) ? id.slice(provider.length + 1) : id;
@@ -211,11 +216,9 @@ async function performOrdinarySearch(source: OrdinarySourceKey, keyword: string)
 
 function loadHistory(): ReadRecord[] {
   try {
-    return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "[]");
+    const rows = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "[]");
+    return Array.isArray(rows) ? rows.filter(r => r && typeof r.id === "string" && typeof r.title === "string" && Number.isFinite(r.last_order) && Number.isFinite(r.ts)) : [];
   } catch { return []; }
-}
-function saveHistory(h: ReadRecord[]) {
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(h.slice(0, MAX_HISTORY)));
 }
 
 // ── 响应式状态 ────────────────────────────────────────────────────────────
@@ -312,11 +315,21 @@ let _readerWebUrl = $state("");
 let _readerChapterOrder = $state(1);
 let _readerChapterTitle = $state("");
 let _readerLoading = $state(false);
+let _readerPosition = $state<ReadingPosition | null>(null);
+let _readerRequest = 0;
 
 // 阅读历史
 let _readHistory = $state<ReadRecord[]>(
   typeof localStorage !== "undefined" ? loadHistory() : []
 );
+readingRepository.subscribe(() => {
+  if (!readingRepository.ready) return;
+  _readHistory = latestBooks(readingRepository.positions).filter(p => p.kind === "comic" && p.metadata.legacy).map(p => ({
+    ...(p.metadata.legacy as unknown as ReadRecord), pageIndex: p.pageIndex, pageId: p.pageId,
+    ts: p.updatedAt, last_title: p.chapterTitle, readingKey: bookKey(p),
+  }));
+});
+if (typeof indexedDB !== "undefined") void readingRepository.init().catch(() => {});
 
 export const comicStore = {
   // ── 状态访问 ────────────────────────────────────────────────────────────
@@ -368,6 +381,7 @@ export const comicStore = {
   get readerChapterTitle() { return _readerChapterTitle; },
   get readerLoading() { return _readerLoading; },
   get readHistory() { return _readHistory; },
+  get readerPosition() { return _readerPosition; },
 
   clearError() { _error = null; },
   setOrdinarySource(source: OrdinaryComicSource) { _ordinarySource = source; },
@@ -908,6 +922,10 @@ export const comicStore = {
 
   async openChapter(order: number, title: string) {
     if (!_currentComic) return;
+    const request = ++_readerRequest;
+    const comic = _currentComic;
+    const provider = _currentProvider;
+    const chapter = _chapters.find(c => c.order === order);
     _readerLoading = true;
     _readerChapterOrder = order;
     _readerChapterTitle = title;
@@ -915,35 +933,41 @@ export const comicStore = {
     _readerWebUrl = "";
     _view = "reader";
     try {
-      if (_currentProvider === "dm5") {
-        const chapter = _chapters.find((c) => c.order === order);
+      await readingRepository.init();
+      if (request !== _readerRequest) return;
+      let images: ComicImage[] = [];
+      let webUrl = "";
+      if (provider === "dm5") {
         if (!chapter) throw new Error("未找到 DM5 章节");
-        _readerWebUrl = chapter.id;
-      } else if (_currentProvider === "baozi") {
-        const chapter = _chapters.find((c) => c.order === order);
+        webUrl = chapter.id;
+      } else if (provider === "baozi") {
         if (!chapter) throw new Error("未找到包子漫画章节");
-        _readerImages = await loadBaoziChapterImages(mangaTextFetcher, chapter.id);
-      } else if (_currentProvider === "mangadex") {
-        const chapter = _chapters.find((c) => c.order === order);
+        images = await loadBaoziChapterImages(mangaTextFetcher, chapter.id);
+      } else if (provider === "mangadex") {
         if (!chapter) throw new Error("未找到 MangaDex 章节");
-        _readerImages = await loadMangaDexChapterImages(mangaDexFetcher, chapter.id);
+        images = await loadMangaDexChapterImages(mangaDexFetcher, chapter.id);
       } else {
-        _readerImages = await invokeCmd<ComicImage[]>("comic_chapter_images", {
-          id: _currentComic.id,
+        images = await invokeCmd<ComicImage[]>("comic_chapter_images", {
+          id: comic.id,
           order,
         });
       }
       // 记录阅读历史
+      if (request !== _readerRequest || comic !== _currentComic) return;
+      _readerImages = images;
+      _readerWebUrl = webUrl;
       this._recordHistory(order, title);
     } catch (e) {
+      if (request !== _readerRequest) return;
       _error = String(e);
       _view = "detail";
     } finally {
-      _readerLoading = false;
+      if (request === _readerRequest) _readerLoading = false;
     }
   },
 
   closeReader() {
+    ++_readerRequest;
     _view = "detail";
     _readerImages = [];
     _readerWebUrl = "";
@@ -971,7 +995,6 @@ export const comicStore = {
     if (!_currentComic) return;
     const comic = _currentComic;
     const historyId = _currentProvider === "mangadex" ? `mangadex:${_currentExternalId}` : comic.id;
-    const existing = _readHistory.filter(r => r.id !== historyId);
     const record: ReadRecord = {
       id: historyId,
       title: comic.title,
@@ -981,22 +1004,36 @@ export const comicStore = {
       last_title: chapterTitle,
       ts: Date.now(),
     };
-    _readHistory = [record, ...existing].slice(0, MAX_HISTORY);
-    saveHistory(_readHistory);
+    const match = /^(mangadex|baozi|dm5|ikkk):(.+)$/.exec(historyId);
+    const identity = { kind: "comic" as const, source: match?.[1] ?? _currentProvider, contentId: match?.[2] ?? historyId };
+    const chapterId = _chapters.find(c => c.order === order)?.id || String(order);
+    const previous = readingRepository.positions.find(p => bookKey(p) === bookKey(identity)
+      && (p.chapterId === chapterId || p.chapterId === String(order)));
+    _readerPosition = { ...identity, title: comic.title, chapterId, chapterTitle,
+      pageIndex: _readerWebUrl ? undefined : previous?.pageIndex ?? 0,
+      pageId: _readerWebUrl ? undefined : previous?.pageId, updatedAt: record.ts,
+      metadata: { legacy: record } };
+    void readingRepository.save(JSON.parse(JSON.stringify(_readerPosition))).catch(() => {});
+  },
+
+  saveReaderPage(pageIndex: number, pageId?: string) {
+    if (!_readerPosition || _readerLoading || !Number.isInteger(pageIndex) || pageIndex < 0) return;
+    _readerPosition = { ..._readerPosition, pageIndex, pageId, updatedAt: Date.now() };
+    void readingRepository.save(JSON.parse(JSON.stringify(_readerPosition))).catch(() => {});
   },
 
   removeHistory(id: string) {
-    _readHistory = _readHistory.filter(r => r.id !== id);
-    saveHistory(_readHistory);
+    const record = _readHistory.find(r => r.id === id);
+    if (record?.readingKey) void readingRepository.remove(record.readingKey).catch(() => {});
   },
 
   clearHistory() {
-    _readHistory = [];
-    saveHistory([]);
+    for (const record of _readHistory) if (record.readingKey) void readingRepository.remove(record.readingKey).catch(() => {});
   },
 
   async resumeHistory(record: ReadRecord) {
     if (!record?.id) return;
+    if (record.providerResume) { providerResume.request = record.providerResume; return; }
     if (record.id.startsWith("mangadex:") || record.id.startsWith("baozi:") || record.id.startsWith("dm5:") || record.id.startsWith("ikkk:")) {
       await this.openMangaDexComic(record.id);
     } else {

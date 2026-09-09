@@ -271,7 +271,7 @@
   .continue-hero__rail::-webkit-scrollbar { display: none; }
   .continue-hero__slot { flex: 0 0 100%; min-width: 0; scroll-snap-align: center; }
 
-  .hero-card { position: relative; min-height: 188px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 20px; align-items: end; padding: 18px 22px; border: 1px solid var(--border); background: var(--bg-deep); overflow: hidden; isolation: isolate; transition: border-color .22s ease; }
+  .hero-card { position: relative; min-height: clamp(188px, 28vh, 270px); display: grid; grid-template-columns: auto minmax(0, 1fr); gap: clamp(20px, 3vw, 40px); align-items: end; padding: clamp(18px, 2vw, 28px); border: 1px solid var(--border); border-radius:12px; background: var(--bg-deep); overflow: hidden; isolation: isolate; transition: border-color .22s ease; }
   .hero-card:hover, .hero-card:focus-within { border-color: var(--border-hover); }
   .hero-card__bg { position: absolute; inset: 0; z-index: -2; opacity: .9; transform: scale(1.02); transition: transform .6s ease, opacity .3s ease; }
   .hero-card:hover .hero-card__bg, .hero-card:focus-within .hero-card__bg { transform: scale(1.06); opacity: 1; }
@@ -285,7 +285,7 @@
   .hero-card__monogram { color: var(--text-muted); font: 700 2rem/1 var(--font-display); }
   .hero-card__info { position: relative; z-index: 1; min-width: 0; display: grid; gap: 7px; }
   .hero-card__orig { margin: 0; color: var(--text-muted); font: 600 10px/1.3 var(--font-mono); letter-spacing: .06em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .hero-card__name { margin: 0; color: var(--text-primary); font-family: var(--font-display); font-size: clamp(1.1rem, 2vw, 1.5rem); letter-spacing: -.03em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hero-card__name { margin: 0; color: var(--text-primary); font-family: var(--font-display); font-size: clamp(1.35rem, 2.4vw, 2.35rem); letter-spacing: -.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hero-card__meta { margin: 0; display: flex; flex-wrap: wrap; gap: 5px 14px; color: var(--text-secondary); font: 600 11px/1.4 var(--font-ui); }
   .hero-card__achievements { display: flex; align-items: center; gap: 10px; max-width: 330px; }
   .hero-card__achievements-label { color: var(--text-muted); font: 600 10px/1 var(--font-mono); letter-spacing: .06em; white-space: nowrap; }

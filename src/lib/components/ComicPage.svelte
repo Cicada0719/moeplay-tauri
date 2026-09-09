@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
+  import StorageNotice from "../features/reading-history/StorageNotice.svelte";
+  import { providerResume } from "../features/reading-history/resume.svelte";
   import type { ViewState } from "./ui-v2";
   import {
     comicStore,
@@ -27,6 +29,7 @@
   type PicacgTab = "explore" | "ranking" | "random" | "favorites" | "history";
 
   let pageMode = $state<PageMode>("normal");
+  $effect(() => { if (providerResume.request) pageMode = "provider-v2"; });
   let searchInput = $state("");
   let adultOpen = $state(false);
   let adultTrigger = $state<HTMLElement>();
@@ -244,6 +247,7 @@
     });
   });
 </script>
+<StorageNotice />
 
 {#snippet comicPageContent()}
 <section class="comic-page" data-testid="comic-page">

@@ -228,7 +228,7 @@
     width: 100%;
     height: 64px;
     border-bottom: 1px solid var(--nav-line);
-    background: rgba(5, 5, 5, 0.96);
+    background: color-mix(in srgb, var(--nav-black) 96%, transparent);
     color: var(--nav-paper);
     font-family: var(--font-ui, "Outfit", system-ui, sans-serif);
   }
@@ -459,7 +459,7 @@
       width: min(260px, calc(100vw - 24px));
       border: 1px solid var(--nav-line-strong);
       border-top: 0;
-      background: rgba(5, 5, 5, 0.99);
+      background: var(--nav-black);
       box-shadow: 16px 18px 0 rgba(0, 0, 0, 0.28);
     }
 

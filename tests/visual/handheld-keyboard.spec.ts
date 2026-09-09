@@ -12,28 +12,23 @@ const handheldState = {
 test.describe("Handheld mode on-screen keyboard", () => {
   test.use({ appState: handheldState });
 
-  test("1280x800 掌机视口下输入框聚焦自动弹出屏幕键盘并可输入/关闭", async ({ appPage: page }) => {
+  test("Android 掌机搜索保留可编辑输入框", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
-    // 掌机自动判定生效（横屏 && 高≤800 && 宽≤1920）
+    await page.goto("/?skip_wizard&platform=android#anime");
+    const input = page.getByRole("searchbox", { name: "搜索番剧" });
+    await input.fill("葬送的芙莉莲");
+    await expect(input).toHaveValue("葬送的芙莉莲");
+    await expect(input).toBeEditable();
+  });
+
+  test("Windows 小屏掌机布局使用系统输入，不弹应用键盘", async ({ appPage: page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
     await expect.poll(() => page.evaluate(() => document.documentElement.dataset.handheld)).toBe("true");
-
     const input = page.locator('input[type="search"]').first();
-    await input.focus();
-    const keyboard = page.getByTestId("handheld-keyboard");
-    await expect(keyboard).toBeVisible();
-
-    // 点击键帽输入，焦点落到键盘内不应关闭
-    await page.getByRole("button", { name: "Q", exact: true }).click();
-    await expect(input).toHaveValue("Q");
-    await expect(keyboard).toBeVisible();
-
-    // 关闭后出现重开按钮，点击可重新聚焦输入并弹出
-    await page.getByRole("button", { name: "关闭屏幕键盘" }).click();
-    await expect(keyboard).toBeHidden();
-    const reopen = page.getByRole("button", { name: "打开屏幕键盘" });
-    await expect(reopen).toBeVisible();
-    await reopen.click();
-    await expect(keyboard).toBeVisible();
+    await input.fill("电脑 中文输入");
+    await expect(input).toHaveValue("电脑 中文输入");
+    await expect(page.getByTestId("handheld-keyboard")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "打开屏幕键盘" })).toHaveCount(0);
   });
 
   test("1440x900 桌面视口不弹键盘（掌机未生效）", async ({ appPage: page }) => {

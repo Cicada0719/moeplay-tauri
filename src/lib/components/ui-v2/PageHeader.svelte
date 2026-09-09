@@ -48,7 +48,7 @@
   .v2-page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--v2-space-4); min-width: 0; }
   .v2-page-header__copy { min-width: 0; }
   .v2-page-header__eyebrow { margin-bottom: var(--v2-space-2); color: var(--v2-color-accent); font-size: var(--v2-text-xs); font-weight: 700; letter-spacing: 0.08em; line-height: var(--v2-leading-tight); text-transform: uppercase; }
-  .v2-page-header__title { color: var(--v2-color-text); font-size: var(--v2-text-xl); font-weight: 700; letter-spacing: -0.02em; line-height: var(--v2-leading-tight); }
+  .v2-page-header__title { color: var(--v2-color-text); font-size: clamp(1.6rem, 2.5vw, 2.65rem); font-weight: 650; letter-spacing: -0.045em; line-height: 1.12; text-wrap: balance; }
   .v2-page-header__description { max-width: 68ch; margin-top: var(--v2-space-2); color: var(--v2-color-text-secondary); font-size: var(--v2-text-sm); line-height: var(--v2-leading-normal); }
   .v2-page-header__actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--v2-space-2); }
 

@@ -119,6 +119,26 @@ fn sniff_js() -> String {
       window.__moe_sniff = true;
       window.__MOEPLAY_VIDEO_URL__ = '';
       window.__MOEPLAY_VIDEO_SRC__ = '';
+      // Extraction and next-episode prefetch must never produce audible playback.
+      try {
+        var mediaProto = HTMLMediaElement.prototype;
+        var mutedDescriptor = Object.getOwnPropertyDescriptor(mediaProto, 'muted');
+        var originalPlay = mediaProto.play;
+        if (mutedDescriptor && mutedDescriptor.set) {
+          Object.defineProperty(mediaProto, 'muted', {
+            configurable: true,
+            get: function(){ return true; },
+            set: function(){ mutedDescriptor.set.call(this, true); }
+          });
+          mediaProto.play = function(){
+            mutedDescriptor.set.call(this, true);
+            return originalPlay.apply(this, arguments);
+          };
+        }
+        document.addEventListener('play', function(event){
+          if (event.target instanceof HTMLMediaElement) event.target.muted = true;
+        }, true);
+      } catch(e){}
       var done = false;
       var initTimer = 0;
 
@@ -613,13 +633,7 @@ async fn run_sniff(
     episode_url: String,
     user_agent: Option<String>,
 ) -> Result<VideoUrlResult, String> {
-    let label = format!(
-        "video-sniff-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-    );
+    let label = format!("video-sniff-{}", uuid::Uuid::new_v4());
     let url_parsed: url::Url = episode_url
         .parse()
         .map_err(|e: url::ParseError| e.to_string())?;
@@ -651,7 +665,7 @@ async fn run_sniff(
         }
     }
 
-    let _webview = builder
+    let webview = builder
         .on_page_load(move |_window, payload| {
             tracing::info!(
                 "[sniff] 页面加载事件: event={:?} url={}",
@@ -752,6 +766,22 @@ async fn run_sniff(
         .build()
         .map_err(|e| format!("创建提取窗口失败: {}", e))?;
 
+    #[cfg(windows)]
+    webview
+        .with_webview(|platform| unsafe {
+            use windows_core::Interface;
+            let mute = || -> windows_core::Result<()> {
+                let core = platform.controller().CoreWebView2()?;
+                let audio =
+                    core.cast::<webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_8>()?;
+                audio.SetIsMuted(true)
+            };
+            if let Err(error) = mute() {
+                tracing::warn!("嗅探窗口静音失败: {error}");
+            }
+        })
+        .map_err(|e| format!("设置提取窗口静音失败: {e}"))?;
+
     // Spawn a polling task that checks window.__MOEPLAY_VIDEO_URL__ every 250ms.
     // Uses eval() to trigger sentinel navigation from JS side when URL found.
     let app_poll = app.clone();
@@ -825,6 +855,12 @@ async fn run_sniff(
     // 导致后续的 Svelte 响应式更新失效。
     // 窗口保持隐藏，在应用退出时自动清理。
     poll_handle.abort();
+    // Keep the existing WebView2 destruction workaround, but unload the source
+    // document so its media, nested frames and timers cannot continue off-screen.
+    if let Err(error) = webview.navigate(url::Url::parse("about:blank").expect("static blank URL"))
+    {
+        tracing::warn!("清空提取页面失败: {error}");
+    }
 
     match result {
         Some(v) => {

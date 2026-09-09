@@ -31,6 +31,11 @@ test("copies localized bundle names to the stable GitHub release asset contract"
   assert.equal(path.basename(canonical), canonicalUpdaterAssetName("1.2.3"));
   assert.equal(fs.readFileSync(canonical, "utf8"), "installer");
   assert.equal(fs.readFileSync(`${canonical}.sig`, "utf8"), "signature");
+  fs.writeFileSync(localized, "rebuilt installer");
+  fs.writeFileSync(`${localized}.sig`, "rebuilt signature");
+  prepareCanonicalUpdaterArtifact(dir, "1.2.3");
+  assert.equal(fs.readFileSync(canonical, "utf8"), "rebuilt installer");
+  assert.equal(fs.readFileSync(`${canonical}.sig`, "utf8"), "rebuilt signature");
 });
 
 test("refuses to publish without exactly one signed updater artifact", () => {

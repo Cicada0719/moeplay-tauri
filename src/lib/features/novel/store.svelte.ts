@@ -1,4 +1,5 @@
 import { loadNovelDetail, readNovelChapter, searchNovels } from "./api";
+import { bookKey, readingRepository, type ReadingPosition } from "../reading-history/repository";
 import type {
   NovelBook,
   NovelChapter,
@@ -9,7 +10,6 @@ import type {
 } from "./types";
 
 const HISTORY_KEY = "moeplay-novel-history-v1";
-const MAX_HISTORY = 60;
 const ALL_SEARCH_SOURCES: ReadonlyArray<Exclude<NovelSource, "all">> = [
   "biquge",
   "x80",
@@ -24,19 +24,14 @@ function loadHistory(): NovelHistoryEntry[] {
   if (typeof localStorage === "undefined") return [];
   try {
     const parsed = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "[]") as NovelHistoryEntry[];
-    return Array.isArray(parsed) ? parsed.slice(0, MAX_HISTORY) : [];
+    return Array.isArray(parsed) ? parsed.filter(e => e?.book?.id && e.chapterId && Number.isFinite(e.progress)) : [];
   } catch {
     return [];
   }
 }
 
-function persistHistory(entries: NovelHistoryEntry[]) {
-  if (typeof localStorage === "undefined") return;
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, MAX_HISTORY)));
-}
-
 function historyKey(book: NovelBook, chapterId: string) {
-  return `${book.source}:${book.id}:${chapterId}`;
+  return JSON.stringify([book.source, book.id, chapterId]);
 }
 
 let _source = $state<NovelSource>("all");
@@ -45,6 +40,21 @@ let _books = $state<NovelBook[]>([]);
 let _detail = $state<NovelDetail | null>(null);
 let _content = $state<NovelChapterContent | null>(null);
 let _history = $state<NovelHistoryEntry[]>(loadHistory());
+let _historyReady = $state(false);
+let _historyError = $state("");
+let _detailRequest = 0;
+let _chapterRequest = 0;
+readingRepository.subscribe(() => {
+  _historyReady = readingRepository.ready;
+  _historyError = readingRepository.error;
+  if (!_historyReady) return;
+  _history = readingRepository.positions.filter(p => p.kind === "novel" && p.metadata.book).map(p => ({
+    key: historyKey(p.metadata.book as unknown as NovelBook, p.chapterId),
+    book: p.metadata.book as unknown as NovelBook, chapterId: p.chapterId,
+    chapterTitle: p.chapterTitle, progress: p.progress ?? 0, updatedAt: p.updatedAt,
+  })).sort((a, b) => b.updatedAt - a.updatedAt);
+});
+if (typeof indexedDB !== "undefined") void readingRepository.init().catch(() => {});
 let _view = $state<"home" | "detail" | "reader">("home");
 let _loading = $state(false);
 let _error = $state("");
@@ -58,7 +68,16 @@ export const novelStore = {
   get books() { return _books; },
   get detail() { return _detail; },
   get content() { return _content; },
-  get history() { return _history; },
+  get history() {
+    const seen = new Set<string>();
+    return _history.filter(entry => {
+      const key = JSON.stringify([entry.book.source, entry.book.id]);
+      if (seen.has(key)) return false;
+      seen.add(key); return true;
+    });
+  },
+  get historyReady() { return _historyReady; },
+  get historyError() { return _historyError; },
   get view() { return _view; },
   get loading() { return _loading; },
   get error() { return _error; },
@@ -138,20 +157,27 @@ export const novelStore = {
   },
 
   async openBook(book: NovelBook) {
+    const request = ++_detailRequest;
+    ++_chapterRequest;
     _loading = true;
     _error = "";
     _content = null;
+    _detail = null;
     try {
-      _detail = await loadNovelDetail(book.source, book.id);
+      const detail = await loadNovelDetail(book.source, book.id);
+      if (request !== _detailRequest) return;
+      _detail = detail;
       _view = "detail";
     } catch (error) {
+      if (request !== _detailRequest) return;
       _error = String(error);
     } finally {
-      _loading = false;
+      if (request === _detailRequest) _loading = false;
     }
   },
 
   async readChapter(chapter: NovelChapter) {
+    const request = ++_chapterRequest;
     const book = _detail?.book;
     if (!book) {
       _error = "请先打开作品详情，再选择章节";
@@ -160,17 +186,22 @@ export const novelStore = {
     _loading = true;
     _error = "";
     try {
-      _content = await readNovelChapter(book.source, book.id, chapter.id);
+      await readingRepository.init();
+      const content = await readNovelChapter(book.source, book.id, chapter.id);
+      if (request !== _chapterRequest) return;
+      _content = content;
       _view = "reader";
       this.setProgress(0, false);
     } catch (error) {
+      if (request !== _chapterRequest) return;
       _error = String(error);
     } finally {
-      _loading = false;
+      if (request === _chapterRequest) _loading = false;
     }
   },
 
   setProgress(progress: number, overwrite = true) {
+    if (!_historyReady || !Number.isFinite(progress)) return;
     const book = _detail?.book;
     const chapter = _content?.chapter;
     if (!book || !chapter) return;
@@ -185,8 +216,16 @@ export const novelStore = {
       progress: Math.max(0, Math.min(1, value)),
       updatedAt: Date.now(),
     };
-    _history = [entry, ..._history.filter((item) => item.key !== key)].slice(0, MAX_HISTORY);
-    persistHistory(_history);
+    _history = [entry, ..._history.filter((item) => item.key !== key)];
+    const position: ReadingPosition = { kind: "novel", source: book.source, contentId: book.id,
+      title: book.title, chapterId: chapter.id, chapterTitle: chapter.title,
+      progress: entry.progress, updatedAt: entry.updatedAt,
+      metadata: { book: JSON.parse(JSON.stringify(book)) } };
+    void readingRepository.save(position).catch(() => {});
+  },
+
+  async removeHistory(entry: NovelHistoryEntry) {
+    await readingRepository.remove(bookKey({ kind: "novel", source: entry.book.source, contentId: entry.book.id }));
   },
 
   progressFor(book: NovelBook, chapterId: string) {
@@ -200,10 +239,15 @@ export const novelStore = {
   },
 
   showDetail() {
+    ++_chapterRequest;
+    _loading = false;
     if (_detail) _view = "detail";
   },
 
   showHome() {
+    ++_detailRequest;
+    ++_chapterRequest;
+    _loading = false;
     _view = "home";
     _content = null;
     _detail = null;

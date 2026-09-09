@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { isHandheldActive, onHandheldPrefsChanged, readHandheldKeyboardPreference } from "../platform/handheld";
   import { uiStore } from "../stores/ui.svelte";
+  import { platformStore } from "../platform";
   import { backspaceAtCursor, insertTextAtCursor, isTextEntryTarget, type TextTargetLike } from "../utils/textInput";
 
   // 掌机模式联动：输入框聚焦自动弹出屏幕键盘（掌机没有实体键盘）。
@@ -12,7 +13,7 @@
   let rootEl = $state<HTMLDivElement>();
 
   function enabled(): boolean {
-    return isHandheldActive() && readHandheldKeyboardPreference() && !uiStore.bigPictureActive;
+    return platformStore.isAndroid && isHandheldActive() && readHandheldKeyboardPreference() && !uiStore.bigPictureActive;
   }
 
   function tryOpen(candidate: EventTarget | null) {
@@ -51,7 +52,7 @@
     document.addEventListener("focusout", onFocusOut);
     window.addEventListener("keydown", onKeydown, true);
     const offPrefs = onHandheldPrefsChanged(() => {
-      if (!readHandheldKeyboardPreference() && open) open = false;
+      if (!enabled()) { open = false; target = null; }
     });
     return () => {
       document.removeEventListener("focusin", onFocusIn);
