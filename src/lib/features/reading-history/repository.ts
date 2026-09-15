@@ -83,6 +83,8 @@ export class ReadingRepository {
   ready = false;
   error = "";
   subscribe(listener: () => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
+  /** Positions that have not reached IndexedDB yet. Kept visible for backup/retry UI. */
+  get pendingPositions(): ReadingPosition[] { return [...this.pending.values()]; }
   private notify() { for (const listener of this.listeners) listener(); }
   private failed(error: unknown) { this.error = `阅读记录未保存，请重试或导出备份：${String(error)}`; this.notify(); }
 
@@ -145,6 +147,75 @@ export class ReadingRepository {
     this.error = "";
     this.notify();
   }
+
+  private localLegacyPositions(): ReadingPosition[] {
+    if (typeof localStorage === "undefined") return [];
+    const read = (key: string): unknown => {
+      try { return JSON.parse(localStorage.getItem(key) ?? "[]"); } catch { return []; }
+    };
+    return migrateLegacy(read("moeplay-novel-history-v1"), read("picacg-history"));
+  }
+
+  /**
+   * Return every readable position, including pending writes and legacy records
+   * when the database cannot be opened. This is deliberately a read-only view.
+   */
+  async positionsForBackup(): Promise<{ positions: ReadingPosition[]; storageAvailable: boolean; missing: string[] }> {
+    try {
+      await this.init();
+      const tx = this.db!.transaction("chapters", "readonly");
+      const rows = await request(tx.objectStore("chapters").getAll());
+      await complete(tx);
+      const merged = new Map<string, ReadingPosition>();
+      for (const p of rows.filter(validPosition)) merged.set(chapterKey(p), p);
+      for (const p of this.pending.values()) {
+        const old = merged.get(chapterKey(p));
+        if (!old || old.updatedAt <= p.updatedAt) merged.set(chapterKey(p), p);
+      }
+      return { positions: [...merged.values()], storageAvailable: true, missing: [] };
+    } catch {
+      const merged = new Map<string, ReadingPosition>();
+      for (const p of [...this.positions, ...this.pending.values(), ...this.localLegacyPositions()]) {
+        if (!validPosition(p)) continue;
+        const old = merged.get(chapterKey(p));
+        if (!old || old.updatedAt <= p.updatedAt) merged.set(chapterKey(p), p);
+      }
+      return { positions: [...merged.values()], storageAvailable: false, missing: ["reading-history-indexeddb"] };
+    }
+  }
+
+  /** Compare an import batch without writing it. Equal timestamps intentionally stay local. */
+  async previewPositions(incoming: ReadingPosition[]): Promise<{ added: number; updated: number; skipped: number }> {
+    const current = await this.positionsForBackup();
+    const map = new Map(current.positions.map((p) => [chapterKey(p), p]));
+    let added = 0; let updated = 0; let skipped = 0;
+    for (const p of incoming) {
+      if (!validPosition(p)) { skipped += 1; continue; }
+      const old = map.get(chapterKey(p));
+      if (!old) { added += 1; map.set(chapterKey(p), p); }
+      else if (p.updatedAt > old.updatedAt) { updated += 1; map.set(chapterKey(p), p); }
+      else skipped += 1;
+    }
+    return { added, updated, skipped };
+  }
+
+  /** Merge only after storage is available; callers can report failures and retry pending writes. */
+  async importPositions(incoming: ReadingPosition[]): Promise<{ imported: number; skipped: number; failed: number }> {
+    const valid = incoming.filter(validPosition);
+    const invalid = incoming.length - valid.length;
+    const preview = await this.previewPositions(valid);
+    if (!valid.length) return { imported: 0, skipped: invalid, failed: 0 };
+    try {
+      await this.init();
+      await this.merge(valid);
+      return { imported: preview.added + preview.updated, skipped: invalid + preview.skipped, failed: 0 };
+    } catch {
+      // merge is transactional; positions remain unchanged and callers can retry
+      for (const p of valid) this.pending.set(chapterKey(p), p);
+      this.failed(this.error || "阅读历史存储不可用");
+      return { imported: 0, skipped: invalid + preview.skipped, failed: valid.length };
+    }
+  }
   async save(position: ReadingPosition) {
     try {
       if (!validPosition(position)) throw new Error("无效阅读位置");
@@ -173,21 +244,18 @@ export class ReadingRepository {
     } catch (error) { this.failed(error); throw error; }
   }
   async exportJSON() {
-    await this.init();
-    const tx = this.db!.transaction("chapters", "readonly");
-    const rows = await request(tx.objectStore("chapters").getAll());
-    const positions = new Map<string, ReadingPosition>(rows.filter(validPosition).map(p => [chapterKey(p), p]));
-    for (const [key, p] of this.pending) if (!positions.has(key) || positions.get(key)!.updatedAt <= p.updatedAt) positions.set(key, p);
-    return JSON.stringify({ format: "moeplay-reading-history", version: 2, exportedAt: Date.now(), positions: [...positions.values()] }, null, 2);
+    const snapshot = await this.positionsForBackup();
+    return JSON.stringify({ format: "moeplay-reading-history", version: 2, exportedAt: Date.now(), positions: snapshot.positions }, null, 2);
   }
   async importJSON(json: string) {
     const data = JSON.parse(json);
     if (data?.format !== "moeplay-reading-history" || data.version !== 2 || !Array.isArray(data.positions)) throw new Error("不支持的阅读历史备份格式");
     const positions = data.positions.filter(validPosition);
     if (data.positions.length && !positions.length) throw new Error("备份没有有效记录");
-    await this.init();
-    await this.merge(positions);
-    return { imported: positions.length, skipped: data.positions.length - positions.length };
+    return this.importPositions(positions).then((result) => ({
+      imported: result.imported,
+      skipped: result.skipped + data.positions.length - positions.length,
+    }));
   }
 }
 

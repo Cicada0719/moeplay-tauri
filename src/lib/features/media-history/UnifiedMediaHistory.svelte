@@ -9,6 +9,7 @@
   import { novelStore } from "../novel/store.svelte";
   import { uiStore } from "../../stores/ui.svelte";
   import { openUnifiedMediaHistory } from "./open";
+  import { exportMediaHistory, importMediaHistory, previewMediaHistoryImport, type MediaHistoryImportPreview } from "./backup";
   import {
     buildUnifiedMediaHistory,
     mediaHistoryActionLabel,
@@ -28,6 +29,8 @@
   let storageError = $state(readingRepository.error);
   let ready = $state(readingRepository.ready);
   let backupText = $state("");
+  let pendingImport = $state<{ text: string; preview: MediaHistoryImportPreview } | null>(null);
+  let importing = $state(false);
   let importInput: HTMLInputElement;
   onMount(() => {
     const unsubscribe = readingRepository.subscribe(() => { storageError = readingRepository.error; ready = readingRepository.ready; });
@@ -48,8 +51,9 @@
 
   async function exportHistory() {
     try {
-      const url = URL.createObjectURL(new Blob([await readingRepository.exportJSON()], { type: "application/json" }));
-      const link = document.createElement("a"); link.href = url; link.download = `moeplay-reading-${new Date().toISOString().slice(0, 10)}.json`;
+      const text = await exportMediaHistory();
+      const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+      const link = document.createElement("a"); link.href = url; link.download = `moeplay-media-history-${new Date().toISOString().slice(0, 10)}.json`;
       link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (error) { uiStore.notify(String(error), "error"); }
   }
@@ -57,18 +61,37 @@
     const input = event.currentTarget as HTMLInputElement;
     const file = input.files?.[0]; if (!file) return;
     try {
-      const result = await readingRepository.importJSON(await file.text());
-      uiStore.notify(`导入 ${result.imported} 条章节记录，跳过 ${result.skipped} 条无效记录。`, "success");
+      const text = await file.text();
+      const preview = await previewMediaHistoryImport(text);
+      pendingImport = { text, preview };
     } catch (error) { uiStore.notify(String(error), "error"); }
     input.value = "";
   }
   async function prepareTextBackup() {
-    try { backupText = await readingRepository.exportJSON(); }
+    try { backupText = await exportMediaHistory(); }
     catch (error) { uiStore.notify(String(error), "error"); }
   }
   async function importTextBackup() {
-    try { const result = await readingRepository.importJSON(backupText); uiStore.notify(`导入 ${result.imported} 条章节记录，跳过 ${result.skipped} 条无效记录。`, "success"); }
-    catch (error) { uiStore.notify(String(error), "error"); }
+    if (!backupText.trim() || importing) return;
+    try {
+      // Text backup is already explicitly selected and editable in this view.
+      // Keep the preview calculation, then apply it immediately for compatibility
+      // with the established one-click mobile recovery flow. File imports still
+      // use the confirmation dialog below.
+      const preview = await previewMediaHistoryImport(backupText);
+      const result = await importMediaHistory(backupText);
+      uiStore.notify(`导入 ${result.imported} 条，新增 ${preview.added}，更新 ${preview.updated}，跳过 ${preview.skipped}，失败 ${result.failed}。`, result.failed ? "error" : "success");
+    } catch (error) { uiStore.notify(String(error), "error"); }
+  }
+  async function confirmImport() {
+    if (!pendingImport || importing) return;
+    importing = true;
+    try {
+      const result = await importMediaHistory(pendingImport.text);
+      pendingImport = null;
+      uiStore.notify(`导入 ${result.imported} 条，新增 ${result.added}，更新 ${result.updated}，跳过 ${result.skipped}，失败 ${result.failed}。`, result.failed ? "error" : "success");
+    } catch (error) { uiStore.notify(String(error), "error"); }
+    finally { importing = false; }
   }
   async function copyTextBackup() {
     try { await navigator.clipboard.writeText(backupText); uiStore.notify("阅读备份已复制", "success"); }
@@ -141,7 +164,7 @@
   </div>
   <details class="text-backup">
     <summary>移动端文本备份与恢复</summary>
-    <p>系统无法保存 JSON 文件时，可生成并复制完整备份；恢复时粘贴 JSON 后导入。仅包含漫画与小说阅读记录。</p>
+    <p>系统无法保存 JSON 文件时，可生成并复制完整备份；恢复时粘贴 JSON 后导入。备份包含三类历史位置，不包含凭据或下载内容。</p>
     <div class="history-tools"><button type="button" onclick={prepareTextBackup}>生成备份文本</button><button type="button" disabled={!backupText} onclick={copyTextBackup}>复制完整 JSON</button><button type="button" disabled={!backupText.trim()} onclick={importTextBackup}>导入文本</button></div>
     <textarea aria-label="阅读历史 JSON 备份文本" bind:value={backupText} spellcheck="false" placeholder="生成备份，或在这里粘贴已有 JSON" rows="6"></textarea>
   </details>
@@ -182,6 +205,17 @@
     </div>
     {#if filteredItems.length > limit}<button class="history-more" type="button" onclick={() => limit += 24}>显示更多 · 剩余 {filteredItems.length - limit} 条</button>{/if}
   {/if}
+  {#if pendingImport}
+    <div class="import-backdrop" role="presentation">
+      <div class="import-dialog" role="dialog" aria-modal="true" aria-labelledby="history-import-title">
+        <h4 id="history-import-title">导入历史预览</h4>
+        <p>新增 {pendingImport.preview.added} 条，更新 {pendingImport.preview.updated} 条，跳过 {pendingImport.preview.skipped} 条。</p>
+        <p>番剧 {pendingImport.preview.byType.anime.added + pendingImport.preview.byType.anime.updated} · 漫画 {pendingImport.preview.byType.manga.added + pendingImport.preview.byType.manga.updated} · 小说 {pendingImport.preview.byType.novel.added + pendingImport.preview.byType.novel.updated}</p>
+        {#if pendingImport.preview.missing.length}<p role="alert">缺失范围：{pendingImport.preview.missing.join("、")}</p>{/if}
+        <div class="history-tools"><button type="button" onclick={() => pendingImport = null} disabled={importing}>取消</button><button type="button" onclick={confirmImport} disabled={importing}>确认导入</button></div>
+      </div>
+    </div>
+  {/if}
 </section>
 
 <style>
@@ -194,6 +228,8 @@
   .history-tools input, .history-tools button, .history-more, .history-delete { border:1px solid var(--v2-color-border); border-radius:.6rem; padding:.7rem 1rem; background:var(--v2-color-surface); color:var(--v2-color-text); font:inherit; }
   .history-delete { margin:.4rem; color:var(--v2-color-text-secondary); font-size:.75rem; }
   .history-warning { padding:1rem; border:1px solid var(--v2-color-accent); border-radius:.6rem; }
+  .import-backdrop { position:fixed; inset:0; z-index:70; display:grid; place-items:center; padding:1rem; background:rgb(0 0 0 / 60%); }
+  .import-dialog { width:min(32rem,100%); display:grid; gap:.8rem; padding:1.2rem; border:1px solid var(--v2-color-border); border-radius:.8rem; background:var(--v2-color-surface); color:var(--v2-color-text); }
   .unified-history { display: grid; gap: var(--v2-space-4); }
   .unified-history__header { display: flex; align-items: end; justify-content: space-between; gap: var(--v2-space-4); }
   .unified-history__kicker { color: var(--v2-color-accent); font: 700 var(--v2-text-xs)/1 var(--v2-font-mono); letter-spacing: .13em; }
