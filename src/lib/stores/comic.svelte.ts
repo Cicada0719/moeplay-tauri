@@ -2,6 +2,8 @@ import { invokeCmd } from "../api/core";
 import { providerResume } from "../features/reading-history/resume.svelte";
 import { bookKey, latestBooks, readingRepository, type ReadingPosition } from "../features/reading-history/repository";
 import { continueSource } from "./continue-source.svelte";
+import { offlineApi } from "../api/offline";
+import { findOfflineChapter } from "../features/offline/model";
 import {
   loadBaoziChapterImages,
   loadBaoziDetail,
@@ -935,6 +937,26 @@ export const comicStore = {
     try {
       await readingRepository.init();
       if (request !== _readerRequest) return;
+      // Offline copies are checked before any source request. This lookup is
+      // read-only and intentionally does not touch the reading position.
+      const chapterId = chapter?.id || String(order);
+      if (provider !== "dm5") {
+        try {
+          const offline = findOfflineChapter(await offlineApi.list(), {
+            contentType: "manga", sourceId: provider, contentId: comic.id, chapterId,
+          });
+          if (offline?.readable) {
+            const cached = await offlineApi.getChapter(offline.offlineChapterKey);
+            if (request !== _readerRequest || comic !== _currentComic) return;
+            _readerImages = cached.resourcePaths.map((url, index) => ({ id: `${chapterId}:${index}`, url }));
+            _readerWebUrl = "";
+            this._recordHistory(order, title);
+            return;
+          }
+        } catch {
+          // A corrupt/missing offline copy falls through to the online source.
+        }
+      }
       let images: ComicImage[] = [];
       let webUrl = "";
       if (provider === "dm5") {
@@ -964,6 +986,15 @@ export const comicStore = {
     } finally {
       if (request === _readerRequest) _readerLoading = false;
     }
+  },
+
+  /** Resolve chapter bytes without opening the reader or writing history. */
+  async resolveChapterForOffline(chapter: ComicChapter): Promise<{ images: ComicImage[] }> {
+    const provider = _currentProvider;
+    if (provider === "dm5") throw new Error("网页/外部阅读模式不支持章节离线");
+    if (provider === "baozi") return { images: await loadBaoziChapterImages(mangaTextFetcher, chapter.id) };
+    if (provider === "mangadex") return { images: await loadMangaDexChapterImages(mangaDexFetcher, chapter.id) };
+    return { images: await invokeCmd<ComicImage[]>("comic_chapter_images", { id: _currentComic?.id, order: chapter.order }) };
   },
 
   closeReader() {

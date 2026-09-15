@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from "svelte";
+  import { convertFileSrc } from "@tauri-apps/api/core";
   import { untrack } from "svelte";
   import { buildScreens, screenIndexOfPage, nextScreen, type PageMeta } from "../../reader/dualPage";
   import { focusTrap } from "../../actions/a11y/focusTrap";
@@ -135,6 +136,12 @@
 
   function pageElement(index: number): HTMLElement | null {
     return readerRoot?.querySelector<HTMLElement>(`[data-reader-page-index="${index}"]`) ?? null;
+  }
+
+  function displayImageUrl(url: string): string {
+    if (/^https?:\/\//i.test(url) || /^(blob:|data:)/i.test(url)) return url;
+    if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return url;
+    try { return convertFileSrc(url.replace(/^file:\/\//i, "")); } catch { return url; }
   }
 
   function movePage(delta: number) {
@@ -466,7 +473,7 @@
               {:else}
                 {#key `${image.id}:${retryVersions[image.id] ?? 0}`}
                   <img
-                    src={image.url}
+                    src={displayImageUrl(image.url)}
                     alt={`${title || `第 ${order} 话`} 第 ${index + 1} 页`}
                     loading={index <= currentPage + 2 ? "eager" : "lazy"}
                     class="comic-img"

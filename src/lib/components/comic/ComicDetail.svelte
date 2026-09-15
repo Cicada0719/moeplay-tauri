@@ -5,6 +5,9 @@
   import Icon from "../Icon.svelte";
   import { Button, Input, Tag } from "../ui";
   import { AsyncSection, ContentGrid, DetailPanel } from "../ui-v2";
+  import { scheduleOfflineChapters } from "../../features/offline/scheduler";
+  import { offlineSupportsSource } from "../../features/offline/model";
+  import { uiStore } from "../../stores/ui.svelte";
 
   let {
     onclose,
@@ -26,6 +29,10 @@
   let commentInput = $state("");
   let postingComment = $state(false);
   let detailTab = $state<"chapters" | "comments" | "recommend">("chapters");
+  let selectedChapterIds = $state<Set<string>>(new Set());
+  let followingCount = $state(5);
+  let offlineBusy = $state(false);
+  const offlineSupport = $derived(offlineSupportsSource(comicStore.currentProvider));
 
   const subTabs = $derived([
     { value: "chapters" as const, label: `章节 ${chapters.length}` },
@@ -74,6 +81,48 @@
 
   function openRecommendation(id: string) {
     void comicStore.openComic(id);
+  }
+
+  function toggleChapter(id: string) {
+    const next = new Set(selectedChapterIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    selectedChapterIds = next;
+  }
+
+  function selectFollowing() {
+    const start = chapters.findIndex((chapter) => selectedChapterIds.has(chapter.id));
+    if (start < 0) return;
+    selectedChapterIds = new Set(chapters.slice(start, start + Math.max(1, Math.trunc(followingCount)) + 1).map((chapter) => chapter.id));
+  }
+
+  async function fetchOfflinePayload(chapter: ComicChapter) {
+    const resolved = await comicStore.resolveChapterForOffline(chapter);
+    const resources = await Promise.all(resolved.images.map(async (image, index) => {
+      const response = await fetch(image.url);
+      if (!response.ok) throw new Error(`第 ${index + 1} 页返回 HTTP ${response.status}`);
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      let binary = "";
+      for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+      return { resourceKey: image.id || String(index), filename: `${String(index + 1).padStart(4, "0")}.jpg`, bytesBase64: btoa(binary) };
+    }));
+    return { resources };
+  }
+
+  async function downloadSelected() {
+    if (!comic || !offlineSupport.supported || selectedChapterIds.size === 0) return;
+    const first = chapters.find((chapter) => selectedChapterIds.has(chapter.id));
+    if (!first) return;
+    offlineBusy = true;
+    try {
+      const result = await scheduleOfflineChapters({
+        contentType: "manga", sourceId: comicStore.currentProvider, contentId: comic.id, title: comic.title,
+        chapters, currentId: first.id, following: Math.max(0, followingCount), selected: chapters.filter((chapter) => selectedChapterIds.has(chapter.id)), resolve: fetchOfflinePayload,
+      });
+      if (result.failures.length) uiStore.notify(`已加入 ${result.chapters.length - result.failures.length} 话，${result.failures.length} 话失败：${result.failures[0].error}`, "error");
+      else uiStore.notify(`已完成 ${result.chapters.length} 话离线下载`, "success");
+      selectedChapterIds = new Set();
+    } catch (error) { uiStore.notify(`离线下载失败：${String(error)}`, "error"); }
+    finally { offlineBusy = false; }
   }
 
   function fmtNum(value: number) {
@@ -204,24 +253,36 @@
               state={chapters.length > 0 ? "ready" : "empty"}
               compact
             >
+              {#if offlineSupport.supported}
+                <div class="offline-toolbar" role="group" aria-label="选择章节离线下载">
+                  <label><input type="number" min="0" max="99" bind:value={followingCount} aria-label="后续章节数" /> 后续章</label>
+                  <Button variant="secondary" size="sm" press={selectFollowing} disabled={offlineBusy || selectedChapterIds.size === 0}>当前 + 后续 {followingCount} 章</Button>
+                  <Button variant="primary" size="sm" press={downloadSelected} loading={offlineBusy} disabled={offlineBusy || selectedChapterIds.size === 0}>阅读下载 ({selectedChapterIds.size})</Button>
+                </div>
+              {:else}
+                <p class="offline-unsupported">{offlineSupport.reason}</p>
+              {/if}
               <div class="chapters-grid" aria-label={`${comic.title} 章节列表`}>
                 {#each chapters as chapter (chapter.id)}
                   {@const chapterKey = `${comic.id}:${chapter.order}`}
-                  <button
-                    type="button"
-                    class="chapter-button"
-                    data-chapter-focus-key={chapterKey}
-                    data-gamepad-label={`阅读 ${chapter.title || `第 ${chapter.order} 话`}`}
-                    data-gamepad-activate="开始阅读"
-                    onclick={(event) => openChapter(chapter, event)}
-                  >
-                    <span class="chapter-order">{chapter.order}</span>
-                    <span class="chapter-copy">
-                      <strong>{chapter.title || `第 ${chapter.order} 话`}</strong>
-                      {#if chapter.updated_at}<small>{fmtDate(chapter.updated_at)}</small>{/if}
-                    </span>
-                    <Icon name="chevronRight" size={15} />
-                  </button>
+                  <div class="chapter-entry">
+                    {#if offlineSupport.supported}<input class="chapter-check" type="checkbox" checked={selectedChapterIds.has(chapter.id)} onchange={() => toggleChapter(chapter.id)} aria-label={`下载 ${chapter.title || `第 ${chapter.order} 话`}`} />{/if}
+                    <button
+                      type="button"
+                      class="chapter-button"
+                      data-chapter-focus-key={chapterKey}
+                      data-gamepad-label={`阅读 ${chapter.title || `第 ${chapter.order} 话`}`}
+                      data-gamepad-activate="开始阅读"
+                      onclick={(event) => openChapter(chapter, event)}
+                    >
+                      <span class="chapter-order">{chapter.order}</span>
+                      <span class="chapter-copy">
+                        <strong>{chapter.title || `第 ${chapter.order} 话`}</strong>
+                        {#if chapter.updated_at}<small>{fmtDate(chapter.updated_at)}</small>{/if}
+                      </span>
+                      <Icon name="chevronRight" size={15} />
+                    </button>
+                  </div>
                 {/each}
               </div>
             </AsyncSection>
@@ -332,6 +393,13 @@
   .detail-tabpanel { min-height: 16rem; padding-top: var(--v2-space-4); outline: none; }
 
   .chapters-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: var(--v2-space-2); }
+  .offline-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--v2-space-2); margin-bottom: var(--v2-space-3); padding: var(--v2-space-2); border: 1px solid var(--v2-color-border); border-radius: var(--v2-radius-md); background: var(--v2-color-surface-subtle); }
+  .offline-toolbar label { display: inline-flex; align-items: center; gap: .35rem; color: var(--v2-color-text-secondary); font-size: var(--v2-text-xs); }
+  .offline-toolbar input { width: 3.5rem; min-height: 2rem; padding: .2rem .35rem; border: 1px solid var(--v2-color-border); border-radius: var(--v2-radius-sm); background: var(--v2-color-surface); color: inherit; }
+  .offline-unsupported { margin: 0 0 var(--v2-space-3); color: var(--v2-color-text-secondary); font-size: var(--v2-text-xs); }
+  .chapter-entry { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: stretch; gap: .35rem; }
+  .chapter-check { width: 1rem; margin: 0 .15rem; accent-color: var(--v2-color-accent); }
+  .chapter-entry .chapter-button { width: 100%; }
   .chapter-button { display: grid; grid-template-columns: 2.2rem minmax(0, 1fr) auto; align-items: center; gap: var(--v2-space-2); min-height: 3.25rem; padding: 0.65rem 0.8rem; border: 1px solid var(--v2-color-border); border-radius: var(--v2-radius-md); background: linear-gradient(145deg, var(--v2-color-surface), color-mix(in srgb, var(--v2-color-surface-subtle) 94%, var(--v2-color-accent))); color: var(--v2-color-text); text-align: left; cursor: pointer; transition: border-color var(--v2-motion-fast) var(--v2-ease-standard), transform var(--v2-motion-fast) var(--v2-ease-standard); }
   .chapter-button:hover { border-color: var(--v2-color-accent); background: var(--v2-color-surface-subtle); transform: translateY(-1px); }
   .chapter-button:focus-visible { outline: none; box-shadow: var(--v2-focus-ring); }

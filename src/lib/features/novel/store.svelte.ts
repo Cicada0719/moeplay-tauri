@@ -1,4 +1,6 @@
 import { loadNovelDetail, readNovelChapter, searchNovels } from "./api";
+import { offlineApi } from "../../api/offline";
+import { findOfflineChapter } from "../offline/model";
 import { bookKey, readingRepository, type ReadingPosition } from "../reading-history/repository";
 import type {
   NovelBook,
@@ -187,7 +189,18 @@ export const novelStore = {
     _error = "";
     try {
       await readingRepository.init();
-      const content = await readNovelChapter(book.source, book.id, chapter.id);
+      let content: NovelChapterContent | undefined;
+      try {
+        const offline = findOfflineChapter(await offlineApi.list(), {
+          contentType: "novel", sourceId: book.source, contentId: book.id, chapterId: chapter.id,
+        });
+        if (offline?.readable) {
+          const cached = await offlineApi.getChapter(offline.offlineChapterKey);
+          if (!cached.body) throw new Error("离线章节正文为空");
+          content = { bookId: book.id, source: book.source, chapter, content: cached.body };
+        }
+      } catch { /* absent/corrupt cache falls through to the source API */ }
+      if (!content) content = await readNovelChapter(book.source, book.id, chapter.id);
       if (request !== _chapterRequest) return;
       _content = content;
       _view = "reader";
@@ -198,6 +211,13 @@ export const novelStore = {
     } finally {
       if (request === _chapterRequest) _loading = false;
     }
+  },
+
+  /** Read chapter content for offline storage without changing reader state or history. */
+  async resolveChapterForOffline(chapter: NovelChapter): Promise<{ body: string }> {
+    const book = _detail?.book;
+    if (!book) throw new Error("请先打开作品详情，再选择章节");
+    return { body: (await readNovelChapter(book.source, book.id, chapter.id)).content };
   },
 
   setProgress(progress: number, overwrite = true) {

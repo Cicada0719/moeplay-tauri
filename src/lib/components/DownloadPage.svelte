@@ -28,6 +28,8 @@
   import { i18n } from "../stores/i18n.svelte";
   import { Button, Card, Input, SegmentControl, Tag } from "./ui";
   import { PageShell, PageHeader, FilterBar, AsyncState, type ViewState } from "./ui-v2";
+  import { offlineApi, type OfflineChapter, type OfflineState } from "../api/offline";
+  import { clearOfflineFailure, offlineFailure } from "../features/offline/runtime";
 
   type DownloadEvidence = {
     accepted: boolean;
@@ -54,11 +56,15 @@
   let jobs = $state<Job[]>([]);
   let jobsError = $state<string | null>(null);
   let animeDownloads = $state<AnimeDownloadTask[]>([]);
-  let activeTab = $state<"general" | "anime">("general");
+  let activeTab = $state<"general" | "anime" | "offline">("general");
   let loading = $state(false);
   let startError = $state<string | null>(null);
   let urlBox = $state<HTMLDivElement>();
   let initialLoading = $state(true);
+  let offlineChapters = $state<OfflineChapter[]>([]);
+  let offlineBytes = $state(0);
+  let offlineError = $state("");
+  let offlineView = $state<"reading" | "downloaded">("reading");
 
   const unsubscribeJobs = jobsStore.subscribe((snapshot) => {
     jobs = snapshot.jobs;
@@ -85,6 +91,12 @@
   async function refreshLegacy() {
     try { downloads = await getDownloads() as DownloadProjection[]; } catch { downloads = []; }
     try { animeDownloads = await animeGetDownloads(); } catch { animeDownloads = []; }
+    try {
+      offlineChapters = (await offlineApi.list()).map((chapter) => chapter.error ? chapter : { ...chapter, error: offlineFailure(chapter.offlineChapterKey) });
+      const stats = await offlineApi.stats();
+      offlineBytes = stats.bytes;
+      offlineError = "";
+    } catch (error) { offlineChapters = []; offlineError = String(error); }
   }
 
   async function refresh() {
@@ -261,6 +273,7 @@
   const tabs = $derived([
     { value: "general", label: i18n.t("downloads.tab_general") },
     { value: "anime", label: animeDownloads.length > 0 ? i18n.t("downloads.tab_anime_count", { count: animeDownloads.length }) : i18n.t("downloads.tab_anime") },
+    { value: "offline", label: `阅读下载${offlineChapters.length ? ` (${offlineChapters.length})` : ""}` },
   ]);
 
   // 三态统一：首次加载 / 空列表 / 就绪 收敛到 AsyncState。
@@ -270,6 +283,18 @@
   const animeViewState = $derived<ViewState>(
     initialLoading && animeDownloads.length === 0 ? "loading" : animeDownloads.length ? "ready" : "empty",
   );
+  const offlineViewState = $derived<ViewState>(
+    initialLoading && offlineChapters.length === 0 ? "loading" : offlineChapters.length ? "ready" : "empty",
+  );
+
+  function offlineStatus(state: OfflineState): string {
+    return ({ queued: "排队中", downloading: "解析中", paused: "已暂停", failed: "失败", cancelled: "已取消", complete: "已下载" } as Record<OfflineState, string>)[state];
+  }
+
+  async function controlOffline(chapter: OfflineChapter, action: "pause" | "resume" | "retry" | "cancel" | "delete") {
+    try { await offlineApi.control({ chapterKey: chapter.offlineChapterKey, action }); if (action !== "pause") clearOfflineFailure(chapter.offlineChapterKey); await refresh(); }
+    catch (error) { offlineError = String(error); }
+  }
 </script>
 
 <PageShell as="div" width="full" scrollable={false} class="downloads-v2-shell" labelledBy="downloads-page-title" ariaLabel={i18n.t("downloads.title")}>
@@ -303,7 +328,7 @@
 
     <div class="dl-tabs">
       <FilterBar label={i18n.t("downloads.tabs_aria")}>
-        <SegmentControl options={tabs} value={activeTab} onChange={(v) => activeTab = v as "general" | "anime"} size="sm" />
+        <SegmentControl options={tabs} value={activeTab} onChange={(v) => activeTab = v as "general" | "anime" | "offline"} size="sm" />
       </FilterBar>
     </div>
 
@@ -406,7 +431,7 @@
             loadingRows={4}
           />
         {/if}
-      {:else}
+      {:else if activeTab === "anime"}
         {#if animeViewState === "ready"}
           <Card class="panel dl-panel" padding="none">
             <div class="downloads" role="list">
@@ -482,6 +507,31 @@
             description={animeViewState === "empty" ? i18n.t("downloads.anime_empty_desc") : undefined}
             loadingRows={4}
           />
+        {/if}
+      {:else}
+        {#if offlineViewState === "ready"}
+          <div class="offline-subtabs" role="tablist" aria-label="阅读离线视图"><button type="button" class:active={offlineView === "reading"} onclick={() => offlineView = "reading"}>阅读下载</button><button type="button" class:active={offlineView === "downloaded"} onclick={() => offlineView = "downloaded"}>已下载</button></div>
+          <div class="offline-summary" role="status">阅读下载 · 已占用 {formatFileSize(offlineBytes)} · 共 {offlineChapters.length} 章</div>
+          <Card class="panel dl-panel" padding="none">
+            <div class="downloads" role="list">
+              {#each offlineChapters.filter((chapter) => offlineView === "reading" || chapter.readable) as chapter (chapter.offlineChapterKey)}
+                <article class="task {chapter.readable ? "done" : chapter.state === "failed" ? "fail" : "active"}" role="listitem">
+                  <div class="task-head"><div class="task-info"><strong class="task-fname">{chapter.title || chapter.chapterId}</strong><span class="task-anime-name">{chapter.contentType === "novel" ? "小说" : "漫画"} · {chapter.bytes ? formatFileSize(chapter.bytes) : "等待内容"}</span></div><Tag variant="neutral" size="sm" class="status-badge">{offlineStatus(chapter.state)}</Tag></div>
+                  <div class="bar-wrap"><div class="bar" style="--p:{chapter.readable ? 1 : chapter.state === "downloading" ? .5 : 0}"></div></div>
+                  {#if chapter.error}<div class="task-error">{chapter.error}</div>{/if}
+                  <div class="task-actions">
+                    {#if chapter.state === "downloading"}<Button variant="ghost" size="sm" press={() => controlOffline(chapter, "pause")}>暂停</Button>{/if}
+                    {#if chapter.state === "paused"}<Button variant="ghost" size="sm" press={() => controlOffline(chapter, "resume")}>继续</Button>{/if}
+                    {#if chapter.state === "failed"}<Button variant="ghost" size="sm" press={() => controlOffline(chapter, "retry")}>重试</Button>{/if}
+                    {#if chapter.state !== "complete" && chapter.state !== "cancelled"}<Button variant="ghost" size="sm" class="danger" press={() => controlOffline(chapter, "cancel")}>取消</Button>{/if}
+                    <Button variant="ghost" size="sm" class="danger" press={() => controlOffline(chapter, "delete")}><Icon name="trash" size={14} />删除副本</Button>
+                  </div>
+                </article>
+              {/each}
+            </div>
+          </Card>
+        {:else}
+          <AsyncState state={offlineViewState} title="暂无阅读下载" description={offlineError || "在漫画或小说详情页选择章节后，这里会显示逐章离线状态。"} loadingRows={3} />
         {/if}
       {/if}
     </main>
@@ -565,6 +615,10 @@
     background: rgba(255,255,255,0.045);
   }
   .legacy-note { color: var(--color-warning); }
+  .offline-subtabs { display: flex; gap: 4px; }
+  .offline-subtabs button { min-height: 32px; padding: 0 12px; border: 1px solid var(--border); background: transparent; color: var(--text-secondary); cursor: pointer; }
+  .offline-subtabs button.active { border-color: var(--accent); color: var(--accent); background: var(--accent-lo); }
+  .offline-summary { color: var(--text-secondary); font-size: 0.75rem; }
   .task-evidence.fail { color: var(--color-error); background: rgba(239,68,68,0.08); }
 
   :global(.ui-card.dl-panel) { padding: 0; overflow: hidden; }

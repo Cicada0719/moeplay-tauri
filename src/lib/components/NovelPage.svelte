@@ -3,6 +3,8 @@
   import StorageNotice from "../features/reading-history/StorageNotice.svelte";
   import { downloadStart, openUrl } from "../api";
   import { novelStore } from "../features/novel/store.svelte";
+  import { scheduleOfflineChapters } from "../features/offline/scheduler";
+  import { offlineSupportsSource } from "../features/offline/model";
   import type { NovelBook, NovelChapter, NovelSource } from "../features/novel/types";
   import { uiStore } from "../stores/ui.svelte";
   import { i18n } from "../stores/i18n.svelte";
@@ -24,6 +26,9 @@
   let readingMode = $state<NovelReadingMode>("scroll");
   let selectedSource = $state<NovelSource>(novelStore.source);
   let lastChapterAttempt = $state<NovelChapter | null>(null);
+  let selectedOfflineChapterIds = $state<Set<string>>(new Set());
+  let offlineFollowing = $state(5);
+  let offlineBusy = $state(false);
   let progressFrame = 0;
   let restoring = true;
 
@@ -235,6 +240,39 @@
     await novelStore.readChapter(chapter);
   }
 
+  function toggleOfflineChapter(id: string) {
+    const next = new Set(selectedOfflineChapterIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    selectedOfflineChapterIds = next;
+  }
+
+  function selectOfflineFollowing() {
+    const chapters = novelStore.detail?.chapters ?? [];
+    const start = chapters.findIndex((chapter) => selectedOfflineChapterIds.has(chapter.id));
+    if (start < 0) return;
+    selectedOfflineChapterIds = new Set(chapters.slice(start, start + Math.max(1, Math.trunc(offlineFollowing)) + 1).map((chapter) => chapter.id));
+  }
+
+  async function downloadSelectedChapters() {
+    const detail = novelStore.detail;
+    if (!detail || selectedOfflineChapterIds.size === 0 || !offlineSupportsSource(detail.book.source).supported) return;
+    const first = detail.chapters.find((chapter) => selectedOfflineChapterIds.has(chapter.id));
+    if (!first) return;
+    offlineBusy = true;
+    try {
+      const result = await scheduleOfflineChapters({
+        contentType: "novel", sourceId: detail.book.source, contentId: detail.book.id, title: detail.book.title,
+        chapters: detail.chapters, currentId: first.id, following: Math.max(0, offlineFollowing),
+        selected: detail.chapters.filter((chapter) => selectedOfflineChapterIds.has(chapter.id)),
+        resolve: (chapter) => novelStore.resolveChapterForOffline(chapter),
+      });
+      if (result.failures.length) uiStore.notify(`已加入 ${result.chapters.length - result.failures.length} 章，${result.failures.length} 章失败：${result.failures[0].error}`, "error");
+      else uiStore.notify(`已完成 ${result.chapters.length} 章离线下载`, "success");
+      selectedOfflineChapterIds = new Set();
+    } catch (error) { uiStore.notify(`离线下载失败：${String(error)}`, "error"); }
+    finally { offlineBusy = false; }
+  }
+
   async function moveChapter(offset: number) {
     const chapters = novelStore.detail?.chapters ?? [];
     const next = chapters[chapterIndex + offset];
@@ -414,19 +452,29 @@
 
         <section class="catalog-section">
           <div class="section-heading"><div><span>CONTENTS</span><h2>{i18n.t("novel.catalog_title")}</h2></div><p>{i18n.t("novel.chapter_count", { count: novelStore.detail.chapters.length })}</p></div>
+          {#if offlineSupportsSource(novelStore.detail.book.source).supported}
+            <div class="offline-toolbar" role="group" aria-label="选择章节离线下载">
+              <label><input type="number" min="0" max="99" bind:value={offlineFollowing} aria-label="后续章节数" /> 后续章</label>
+              <button type="button" disabled={offlineBusy || selectedOfflineChapterIds.size === 0} onclick={selectOfflineFollowing}>当前 + 后续 {offlineFollowing} 章</button>
+              <button type="button" class="primary-action" disabled={offlineBusy || selectedOfflineChapterIds.size === 0} onclick={downloadSelectedChapters}>{offlineBusy ? "准备中…" : `阅读下载 (${selectedOfflineChapterIds.size})`}</button>
+            </div>
+          {:else}<p class="offline-unsupported">{offlineSupportsSource(novelStore.detail.book.source).reason}</p>{/if}
           <div class="chapter-list">
             {#if novelStore.detail.chapters.length === 0}
               <div class="download-only"><Icon name="download" size={22} /><p>{i18n.t("novel.download_only")}</p></div>
             {/if}
             {#each novelStore.detail.chapters as chapter, index (chapter.id)}
-              <button type="button" data-gamepad-label={`阅读 ${chapter.title}`} data-gamepad-activate="开始阅读" disabled={novelStore.loading} onclick={() => readChapter(chapter)}>
-                <span class="chapter-number">{String(index + 1).padStart(3, "0")}</span>
-                <span class="chapter-title">{chapter.title}</span>
-                {#if novelStore.progressFor(novelStore.detail.book, chapter.id) > 0}
-                  <span class="chapter-progress">{Math.round(novelStore.progressFor(novelStore.detail.book, chapter.id) * 100)}%</span>
-                {/if}
-                <Icon name="chevronRight" size={16} />
-              </button>
+              <div class="chapter-entry">
+                {#if offlineSupportsSource(novelStore.detail.book.source).supported}<input class="chapter-check" type="checkbox" checked={selectedOfflineChapterIds.has(chapter.id)} onchange={() => toggleOfflineChapter(chapter.id)} aria-label={`下载 ${chapter.title}`} />{/if}
+                <button type="button" data-gamepad-label={`阅读 ${chapter.title}`} data-gamepad-activate="开始阅读" disabled={novelStore.loading} onclick={() => readChapter(chapter)}>
+                  <span class="chapter-number">{String(index + 1).padStart(3, "0")}</span>
+                  <span class="chapter-title">{chapter.title}</span>
+                  {#if novelStore.progressFor(novelStore.detail.book, chapter.id) > 0}
+                    <span class="chapter-progress">{Math.round(novelStore.progressFor(novelStore.detail.book, chapter.id) * 100)}%</span>
+                  {/if}
+                  <Icon name="chevronRight" size={16} />
+                </button>
+              </div>
             {/each}
           </div>
         </section>
@@ -653,6 +701,16 @@
   .chapter-list button:nth-child(even) { padding-left: 20px; }
   .chapter-number, .chapter-progress { color: var(--accent); font: 700 9px/1 var(--font-mono); }
   .chapter-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+  .offline-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; padding: 10px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.03); }
+  .offline-toolbar label { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 11px; }
+  .offline-toolbar input { width: 3.5rem; min-height: 30px; padding: 3px 5px; border: 1px solid rgba(255,255,255,.18); background: transparent; color: inherit; }
+  .offline-toolbar button { min-height: 32px; padding: 0 10px; border: 1px solid rgba(255,255,255,.18); background: transparent; cursor: pointer; }
+  .offline-toolbar button.primary-action { border-color: var(--accent); background: var(--accent); color: #100d0b; }
+  .offline-toolbar button:disabled { opacity: .4; cursor: not-allowed; }
+  .offline-unsupported { margin: 0 0 14px; color: var(--text-muted); font-size: 11px; }
+  .chapter-entry { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: stretch; gap: 5px; }
+  .chapter-entry button { width: 100%; }
+  .chapter-check { width: 16px; margin-inline: 3px; accent-color: var(--accent); }
 
   .reader-shell { position: relative; z-index: 1; width: 100%; height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--reader-bg); color: var(--reader-text); --reader-bg: #090909; --reader-panel: rgba(12,12,12,.96); --reader-text: #ddd9d0; --reader-muted: #8c8982; --reader-line: rgba(255,255,255,.13); --reader-accent: #c69b7a; }
   .reader-shell.theme-paper { --reader-bg: #ebe8df; --reader-panel: rgba(237,234,226,.96); --reader-text: #282621; --reader-muted: #716c63; --reader-line: rgba(30,25,20,.17); --reader-accent: #875b3e; }
