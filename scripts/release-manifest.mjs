@@ -13,6 +13,35 @@ export function describeAsset(directory, file, version) {
     size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
 }
 
+function androidVerificationFor(manifest) {
+  return manifest.androidVerification ?? manifest.androidUpgradeReports ?? manifest.androidReports ?? null;
+}
+
+function verifyAndroidVerification(manifest) {
+  if (manifest.androidCompatibilityVerified !== true) return;
+  const verification = androidVerificationFor(manifest);
+  if (!verification || typeof verification !== "object") throw new Error("Android compatibility is marked verified without upgrade evidence");
+  for (const channel of ["release", "compat"]) {
+    const evidence = verification[channel];
+    if (!evidence || typeof evidence !== "object") throw new Error(`Missing Android ${channel} upgrade evidence`);
+    const report = evidence.report && typeof evidence.report === "object" ? evidence.report : evidence;
+    if (report.channel !== channel && report.variant !== channel) throw new Error(`Android ${channel} evidence has the wrong channel`);
+    if (report.coverageUpgrade !== true && report.coveragePassed !== true) throw new Error(`Android ${channel} coverage was not successful`);
+    const apkSha256 = report.apkSha256 ?? report.apkSHA256 ?? evidence.apkSha256;
+    if (!/^[0-9a-f]{64}$/i.test(apkSha256 ?? "")) throw new Error(`Android ${channel} evidence is missing APK SHA-256`);
+    const asset = manifest.assets.find((entry) => entry.channel === channel && entry.platform === "android");
+    if (!asset || asset.sha256.toLowerCase() !== apkSha256.toLowerCase()) throw new Error(`Android ${channel} evidence does not match the release APK`);
+    const packageName = report.packageName ?? report.package;
+    if (typeof packageName !== "string" || !packageName.trim()) throw new Error(`Android ${channel} evidence is missing package name`);
+    if (!Number.isInteger(report.versionCode) && !Number.isInteger(report.toVersionCode)) throw new Error(`Android ${channel} evidence is missing versionCode`);
+    const certificate = report.certificateFingerprint ?? report.certificateSha256 ?? report.certFingerprint;
+    if (!/^(?:[0-9a-f]{2}:){15}[0-9a-f]{2}$|^[0-9a-f]{64}$/i.test(certificate ?? "")) throw new Error(`Android ${channel} evidence is missing certificate fingerprint`);
+    if (!report.device && !evidence.device) throw new Error(`Android ${channel} evidence is missing device`);
+    const checks = report.dataCheck ?? report.dataChecks;
+    if (!(report.dataCheck === true || report.dataPreserved === true || (checks && typeof checks === "object" && Object.keys(checks).length > 0 && Object.values(checks).every((check) => check === true || check?.passed === true)))) throw new Error(`Android ${channel} evidence is missing data checks`);
+  }
+}
+
 export function verifyManifest(directory, expected = {}) {
   const manifest = JSON.parse(fs.readFileSync(path.join(directory, "release-manifest.json"), "utf8"));
   if (manifest.schemaVersion !== 1 || !/^\d+\.\d+\.\d+$/.test(manifest.version) || !/^[a-f0-9]{40}$/.test(manifest.commit)) throw new Error("Invalid release identity");
@@ -27,6 +56,7 @@ export function verifyManifest(directory, expected = {}) {
     for (const field of ["sha256", "size", "platform", "channel", "architecture"]) if (actual[field] !== asset[field]) throw new Error(`Mismatch ${asset.file}: ${field}`);
   }
   for (const channel of ["installer", "msi", "portable", "release", "compat"]) if (!manifest.assets.some(a => a.channel === channel)) throw new Error(`Missing ${channel} artifact`);
+  verifyAndroidVerification(manifest);
   const latest = JSON.parse(fs.readFileSync(path.join(directory, "latest.json"), "utf8"));
   if (latest.version !== manifest.version || !latest.platforms?.["windows-x86_64"]?.signature) throw new Error("Missing signed Windows update metadata");
   return manifest;
@@ -41,6 +71,9 @@ export function generateManifest(directory, options = {}) {
     notes: options.notes ?? ["电脑端使用系统输入法和实体键盘，不再弹出应用虚拟键盘", "修复隐藏视频解析窗口发声和退出后残留音频", "以实际视频帧检测黑屏与卡流，支持重试和换源", "修复快速切源旧请求覆盖与 Provider v2 切源", "画质增强失败自动恢复原始视频，便携包补齐内置规则", "保留 v0.23 漫画精确续读、小说按书历史和阅读备份"],
     androidCompatibilityVerified: options.androidCompatibilityVerified === true,
     assets: files.sort().map(file => describeAsset(directory, file, version)) };
+  if (options.androidVerification ?? options.androidUpgradeReports ?? options.androidReports) {
+    manifest.androidVerification = options.androidVerification ?? options.androidUpgradeReports ?? options.androidReports;
+  }
   fs.writeFileSync(path.join(directory, "release-manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
   return verifyManifest(directory);
 }

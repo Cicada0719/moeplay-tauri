@@ -39,3 +39,24 @@ test("rejects tampered assets, absent channels and mismatched updater versions",
   fs.writeFileSync(path.join(directory, "latest.json"), JSON.stringify({ version: version + "0" }));
   assert.throws(() => verifyManifest(directory), /Missing signed/);
 });
+
+test("requires both bound Android coverage reports before claiming data retention", t => {
+  const { directory } = fixture(t);
+  const manifest = generateManifest(directory, { commit: "c".repeat(40) });
+  const apkByChannel = Object.fromEntries(manifest.assets.filter((asset) => asset.platform === "android").map((asset) => [asset.channel, asset.sha256]));
+  const report = (channel) => ({
+    channel, coverageUpgrade: true, packageName: "com.moeplay.app", versionCode: 24000,
+    certificateFingerprint: "b".repeat(64), apkSha256: apkByChannel[channel], device: "test-device",
+    dataCheck: { history: true },
+  });
+  const withEvidence = {
+    ...manifest, androidCompatibilityVerified: true,
+    androidVerification: { release: report("release"), compat: report("compat") },
+  };
+  fs.writeFileSync(path.join(directory, "release-manifest.json"), JSON.stringify(withEvidence));
+  assert.deepEqual(verifyManifest(directory), withEvidence);
+  fs.writeFileSync(path.join(directory, "release-manifest.json"), JSON.stringify({ ...withEvidence, androidVerification: { ...withEvidence.androidVerification, compat: report("release") } }));
+  assert.throws(() => verifyManifest(directory), /wrong channel|does not match/);
+  fs.writeFileSync(path.join(directory, "release-manifest.json"), JSON.stringify({ ...manifest, androidCompatibilityVerified: true }));
+  assert.throws(() => verifyManifest(directory), /without upgrade evidence/);
+});
