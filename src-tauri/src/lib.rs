@@ -683,6 +683,7 @@ pub fn run() {
             // ---- 视频提取 ----
             video_extractor::extract_video_url,
             video_extractor::anime_extract_video_url,
+            video_extractor::anime_cancel_extract,
             // ---- 视频代理 ----
             video_proxy::get_video_proxy_port,
             // ---- DanDanPlay 弹幕 ----

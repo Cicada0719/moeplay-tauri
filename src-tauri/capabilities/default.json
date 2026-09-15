@@ -313,6 +313,7 @@
     "allow-anime-bangumi-update-collection",
     "allow-extract-video-url",
     "allow-anime-extract-video-url",
+    "allow-anime-cancel-extract",
     "allow-get-video-proxy-port",
     "allow-anime-danmaku-search",
     "allow-anime-danmaku-get-episodes",

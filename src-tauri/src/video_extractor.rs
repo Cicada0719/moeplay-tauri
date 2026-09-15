@@ -11,8 +11,10 @@
 
 use regex::Regex;
 use serde::Serialize;
-use std::sync::{Arc, Mutex};
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use std::sync::{Arc, Mutex, OnceLock};
+use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
+use tokio_util::sync::CancellationToken;
 
 const SNIFF_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 /// 找到候选 URL 后继续等待一小段时间，让页面完成「激活回调」（部分源在解析出
@@ -21,6 +23,42 @@ const SETTLE_DURATION: std::time::Duration = std::time::Duration::from_millis(12
 
 /// Sentinel host the injected script navigates to once a video URL is found.
 const SENTINEL_HOST: &str = "moeplay.invalid";
+const SNIFF_POOL_SIZE: usize = 2;
+const CANCELLED_ERROR: &str = "cancelled";
+
+struct SniffSlot {
+    gate: Arc<AsyncMutex<()>>,
+}
+
+struct SniffPool {
+    slots: [Arc<SniffSlot>; SNIFF_POOL_SIZE],
+}
+
+impl SniffPool {
+    fn new() -> Self {
+        Self {
+            slots: std::array::from_fn(|_| {
+                Arc::new(SniffSlot {
+                    gate: Arc::new(AsyncMutex::new(())),
+                })
+            }),
+        }
+    }
+}
+
+static SNIFF_POOL: OnceLock<SniffPool> = OnceLock::new();
+
+async fn acquire_sniff_slot() -> (Arc<SniffSlot>, OwnedMutexGuard<()>) {
+    let pool = SNIFF_POOL.get_or_init(SniffPool::new);
+    loop {
+        for slot in &pool.slots {
+            if let Ok(guard) = slot.gate.clone().try_lock_owned() {
+                return (slot.clone(), guard);
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+}
 
 /// 代理/广告域名过滤。
 fn is_ad_url(url: &str) -> bool {
@@ -107,6 +145,8 @@ pub struct VideoUrlResult {
     pub url: String,
     pub source: String,
     pub tab_url: String,
+    #[serde(rename = "session_id", skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 /// JS injected at document-start into every frame of the sniffer window.
@@ -632,7 +672,14 @@ async fn run_sniff(
     app: tauri::AppHandle,
     episode_url: String,
     user_agent: Option<String>,
+    token: CancellationToken,
 ) -> Result<VideoUrlResult, String> {
+    if token.is_cancelled() {
+        return Err(CANCELLED_ERROR.into());
+    }
+    // The permit bounds concurrent hidden WebViews. Cleanup below closes the
+    // window before releasing it, preventing an unbounded accumulation.
+    let (_slot, _slot_guard) = acquire_sniff_slot().await;
     let label = format!("video-sniff-{}", uuid::Uuid::new_v4());
     let url_parsed: url::Url = episode_url
         .parse()
@@ -650,6 +697,8 @@ async fn run_sniff(
     let current_url = Arc::new(Mutex::new(episode_url.clone()));
     let current_url_nav = current_url.clone();
     let current_url_resource = current_url.clone();
+    let token_nav = token.clone();
+    let token_resource = token.clone();
 
     tracing::info!("[sniff] 创建嗅探窗口: label={}, url={}", label, episode_url);
     let label_log = label.clone();
@@ -681,6 +730,9 @@ async fn run_sniff(
         .on_navigation(move |url| {
             tracing::info!("[sniff] on_navigation: {}", url);
             if url.host_str() == Some(SENTINEL_HOST) {
+                if token_nav.is_cancelled() {
+                    return false;
+                }
                 let mut found = String::new();
                 let mut source = String::new();
                 for (k, v) in url.query_pairs() {
@@ -701,6 +753,7 @@ async fn run_sniff(
                         url: found,
                         source,
                         tab_url,
+                        session_id: None,
                     };
                     let mut guard = best_nav.lock().unwrap();
                     if guard
@@ -723,6 +776,9 @@ async fn run_sniff(
         })
         .on_web_resource_request(move |request, response| {
             // 通过 WebView2 网络层拦截所有帧的请求/响应，弥补 JS 注入无法进入跨域 iframe 的缺陷。
+            if token_resource.is_cancelled() {
+                return;
+            }
             let url = request.uri().to_string();
             let mut candidate: Option<VideoUrlResult> = None;
 
@@ -734,6 +790,7 @@ async fn run_sniff(
                         .lock()
                         .map(|g| g.clone())
                         .unwrap_or_default(),
+                    session_id: None,
                 });
             } else {
                 // 检查响应内容：m3u8 master/media playlist 通常以 #EXTM3U 开头。
@@ -746,6 +803,7 @@ async fn run_sniff(
                             .lock()
                             .map(|g| g.clone())
                             .unwrap_or_default(),
+                        session_id: None,
                     });
                 }
             }
@@ -786,12 +844,19 @@ async fn run_sniff(
     // Uses eval() to trigger sentinel navigation from JS side when URL found.
     let app_poll = app.clone();
     let label_poll = label.clone();
+    let poll_token = token.clone();
     let poll_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_millis(250));
         interval.tick().await; // skip first immediate tick
         for _ in 0..140 {
+            if poll_token.is_cancelled() {
+                return;
+            }
             // max 35s (140 * 250ms) — overshoot SNIFF_TIMEOUT slightly so sentinel has time
             interval.tick().await;
+            if poll_token.is_cancelled() {
+                return;
+            }
             // Use eval to check the global var and trigger sentinel nav if found
             if let Some(w) = app_poll.get_webview_window(&label_poll) {
                 let check_js = r#"
@@ -827,33 +892,36 @@ async fn run_sniff(
     tracing::info!("[sniff] 等待嗅探结果 (超时 {}s)…", SNIFF_TIMEOUT.as_secs());
 
     // Phase 1: 等待首个候选 URL
-    let first_found = tokio::time::timeout(SNIFF_TIMEOUT, notify.notified()).await;
+    let first_found = tokio::select! {
+        _ = token.cancelled() => Err(CANCELLED_ERROR),
+        result = tokio::time::timeout(SNIFF_TIMEOUT, notify.notified()) => {
+            result.map(|_| ()).map_err(|_| "video-url-timeout")
+        }
+    };
 
     // Phase 2: settle 窗口，继续收集更优/更晚的地址，并给页面激活回调留出时间
-    let result = match first_found {
+    let result: Result<Option<VideoUrlResult>, String> = match first_found {
         Ok(()) => {
             tracing::info!(
                 "[sniff] 找到候选，进入 {}ms settle 窗口",
                 SETTLE_DURATION.as_millis()
             );
-            tokio::time::sleep(SETTLE_DURATION).await;
-            best.lock().unwrap().clone()
+            tokio::select! {
+                _ = token.cancelled() => Err(CANCELLED_ERROR.to_string()),
+                _ = tokio::time::sleep(SETTLE_DURATION) => Ok(best.lock().unwrap().clone()),
+            }
         }
+        Err(error) if error == CANCELLED_ERROR => Err(error.to_string()),
         Err(_) => {
             tracing::error!(
                 "[sniff] 嗅探超时 ({}s), label={}",
                 SNIFF_TIMEOUT.as_secs(),
                 label_log
             );
-            None
+            Ok(None)
         }
     };
 
-    // Cleanup — 不主动关闭窗口！
-    // wry 0.55 在销毁隐藏 WebView2 窗口时会 null pointer panic，
-    // 即使 catch_unwind 捕获了，也会破坏 UI 事件循环状态，
-    // 导致后续的 Svelte 响应式更新失效。
-    // 窗口保持隐藏，在应用退出时自动清理。
     poll_handle.abort();
     // Keep the existing WebView2 destruction workaround, but unload the source
     // document so its media, nested frames and timers cannot continue off-screen.
@@ -861,13 +929,19 @@ async fn run_sniff(
     {
         tracing::warn!("清空提取页面失败: {error}");
     }
+    // Close after blanking the page so media/timers cannot outlive this
+    // extraction. The pool permit is held until close has been requested.
+    if let Err(error) = webview.close() {
+        tracing::warn!("关闭提取窗口失败: {error}");
+    }
 
     match result {
-        Some(v) => {
+        Ok(Some(v)) => {
             tracing::info!("[sniff] 嗅探成功: url={}, source={}", v.url, v.source);
             Ok(v)
         }
-        None => Err("video-url-timeout".into()),
+        Ok(None) => Err("video-url-timeout".into()),
+        Err(error) => Err(error),
     }
 }
 
@@ -958,7 +1032,11 @@ async fn legacy_extract(
     episode_url: &str,
     referer: Option<&str>,
     user_agent: Option<&str>,
+    token: &CancellationToken,
 ) -> Result<VideoUrlResult, String> {
+    if token.is_cancelled() {
+        return Err(CANCELLED_ERROR.into());
+    }
     tracing::info!("[legacy] 请求页面: {}", episode_url);
     let client = crate::http_client::build_reqwest_client(
         15,
@@ -970,13 +1048,17 @@ async fn legacy_extract(
     if let Some(r) = referer {
         req = req.header("Referer", r);
     }
-    let text = req
-        .send()
-        .await
-        .map_err(|e| format!("请求失败: {}", e))?
-        .text()
-        .await
-        .map_err(|e| e.to_string())?;
+    let response = tokio::select! {
+        _ = token.cancelled() => return Err(CANCELLED_ERROR.into()),
+        response = req.send() => response.map_err(|e| format!("请求失败: {e}"))?,
+    };
+    let text = tokio::select! {
+        _ = token.cancelled() => return Err(CANCELLED_ERROR.into()),
+        text = response.text() => text.map_err(|e| e.to_string())?,
+    };
+    if token.is_cancelled() {
+        return Err(CANCELLED_ERROR.into());
+    }
 
     // 1. 裸 URL（支持 url 参数中嵌套编码的 URL）
     let re_url =
@@ -990,6 +1072,7 @@ async fn legacy_extract(
                 url: decoded,
                 source: "legacy:url".into(),
                 tab_url: episode_url.to_string(),
+                session_id: None,
             });
         }
     }
@@ -1005,6 +1088,7 @@ async fn legacy_extract(
                     url: decoded,
                     source: "legacy:json".into(),
                     tab_url: episode_url.to_string(),
+                    session_id: None,
                 });
             }
         }
@@ -1016,6 +1100,7 @@ async fn legacy_extract(
             url: u,
             source: "legacy:page-url".into(),
             tab_url: episode_url.to_string(),
+            session_id: None,
         });
     }
 
@@ -1036,18 +1121,32 @@ fn unwrap_player_url_if_stream(raw: &str) -> Option<String> {
 #[tauri::command]
 pub async fn anime_extract_video_url(
     app: tauri::AppHandle,
+    state: State<'_, crate::rules::RuleEngineState>,
     episode_url: String,
     referer: Option<String>,
     use_legacy_parser: bool,
     user_agent: Option<String>,
+    session_id: Option<String>,
+    scope: Option<String>,
 ) -> Result<VideoUrlResult, String> {
     tracing::info!("开始提取视频 URL: {}", episode_url);
+    let scope = scope.or_else(|| session_id.clone());
+    let token = state.0.invocation_token(scope.as_deref().unwrap_or(""));
 
     let mut result = if use_legacy_parser {
-        legacy_extract(&episode_url, referer.as_deref(), user_agent.as_deref()).await
+        legacy_extract(
+            &episode_url,
+            referer.as_deref(),
+            user_agent.as_deref(),
+            &token,
+        )
+        .await
     } else {
-        match run_sniff(app, episode_url.clone(), user_agent.clone()).await {
+        match run_sniff(app, episode_url.clone(), user_agent.clone(), token.clone()).await {
             Ok(result) => Ok(result),
+            Err(error) if error == CANCELLED_ERROR || token.is_cancelled() => {
+                Err(CANCELLED_ERROR.into())
+            }
             Err(sniff_error) => {
                 // Android WebView 可能因为隐藏窗口、注入脚本或系统 WebView 版本直接失败，
                 // 这类错误不会表现为 timeout。只在超时回退会让可用的直链/播放器 URL
@@ -1057,7 +1156,13 @@ pub async fn anime_extract_video_url(
                     episode_url,
                     sniff_error
                 );
-                match legacy_extract(&episode_url, referer.as_deref(), user_agent.as_deref()).await
+                match legacy_extract(
+                    &episode_url,
+                    referer.as_deref(),
+                    user_agent.as_deref(),
+                    &token,
+                )
+                .await
                 {
                     Ok(result) => Ok(result),
                     Err(legacy_error) => Err(format!(
@@ -1067,6 +1172,10 @@ pub async fn anime_extract_video_url(
             }
         }
     }?;
+
+    if token.is_cancelled() {
+        return Err(CANCELLED_ERROR.into());
+    }
 
     // 解出内层真实流地址；Referer 优先用嗅探到的最终页面 URL（含重定向），
     // 仅当嗅探未提供时才回退到原始 episode_url。这样 CDN 防盗链成功率更高。
@@ -1078,8 +1187,22 @@ pub async fn anime_extract_video_url(
         tracing::info!("解出内层视频地址: {} (来源页 {})", real, result.tab_url);
         result.url = real;
     }
+    result.session_id = session_id;
     tracing::info!("视频提取成功: {} (source: {})", result.url, result.source);
     Ok(result)
+}
+
+/// Cancel all in-flight extraction work registered under a scope.
+#[tauri::command]
+pub fn anime_cancel_extract(
+    state: State<'_, crate::rules::RuleEngineState>,
+    scope: String,
+) -> Result<(), String> {
+    if scope.trim().is_empty() {
+        return Err("scope 不能为空".into());
+    }
+    state.0.cancel_scope(&scope);
+    Ok(())
 }
 
 /// Tauri command: simple variant used by other call sites.
@@ -1088,7 +1211,7 @@ pub async fn extract_video_url(
     app: tauri::AppHandle,
     target_url: String,
 ) -> Result<VideoUrlResult, String> {
-    let mut result = run_sniff(app, target_url.clone(), None).await?;
+    let mut result = run_sniff(app, target_url.clone(), None, CancellationToken::new()).await?;
     let player_url = result.url.clone();
     result.url = unwrap_player_url(&result.url);
     result.tab_url = player_url;
@@ -1204,5 +1327,24 @@ mod tests {
         assert!(!is_video_stream_url(
             "https://googleads.g.doubleclick.net/pagead/id"
         ));
+    }
+
+    #[test]
+    fn video_result_serializes_optional_session_without_changing_legacy_fields() {
+        let result = VideoUrlResult {
+            url: "https://cdn.example.com/video.m3u8".into(),
+            source: "webresource:m3u8-body".into(),
+            tab_url: "https://player.example.com/episode/1".into(),
+            session_id: Some("session-1".into()),
+        };
+        let json = serde_json::to_value(result).expect("result should serialize");
+        assert_eq!(json["session_id"], "session-1");
+        assert_eq!(json["tab_url"], "https://player.example.com/episode/1");
+    }
+
+    #[test]
+    fn sniff_pool_is_bounded_to_two_slots() {
+        assert_eq!(SNIFF_POOL_SIZE, 2);
+        assert_eq!(SNIFF_POOL.get_or_init(SniffPool::new).slots.len(), 2);
     }
 }

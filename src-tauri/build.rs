@@ -43,6 +43,7 @@ const COMMANDS: &[&str] = &[
     "anime_bangumi_update_collection",
     "anime_build_url",
     "anime_cancel_download",
+    "anime_cancel_extract",
     "anime_clear_finished_downloads",
     "anime_danmaku_get_comments",
     "anime_danmaku_get_episodes",
