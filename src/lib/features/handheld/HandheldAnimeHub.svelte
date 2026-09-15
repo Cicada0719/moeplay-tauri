@@ -5,11 +5,13 @@
   import { attachGamepad, type GamepadAttachment } from "../../components/switch/useGamepad.svelte";
   import Icon from "../../components/Icon.svelte";
   import HandheldStatePanel from "./HandheldStatePanel.svelte";
+  import { followingStore, type FollowingItem } from "../anime-home/following.svelte";
 
   type AnimeTab = "recommend" | "calendar" | "my" | "rules";
   type HubItem =
     | { id: string; title: string; cover: string; meta: string; kind: "subject"; subject: BangumiSubject }
     | { id: string; title: string; cover: string; meta: string; kind: "history"; history: AnimeHistory }
+    | { id: string; title: string; cover: string; meta: string; kind: "following"; following: FollowingItem }
     | { id: string; title: string; cover: string; meta: string; kind: "collection"; collection: { name: string; image?: string; sourceUrl?: string; ruleSource?: string } };
   type HubLane = { id: string; kicker: string; title: string; hint: string; items: HubItem[] };
 
@@ -52,6 +54,7 @@
   const todayWeekday = $derived(new Date().getDay() || 7);
   const today = $derived((animeStore.calendar ?? []).find((day) => day.weekday === todayWeekday)?.items ?? []);
   const collection = $derived(animeStore.collection.slice(0, 12));
+  const following = $derived(followingStore.items.slice(0, 12));
   const searchResults = $derived(animeStore.mergedSearchResults);
 
   function imageFor(url: string | undefined): string {
@@ -94,6 +97,18 @@
     };
   }
 
+  function followingItem(item: FollowingItem): HubItem {
+    const unwatched = item.knownEpisodes.filter((episode) => !item.watchedEpisodeIds.includes(episode.id)).length;
+    return {
+      id: `following:${item.key}`,
+      title: item.title,
+      cover: imageFor(item.image),
+      meta: item.status === "unknown" ? "来源待检查" : `${unwatched} 集未看 · ${item.sourceId}`,
+      kind: "following",
+      following: item,
+    };
+  }
+
   const lanes = $derived.by<HubLane[]>(() => {
     const result: HubLane[] = [];
     if (history.length) result.push({ id: "continue", kicker: "CONTINUE", title: "继续观看", hint: "A 打开 · ← → 浏览", items: history.map(historyItem) });
@@ -106,6 +121,7 @@
       if (animeStore.recSeasonal.length) result.push({ id: "seasonal", kicker: "SEASON", title: "本季新番", hint: "正在播出", items: animeStore.recSeasonal.slice(0, 12).map((item) => subjectItem(item, "season")) });
       if (animeStore.recTopRated.length) result.push({ id: "top-rated", kicker: "RANK", title: "高分节目", hint: "评分优先", items: animeStore.recTopRated.slice(0, 12).map((item) => subjectItem(item, "rank")) });
     }
+    if (currentTab === "my" && following.length) result.push({ id: "following", kicker: "FOLLOWING", title: "追番更新", hint: `${followingStore.pendingCount} 条待处理`, items: following.map(followingItem) });
     if (currentTab === "my" && collection.length) result.push({ id: "collection", kicker: "LIBRARY", title: "我的收藏", hint: "追番档案", items: collection.map(collectionItem) });
     return result;
   });
@@ -197,9 +213,17 @@
     }
     if (item.kind === "history") onResumeHistory(item.history, trigger);
     else if (item.kind === "subject") onOpenSubject(item.subject, trigger);
-    else if (item.collection.ruleSource && item.collection.sourceUrl) {
-      onOpenResult(item.collection.ruleSource, { name: item.collection.name, url: item.collection.sourceUrl }, trigger);
-    } else onSearch(item.collection.name);
+    else if (item.kind === "following") {
+      if (item.following.sourceId !== "unknown" && item.following.sourceUrl) {
+        onOpenResult(item.following.sourceId, { name: item.following.title, url: item.following.sourceUrl }, trigger);
+        followingStore.consumeNotices(item.following.key);
+      }
+    }
+    else if (item.kind === "collection") {
+      if (item.collection.ruleSource && item.collection.sourceUrl) {
+        onOpenResult(item.collection.ruleSource, { name: item.collection.name, url: item.collection.sourceUrl }, trigger);
+      } else onSearch(item.collection.name);
+    }
   }
 
   function activateFocused() {

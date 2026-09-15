@@ -7,6 +7,9 @@ export interface AnimeCollect {
   collectType: number; // 1=在看 2=想看 3=搁置 4=看过 5=抛弃
   ruleSource?: string;
   sourceUrl?: string;
+  /** v0.24 following identity; legacy records continue to use key/name. */
+  contentId?: string;
+  seasonKey?: string;
   updatedAt: string;
 }
 
@@ -58,6 +61,8 @@ export const collectionStore = {
         collectType,
         ruleSource: extra?.ruleSource ?? detail.ruleName,
         sourceUrl: extra?.sourceUrl ?? detail.sourceUrl,
+        contentId: extra?.contentId,
+        seasonKey: extra?.seasonKey,
         updatedAt: new Date().toISOString(),
       };
       if (idx >= 0) _items[idx] = entry;

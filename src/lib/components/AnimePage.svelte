@@ -18,6 +18,7 @@
   import HandheldMediaShell from "../features/handheld/HandheldMediaShell.svelte";
   import HandheldAnimeHub from "../features/handheld/HandheldAnimeHub.svelte";
   import HandheldStatePanel from "../features/handheld/HandheldStatePanel.svelte";
+  import { followingStore, type FollowingItem } from "../features/anime-home/following.svelte";
 
   let searchInput = $state("");
   let isSearching = $state(false);
@@ -109,6 +110,35 @@
   let showSourceFailures = $state(false);
   const visibleMergedResults = $derived(showAllResults ? mergedResults : mergedResults.slice(0, SEARCH_GRID_LIMIT));
   const hiddenResultCount = $derived(Math.max(0, mergedResults.length - SEARCH_GRID_LIMIT));
+  const followingItems = $derived(followingStore.items);
+
+  // 收藏是旧版本最稳定的入口：幂等关联到独立追番库，旧记录没有来源时
+  // 仍保留条目，页面会显示需要绑定来源，而不会把它静默丢弃。
+  $effect(() => {
+    followingStore.syncCollections(animeStore.collection);
+  });
+
+  function followingUnwatched(item: FollowingItem): number {
+    return item.knownEpisodes.filter((episode) => !item.watchedEpisodeIds.includes(episode.id)).length;
+  }
+
+  async function checkFollowing(item: FollowingItem) {
+    await followingStore.check(item.key);
+  }
+
+  function openFollowing(item: FollowingItem) {
+    if (item.sourceId === "unknown" || !item.sourceUrl) {
+      // Keep the entry visible until the user binds a playable source.
+      animeStore.setTab("recommend");
+      searchInput = item.title;
+      return;
+    }
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    detailReturnFocus = trigger ?? null;
+    animeStore.openDetail(item.sourceId, { name: item.title, url: item.sourceUrl }, item.image);
+    // AnimeDetail will load the current source and use the matching history
+    // entry for the actual episode/progress resume.
+  }
 
   // 关键词变化（新搜索）时重置展开态
   $effect(() => {
@@ -195,6 +225,7 @@
   onMount(() => {
     window.addEventListener("keydown", onKeydown, { capture: true });
     animeStore.init();
+    followingStore.startAutoCheck();
     // 预取播放器 chunk（hls.js 较大）：进入番剧页即后台编译加载，避免播放时再等
     void import("./anime/AnimePlayer.svelte").catch(() => {});
     if (animeStore.activeTab === "recommend") {
@@ -202,7 +233,10 @@
     }
     // 预取放送表：主页「今日放送」rail 与时间表 tab 共用同一份数据（幂等）
     void animeStore.loadCalendar();
-    return () => window.removeEventListener("keydown", onKeydown, { capture: true });
+    return () => {
+      window.removeEventListener("keydown", onKeydown, { capture: true });
+      followingStore.stopAutoCheck();
+    };
   });
 
   const WEEKDAY_NAMES = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -458,6 +492,61 @@
           <StatBlock label="看过" value={animeStore.stats.watched} class="stat-card" />
           <StatBlock label="历史" value={animeStore.stats.historyCount} class="stat-card" />
         </div>
+
+        <section class="following-center" aria-labelledby="following-center-title" data-testid="following-center">
+          <div class="following-heading">
+            <div>
+              <span class="following-kicker">FOLLOWING / SOURCE CHECK</span>
+              <h2 id="following-center-title">追番更新中心</h2>
+            </div>
+            <div class="following-heading-actions">
+              <span class="following-notice-count">{followingStore.pendingCount} 条待处理</span>
+              <Button variant="ghost" size="sm" press={() => void followingStore.checkAll()} disabled={followingItems.some((item) => item.status === "checking")}>
+                检查更新
+              </Button>
+            </div>
+          </div>
+          {#if followingItems.length === 0}
+            <div class="following-empty">将番剧设为“在看”后，这里会按实际播放源检查新集。</div>
+          {:else}
+            <div class="following-list">
+              {#each followingItems as item (item.key)}
+                {@const unwatched = followingUnwatched(item)}
+                <article class="following-row" data-status={item.status}>
+                  <button type="button" class="following-main" onclick={() => openFollowing(item)} aria-label={`打开 ${item.title} 追番`}>
+                    <span class="following-cover">
+                      {#if item.image}<img src={animeStore.getImg(item.image) || item.image} alt="" loading="lazy" />{:else}<Icon name="film" size={18} />{/if}
+                    </span>
+                    <span class="following-info">
+                      <strong>{item.title}</strong>
+                      <small>{item.knownEpisodes.length ? `${unwatched} 集未看 · ${item.sourceId}` : "尚未建立来源剧集基线"}</small>
+                      {#if item.status === "unknown"}<em>来源暂不可用，保留上次数据</em>{/if}
+                    </span>
+                  </button>
+                  <span class="following-state" data-state={item.status}>
+                    {item.status === "checking" ? "检查中" : item.status === "unknown" ? "待检查" : item.baselineReady ? (item.pendingNoticeIds.length ? `新增 ${item.pendingNoticeIds.length} 集` : "已是最新") : "待建立基线"}
+                  </span>
+                  <div class="following-actions">
+                    <Button variant="quiet" size="sm" press={() => void checkFollowing(item)} disabled={item.status === "checking" || item.sourceId === "unknown" || !item.sourceUrl} ariaLabel={`检查 ${item.title}`}>
+                      ↻
+                    </Button>
+                    <Button variant="quiet" size="sm" press={() => followingStore.setAutoCheck(item.key, !item.autoCheck)} ariaLabel={`${item.autoCheck ? "关闭" : "开启"} ${item.title}自动检查`}>
+                      {item.autoCheck ? "自动" : "手动"}
+                    </Button>
+                    {#if unwatched > 0}
+                      <Button variant="quiet" size="sm" press={() => followingStore.markNextUnwatched(item.key)} ariaLabel={`手动标记 ${item.title} 下一集已看`}>
+                        标记
+                      </Button>
+                    {/if}
+                    <Button variant="quiet" size="sm" press={() => { followingStore.consumeNotices(item.key); openFollowing(item); }} ariaLabel={`继续 ${item.title}`}>
+                      {unwatched ? "继续" : "打开"}
+                    </Button>
+                  </div>
+                </article>
+              {/each}
+            </div>
+          {/if}
+        </section>
 
         <!-- 子 Tab -->
         <SegmentControl
@@ -1074,6 +1163,42 @@
   }
   :global(.ui-stat.stat-card) {
     flex: 1; min-width: 80px;
+  }
+
+  .following-center {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin: 18px 0 8px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: linear-gradient(135deg, rgba(232,85,127,.08), rgba(255,255,255,.025));
+  }
+  .following-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+  .following-kicker { color: var(--accent); font: 750 10px/1 var(--font-mono, monospace); letter-spacing: .12em; }
+  .following-heading h2 { margin: 6px 0 0; color: var(--text-primary); font-size: 20px; }
+  .following-heading-actions { display: flex; align-items: center; gap: 10px; }
+  .following-notice-count { color: var(--text-muted); font-size: 11px; white-space: nowrap; }
+  .following-empty { padding: 18px 4px 8px; color: var(--text-muted); font-size: 13px; }
+  .following-list { display: flex; flex-direction: column; gap: 5px; }
+  .following-row { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 7px; border: 1px solid transparent; border-radius: 8px; background: rgba(255,255,255,.025); }
+  .following-row:hover { border-color: var(--border); background: rgba(255,255,255,.05); }
+  .following-main { display: flex; align-items: center; flex: 1; min-width: 0; gap: 10px; padding: 0; border: 0; background: none; color: inherit; text-align: left; cursor: pointer; }
+  .following-cover { display: grid; flex: 0 0 42px; place-items: center; width: 42px; height: 52px; overflow: hidden; border-radius: 5px; background: rgba(255,255,255,.07); color: var(--text-muted); }
+  .following-cover img { width: 100%; height: 100%; object-fit: cover; }
+  .following-info { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+  .following-info strong { overflow: hidden; color: var(--text-primary); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+  .following-info small { overflow: hidden; color: var(--text-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+  .following-info em { color: #f5b46a; font-size: 10px; font-style: normal; }
+  .following-state { flex: 0 0 auto; color: var(--text-muted); font: 650 10px/1.2 var(--font-mono, monospace); }
+  .following-state[data-state="ready"] { color: #67d99b; }
+  .following-state[data-state="unknown"] { color: #f5b46a; }
+  .following-actions { display: flex; flex: 0 0 auto; gap: 3px; }
+  @media (max-width: 620px) {
+    .following-heading { align-items: start; flex-direction: column; gap: 10px; }
+    .following-heading-actions { width: 100%; justify-content: space-between; }
+    .following-state { display: none; }
   }
   
   :global(.ui-segment.my-sub-tabs) {

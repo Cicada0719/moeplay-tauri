@@ -68,7 +68,13 @@
 
   // ── Collection handlers ───────────────────────────────────────────────
   function setCollect(type: number) {
-    animeStore.setCollect(name, type);
+    animeStore.setCollect(name, type, {
+      // Keep the following identity independent from the display title. Bangumi
+      // subject IDs separate seasons when metadata is available; a source URL is
+      // the stable fallback for legacy/provider results.
+      contentId: animeStore.detailUrl || name,
+      seasonKey: subject?.id ? `bangumi-${subject.id}` : 'season-1',
+    });
     showCollectMenu = false;
   }
 

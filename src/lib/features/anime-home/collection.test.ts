@@ -58,4 +58,13 @@ describe("collection.svelte 收藏集", () => {
     const parsed = JSON.parse(raw ?? "[]") as AnimeCollect[];
     expect(parsed.some((c) => c.key === "persist" && c.collectType === 4)).toBe(true);
   });
+
+  it("持久化追番稳定身份字段", () => {
+    collectionStore.setCollect("identity", 1, { contentId: "show-id", seasonKey: "season-2" }, DETAIL);
+    expect(collectionStore.items[0]).toMatchObject({ contentId: "show-id", seasonKey: "season-2" });
+    expect(JSON.parse(localStorage.getItem("anime-collect") || "[]")[0]).toMatchObject({
+      contentId: "show-id",
+      seasonKey: "season-2",
+    });
+  });
 });
