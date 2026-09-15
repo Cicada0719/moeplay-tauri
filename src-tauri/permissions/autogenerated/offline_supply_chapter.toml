@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-offline-supply-chapter"
+description = "Enables the offline_supply_chapter command without any pre-configured scope."
+commands.allow = ["offline_supply_chapter"]
+
+[[permission]]
+identifier = "deny-offline-supply-chapter"
+description = "Denies the offline_supply_chapter command without any pre-configured scope."
+commands.deny = ["offline_supply_chapter"]

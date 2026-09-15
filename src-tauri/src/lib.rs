@@ -25,6 +25,7 @@ pub mod logging;
 pub mod migration;
 pub mod models;
 pub mod nsfw;
+pub mod offline;
 pub mod performance;
 pub mod process_monitor;
 pub mod providers;
@@ -212,6 +213,13 @@ pub fn run() {
 
     let database = Database::new();
     let task_queue = TaskQueue::from_database(database.sqlite_arc());
+    let offline_store = offline::OfflineStore::new(
+        dirs::data_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("moeplay")
+            .join("offline"),
+    )
+    .expect("offline storage initialization failed");
     let startup_task_queue = task_queue.clone();
     let ai_changes_service = services::ai_changes::AiChangesService::new(
         dirs::data_dir()
@@ -275,6 +283,7 @@ pub fn run() {
         .manage(AnimeDownloader::new(anime_download_dir))
         .manage(Downloader::new(download_dir, 3))
         .manage(task_queue)
+        .manage(offline_store)
         .manage(extension_index::ExtensionIndexService::default())
         .manage(ai_changes_service)
         .manage(ai_v2_state)
@@ -557,6 +566,12 @@ pub fn run() {
             commands::get_download_speed_limit,
             commands::set_download_max_concurrent,
             commands::get_download_max_concurrent,
+            commands::offline_enqueue,
+            commands::offline_supply_chapter,
+            commands::offline_list,
+            commands::offline_get_chapter,
+            commands::offline_control,
+            commands::offline_stats,
             // ---- 工具 ----
             commands::open_url,
             commands::open_path,

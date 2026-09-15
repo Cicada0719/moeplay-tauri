@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-offline-get-chapter"
+description = "Enables the offline_get_chapter command without any pre-configured scope."
+commands.allow = ["offline_get_chapter"]
+
+[[permission]]
+identifier = "deny-offline-get-chapter"
+description = "Denies the offline_get_chapter command without any pre-configured scope."
+commands.deny = ["offline_get_chapter"]

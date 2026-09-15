@@ -4,6 +4,8 @@ mod runtime;
 pub use runtime::*;
 mod download;
 pub use download::*;
+mod offline;
+pub use offline::*;
 mod emulators;
 pub use emulators::*;
 mod media;
