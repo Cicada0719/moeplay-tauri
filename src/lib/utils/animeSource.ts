@@ -100,15 +100,15 @@ export function findBestEpisodeMatch<E extends EpisodeLike, R extends RoadLike<E
       const episodeNumber = extractEpisodeNumber(episode.name);
       let score = 0;
       let reason: EpisodeMatch<E, R>["reason"] = "index-fallback";
-      if (targetTitle && targetTitle === episodeTitle) { score = 1_200; reason = "exact-title"; }
-      else if (targetSpecial !== SPECIAL_MARKERS.test(episode.name)) score = -1_000;
+      const episodeSpecial = SPECIAL_MARKERS.test(episode.name);
+      if (targetSpecial !== episodeSpecial) score = -1_000;
+      else if (targetTitle && targetTitle === episodeTitle) { score = 1_200; reason = "exact-title"; }
       else if (targetNumber !== null && episodeNumber !== null) {
         if (Math.abs(targetNumber - episodeNumber) < 0.001) { score = 900; reason = "episode-number"; }
         else score = -900;
-      } else {
-        const titleScore = similarity(targetTitle, episodeTitle);
-        score = Math.round(titleScore * 500) + (episodeIndex === target.episodeIndex ? 260 : 0);
-        reason = titleScore >= 0.5 ? "title-similarity" : "index-fallback";
+      } else if (targetNumber === null && episodeNumber === null) {
+        // 没有明确集数时只接受完全相同的集标题；相似度或数组索引不足以安全换源。
+        score = -900;
       }
       if (score >= 0 && target.episodeIndex < road.episodes.length) score += 10;
       if (!best || score > best.score) best = { road, roadIndex, episode, episodeIndex, score, reason };

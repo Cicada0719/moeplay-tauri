@@ -25,4 +25,10 @@ describe("anime source matching", () => {
   it("refuses to silently play episode one when a numbered episode is missing", () => {
     expect(findBestEpisodeMatch([{ name: "A", episodes: [{ name: "第1集", url: "wrong" }] }], { episodeName: "第12集", episodeIndex: 11 })).toBeNull();
   });
+  it("does not match a regular episode to a special episode", () => {
+    expect(findBestEpisodeMatch([{ name: "A", episodes: [{ name: "第5集 特别篇", url: "special" }] }], { episodeName: "第5集", episodeIndex: 4 })).toBeNull();
+  });
+  it("requires an exact title when neither side has an episode number", () => {
+    expect(findBestEpisodeMatch([{ name: "A", episodes: [{ name: "Part B", url: "wrong" }] }], { episodeName: "Part A", episodeIndex: 0 })).toBeNull();
+  });
 });

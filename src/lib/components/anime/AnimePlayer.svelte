@@ -364,6 +364,20 @@
     if (status === 'found' && videoSrc) clearPlayerError();
   });
 
+  // 自动换源耗尽后必须进入可操作的错误终态，避免只留下一个永远加载的播放器。
+  $effect(() => {
+    if (failoverStatus !== 'allFailed' || status !== 'error' || $playerError) return;
+    const details = animeStore.playerFailureDetails;
+    const error = classifyPlaybackError(
+      details?.kind === 'parseEmpty' ? { kind: 'PARSE_EMPTY' } : details?.message || failureMessage || 'all sources failed',
+      details?.httpStatus,
+    );
+    reportPlayerError({
+      ...error,
+      detail: details ? `${details.stage}/${details.kind}${details.retryable ? '/retryable' : '/terminal'}: ${details.message}` : error.detail,
+    });
+  });
+
   const currentRule = $derived(animeStore.rules.find(r => r.name === animeStore.playerRuleName));
   const prefersWebPlayback = $derived(!!currentRule && currentRule.useNativePlayer === false);
 
@@ -537,6 +551,8 @@
     let frameWatch: ReturnType<typeof watchVideoProgress> | null = null;
     let disposed = false;
     let terminalFailure = false;
+    let firstFrameHandle: number | undefined;
+    let firstFrameConfirmed = false;
     // FR-07：记录本次加载过程中的每一次失败上下文（含中间尝试失败）。最终成功
     // （succeed）时不误报；最终失败时通过 mergeFailureContext 合并进错误 detail，供
     // ErrorOverlay 展示 / 复制日志携带完整链路。
@@ -556,6 +572,10 @@
     const clearPlaybackWatchdog = () => {
       frameWatch?.dispose();
       frameWatch = null;
+      if (firstFrameHandle !== undefined) {
+        v.cancelVideoFrameCallback?.(firstFrameHandle);
+        firstFrameHandle = undefined;
+      }
     };
     const armWatchdog = () => {
       clearWatchdog();
@@ -571,6 +591,20 @@
     const armPlaybackWatchdog = () => {
       clearPlaybackWatchdog();
       frameWatch = watchVideoProgress(v, (message) => fail('video frame stalled', message));
+      const confirmFirstFrame = () => {
+        if (disposed || firstFrameConfirmed || v.videoWidth <= 0 || v.videoHeight <= 0) return;
+        firstFrameConfirmed = true;
+        animeStore.markPlayerFirstFrame();
+      };
+      if (typeof v.requestVideoFrameCallback === 'function') {
+        firstFrameHandle = v.requestVideoFrameCallback(() => {
+          firstFrameHandle = undefined;
+          confirmFirstFrame();
+        });
+      } else {
+        v.addEventListener('playing', confirmFirstFrame, { once: true });
+        v.addEventListener('timeupdate', confirmFirstFrame, { once: true });
+      }
     };
 
     // 成功拿到元数据：标记 settled，停掉看门狗
@@ -603,13 +637,24 @@
         console.error(`[播放器] 加载失败(${why})，尝试保进度自动换源`);
         settled = true;
         if (pageUrl) animeStore.invalidateVideoCache(pageUrl);
-        const failureKind = why.includes('network') || why.includes('timeout') || why.includes('stalled')
-          ? 'proxyHttp'
-          : 'extractEncrypted';
+        const failureKind = httpStatus === 401 || httpStatus === 403
+          ? 'httpForbidden'
+          : typeof httpStatus === 'number' && httpStatus >= 400
+            ? 'httpError'
+            : why.includes('frame')
+              ? 'noVideoFrame'
+              : why.includes('decode') || why.includes('media')
+                ? 'mediaDecode'
+                : why.includes('network') || why.includes('timeout') || why.includes('stalled')
+                  ? 'proxyHttp'
+                  : 'extractEncrypted';
+        const failureStage = why.includes('frame') ? 'frame' : why.includes('media') ? 'media' : httpStatus ? 'http' : 'extract';
+        const failureText = classifyPlaybackError(raw ?? why, httpStatus).message;
         const recoveryStarted = animeStore.recoverPlaybackFailure(
           failureKind,
-          `播放中断（${why}），正在尝试备用源`,
+          failureText,
           Math.floor(failedTime * 1000),
+          { stage: failureStage, httpStatus, retryable: failureKind !== 'httpForbidden' },
         );
         if (recoveryStarted) {
           invokeCmd('frontend_log', { level: 'info', message: `[播放器] 播放失败(${why})，已启动自动换源` }).catch(() => {});
@@ -659,7 +704,7 @@
     const onVideoError = () => {
       const err = v.error;
       console.error("[播放器] video 元素错误:", err ? `code=${err.code} message=${err.message}` : "未知");
-      fail("video error", err, undefined);
+      fail("video decode error", err, undefined);
     };
     v.addEventListener('error', onVideoError);
 
@@ -748,7 +793,7 @@
               console.warn(`[hls] 网络错误恢复，第 ${netRetry} 次 startLoad`);
               hls?.startLoad();
             } else {
-              fail("hls network");
+              fail("hls network", data, typeof data.response?.code === 'number' ? data.response.code : undefined);
             }
             break;
           case Hls.ErrorTypes.MEDIA_ERROR:
@@ -756,11 +801,11 @@
               console.warn(`[hls] 媒体错误恢复，第 ${recoverCount} 次 recoverMediaError`);
               hls?.recoverMediaError();
             } else {
-              fail("hls media");
+              fail("hls media decode", data, typeof data.response?.code === 'number' ? data.response.code : undefined);
             }
             break;
           default:
-            fail("hls other");
+            fail("hls other", data, typeof data.response?.code === 'number' ? data.response.code : undefined);
         }
       });
       armWatchdog();
@@ -793,6 +838,10 @@
       disposed = true;
       clearWatchdog();
       clearPlaybackWatchdog();
+      if (firstFrameHandle !== undefined) {
+        v.cancelVideoFrameCallback?.(firstFrameHandle);
+        firstFrameHandle = undefined;
+      }
       v.removeEventListener('loadedmetadata', onLoadedMetadata);
       v.removeEventListener('error', onVideoError);
       v.removeEventListener('ended', onEnded);
