@@ -60,3 +60,9 @@ test("requires both bound Android coverage reports before claiming data retentio
   fs.writeFileSync(path.join(directory, "release-manifest.json"), JSON.stringify({ ...manifest, androidCompatibilityVerified: true }));
   assert.throws(() => verifyManifest(directory), /without upgrade evidence/);
 });
+
+test("generation can bind a frozen source commit explicitly", t => {
+  const { directory } = fixture(t);
+  const manifest = generateManifest(directory, { commit: "d".repeat(40) });
+  assert.equal(manifest.commit, "d".repeat(40));
+});

@@ -83,9 +83,25 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const verify = process.argv.includes("--verify");
     const root = path.resolve(import.meta.dirname, "..");
     const version = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
-    const directory = process.argv.find((arg, i) => i > 1 && !arg.startsWith("--")) ?? `artifacts/${version}`;
-    const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
-    const manifest = verify ? verifyManifest(directory, { version, commit }) : generateManifest(directory);
+    let directory;
+    let explicitCommit;
+    for (let index = 2; index < process.argv.length; index += 1) {
+      const arg = process.argv[index];
+      if (arg === "--verify") continue;
+      if (arg === "--commit") {
+        explicitCommit = process.argv[++index];
+        if (explicitCommit === undefined || explicitCommit.startsWith("-")) throw new Error("--commit requires a 40-character Git SHA");
+        continue;
+      }
+      if (arg.startsWith("-")) throw new Error(`Unknown option: ${arg}`);
+      if (directory) throw new Error("Only one artifact directory may be supplied");
+      directory = arg;
+    }
+    directory ??= `artifacts/${version}`;
+    const commit = explicitCommit
+      ?? execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+    if (explicitCommit !== undefined && !/^[a-f0-9]{40}$/i.test(explicitCommit)) throw new Error("--commit must be a 40-character Git SHA");
+    const manifest = verify ? verifyManifest(directory, { version, commit }) : generateManifest(directory, { commit });
     console.log(`Verified v${manifest.version}: ${manifest.assets.length} artifacts, commit ${manifest.commit}`);
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

@@ -1,7 +1,7 @@
 {
   "name": "moeplay",
   "private": true,
-  "version": "0.23.1",
+  "version": "0.24.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -36,6 +36,8 @@
     "audit:cargo": "node scripts/audit-cargo-supply-chain.mjs",
     "test:cargo-supply-chain": "node --test scripts/audit-cargo-supply-chain.node-test.mjs",
     "verify:upgrade-report": "node scripts/verify-upgrade-report.mjs",
+    "verify:acceptance": "node scripts/acceptance-release.mjs",
+    "test:acceptance": "node --test scripts/acceptance-release.node-test.mjs",
     "test:upgrade-report": "node --test scripts/verify-upgrade-report.node-test.mjs",
     "test:visual:infra": "playwright test tests/visual/accessibility-infra.spec.ts",
     "test:live-sources": "node scripts/test-live-sources.mjs",
