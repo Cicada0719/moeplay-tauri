@@ -21,6 +21,8 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_CONCURRENT_PROBES: usize = 8;
 /// 结果队列保留条数。
 const MAX_RESULT_HISTORY: usize = 10;
+/// 健康记录超过一天没有新探测时不再代表当前状态。
+const HEALTH_STALE_AFTER_SECS: i64 = 24 * 3600;
 
 /// 健康状态。
 ///
@@ -35,6 +37,35 @@ pub enum HealthStatus {
     Unknown,
 }
 
+/// 健康探测失败的稳定分类（对外序列化为 Task 03 契约中的 kebab-case）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum HealthErrorKind {
+    Network,
+    Http,
+    TlsDns,
+    Timeout,
+    Challenge,
+    Script,
+    Empty,
+    Cancelled,
+    Unknown,
+}
+
+/// 最近一次成功结果的快照。失败探测不会覆盖它，供 UI 说明“仍在使用上次已知结果”。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LastKnownResult {
+    pub ok: bool,
+    pub latency_ms: u64,
+    pub checked_at: i64,
+    pub stage: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_kind: Option<HealthErrorKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http_status: Option<u16>,
+}
+
 /// 单次探测记录。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -42,6 +73,12 @@ pub struct ProbeRecord {
     pub ok: bool,
     pub latency_ms: u64,
     pub checked_at: i64,
+    #[serde(default)]
+    pub stage: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_kind: Option<HealthErrorKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http_status: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -58,6 +95,8 @@ pub struct HealthRecord {
     pub last_latency_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_known: Option<LastKnownResult>,
 }
 
 impl HealthRecord {
@@ -68,6 +107,7 @@ impl HealthRecord {
             last_checked_at: None,
             last_latency_ms: None,
             last_error: None,
+            last_known: None,
         }
     }
 }
@@ -85,6 +125,16 @@ pub struct SourceHealthInfo {
     pub last_latency_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_kind: Option<HealthErrorKind>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub http_status: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checked_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_known: Option<LastKnownResult>,
 }
 
 /// 单源探测结果（`rules_probe_health` 返回）。
@@ -94,6 +144,14 @@ pub struct HealthProbeResult {
     pub source_id: String,
     pub ok: bool,
     pub latency_ms: u64,
+    pub stage: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_kind: Option<HealthErrorKind>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub http_status: Option<u16>,
+    pub checked_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_known: Option<LastKnownResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -153,27 +211,62 @@ async fn probe_one_with_timeout(
                     source_id: rule_id.to_string(),
                     ok: false,
                     latency_ms,
+                    stage: "result".into(),
+                    error_kind: Some(HealthErrorKind::Empty),
+                    http_status: None,
+                    checked_at: now_ts(),
+                    last_known: None,
                     error: Some("搜索结果为空（0 条）".to_string()),
+                }
+            } else if items.iter().any(|item| looks_like_challenge(&item.title)) {
+                HealthProbeResult {
+                    source_id: rule_id.to_string(),
+                    ok: false,
+                    latency_ms,
+                    stage: "result".into(),
+                    error_kind: Some(HealthErrorKind::Challenge),
+                    http_status: None,
+                    checked_at: now_ts(),
+                    last_known: None,
+                    error: Some("返回疑似验证/错误页面".into()),
                 }
             } else {
                 HealthProbeResult {
                     source_id: rule_id.to_string(),
                     ok: true,
                     latency_ms,
+                    stage: "search".into(),
+                    error_kind: None,
+                    http_status: None,
+                    checked_at: now_ts(),
+                    last_known: None,
                     error: None,
                 }
             }
         }
-        Ok(Err(e)) => HealthProbeResult {
-            source_id: rule_id.to_string(),
-            ok: false,
-            latency_ms,
-            error: Some(describe_exec_error(&e)),
-        },
+        Ok(Err(e)) => {
+            let (stage, error_kind, http_status) = classify_exec_error(&e);
+            HealthProbeResult {
+                source_id: rule_id.to_string(),
+                ok: false,
+                latency_ms,
+                stage: stage.into(),
+                error_kind: Some(error_kind),
+                http_status,
+                checked_at: now_ts(),
+                last_known: None,
+                error: Some(describe_exec_error(&e)),
+            }
+        }
         Err(_elapsed) => HealthProbeResult {
             source_id: rule_id.to_string(),
             ok: false,
             latency_ms,
+            stage: "search".into(),
+            error_kind: Some(HealthErrorKind::Timeout),
+            http_status: None,
+            checked_at: now_ts(),
+            last_known: None,
             error: Some(format!("探测超时（>{timeout:?}）")),
         },
     }
@@ -280,18 +373,17 @@ async fn probe_all_with_timeout(
     }
     let health_path = app_data.join("rules-health.json");
     let mut health = load_health(&health_path);
-    let now = now_ts();
-
-    let results = run_probes(targets, MAX_CONCURRENT_PROBES, |t| async move {
+    let mut results = run_probes(targets, MAX_CONCURRENT_PROBES, |t| async move {
         probe_one_with_timeout(engine, &t.id, &t.keyword, timeout).await
     })
     .await;
 
-    for r in &results {
+    for r in &mut results {
         let rec = health
             .entry(r.source_id.clone())
             .or_insert_with(HealthRecord::new);
-        record_append(rec, r, now);
+        r.last_known = rec.last_known.clone();
+        record_append(rec, r, r.checked_at);
     }
     let _ = save_health(&health_path, &health);
     results
@@ -304,6 +396,9 @@ fn record_append(rec: &mut HealthRecord, r: &HealthProbeResult, now: i64) {
         ok: r.ok,
         latency_ms: r.latency_ms,
         checked_at: now,
+        stage: r.stage.clone(),
+        error_kind: r.error_kind,
+        http_status: r.http_status,
         error: r.error.clone(),
     });
     while rec.results.len() > MAX_RESULT_HISTORY {
@@ -317,6 +412,14 @@ fn record_append(rec: &mut HealthRecord, r: &HealthProbeResult, now: i64) {
         }
         rec.consecutive_failures = 0;
         rec.last_error = None;
+        rec.last_known = Some(LastKnownResult {
+            ok: true,
+            latency_ms: r.latency_ms,
+            checked_at: now,
+            stage: r.stage.clone(),
+            error_kind: r.error_kind,
+            http_status: r.http_status,
+        });
     } else {
         rec.consecutive_failures = rec.consecutive_failures.saturating_add(1);
         rec.last_error = r.error.clone();
@@ -362,8 +465,20 @@ where
 
 /// 状态推导（spec Step 4.4）。
 pub fn derive_status(rec: Option<&HealthRecord>) -> HealthStatus {
+    derive_status_at(rec, now_ts())
+}
+
+/// 推导当前状态；没有成功/失败记录，或记录已超过 24h，均为 Unknown。
+pub fn derive_status_at(rec: Option<&HealthRecord>, now: i64) -> HealthStatus {
     match rec {
         None => HealthStatus::Unknown,
+        Some(r) if r.results.is_empty() => HealthStatus::Unknown,
+        Some(r)
+            if r.last_checked_at
+                .is_none_or(|checked| now.saturating_sub(checked) > HEALTH_STALE_AFTER_SECS) =>
+        {
+            HealthStatus::Unknown
+        }
         Some(r) if r.consecutive_failures >= 3 => HealthStatus::Abnormal,
         Some(r) if r.consecutive_failures >= 1 => HealthStatus::Degraded,
         Some(_) => HealthStatus::Healthy,
@@ -385,11 +500,16 @@ pub fn get_health_info(app: &tauri::AppHandle) -> Result<Vec<SourceHealthInfo>, 
             let rec = health.get(&id);
             SourceHealthInfo {
                 source_id: id.clone(),
-                status: derive_status(rec),
+                status: derive_status_at(rec, now_ts()),
                 consecutive_failures: rec.map(|r| r.consecutive_failures).unwrap_or(0),
                 last_checked_at: rec.and_then(|r| r.last_checked_at),
                 last_latency_ms: rec.and_then(|r| r.last_latency_ms),
                 last_error: rec.and_then(|r| r.last_error.clone()),
+                stage: rec.and_then(|r| r.results.back().map(|v| v.stage.clone())),
+                error_kind: rec.and_then(|r| r.results.back().and_then(|v| v.error_kind)),
+                http_status: rec.and_then(|r| r.results.back().and_then(|v| v.http_status)),
+                checked_at: rec.and_then(|r| r.last_checked_at),
+                last_known: rec.and_then(|r| r.last_known.clone()),
             }
         })
         .collect())
@@ -417,6 +537,92 @@ fn describe_exec_error(e: &RuleExecError) -> String {
         RuleExecError::Network { message } => format!("网络错误: {message}"),
         RuleExecError::BadReturn { message } => format!("返回结构不合法: {message}"),
     }
+}
+
+fn classify_exec_error(e: &RuleExecError) -> (&'static str, HealthErrorKind, Option<u16>) {
+    match e {
+        RuleExecError::Timeout => ("search", HealthErrorKind::Timeout, None),
+        RuleExecError::Cancelled => ("search", HealthErrorKind::Cancelled, None),
+        RuleExecError::ScriptError { message, .. } => {
+            if let Some(status) = find_http_status(message) {
+                ("http", HealthErrorKind::Http, Some(status))
+            } else if looks_like_challenge(message) {
+                ("response", HealthErrorKind::Challenge, None)
+            } else {
+                ("script", HealthErrorKind::Script, None)
+            }
+        }
+        RuleExecError::Network { message } => {
+            if let Some(status) = find_http_status(message) {
+                ("http", HealthErrorKind::Http, Some(status))
+            } else if looks_like_timeout(message) {
+                ("network", HealthErrorKind::Timeout, None)
+            } else if looks_like_tls_dns(message) {
+                ("network", HealthErrorKind::TlsDns, None)
+            } else {
+                ("network", HealthErrorKind::Network, None)
+            }
+        }
+        RuleExecError::BadReturn { message } => {
+            if looks_like_challenge(message) {
+                ("response", HealthErrorKind::Challenge, None)
+            } else {
+                ("script", HealthErrorKind::Script, None)
+            }
+        }
+        RuleExecError::RuleNotFound { .. } => ("load", HealthErrorKind::Unknown, None),
+    }
+}
+
+fn find_http_status(message: &str) -> Option<u16> {
+    let bytes = message.as_bytes();
+    for i in 0..bytes.len().saturating_sub(2) {
+        if bytes[i].is_ascii_digit()
+            && bytes[i + 1].is_ascii_digit()
+            && bytes[i + 2].is_ascii_digit()
+        {
+            let status = message[i..i + 3].parse::<u16>().ok()?;
+            if (400..600).contains(&status) {
+                return Some(status);
+            }
+        }
+    }
+    None
+}
+
+fn looks_like_timeout(message: &str) -> bool {
+    let m = message.to_ascii_lowercase();
+    m.contains("timeout")
+        || m.contains("timed out")
+        || m.contains("deadline")
+        || message.contains("超时")
+}
+
+fn looks_like_tls_dns(message: &str) -> bool {
+    let m = message.to_ascii_lowercase();
+    m.contains("dns")
+        || m.contains("name resolution")
+        || m.contains("certificate")
+        || m.contains("tls")
+        || m.contains("ssl")
+        || m.contains("lookup")
+}
+
+fn looks_like_challenge(message: &str) -> bool {
+    let m = message.to_ascii_lowercase();
+    [
+        "cloudflare",
+        "captcha",
+        "challenge",
+        "access denied",
+        "just a moment",
+        "forbidden",
+        "人机验证",
+        "安全验证",
+        "访问被拒绝",
+    ]
+    .iter()
+    .any(|needle| m.contains(needle))
 }
 
 fn now_ts() -> i64 {
@@ -494,6 +700,17 @@ mod tests {
         assert_eq!(derive_status(None), HealthStatus::Unknown);
 
         let mut rec = HealthRecord::new();
+        assert_eq!(derive_status(Some(&rec)), HealthStatus::Unknown);
+        rec.results.push_back(ProbeRecord {
+            ok: true,
+            latency_ms: 1,
+            checked_at: now_ts(),
+            stage: "search".into(),
+            error_kind: None,
+            http_status: None,
+            error: None,
+        });
+        rec.last_checked_at = Some(now_ts());
         assert_eq!(derive_status(Some(&rec)), HealthStatus::Healthy);
         rec.consecutive_failures = 1;
         assert_eq!(derive_status(Some(&rec)), HealthStatus::Degraded);
@@ -621,6 +838,15 @@ mod tests {
                     source_id: "s".into(),
                     ok,
                     latency_ms: i as u64,
+                    stage: "search".into(),
+                    error_kind: if ok {
+                        None
+                    } else {
+                        Some(HealthErrorKind::Network)
+                    },
+                    http_status: None,
+                    checked_at: i,
+                    last_known: None,
                     error: None,
                 },
                 i,
@@ -631,6 +857,7 @@ mod tests {
         assert_eq!(rec.results.back().unwrap().checked_at, 11);
         // 12 条中 6 条成功（i 偶）6 条失败（i 奇），末尾为失败 → consecutive_failures=1
         assert_eq!(rec.consecutive_failures, 1);
+        assert!(rec.last_known.is_some(), "失败探测不得覆盖上次成功结果");
     }
 
     #[test]
@@ -640,6 +867,57 @@ mod tests {
         std::fs::write(&path, "not json {").unwrap();
         let map = load_health(&path);
         assert!(map.is_empty(), "损坏的健康文件应降级为空记录而非 panic");
+    }
+
+    #[test]
+    fn error_kinds_keep_http_tls_timeout_and_challenge_distinct() {
+        let http = classify_exec_error(&RuleExecError::Network {
+            message: "GET https://source.test -> 403 Forbidden".into(),
+        });
+        assert_eq!(http.1, HealthErrorKind::Http);
+        assert_eq!(http.2, Some(403));
+        assert_eq!(
+            classify_exec_error(&RuleExecError::Network {
+                message: "dns lookup failed".into(),
+            })
+            .1,
+            HealthErrorKind::TlsDns
+        );
+        assert_eq!(
+            classify_exec_error(&RuleExecError::Timeout).1,
+            HealthErrorKind::Timeout
+        );
+        assert_eq!(
+            classify_exec_error(&RuleExecError::ScriptError {
+                message: "Cloudflare challenge".into(),
+                line: None,
+            })
+            .1,
+            HealthErrorKind::Challenge
+        );
+    }
+
+    #[test]
+    fn stale_health_is_unknown() {
+        let mut rec = HealthRecord::new();
+        rec.results.push_back(ProbeRecord {
+            ok: true,
+            latency_ms: 5,
+            checked_at: 100,
+            stage: "search".into(),
+            error_kind: None,
+            http_status: None,
+            error: None,
+        });
+        rec.last_checked_at = Some(100);
+        assert_eq!(
+            derive_status_at(Some(&rec), 100 + HEALTH_STALE_AFTER_SECS),
+            HealthStatus::Healthy
+        );
+        assert_eq!(
+            derive_status_at(Some(&rec), 101 + HEALTH_STALE_AFTER_SECS),
+            HealthStatus::Unknown
+        );
     }
 
     #[test]
@@ -687,6 +965,11 @@ mod tests {
                         source_id: "x".into(),
                         ok: true,
                         latency_ms: 1,
+                        stage: "search".into(),
+                        error_kind: None,
+                        http_status: None,
+                        checked_at: now_ts(),
+                        last_known: None,
                         error: None,
                     }
                 }

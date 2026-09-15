@@ -112,7 +112,11 @@
           class:invalid={rule.status === "invalid"}
           class:health-abnormal={health?.status === "Abnormal"}
           disabled={rule.status === "invalid" || $sourceSwitchState.switching}
-          title={rule.status === "invalid" ? rule.error?.message : rule.manifest.baseUrl}
+          title={rule.status === "invalid"
+            ? rule.error?.message
+            : health
+              ? `${rule.manifest.baseUrl}；最近检查：${health.status}${health.errorKind ? `；错误：${health.errorKind}` : ""}${health.stage ? `；阶段：${health.stage}` : ""}`
+              : rule.manifest.baseUrl}
           onclick={() => onSelect(rule.id)}
           data-testid="source-item"
           data-status={rule.status}
@@ -123,6 +127,11 @@
             status={health?.status ?? "Unknown"}
             latencyMs={health?.lastLatencyMs ?? null}
             lastError={health?.lastError ?? null}
+            stage={health?.stage ?? null}
+            errorKind={health?.errorKind ?? null}
+            httpStatus={health?.httpStatus ?? null}
+            checkedAt={health?.checkedAt ?? health?.lastCheckedAt ?? null}
+            lastKnown={health?.lastKnown ?? null}
             size="sm"
           />
           {#if rule.origin === "custom"}

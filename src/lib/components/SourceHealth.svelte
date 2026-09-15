@@ -1,16 +1,26 @@
 <script lang="ts">
   // 源健康状态徽标（spec task-02 Step 7.2，纯展示组件）。
-  import type { HealthStatus } from "../api/rules";
+  import type { HealthErrorKind, HealthStatus, LastKnownHealth } from "../api/rules";
 
   let {
     status,
     latencyMs = null,
     lastError = null,
+    stage = null,
+    errorKind = null,
+    httpStatus = null,
+    checkedAt = null,
+    lastKnown = null,
     size = "md",
   }: {
     status: HealthStatus;
     latencyMs?: number | null;
     lastError?: string | null;
+    stage?: string | null;
+    errorKind?: HealthErrorKind | null;
+    httpStatus?: number | null;
+    checkedAt?: number | null;
+    lastKnown?: LastKnownHealth | null;
     size?: "sm" | "md";
   } = $props();
 
@@ -22,8 +32,35 @@
   };
 
   const label = $derived(LABELS[status] ?? LABELS.Unknown);
-  // Abnormal 时 title 提示 lastError（tooltip 用原生 title 即可）。
-  const tip = $derived(status === "Abnormal" && lastError ? lastError : undefined);
+  const ERROR_LABELS: Record<HealthErrorKind, string> = {
+    network: "网络",
+    http: "HTTP",
+    "tls-dns": "TLS/DNS",
+    timeout: "超时",
+    challenge: "验证页",
+    script: "脚本",
+    empty: "空结果",
+    cancelled: "已取消",
+    unknown: "未知错误",
+  };
+  // 健康状态是最近一次探测的观测，不宣称第三方源永久可用。
+  const tip = $derived(
+    status === "Healthy" && !stage && !errorKind && httpStatus == null && !lastKnown
+      ? undefined
+      : !stage && !errorKind && httpStatus == null && !lastKnown && lastError
+        ? lastError
+        : [
+          `最近检查：${label.text}`,
+          stage ? `阶段：${stage}` : "",
+          errorKind ? `错误：${ERROR_LABELS[errorKind]}` : "",
+          httpStatus != null ? `HTTP ${httpStatus}` : "",
+          checkedAt != null ? `时间：${new Date(checkedAt * 1000).toLocaleString()}` : "",
+          lastError ?? "",
+          lastKnown ? `上次已知：${new Date(lastKnown.checkedAt * 1000).toLocaleString()}` : "",
+        ]
+          .filter(Boolean)
+          .join("；"),
+  );
 </script>
 
 <span
@@ -38,6 +75,9 @@
   <span class="source-health__text">{label.text}</span>
   {#if size === "md" && latencyMs != null}
     <span class="source-health__latency" data-testid="source-health-latency">{latencyMs}ms</span>
+  {/if}
+  {#if size === "md" && errorKind}
+    <span class="source-health__error-kind" data-testid="source-health-error-kind">{ERROR_LABELS[errorKind]}</span>
   {/if}
 </span>
 

@@ -187,6 +187,31 @@ export interface SourceHealthInfo {
   lastCheckedAt: number | null;
   lastLatencyMs: number | null;
   lastError: string | null;
+  stage?: string | null;
+  errorKind?: HealthErrorKind | null;
+  httpStatus?: number | null;
+  checkedAt?: number | null;
+  lastKnown?: LastKnownHealth | null;
+}
+
+export type HealthErrorKind =
+  | "network"
+  | "http"
+  | "tls-dns"
+  | "timeout"
+  | "challenge"
+  | "script"
+  | "empty"
+  | "cancelled"
+  | "unknown";
+
+export interface LastKnownHealth {
+  ok: boolean;
+  latencyMs: number;
+  checkedAt: number;
+  stage: string;
+  errorKind?: HealthErrorKind | null;
+  httpStatus?: number | null;
 }
 
 /** 单次健康探测结果（`rules_probe_health` 返回）。 */
@@ -194,6 +219,11 @@ export interface HealthProbeResult {
   sourceId: string;
   ok: boolean;
   latencyMs: number;
+  stage: string;
+  errorKind?: HealthErrorKind | null;
+  httpStatus?: number | null;
+  checkedAt: number;
+  lastKnown?: LastKnownHealth | null;
   error?: string | null;
 }
 

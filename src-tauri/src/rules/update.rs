@@ -15,6 +15,8 @@ use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager};
 use thiserror::Error;
 
+use crate::rules::schema::{validate_manifest, RuleFileFormat as SourceRuleFileFormat};
+
 /// 远端规则仓库根地址（可在设置中修改；本期使用默认值）。
 pub const DEFAULT_REMOTE_BASE: &str =
     "https://raw.githubusercontent.com/Cicada0719/moeplay-tauri-rules/main/";
@@ -293,6 +295,7 @@ pub async fn apply_update_to_dir(
     pkg: &RemotePackage,
     cache_dir: &Path,
 ) -> Result<usize, UpdateError> {
+    validate_remote_manifest(&pkg.manifest)?;
     std::fs::create_dir_all(cache_dir).map_err(|e| UpdateError::Io(e.to_string()))?;
     let ts = now_ts();
     let tmp_dir = cache_dir.join(format!(".tmp-{ts}"));
@@ -325,6 +328,18 @@ pub async fn apply_update_to_dir(
         return Err(e);
     }
 
+    // 下载完成后按规则 schema 校验每个文件；在校验完成前绝不触碰 current。
+    if let Err(e) = validate_downloaded_rules(pkg, &tmp_dir) {
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        return Err(e);
+    }
+
+    // manifest 与规则文件一起进入暂存目录，避免切换后出现没有清单的 current。
+    let manifest_json = serde_json::to_string_pretty(&pkg.manifest)
+        .map_err(|e| UpdateError::Parse(e.to_string()))?;
+    std::fs::write(tmp_dir.join("manifest.json"), &manifest_json)
+        .map_err(|e| UpdateError::Io(e.to_string()))?;
+
     // 全部下载成功 → 原子切换：current → .old-<ts>，tmp → current。
     let current_dir = cache_dir.join("current");
     let old_dir = cache_dir.join(format!(".old-{ts}"));
@@ -345,15 +360,80 @@ pub async fn apply_update_to_dir(
         std::fs::remove_dir_all(&old_dir).map_err(|e| UpdateError::Io(e.to_string()))?;
     }
 
-    // 写入缓存 manifest（current/ 内 + 缓存根）。
-    let manifest_json = serde_json::to_string_pretty(&pkg.manifest)
-        .map_err(|e| UpdateError::Parse(e.to_string()))?;
-    std::fs::write(current_dir.join("manifest.json"), &manifest_json)
-        .map_err(|e| UpdateError::Io(e.to_string()))?;
-    std::fs::write(cache_dir.join("manifest.json"), manifest_json)
-        .map_err(|e| UpdateError::Io(e.to_string()))?;
+    // 根目录清单是兼容旧版本的索引；current/manifest.json 已随暂存目录原子切换。
+    // 索引写失败不影响刚刚验证通过的 active 规则。
+    let _ = std::fs::write(cache_dir.join("manifest.json"), manifest_json);
 
     Ok(pkg.manifest.rules.len())
+}
+
+fn validate_remote_manifest(manifest: &RuleManifest) -> Result<(), UpdateError> {
+    if manifest.package_version.trim().is_empty() {
+        return Err(UpdateError::Parse("规则包缺少 packageVersion".into()));
+    }
+    if manifest.rules.is_empty() {
+        return Err(UpdateError::Parse("规则包未包含任何规则".into()));
+    }
+    let mut ids = std::collections::HashSet::new();
+    let mut paths = std::collections::HashSet::new();
+    for entry in &manifest.rules {
+        if entry.id.trim().is_empty() || !ids.insert(entry.id.clone()) {
+            return Err(UpdateError::Parse(format!(
+                "规则 id 重复或为空: {}",
+                entry.id
+            )));
+        }
+        if entry.name.trim().is_empty() || entry.version.trim().is_empty() {
+            return Err(UpdateError::Parse(format!(
+                "规则元数据不完整: {}",
+                entry.id
+            )));
+        }
+        if !paths.insert(entry.path.clone()) || !is_safe_rule_path(&entry.path) {
+            return Err(UpdateError::Parse(format!(
+                "规则路径非法或重复: {}",
+                entry.path
+            )));
+        }
+        if SourceRuleFileFormat::from_path(Path::new(&entry.path)).is_none() {
+            return Err(UpdateError::Parse(format!(
+                "规则格式不支持: {}",
+                entry.path
+            )));
+        }
+        if entry.sha256.len() != 64 || !entry.sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(UpdateError::Parse(format!(
+                "规则 SHA-256 非法: {}",
+                entry.id
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn is_safe_rule_path(path: &str) -> bool {
+    let p = Path::new(path);
+    !p.is_absolute()
+        && p.components()
+            .all(|component| matches!(component, std::path::Component::Normal(_)))
+}
+
+fn validate_downloaded_rules(pkg: &RemotePackage, tmp_dir: &Path) -> Result<(), UpdateError> {
+    for entry in &pkg.manifest.rules {
+        let path = tmp_dir.join(&entry.path);
+        let text = std::fs::read_to_string(&path)
+            .map_err(|e| UpdateError::Io(format!("读取规则 {} 失败: {e}", entry.id)))?;
+        let format = SourceRuleFileFormat::from_path(Path::new(&entry.path))
+            .ok_or_else(|| UpdateError::Parse(format!("规则格式不支持: {}", entry.path)))?;
+        let source_manifest =
+            crate::rules::schema::RuleManifest::from_str(&text, format).map_err(|e| {
+                UpdateError::Parse(format!("规则 {} 结构无效: {}", entry.id, e.message))
+            })?;
+        validate_manifest(&source_manifest).map_err(|e| {
+            UpdateError::Parse(format!("规则 {} 校验失败: {}", entry.id, e.message))
+        })?;
+    }
+    Ok(())
 }
 
 async fn download_rule_file(
@@ -719,10 +799,10 @@ mod tests {
             rules: rules
                 .into_iter()
                 .map(|(id, path, sha)| RuleFileEntry {
-                    id,
+                    id: id.clone(),
                     path,
                     sha256: sha,
-                    name: String::new(),
+                    name: id.clone(),
                     version: "1.0.0".to_string(),
                     content_type: "anime".to_string(),
                     lang: "zh-CN".to_string(),
@@ -763,7 +843,18 @@ mod tests {
     async fn happy_path_applies_remote_package() {
         let server = MockServer::start().await;
         let key = test_key();
-        let file_content: &[u8] = b"{ \"name\": \"SourceA\", \"version\": \"1.0.0\" }";
+        let file_content: &[u8] = br#"{
+          "name": "SourceA",
+          "version": "1.0.0",
+          "contentType": "anime",
+          "baseUrl": "https://example.com",
+          "language": "zh-CN",
+          "nsfw": false,
+          "search": "function search(keyword, page) { return [{title: keyword, url: 'https://example.com'}]; }",
+          "detail": "function detail(url) { return {title: url}; }",
+          "chapter": "function chapter(url) { return []; }",
+          "parse": "function parse(url) { return {urls: [url], kind: 'video'}; }"
+        }"#;
         let manifest = test_manifest(vec![(
             "source-a".into(),
             "anime/source-a.json".into(),
@@ -947,6 +1038,41 @@ mod tests {
         assert!(!leftover, "失败的下载残留 .tmp-* 目录");
     }
 
+    #[tokio::test]
+    async fn invalid_downloaded_rule_structure_falls_back_atomically() {
+        let server = MockServer::start().await;
+        let key = test_key();
+        let invalid: &[u8] = br#"{ "name": "broken", "version": "1.0.0" }"#;
+        let manifest = test_manifest(vec![(
+            "broken".into(),
+            "anime/broken.json".into(),
+            sha256_hex(invalid),
+        )]);
+        let pkg = sign_package(&manifest, &key);
+        mount_package(&server, &pkg, &[("anime/broken.json", invalid)]).await;
+
+        let app_data = tempfile::tempdir().unwrap();
+        let cache = seed_cache(app_data.path());
+        let outcome = check_and_update_with_key(
+            &http_client(),
+            &server.uri(),
+            app_data.path(),
+            true,
+            &key.verifying_key(),
+        )
+        .await
+        .unwrap();
+        let reason = match outcome.status {
+            UpdateStatus::FallbackCached { reason } => reason,
+            other => panic!("期望结构校验失败回退，得到 {other:?}"),
+        };
+        assert!(reason.contains("结构") || reason.contains("校验"));
+        assert!(
+            cache.join("marker.txt").exists(),
+            "结构失败不得替换现有缓存"
+        );
+    }
+
     // ── 测试 6：远端 500 → FallbackCached，不返回 Err 给前端 ──────────────────
 
     #[tokio::test]
@@ -1079,5 +1205,47 @@ mod tests {
 
         // 内嵌公钥可解析为合法 ed25519 密钥
         assert!(embedded_verifying_key().is_ok());
+    }
+
+    #[test]
+    fn remote_manifest_rejects_unsafe_paths_and_duplicate_ids() {
+        let mut manifest = test_manifest(vec![(
+            "source-a".into(),
+            "../escape.json".into(),
+            "a".repeat(64),
+        )]);
+        assert!(matches!(
+            validate_remote_manifest(&manifest),
+            Err(UpdateError::Parse(message)) if message.contains("路径")
+        ));
+
+        manifest.rules = vec![
+            RuleFileEntry {
+                id: "same".into(),
+                path: "anime/a.json".into(),
+                sha256: "a".repeat(64),
+                name: "A".into(),
+                version: "1.0.0".into(),
+                content_type: "anime".into(),
+                lang: "zh-CN".into(),
+                nsfw: false,
+                probe_keyword: None,
+            },
+            RuleFileEntry {
+                id: "same".into(),
+                path: "anime/b.json".into(),
+                sha256: "b".repeat(64),
+                name: "B".into(),
+                version: "1.0.0".into(),
+                content_type: "anime".into(),
+                lang: "zh-CN".into(),
+                nsfw: false,
+                probe_keyword: None,
+            },
+        ];
+        assert!(matches!(
+            validate_remote_manifest(&manifest),
+            Err(UpdateError::Parse(message)) if message.contains("重复")
+        ));
     }
 }

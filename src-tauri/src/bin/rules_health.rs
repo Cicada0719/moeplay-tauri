@@ -2,7 +2,8 @@
 //!
 //! 无 GUI 依赖：直接构造 headless `RuleEngine`，加载 `resources/rules/`，
 //! 对每条规则执行一次真实搜索探测（`probeKeyword`），输出 JSON 报告：
-//! `{ "total": N, "passed": M, "passRate": 0.xx, "failures": [{ "id", "error" }] }`。
+//! `{ "status": "probe-complete", "total": N, "passed": M, "passRate": 0.xx,
+//! "failures": [{ "id", "stage", "errorKind", "httpStatus", "error" }] }`。
 //!
 //! 退出码：`passRate < 0.8` → exit 1（CI job 失败 → 触发告警 issue）；否则 exit 0。
 //!
@@ -79,7 +80,14 @@ async fn main() {
         } else {
             let err = res.error.clone().unwrap_or_else(|| "未知错误".to_string());
             eprintln!("[rules-health] [fail] {}: {}", t.id, err);
-            failures.push(serde_json::json!({ "id": t.id, "error": err }));
+            failures.push(serde_json::json!({
+                "id": t.id,
+                "stage": res.stage,
+                "errorKind": res.error_kind,
+                "httpStatus": res.http_status,
+                "checkedAt": res.checked_at,
+                "error": err,
+            }));
         }
     }
 
@@ -88,6 +96,7 @@ async fn main() {
     println!(
         "{}",
         serde_json::to_string_pretty(&serde_json::json!({
+            "status": "probe-complete",
             "total": total,
             "passed": passed,
             "passRate": pass_rate,
@@ -109,6 +118,8 @@ fn write_report(out: &PathBuf, total: usize, passed: usize, failures: &[serde_js
         passed as f64 / total as f64
     };
     let report = serde_json::json!({
+        "status": "probe-complete",
+        "failureKind": if failures.is_empty() { serde_json::Value::Null } else { serde_json::json!("probe") },
         "total": total,
         "passed": passed,
         "passRate": pass_rate,
