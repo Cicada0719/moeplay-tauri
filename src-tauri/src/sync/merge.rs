@@ -1,7 +1,7 @@
 //! 同步记录合并算法（FR-09 / spec §3.3）——纯函数、不依赖 DB 与网络。
 //!
 //! 合并规则（严格按 PRD §5.4 / spec §3.3）：
-//! 1. 匹配键 = `(content_id, source_id)`；
+//! 1. 匹配键 = `(content_id, content_type, source_id)`；
 //! 2. 同键冲突：`updated_at` 新者胜（**秒**粒度，单位与 `history.json` 传输格式一致）；
 //! 3. `updated_at` 相同（同秒）：按内容类型取进度更大者
 //!    —— 漫画 `page_index`、番剧 `position_sec`、小说 `scroll_pct`；
@@ -9,10 +9,14 @@
 //! 5. 墓碑保留 90 天：`purge_tombstones(now, 90)` 物理清理过期墓碑。
 
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 /// 墓碑保留天数（spec §3.3 rule 5）。
 pub const TOMBSTONE_RETENTION_DAYS: i64 = 90;
+
+type MergeKey = (String, String, String);
+type MergeCandidates = (Option<SyncRecord>, Option<SyncRecord>);
 
 /// 与 DB 行一一对应的可序列化快照（`history.json` 传输结构）。
 ///
@@ -24,6 +28,8 @@ pub struct SyncRecord {
     pub id: String,
     pub content_id: String,
     /// anime | manga | novel
+    /// 旧版快照可能没有该字段；按旧协议默认 anime 读取，保留兼容性。
+    #[serde(default = "default_content_type")]
     pub content_type: String,
     pub title: String,
     pub cover: Option<String>,
@@ -36,6 +42,10 @@ pub struct SyncRecord {
     pub updated_at: i64,
     pub device_id: String,
     pub deleted: bool,
+}
+
+fn default_content_type() -> String {
+    "anime".to_string()
 }
 
 impl SyncRecord {
@@ -69,18 +79,39 @@ pub struct MergeOutcome {
 /// 幂等：对同一输入反复调用产生相同结果；同步循环中"本地不变、远端已是上次合并结果"
 /// 时 `uploaded == 0`（见 §6.1 幂等性测试）。
 pub fn merge_records(local: Vec<SyncRecord>, remote: Vec<SyncRecord>) -> MergeOutcome {
-    let mut by_key: HashMap<(String, String), (Option<SyncRecord>, Option<SyncRecord>)> =
-        HashMap::new();
+    let mut by_key: HashMap<MergeKey, MergeCandidates> = HashMap::new();
     for record in local {
-        let key = (record.content_id.clone(), record.source_id.clone());
-        by_key.entry(key).or_default().0 = Some(record);
+        let key = (
+            record.content_id.clone(),
+            record.content_type.clone(),
+            record.source_id.clone(),
+        );
+        let slot = &mut by_key.entry(key).or_default().0;
+        if slot
+            .as_ref()
+            .map(|current| stable_record_cmp(&record, current) == Ordering::Greater)
+            .unwrap_or(true)
+        {
+            *slot = Some(record);
+        }
     }
     for record in remote {
-        let key = (record.content_id.clone(), record.source_id.clone());
-        by_key.entry(key).or_default().1 = Some(record);
+        let key = (
+            record.content_id.clone(),
+            record.content_type.clone(),
+            record.source_id.clone(),
+        );
+        let slot = &mut by_key.entry(key).or_default().1;
+        if slot
+            .as_ref()
+            .map(|current| stable_record_cmp(&record, current) == Ordering::Greater)
+            .unwrap_or(true)
+        {
+            *slot = Some(record);
+        }
     }
 
-    let mut merged = Vec::with_capacity(by_key.len());
+    let mut merged_by_key = Vec::with_capacity(by_key.len());
     let mut uploaded = 0u32;
     let mut downloaded = 0u32;
     let mut conflicts = 0u32;
@@ -88,18 +119,39 @@ pub fn merge_records(local: Vec<SyncRecord>, remote: Vec<SyncRecord>) -> MergeOu
     for (_, (local_record, remote_record)) in by_key {
         match (local_record, remote_record) {
             (Some(local_record), None) => {
-                merged.push(local_record);
+                merged_by_key.push((
+                    (
+                        local_record.content_id.clone(),
+                        local_record.content_type.clone(),
+                        local_record.source_id.clone(),
+                    ),
+                    local_record,
+                ));
                 uploaded += 1;
             }
             (None, Some(remote_record)) => {
-                merged.push(remote_record);
+                merged_by_key.push((
+                    (
+                        remote_record.content_id.clone(),
+                        remote_record.content_type.clone(),
+                        remote_record.source_id.clone(),
+                    ),
+                    remote_record,
+                ));
                 downloaded += 1;
             }
             (Some(local_record), Some(remote_record)) => {
                 conflicts += 1;
                 if local_record == remote_record {
                     // 同一版本（幂等重合并）：没有需要上传/下载的变化。
-                    merged.push(local_record);
+                    merged_by_key.push((
+                        (
+                            local_record.content_id.clone(),
+                            local_record.content_type.clone(),
+                            local_record.source_id.clone(),
+                        ),
+                        local_record,
+                    ));
                     continue;
                 }
                 let (winner, local_wins) = pick_winner(&local_record, &remote_record);
@@ -108,11 +160,25 @@ pub fn merge_records(local: Vec<SyncRecord>, remote: Vec<SyncRecord>) -> MergeOu
                 } else {
                     downloaded += 1;
                 }
-                merged.push(winner.clone());
+                merged_by_key.push((
+                    (
+                        winner.content_id.clone(),
+                        winner.content_type.clone(),
+                        winner.source_id.clone(),
+                    ),
+                    winner.clone(),
+                ));
             }
             (None, None) => unreachable!("merge key always has at least one candidate"),
         }
     }
+
+    // HashMap 的遍历顺序不稳定；排序保证相同输入的序列化结果也相同。
+    merged_by_key.sort_by(|(left_key, _), (right_key, _)| left_key.cmp(right_key));
+    let merged = merged_by_key
+        .into_iter()
+        .map(|(_, record)| record)
+        .collect();
 
     MergeOutcome {
         merged,
@@ -147,11 +213,30 @@ fn pick_winner<'a>(local: &'a SyncRecord, remote: &'a SyncRecord) -> (&'a SyncRe
         (local, true)
     } else if remote.updated_at > local.updated_at {
         (remote, false)
-    } else if local.progress() >= remote.progress() {
+    } else if local.progress() > remote.progress() {
+        (local, true)
+    } else if remote.progress() > local.progress() {
+        (remote, false)
+    } else if stable_record_cmp(local, remote) != Ordering::Less {
         (local, true)
     } else {
         (remote, false)
     }
+}
+
+/// 同一来源、同一秒、同一进度时的稳定决胜规则，避免输入顺序影响结果。
+fn stable_record_cmp(left: &SyncRecord, right: &SyncRecord) -> Ordering {
+    left.updated_at
+        .cmp(&right.updated_at)
+        .then_with(|| left.deleted.cmp(&right.deleted))
+        .then_with(|| left.progress().total_cmp(&right.progress()))
+        .then_with(|| left.device_id.cmp(&right.device_id))
+        .then_with(|| left.id.cmp(&right.id))
+        .then_with(|| {
+            serde_json::to_string(left)
+                .unwrap_or_default()
+                .cmp(&serde_json::to_string(right).unwrap_or_default())
+        })
 }
 
 /// 物理清理超过保留期的墓碑（rule 5）。`now` 为 Unix 秒。
@@ -374,12 +459,43 @@ mod tests {
     }
 
     #[test]
-    fn merge_keys_are_content_id_plus_source_id() {
+    fn merge_keys_include_content_type() {
         // 相同 content_id、不同 source_id → 视为不同键，不冲突。
         let local = vec![record("l1", "c1", "sA", "anime", 100, 0, 1.0, 0.0, false)];
         let remote = vec![record("r1", "c1", "sB", "anime", 100, 0, 1.0, 0.0, false)];
         let outcome = merge_records(local, remote);
         assert_eq!(outcome.merged.len(), 2);
         assert_eq!(outcome.conflicts, 0);
+
+        // 同一 content_id/source_id 的不同内容类型也必须分别保留。
+        let local = vec![record("la", "c2", "s1", "anime", 100, 0, 1.0, 0.0, false)];
+        let remote = vec![record("lm", "c2", "s1", "manga", 100, 9, 0.0, 0.0, false)];
+        let outcome = merge_records(local, remote);
+        assert_eq!(outcome.merged.len(), 2);
+        assert_eq!(outcome.conflicts, 0);
+    }
+
+    #[test]
+    fn merge_order_is_independent_and_ties_are_stable() {
+        let local = vec![
+            record("l2", "c2", "s1", "anime", 100, 0, 1.0, 0.0, false),
+            record("l1", "c1", "s1", "anime", 100, 0, 1.0, 0.0, false),
+        ];
+        let remote = vec![
+            record("r2", "c2", "s1", "anime", 100, 0, 1.0, 0.0, false),
+            record("r1", "c1", "s1", "anime", 100, 0, 1.0, 0.0, false),
+        ];
+        let a = merge_records(local.clone(), remote.clone());
+        let mut reversed_local = local;
+        reversed_local.reverse();
+        let mut reversed_remote = remote;
+        reversed_remote.reverse();
+        let b = merge_records(reversed_local, reversed_remote);
+        assert_eq!(a, b);
+        // device_id 相同时由 id 决胜，结果不会依赖输入排列。
+        assert_eq!(
+            a.merged.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            vec!["r1", "r2"]
+        );
     }
 }

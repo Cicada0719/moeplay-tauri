@@ -112,6 +112,18 @@ describe("SyncSettings", () => {
     expect(screen.getByLabelText("用户名")).toHaveValue(CONFIG.username);
   });
 
+  it("准确说明当前同步范围，不宣称 IndexedDB 阅读历史已接入", async () => {
+    mockInvoke({
+      get_sync_config: () => null,
+      get_sync_status: () => EMPTY_STATUS,
+    });
+
+    render(SyncSettings);
+
+    expect(screen.getByText(/当前仅同步已接入 SQLite 的历史记录/)).toBeInTheDocument();
+    expect(screen.getByText(/IndexedDB 历史尚未支持跨设备接力/)).toBeInTheDocument();
+  });
+
   it("清除配置需二次确认，确认后调用 clear_webdav_config 并复位表单", async () => {
     const confirmMock = vi.fn().mockReturnValue(true);
     window.confirm = confirmMock as unknown as typeof window.confirm;

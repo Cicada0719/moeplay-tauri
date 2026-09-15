@@ -7,7 +7,7 @@ use moeplay_lib::db_sqlite::{HistoryDb, HistoryRepo};
 use moeplay_lib::domain::history::{ContentType, HistoryRecord};
 use moeplay_lib::sync::webdav::WebDavClient;
 use moeplay_lib::sync::{run_sync_with, SyncError, SyncMode, SyncRecord, SyncState, WebDavConfig};
-use wiremock::matchers::{method, path};
+use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn history_record(
@@ -85,7 +85,11 @@ async fn mount_ok_webdav(server: &MockServer, remote_body: Option<Vec<u8>>) {
         Some(body) => {
             Mock::given(method("GET"))
                 .and(path("/moeplay-sync/history.json"))
-                .respond_with(ResponseTemplate::new(200).set_body_raw(body, "application/json"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_raw(body, "application/json")
+                        .insert_header("ETag", "\"remote-v1\""),
+                )
                 .mount(server)
                 .await;
         }
@@ -241,7 +245,11 @@ async fn network_drop_is_idempotent_and_preserves_local() {
         .await;
     Mock::given(method("GET"))
         .and(path("/moeplay-sync/history.json"))
-        .respond_with(ResponseTemplate::new(200).set_body_raw(remote_body, "application/json"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(remote_body, "application/json")
+                .insert_header("ETag", "\"remote-v1\""),
+        )
         .mount(&server)
         .await;
     // 首次 PUT history.json 断网（500）；后续恢复（204）。
@@ -389,4 +397,186 @@ async fn concurrent_sync_second_is_busy() {
 
     let first_result = first.await.expect("join").expect("first sync ok");
     assert_eq!(first_result.uploaded, 1);
+}
+
+#[tokio::test]
+async fn precondition_retry_uses_latest_etag() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = HistoryDb::open(dir.path()).expect("open history db");
+    db.upsert(&history_record("l1", "c1", "c1", "s1", 1_000, 1))
+        .expect("upsert local");
+    let remote_v1 = serde_json::to_vec(&vec![sync_record("r1", "c1", "c1", "s1", 1, 1, false)])
+        .expect("serialize v1");
+    let remote_v2 = serde_json::to_vec(&vec![sync_record("r2", "c1", "c1", "s1", 2, 2, false)])
+        .expect("serialize v2");
+
+    let server = MockServer::start().await;
+    Mock::given(method("MKCOL"))
+        .respond_with(ResponseTemplate::new(201))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/moeplay-sync/history.json"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(remote_v2, "application/json")
+                .insert_header("ETag", "\"v2\""),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/moeplay-sync/history.json"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(remote_v1, "application/json")
+                .insert_header("ETag", "\"v1\""),
+        )
+        .with_priority(1)
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path("/moeplay-sync/history.json"))
+        .and(header("if-match", "\"v1\""))
+        .respond_with(ResponseTemplate::new(412))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path("/moeplay-sync/history.json"))
+        .and(header("if-match", "\"v2\""))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path("/moeplay-sync/manifest.json"))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&server)
+        .await;
+
+    let state = state_for(db.clone());
+    let cfg = config_for(&server);
+    let client = WebDavClient::new_allow_http(&server.uri(), "alice", "pw").expect("client");
+    run_sync_with(&state, &cfg, client)
+        .await
+        .expect("retry with latest etag succeeds");
+}
+
+#[tokio::test]
+async fn second_precondition_conflict_fails_without_local_write() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = HistoryDb::open(dir.path()).expect("open history db");
+    db.upsert(&history_record("l1", "c1", "c1", "s1", 1_000, 1))
+        .expect("upsert local");
+    let remote = serde_json::to_vec(&Vec::<SyncRecord>::new()).expect("serialize remote");
+
+    let server = MockServer::start().await;
+    Mock::given(method("MKCOL"))
+        .respond_with(ResponseTemplate::new(201))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/moeplay-sync/history.json"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(remote, "application/json")
+                .insert_header("ETag", "\"stable\""),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path("/moeplay-sync/history.json"))
+        .and(header("if-match", "\"stable\""))
+        .respond_with(ResponseTemplate::new(412))
+        .expect(2)
+        .mount(&server)
+        .await;
+
+    let state = state_for(db.clone());
+    let cfg = config_for(&server);
+    let client = WebDavClient::new_allow_http(&server.uri(), "alice", "pw").expect("client");
+    let result = run_sync_with(&state, &cfg, client).await;
+    assert!(matches!(result, Err(SyncError::Server(message)) if message.contains("重试后仍冲突")));
+    assert_eq!(db.list_all_with_deleted().expect("list local").len(), 1);
+}
+
+#[tokio::test]
+async fn existing_remote_without_etag_stops_before_put() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = HistoryDb::open(dir.path()).expect("open history db");
+    db.upsert(&history_record("l1", "c1", "c1", "s1", 1_000, 1))
+        .expect("upsert local");
+    let remote = serde_json::to_vec(&Vec::<SyncRecord>::new()).expect("serialize remote");
+    let server = MockServer::start().await;
+    Mock::given(method("MKCOL"))
+        .respond_with(ResponseTemplate::new(201))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/moeplay-sync/history.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(remote, "application/json"))
+        .mount(&server)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path("/moeplay-sync/history.json"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&server)
+        .await;
+
+    let state = state_for(db.clone());
+    let cfg = config_for(&server);
+    let client = WebDavClient::new_allow_http(&server.uri(), "alice", "pw").expect("client");
+    let result = run_sync_with(&state, &cfg, client).await;
+    assert!(matches!(result, Err(SyncError::Server(message)) if message.contains("缺少 ETag")));
+    assert_eq!(db.list_all_with_deleted().expect("list local").len(), 1);
+}
+
+#[tokio::test]
+async fn local_record_added_during_upload_is_preserved() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = HistoryDb::open(dir.path()).expect("open history db");
+    db.upsert(&history_record("old", "c1", "c1", "s1", 1_000, 1))
+        .expect("upsert old local");
+    let server = MockServer::start().await;
+    Mock::given(method("MKCOL"))
+        .respond_with(ResponseTemplate::new(201))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/moeplay-sync/history.json"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(b"[]", "application/json")
+                .insert_header("ETag", "\"v1\""),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path("/moeplay-sync/history.json"))
+        .respond_with(ResponseTemplate::new(204).set_delay(std::time::Duration::from_millis(200)))
+        .mount(&server)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path("/moeplay-sync/manifest.json"))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&server)
+        .await;
+
+    let state = std::sync::Arc::new(state_for(db.clone()));
+    let cfg = config_for(&server);
+    let state_for_sync = std::sync::Arc::clone(&state);
+    let client = WebDavClient::new_allow_http(&server.uri(), "alice", "pw").expect("client");
+    let task = tokio::spawn(async move { run_sync_with(&state_for_sync, &cfg, client).await });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // 该记录在远端合并完成后、最终 SQLite 事务前写入，必须保留。
+    db.upsert(&history_record("new", "c1", "c1", "s1", 3_000, 3))
+        .expect("upsert concurrent local");
+    task.await.expect("join").expect("sync succeeds");
+
+    let local = db.list_all_with_deleted().expect("list local");
+    let new_record = local.iter().find(|record| record.id == "new");
+    assert_eq!(new_record.map(|record| record.page_index), Some(3));
 }

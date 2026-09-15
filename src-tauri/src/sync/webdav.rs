@@ -24,6 +24,17 @@ pub enum PutStatus {
     PreconditionFailed,
 }
 
+/// 条件写入策略。
+///
+/// 同步路径只允许 `IfMatch` 或 `CreateOnly`，保留 `Unconditional` 仅供旧的
+/// 低层调用者兼容；新建远端文件必须使用 `If-None-Match: *`。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PutCondition {
+    Unconditional,
+    IfMatch(String),
+    CreateOnly,
+}
+
 pub struct WebDavClient {
     client: reqwest::Client,
     base_url: String,
@@ -126,20 +137,41 @@ impl WebDavClient {
         }
     }
 
-    /// PUT（带可选 `If-Match` ETag 做乐观并发控制）；412 → `PreconditionFailed`。
+    /// 兼容旧调用的 PUT；提供 ETag 时使用 `If-Match`，未提供时保持旧的无条件写入语义。
+    /// 新的同步路径必须调用 [`Self::put_with_condition`]，以便新建文件使用
+    /// `If-None-Match: *` 防止覆盖；412 → `PreconditionFailed`。
     pub async fn put(
         &self,
         path: &str,
         body: Vec<u8>,
         if_match: Option<&str>,
     ) -> Result<PutStatus, SyncError> {
+        let condition = if_match
+            .map(|etag| PutCondition::IfMatch(etag.to_string()))
+            .unwrap_or(PutCondition::Unconditional);
+        self.put_with_condition(path, body, condition).await
+    }
+
+    /// 条件 PUT。`CreateOnly` 使用 `If-None-Match: *`，避免覆盖并发创建的文件。
+    pub async fn put_with_condition(
+        &self,
+        path: &str,
+        body: Vec<u8>,
+        condition: PutCondition,
+    ) -> Result<PutStatus, SyncError> {
         let mut request = self
             .client
             .put(self.url(path))
             .header(reqwest::header::AUTHORIZATION, &self.auth_header)
             .body(body);
-        if let Some(etag) = if_match {
-            request = request.header(reqwest::header::IF_MATCH, etag);
+        match condition {
+            PutCondition::Unconditional => {}
+            PutCondition::IfMatch(etag) => {
+                request = request.header(reqwest::header::IF_MATCH, etag);
+            }
+            PutCondition::CreateOnly => {
+                request = request.header(reqwest::header::IF_NONE_MATCH, "*");
+            }
         }
         let response = request.send().await.map_err(map_reqwest_error)?;
         match response.status() {
@@ -308,6 +340,29 @@ mod tests {
             .put("moeplay-sync/history.json", b"data".to_vec(), None)
             .await
             .expect("put resolves");
+        assert_eq!(status, PutStatus::Ok);
+    }
+
+    #[tokio::test]
+    async fn create_only_put_carries_if_none_match_star() {
+        let server = MockServer::start().await;
+        Mock::given(method("PUT"))
+            .and(path("/moeplay-sync/history.json"))
+            .and(header("if-none-match", "*"))
+            .respond_with(ResponseTemplate::new(201))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server);
+        let status = client
+            .put_with_condition(
+                "moeplay-sync/history.json",
+                b"data".to_vec(),
+                PutCondition::CreateOnly,
+            )
+            .await
+            .expect("create-only put resolves");
         assert_eq!(status, PutStatus::Ok);
     }
 

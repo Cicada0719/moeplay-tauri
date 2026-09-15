@@ -375,19 +375,23 @@ async fn run_sync_inner(
     // c. 目录不存在时自动创建。
     client.ensure_dir(&dir).await?;
 
-    // d~g. 拉取 → 合并 → PUT history.json（If-Match；412 时重拉重试 1 次）。
+    // d~g. 拉取 → 合并 → 条件 PUT history.json（412 时重拉并带最新 ETag 重试 1 次）。
     let prepared = prepare_pass(&db, client, &history_path).await?;
     let mut status = client
-        .put(
+        .put_with_condition(
             &history_path,
             prepared.body.clone(),
-            prepared.etag.as_deref(),
+            prepared.put_condition()?,
         )
         .await?;
     let final_pass = if status == webdav::PutStatus::PreconditionFailed {
         let retried = prepare_pass(&db, client, &history_path).await?;
         status = client
-            .put(&history_path, retried.body.clone(), None)
+            .put_with_condition(
+                &history_path,
+                retried.body.clone(),
+                retried.put_condition()?,
+            )
             .await?;
         retried
     } else {
@@ -399,7 +403,7 @@ async fn run_sync_inner(
         ));
     }
 
-    // h. PUT manifest.json。
+    // h. manifest 也使用条件写入，避免覆盖其他设备刚生成的清单。
     let manifest = serde_json::json!({
         "version": 1,
         "updated_at": now,
@@ -407,7 +411,24 @@ async fn run_sync_inner(
     });
     let manifest_body = serde_json::to_vec(&manifest)
         .map_err(|e| SyncError::Server(format!("manifest 序列化失败: {e}")))?;
-    client.put(&manifest_path, manifest_body, None).await?;
+    let manifest_condition = match client.get(&manifest_path).await? {
+        None => webdav::PutCondition::CreateOnly,
+        Some((_, Some(etag))) => webdav::PutCondition::IfMatch(etag),
+        Some((_, None)) => {
+            return Err(SyncError::Server(
+                "远端 manifest 文件缺少 ETag，无法安全并发写入".to_string(),
+            ));
+        }
+    };
+    if client
+        .put_with_condition(&manifest_path, manifest_body, manifest_condition)
+        .await?
+        == webdav::PutStatus::PreconditionFailed
+    {
+        return Err(SyncError::Server(
+            "远端 manifest 文件被并发修改，无法安全写入".to_string(),
+        ));
+    }
 
     // i. 原子落本地：单事务内 upsert 胜出记录 + 删除同键败方旧记录 + 清理过期墓碑
     //    （spec §4.2 step i / §6.3 双设备验收）。
@@ -445,13 +466,13 @@ async fn prepare_pass(
     history_path: &str,
 ) -> Result<PreparedPass, SyncError> {
     // d. 远端：404/None → 空数组；非法 JSON → Parse（立即返回，不写本地）。
-    let (remote, etag) = match client.get(history_path).await? {
+    let (remote, etag, remote_exists) = match client.get(history_path).await? {
         Some((body, etag)) => {
             let parsed: Vec<SyncRecord> =
                 serde_json::from_slice(&body).map_err(|_| SyncError::Parse)?;
-            (parsed, etag)
+            (parsed, etag, true)
         }
-        None => (Vec::new(), None),
+        None => (Vec::new(), None, false),
     };
 
     // e. 本地全量（含墓碑）。
@@ -477,6 +498,7 @@ async fn prepare_pass(
 
     Ok(PreparedPass {
         etag,
+        remote_exists,
         body,
         merged,
         uploaded,
@@ -488,12 +510,25 @@ async fn prepare_pass(
 
 struct PreparedPass {
     etag: Option<String>,
+    remote_exists: bool,
     body: Vec<u8>,
     merged: Vec<SyncRecord>,
     uploaded: u32,
     downloaded: u32,
     conflicts: u32,
     tombstones_purged: u32,
+}
+
+impl PreparedPass {
+    fn put_condition(&self) -> Result<webdav::PutCondition, SyncError> {
+        match (&self.etag, self.remote_exists) {
+            (Some(etag), _) => Ok(webdav::PutCondition::IfMatch(etag.clone())),
+            (None, false) => Ok(webdav::PutCondition::CreateOnly),
+            (None, true) => Err(SyncError::Server(
+                "远端历史文件缺少 ETag，已停止上传以避免覆盖并发修改".to_string(),
+            )),
+        }
+    }
 }
 
 // ============================================================================

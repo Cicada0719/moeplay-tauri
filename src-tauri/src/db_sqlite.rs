@@ -2993,6 +2993,9 @@ CREATE INDEX IF NOT EXISTS idx_history_type_updated
   ON history(content_type, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_history_merge_key
   ON history(content_id, source_id);
+-- 新合并身份包含内容类型；保留旧索引以兼容已有数据库和查询计划。
+CREATE INDEX IF NOT EXISTS idx_history_type_merge_key
+  ON history(content_id, content_type, source_id);
 
 CREATE TABLE IF NOT EXISTS migration_state (
   id              INTEGER PRIMARY KEY CHECK (id = 1),
@@ -3072,6 +3075,12 @@ impl HistoryDb {
                      ALTER TABLE migration_staging ADD COLUMN snapshot_json TEXT;",
                 )?;
             }
+            // 旧数据库可能只有 (content_id, source_id) 索引；新增包含
+            // content_type 的索引，不重写原索引，避免升级时影响既有查询。
+            guard.execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_history_type_merge_key
+                 ON history(content_id, content_type, source_id);",
+            )?;
         }
         Ok(())
     }
@@ -3366,28 +3375,44 @@ fn upsert_records_tx(tx: &Connection, records: &[SyncRecord]) -> Result<usize, D
 
 /// 事务内删除合并一致集中已不存在的同键败方旧记录。
 ///
-/// 仅删除"其 `(content_id, source_id)` 键存在于 merged 且 `id` 不在 merged"的行，
-/// 避免误删同步期间新增的本地记录。
+/// 仅删除"其 `(content_id, content_type, source_id)` 键存在于 merged 且 `id` 不在
+/// merged"、并且不比合并胜者更新的行。同步读远端期间若本地新增了同内容记录，
+/// 该记录会保留，随后由下一次同步再次合并，避免同步覆盖用户刚写入的历史。
 fn delete_loser_rows_tx(tx: &Connection, merged: &[SyncRecord]) -> Result<u32, DbError> {
-    let merged_keys: std::collections::HashSet<(String, String)> = merged
+    let merged_keys: std::collections::HashMap<(String, String, String), i64> = merged
         .iter()
-        .map(|record| (record.content_id.clone(), record.source_id.clone()))
+        .map(|record| {
+            (
+                (
+                    record.content_id.clone(),
+                    record.content_type.clone(),
+                    record.source_id.clone(),
+                ),
+                record.updated_at.saturating_mul(1000),
+            )
+        })
         .collect();
     let merged_ids: std::collections::HashSet<String> =
         merged.iter().map(|record| record.id.clone()).collect();
 
-    let mut stmt = tx.prepare("SELECT id, content_id, source_id FROM history")?;
+    let mut stmt =
+        tx.prepare("SELECT id, content_id, content_type, source_id, updated_at FROM history")?;
     let rows = stmt.query_map([], |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
             row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, i64>(4)?,
         ))
     })?;
     let mut to_delete = Vec::new();
     for row in rows {
-        let (id, content_id, source_id) = row?;
-        if merged_keys.contains(&(content_id, source_id)) && !merged_ids.contains(&id) {
+        let (id, content_id, content_type, source_id, updated_at) = row?;
+        let key = (content_id, content_type, source_id);
+        let winner_updated_at = merged_keys.get(&key).copied();
+        if winner_updated_at.is_some_and(|winner| updated_at <= winner) && !merged_ids.contains(&id)
+        {
             to_delete.push(id);
         }
     }
