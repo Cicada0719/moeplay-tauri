@@ -89,12 +89,16 @@ class DeploymentTests(unittest.TestCase):
         old = self.root / "downloads" / "old.exe"
         old.parent.mkdir()
         old.write_bytes(b"old")
+        old_site = self.root / "sites" / "0.22.0"
+        old_site.mkdir(parents=True)
+        (old_site / "versions.json").write_text(json.dumps(["0.22.0"]))
         result = self.run_deploy()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.root / "current").readlink().as_posix(), "sites/0.23.0")
         self.assertTrue((self.root / "current" / "index.html").is_file())
         self.assertEqual(old.read_bytes(), b"old")
-        self.assertEqual(json.loads((self.root / "current" / "versions.json").read_text()), ["0.23.0"])
+        self.assertEqual(json.loads((self.root / "current" / "versions.json").read_text()), ["0.22.0", "0.23.0"])
+        self.assertEqual(json.loads((old_site / "versions.json").read_text()), ["0.22.0", "0.23.0"])
 
 
 if __name__ == "__main__":

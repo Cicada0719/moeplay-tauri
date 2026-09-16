@@ -215,7 +215,12 @@ shutil.copytree(stage / "site", site)
 for name in ("release-manifest.json", "latest.json"):
     shutil.copy2(assets / name, site / name)
 versions = sorted([p.name for p in site.parent.iterdir() if p.is_dir() and re.fullmatch(r"\d+\.\d+\.\d+", p.name)], key=lambda s: tuple(map(int, s.split("."))))
-(site / "versions.json").write_text(json.dumps(versions), encoding="utf-8")
+# Keep every archive page's index in sync.  Historical pages are immutable for
+# their release content, but their archive navigation should expose releases
+# activated after that page was created as well.
+for archive_site in site.parent.iterdir():
+    if archive_site.is_dir() and re.fullmatch(r"\d+\.\d+\.\d+", archive_site.name):
+        (archive_site / "versions.json").write_text(json.dumps(versions), encoding="utf-8")
 shutil.move(str(assets), download)
 # Windows SFTP uploads may arrive as owner-only directories. Nginx runs as a
 # separate user and needs read/traverse access to this public, validated batch.
