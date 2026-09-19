@@ -40,5 +40,5 @@ test("download page renders verified manifest channels, bundled art and mobile l
 test("manifest failure retains working GitHub download links", async ({ page }) => {
   await page.goto(baseURL);
   await expect(page.locator("#release-status")).toContainText("GitHub 备用");
-  await expect(page.locator("#windows-download")).toHaveAttribute("href", "https://github.com/sgyxyx-prog/moeplay-tauri/releases");
+  await expect(page.locator("#windows-download")).toHaveAttribute("href", "https://github.com/Cicada0719/moeplay-tauri/releases");
 });

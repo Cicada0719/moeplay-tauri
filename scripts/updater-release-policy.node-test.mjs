@@ -13,7 +13,7 @@ test("Fork builds need no signing secrets; official builds retain signed HTTPS u
   assert.ok(official.plugins.updater.pubkey);
   assert.deepEqual(official.plugins.updater.endpoints, [
     "https://moeplay.sgy0719.top/latest.json",
-    "https://github.com/sgyxyx-prog/moeplay-tauri/releases/latest/download/latest.json",
+    "https://github.com/Cicada0719/moeplay-tauri/releases/latest/download/latest.json",
   ]);
   assert.ok(official.plugins.updater.endpoints.every(url => url.startsWith("https://")));
   assert.equal(official.plugins.updater.dangerousInsecureTransportProtocol, undefined);

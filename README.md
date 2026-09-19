@@ -20,7 +20,7 @@
 
 ## 下载
 
-[官网下载页](https://moeplay.sgy0719.top) · [GitHub Releases](https://github.com/sgyxyx-prog/moeplay-tauri/releases) · [更新与问题反馈](https://github.com/sgyxyx-prog/moeplay-tauri/issues)
+[官网下载页](https://moeplay.sgy0719.top) · [GitHub Releases](https://github.com/Cicada0719/moeplay-tauri/releases) · [更新与问题反馈](https://github.com/Cicada0719/moeplay-tauri/issues)
 
 | 平台 | 选择 |
 | --- | --- |

@@ -1,4 +1,4 @@
-const repo = "https://github.com/sgyxyx-prog/moeplay-tauri";
+const repo = "https://github.com/Cicada0719/moeplay-tauri";
 const el = id => document.getElementById(id);
 const size = bytes => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 const labels = { installer: "Windows · EXE 安装版", msi: "Windows · MSI", portable: "Windows · Portable ZIP", release: "Android · 正式 Release", compat: "Android · 旧签名兼容包" };
